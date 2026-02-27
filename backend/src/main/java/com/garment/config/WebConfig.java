@@ -17,7 +17,8 @@ public class WebConfig {
                         .allowedOrigins(
                                 "http://localhost:3000",
                                 "https://garments.ashdipitsolutions.in",
-                                "https://shriudaygarments.com"
+                                "https://shriudaygarments.com", 
+                                "https://garment-six.vercel.app"
                         )
                         .allowedMethods("GET", "POST", "PUT", "DELETE", "OPTIONS")
                         .allowedHeaders("*")
