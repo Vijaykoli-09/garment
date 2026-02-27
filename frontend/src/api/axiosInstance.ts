@@ -1,28 +1,11 @@
-// import axios from "axios";
 
-// const api = axios.create({
-//   baseURL: process.env.REACT_APP_API_URL || "http://localhost:8080/api" || "https://garments.ashdipitsolutions.in/backend/api",
-//   headers: { "Content-Type": "application/json" },
-// });
-
-// api.interceptors.request.use((config) => {
-//   const token = localStorage.getItem("token");
-//   if (token) {
-//     config.headers.Authorization = `Bearer ${token}`;
-//   }
-//   return config;
-// });
-
-// export default api;
-// src/api/axiosInstance.ts
-// src/api/axiosInstance.ts
 import axios from "axios";
 
 const hostname = window.location.hostname;
 
 const baseURL =
   hostname === "localhost"
-    ? "http://localhost:8080/api"
+    ? "https://shriudaygarments.com/backend/api"
     : hostname === "shriudaygarments.com"
     ? "https://shriudaygarments.com/backend/api"
     : "https://garments.ashdipitsolutions.in/backend/api";
