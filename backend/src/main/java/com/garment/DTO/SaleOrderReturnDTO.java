@@ -1,0 +1,25 @@
+package com.garment.DTO;
+
+import java.time.LocalDate;
+import java.util.List;
+
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+@Data @NoArgsConstructor @AllArgsConstructor
+public class SaleOrderReturnDTO {
+    private Long id;
+    private String returnNo;
+    private LocalDate dated;
+    private Long partyId;
+    private String partyName;
+    private String remarks;
+    private Integer totalPeti;
+    private Integer totalPcs;
+
+    // Optional convenience: if all rows are from same SO, populate else null
+    private String saleOrderNo;
+
+    private List<SaleOrderReturnRowDTO> rows;
+}

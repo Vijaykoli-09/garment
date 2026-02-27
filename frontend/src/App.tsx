@@ -1,0 +1,240 @@
+import {
+  BrowserRouter as Router,
+  Routes,
+  Route,
+  Navigate,
+} from "react-router-dom";
+
+import Login from "./pages/Login";
+import Signup from "./pages/Signup";
+import Dashboard from "./pages/Dashboard";
+import RequireAuth from "./components/RequireAuth";
+import SizeCreation from "./pages/Master/SizeCreation";
+import PartyCreation from "./pages/Master/PartyCreation";
+import CompanyDetails from "./pages/Master/CompanyDetails";
+import ArtCreation from "./pages/Master/Art/ArtCreation";
+import ArtGroupCreation from "./pages/Master/Art/ArtGroupCreation";
+import RangeCreation from "./pages/Master/Art/RangeCreation";
+import ShadeCreation from "./pages/Master/Art/ShadeCreation";
+import AccessoriesCreation from "./pages/Master/Art/AccessoriesCreation";
+import YarnCreation from "./pages/Master/YarnCreation";
+import TransportCreation from "./pages/Master/TransportCreation";
+import ProcessCreation from "./pages/Master/ProcessCreation";
+import AgentCreation from "./pages/Master/AgentCreation";
+import EmployeeCreation from "./pages/Master/EmployeeCreation";
+import MaterialCreation from "./pages/Master/MaterialCreation";
+import MaterialGroup from "./pages/Master/MaterialGroup";
+import CustomerGrade from "./pages/Master/CustomerGrade";
+import CategoryCreation from "./pages/Master/CategoryCreation";
+import OrderRegister from "./pages/Master/OrderRegister";
+import PurchaseEntry from "./pages/Knitting/PurchaseEntry";
+import PurchaseOrder from "./pages/Knitting/PurchaseOrder";
+import PurchaseReturn from "./pages/Knitting/PurchaseReturn";
+import DispatchChallan from "./pages/Knitting/DispatchChallan";
+
+//🧑‍🏫 finishing imports start
+import FinishingOutward from "./pages/Knitting/Finishing/FinishingOutward";
+import FinishingInward from "./pages/Knitting/Finishing/FinishingInward";
+import FinishingAmountStatement from "./pages/Knitting/Finishing/FinishingAmountStatement";
+import FinishingStockStatement from "./pages/Knitting/Finishing/FinishingStockStatement";
+import FinishingInHouseStock from "./pages/Knitting/Finishing/FinishingInHouseStock";
+//🧑‍🏫 finishing imports end
+
+//🧑‍🏫 Reports imports start
+import ArtReport from "./pages/Reports/ArtStockReport";
+import SalaryReport from "./pages/Reports/SalaryReport";
+import DispatchReport from "./pages/Reports/DispatchReport";
+import JobWorkReport from "./pages/Reports/JobWorkReport";
+import DyeingAmountStatement from "./pages/Knitting/Dyeing/DyeingAmountStatement";
+//🧑‍🏫 Reports imports end
+
+import FabricationCreation from "./pages/Master/FabricationCreation";
+import KnittingInwardChallan from "./pages/Knitting/knitting/KnittingInwardChallan";
+import KnittingOutwardChallan from "./pages/Knitting/knitting/KnittingOutwardChallan";
+
+import DyeingOutward from "./pages/Knitting/Dyeing/DyeingOutward";
+import DyeingInward from "./pages/Knitting/Dyeing/DyeingInward";
+import DyeingStockStatement from "./pages/Knitting/Dyeing/DyeingStockStatement";
+import DyeingMaterialReturn from "./pages/Knitting/Dyeing/DyeingMaterialReturn";
+import DyeingItemWiseOutstanding from "./pages/Knitting/Dyeing/DyeingItemWiseOutstanding"
+
+import MaterialStockReport from "./pages/Knitting/MaterialStockReport";
+import AmountReport from "./pages/Knitting/AmountReport";
+import KnittingAmountStatement from "./pages/Knitting/knitting/KnittingAmountStatement";
+import KnittingStockStatement from "./pages/Knitting/knitting/KnittingStockStatement";
+import KnittingMaterialReturn from "./pages/Knitting/knitting/KnittingMaterialReturn";
+import PurchasePendingOrders from "./pages/Knitting/PurchasePendingOrders";
+import PackingChallan from "./pages/Knitting/PackingChallan";
+import CuttingModule from "./pages/Cutting/CuttingModule";
+import ProductionReceipt from "./pages/Production/ProductionReceipt";
+import PaymentMethod from "./pages/Payment/PaymentMethod";
+import PaymentRecipt from "./pages/Payment/PaymentRecipt";
+import OutwardChallan from "./pages/Cutting/OutwardChallan";
+import InwardChallan from "./pages/Cutting/InwardChallan";
+import LocationCreation from "./pages/Master/LocationCreation";
+import SaleOrder from "./pages/Sales/sale-order";
+import SaleOrderPendency from "./pages/Sales/SaleOrderPendency";
+import OrderSettle from "./pages/Sales/OrderSettle";
+import SaleOrderReturn from "./pages/Sales/SaleOrderReturn";
+
+import UserManagement from "./pages/Administration/UserManagement";
+
+import RateList from "./pages/Reports/RateList";
+import PaymentMode from "./pages/Payment/PaymentMode";
+import OtherDispatchChallan from "./pages/Knitting/OtherDispatchChallan";
+
+
+
+
+
+
+function App() {
+  return (
+    <Router>
+      <Routes>
+        {/* Redirect root (/) to /login */}
+        <Route path="/" element={<Navigate to="/login" replace />} />
+        <Route path="/login" element={<Login />} />
+        <Route path="/signup" element={<Signup />} />
+        <Route path="/master/company" element={<CompanyDetails />} />
+        <Route path="/master/size" element={<SizeCreation />} />
+        <Route path="/master/party" element={<PartyCreation />} />
+        <Route path="/master/grade" element={<CustomerGrade />} />
+        <Route path="/master/category" element={<CategoryCreation />} />
+        <Route path="/master/art/art-creation" element={<ArtCreation />} />
+        <Route
+          path="/master/art/art-group-creation"
+          element={<ArtGroupCreation />}
+        />
+        <Route path="/master/art/range-creation" element={<RangeCreation />} />
+        <Route path="/master/art/shade-creation" element={<ShadeCreation />} />
+        <Route
+          path="/master/art/accessories-creation"
+          element={<AccessoriesCreation />}
+        />
+        <Route path="/master/order_register" element={<OrderRegister />} />
+        <Route path="/master/yarn-creation" element={<YarnCreation />} />
+        <Route path="/master/transport" element={<TransportCreation />} />
+        <Route path="/master/agent" element={<AgentCreation />} />
+        <Route path="/master/process" element={<ProcessCreation />} />
+        <Route path="/master/employee" element={<EmployeeCreation />} />
+        <Route
+          path="/master/material/material-creation"
+          element={<MaterialCreation />}
+        />
+        <Route
+          path="/master/material/material-group"
+          element={<MaterialGroup />}
+        />
+        <Route path="/master/fabrication" element={<FabricationCreation />} />
+        <Route
+          path="/knitting/challan/outward-challan"
+          element={<KnittingOutwardChallan />}
+        />
+        <Route
+          path="/knitting/challan/inward-challan"
+          element={<KnittingInwardChallan />}
+        />
+        <Route
+          path="/knitting/challan/material-return"
+          element={<KnittingMaterialReturn />}
+        />
+        <Route path="/knitting/purchase-entry" element={<PurchaseEntry />} />
+        <Route path="/knitting/purchase-order" element={<PurchaseOrder />} />
+        <Route path="/knitting/purchase-return" element={<PurchaseReturn />} />
+        <Route path="/knitting/dyeing/stock-statement" element={<DyeingStockStatement />} />
+        <Route path="/knitting/dyeing/material-return" element={<DyeingMaterialReturn />} />
+        <Route path="/knitting/dyeing/item-wise-outstanding" element={<DyeingItemWiseOutstanding />} />
+        <Route path="/knitting/purchase-reports/material-stock-report" element={<MaterialStockReport />} />
+        <Route path="/knitting/purchase-reports/amount-report" element={<AmountReport />} />
+        <Route path="/knitting/challan/amount-statement" element={<KnittingAmountStatement />} />
+        <Route path="/knitting/challan/stock-statement" element={<KnittingStockStatement />} />
+        <Route path="/knitting/purchase-pending-orders" element={<PurchasePendingOrders />} />
+        <Route path="/knitting/packing/packing-challan" element={<PackingChallan />} />
+        <Route
+          path="/knitting/dispatch-challan"
+          element={<DispatchChallan />}
+        />
+        <Route
+          path="/knitting/other-dispatch-challan"
+          element={<OtherDispatchChallan />}
+        />
+        <Route
+          path="/knitting/dyeing/inward-challan"
+          element={<DyeingInward />}
+        />
+        <Route
+          path="/knitting/dyeing/outward-challan"
+          element={<DyeingOutward />}
+        />
+        {/* Aliases for menu links (typos / alternate paths) */}
+        <Route path="/master/material/item-creation" element={<MaterialCreation />} />
+        <Route path="/master/material/item-group" element={<MaterialGroup />} />
+        <Route path="/knitting/dyeing/outwar-challan" element={<DyeingOutward />} />
+        <Route path="/Sales/sales-order" element={<SaleOrder />} />
+        <Route path="/master/location" element={<LocationCreation />} />
+        <Route path="/cutting/cutting-module" element={<CuttingModule />} />
+        <Route path="/job_work/outward-challan" element={<OutwardChallan />} />
+        <Route path="/job_work/inward-challan" element={<InwardChallan />} />
+        <Route path="/sales/sale-order-settle" element={<OrderSettle />} />
+        <Route path="/sales/sale-order-pendency" element={<SaleOrderPendency />} />
+        <Route path="/sales/sale-order-return" element={<SaleOrderReturn />} />
+        <Route path="/administration/user-managment" element={<UserManagement />} />
+        {/* Finishing Routes    🧑‍🏫 */}
+        <Route
+          path="/knitting/finishing/outward-challan"
+          element={<FinishingOutward />}
+        />
+        <Route
+          path="/knitting/finishing/inward-challan"
+          element={<FinishingInward />}
+        />
+        <Route
+          path="/knitting/finishing/finishing-stock-statement"
+          element={<FinishingStockStatement />}
+        />
+        <Route
+          path="/knitting/finishing/finishing-amount-statement"
+          element={<FinishingAmountStatement />}
+        />
+        <Route
+          path="/knitting/finishing/in-house-stock-statement"
+          element={<FinishingInHouseStock />}
+        />
+        <Route
+          path="/knitting/dyeing/dyeing-amount-statement"
+          element={<DyeingAmountStatement />}
+        />
+
+        {/* Finishing Routes end  🧑‍🏫*/}
+        {/* Reports Routes Start 🧑‍🏫*/}
+        <Route path="reports">
+          <Route path="art-report" element={<ArtReport />} />
+          <Route path="salary-report" element={<SalaryReport />} />
+          <Route path="dispatch-report" element={<DispatchReport />} />
+          <Route path="job-work-report" element={<JobWorkReport />} />
+          <Route path="rate-list-report" element={<RateList />} />
+        </Route>
+        {/* Reports Routes end  🧑‍🏫*/}
+
+        <Route path="/production/receipt" element={<ProductionReceipt />} />
+
+        {/* Payments */}
+
+        <Route path="/payment/payment-method" element={<PaymentMethod />} />
+        <Route path="/payment/payment-recipt" element={<PaymentRecipt />} />
+        <Route path="/payment/payment-mode" element={<PaymentMode/>}/>
+        <Route
+          path="/dashboard"
+          element={
+            <RequireAuth>
+              <Dashboard children={undefined} />
+            </RequireAuth>
+          }
+        />
+      </Routes>
+    </Router>
+  );
+}
+
+export default App;
