@@ -28,4 +28,10 @@ public class AuthController {
     public ResponseEntity<LoginResponse> login(@Valid @RequestBody LoginRequest req) {
         return ResponseEntity.ok(userService.login(req));
     }
+
+    @GetMapping("/health")
+    public String health() {
+        return "OK";
+    }
+    
 }
