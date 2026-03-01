@@ -1,6 +1,12 @@
 "use client";
 
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import Dashboard from "../Dashboard";
 import Swal from "sweetalert2";
 import api from "../../api/axiosInstance";
@@ -29,12 +35,10 @@ type StockDetailRow = {
   consAmount: string;
 };
 
-// EMPLOYEE: based on your /employees JSON
 type Employee = {
   code: string;
   employeeName: string;
   process?: { serialNo: string; processName: string };
-  // other fields (gender, contact, etc.) hum use nahi kar rahe
 };
 
 type ArtListItem = {
@@ -53,7 +57,7 @@ type FinishingInwardRow = {
   shade?: string;
   rolls?: string;
   weight?: string;
-  rate?: string;   // Finishing Rate
+  rate?: string; // Finishing Rate
   rateFND?: string; // KYR + Dyeing (Sum)
 };
 
@@ -70,7 +74,7 @@ type IssueTo = "Inside" | "Outside";
 type CuttingEntryDTO = {
   serialNo: string;
   date: string;
-  employeeId?: string;      // employee CODE e.g. EMP9632
+  employeeId?: string;
   employeeName?: string;
 
   totalPcs?: string;
@@ -117,7 +121,11 @@ type Location = {
   branchCode?: string;
 };
 
-type ArtProcess = { processName?: string; rate?: string | number; rate1?: string | number };
+type ArtProcess = {
+  processName?: string;
+  rate?: string | number;
+  rate1?: string | number;
+};
 type ArtDetail = {
   serialNumber: string;
   artName?: string;
@@ -132,8 +140,11 @@ const fmt = (v: number, d = 2) => v.toFixed(d);
 
 // ================= API helpers =================
 const getNextSerial = async (dateISO: string) =>
-  (await api.get<string>("/cutting-entries/next-serial", { params: { date: dateISO } }))
-    .data;
+  (
+    await api.get<string>("/cutting-entries/next-serial", {
+      params: { date: dateISO },
+    })
+  ).data;
 
 const listCuttings = async () =>
   (await api.get<CuttingEntryDTO[]>("/cutting-entries")).data;
@@ -142,15 +153,15 @@ const getCutting = async (serialNo: string) =>
 const saveCutting = async (payload: CuttingEntryDTO) =>
   (await api.post<CuttingEntryDTO>("/cutting-entries", payload)).data;
 const updateCutting = async (serialNo: string, payload: CuttingEntryDTO) =>
-  (await api.put<CuttingEntryDTO>(`/cutting-entries/${serialNo}`, payload)).data;
+  (await api.put<CuttingEntryDTO>(`/cutting-entries/${serialNo}`, payload))
+    .data;
 const deleteCutting = async (serialNo: string) => {
   await api.delete(`/cutting-entries/${serialNo}`);
 };
 
 const listEmployees = async () =>
   (await api.get<Employee[]>("/employees")).data;
-const listArts = async () =>
-  (await api.get<ArtListItem[]>("/arts")).data;
+const listArts = async () => (await api.get<ArtListItem[]>("/arts")).data;
 const getArtDetail = async (serialNumber: string) =>
   (await api.get<ArtDetail>(`/arts/${serialNumber}`)).data;
 
@@ -179,7 +190,10 @@ const listLocations = async (): Promise<Location[]> =>
   (await api.get<Location[]>("/locations")).data;
 
 // Extract Cutting process rate by IssueTo
-const extractCuttingRate = (detail: ArtDetail | undefined, issueTo: IssueTo): number => {
+const extractCuttingRate = (
+  detail: ArtDetail | undefined,
+  issueTo: IssueTo
+): number => {
   const list = detail?.processes || [];
   if (!list || list.length === 0) return 0;
   const norm = (s?: string) => (s || "").trim().toLowerCase();
@@ -190,7 +204,9 @@ const extractCuttingRate = (detail: ArtDetail | undefined, issueTo: IssueTo): nu
     chosen = procs.find((p) => p._n.includes("cut") && p._n.includes("inside"));
   } else {
     chosen = procs.find(
-      (p) => p._n.includes("cut") && (p._n.includes("outside") || p._n.includes("out"))
+      (p) =>
+        p._n.includes("cut") &&
+        (p._n.includes("outside") || p._n.includes("out"))
     );
   }
   if (!chosen) chosen = procs.find((p) => p._n === "cutting");
@@ -225,7 +241,9 @@ const ShadeDropdown: React.FC<ShadeDropdownProps> = ({
   const inputRef = useRef<HTMLInputElement | null>(null);
 
   const selected = useMemo(() => {
-    const v = String(value || "").trim().toLowerCase();
+    const v = String(value || "")
+      .trim()
+      .toLowerCase();
     if (!v) return null;
     return options.find((s) => s.shadeName.trim().toLowerCase() === v) || null;
   }, [options, value]);
@@ -380,6 +398,68 @@ const ShadeDropdown: React.FC<ShadeDropdownProps> = ({
   );
 };
 
+// ============ Cutting Lot Uniqueness Check ============
+
+const checkDuplicateCutLots = async (
+  payload: CuttingEntryDTO
+): Promise<string | null> => {
+  const norm = (s: string) => s.trim().toUpperCase();
+
+  // 1) Current entry lot numbers (non-empty)
+  const currentLots = (payload.lotRows || [])
+    .map((r) => norm(r.cutLotNo || ""))
+    .filter((v) => v);
+
+  if (currentLots.length === 0) return null;
+
+  // 1a) Duplicate in the same entry?
+  const selfMap = new Map<string, number>();
+  for (const lot of currentLots) {
+    selfMap.set(lot, (selfMap.get(lot) || 0) + 1);
+  }
+  const selfDups = Array.from(selfMap.entries())
+    .filter(([, c]) => c > 1)
+    .map(([lot]) => lot);
+
+  if (selfDups.length > 0) {
+    const listStr = selfDups.join(", ");
+    const verb = selfDups.length > 1 ? "are" : "is";
+    return `Cutting Lot No(s) ${listStr} ${verb} duplicated within this cutting entry. Each Cutting Lot No must be unique inside a single entry.`;
+  }
+
+  // 2) Check against other entries
+  let allEntries: CuttingEntryDTO[];
+  try {
+    allEntries = await listCuttings();
+  } catch (e) {
+    console.error("Failed to load cutting entries for uniqueness check:", e);
+    return "Could not verify Cutting Lot No uniqueness. Please try again later.";
+  }
+
+  if (!allEntries || allEntries.length === 0) return null;
+
+  const others = allEntries.filter((e) => e.serialNo !== payload.serialNo);
+
+  const usedLots = new Set<string>();
+  for (const e of others) {
+    for (const r of e.lotRows || []) {
+      const lot = norm(r.cutLotNo || "");
+      if (lot) usedLots.add(lot);
+    }
+  }
+
+  const conflicts = Array.from(
+    new Set(currentLots.filter((lot) => usedLots.has(lot)))
+  );
+  if (conflicts.length > 0) {
+    const listStr = conflicts.join(", ");
+    const verb = conflicts.length > 1 ? "are" : "is";
+    return `Cutting Lot No(s) ${listStr} ${verb} already used in another cutting entry. Each Cutting Lot No can only be used once across all cutting entries.`;
+  }
+
+  return null;
+};
+
 // ================= Component =================
 const CuttingModule: React.FC = () => {
   // Header
@@ -387,7 +467,7 @@ const CuttingModule: React.FC = () => {
   const [date, setDate] = useState<string>(() =>
     new Date().toISOString().slice(0, 10)
   );
-  const [employeeId, setEmployeeId] = useState<string>(""); // employee CODE
+  const [employeeId, setEmployeeId] = useState<string>("");
   const [employeeName, setEmployeeName] = useState<string>("");
 
   // Cutting Lot Details
@@ -403,7 +483,6 @@ const CuttingModule: React.FC = () => {
   const [shades, setShades] = useState<Shade[]>([]);
   const [locations, setLocations] = useState<Location[]>([]);
 
-  // Sirf Cutting process wale + hamesha selected employee include
   const cuttingEmployees = useMemo(
     () =>
       employees.filter((emp) => {
@@ -440,7 +519,6 @@ const CuttingModule: React.FC = () => {
   const printRef = useRef<HTMLDivElement>(null);
 
   // ---------- Helpers ----------
-  // employeeId = employee.code
   const resolveEmployeeName = useCallback(
     (empCode?: string | null) => {
       if (!empCode) return "";
@@ -543,7 +621,7 @@ const CuttingModule: React.FC = () => {
   }, [date]);
 
   const handleEmployeeChange = (val: string, labelText?: string) => {
-    setEmployeeId(val); // val = employee.code
+    setEmployeeId(val);
     const nm = (labelText || "").trim() || resolveEmployeeName(val);
     setEmployeeName(nm);
   };
@@ -713,9 +791,7 @@ const CuttingModule: React.FC = () => {
           unit: r.unit || "Kg",
           consRate: totalFabricRate ? String(totalFabricRate) : "",
           consAmount:
-            cons && totalFabricRate
-              ? (cons * totalFabricRate).toFixed(2)
-              : "",
+            cons && totalFabricRate ? (cons * totalFabricRate).toFixed(2) : "",
         };
       })
     );
@@ -760,12 +836,11 @@ const CuttingModule: React.FC = () => {
     msg?: string;
   } => {
     if (!date) return { ok: false, msg: "Date is required" };
-    if (!employeeId) return { ok: false, msg: "Please select Employee (Cutting)" };
+    if (!employeeId)
+      return { ok: false, msg: "Please select Employee (Cutting)" };
 
     const empNameResolved =
-      (employeeName || "").trim() ||
-      resolveEmployeeName(employeeId) ||
-      "";
+      (employeeName || "").trim() || resolveEmployeeName(employeeId) || "";
 
     const lotRowsPruned = rows
       .map((r, idx) => ({
@@ -801,15 +876,14 @@ const CuttingModule: React.FC = () => {
       .filter(
         (r) =>
           r.itemName &&
-          (toNum(r.consumption) + toNum(r.kho)) > 0 &&
+          toNum(r.consumption) + toNum(r.kho) > 0 &&
           toNum(r.consRate) > 0
       );
 
     if (stockRowsPruned.length === 0)
       return {
         ok: false,
-        msg:
-          "Add at least one Stock row with Item + (Consumption or KHO) + Rate > 0",
+        msg: "Add at least one Stock row with Item + (Consumption or KHO) + Rate > 0",
       };
 
     const branchNameResolved =
@@ -827,16 +901,13 @@ const CuttingModule: React.FC = () => {
     const payload: CuttingEntryDTO = {
       serialNo,
       date,
-      employeeId, // = employee.code
+      employeeId,
       employeeName: empNameResolved,
       issueTo,
       issueBranchId: issueTo === "Outside" ? issueBranchId : undefined,
-      issueBranchName:
-        issueTo === "Outside" ? branchNameResolved : undefined,
+      issueBranchName: issueTo === "Outside" ? branchNameResolved : undefined,
 
-      totalPcs: String(
-        lotRowsPruned.reduce((s, r) => s + toNum(r.pcs), 0)
-      ),
+      totalPcs: String(lotRowsPruned.reduce((s, r) => s + toNum(r.pcs), 0)),
       totalCuttingAmount: fmt(
         lotRowsPruned.reduce((s, r) => s + toNum(r.amount), 0),
         2
@@ -860,13 +931,11 @@ const CuttingModule: React.FC = () => {
   const formInvalid = useMemo(() => {
     if (!date || !employeeId) return true;
     if (issueTo === "Outside" && !issueBranchId) return true;
-    const lotOk = rows.some(
-      (r) => (r.artNo || r.itemName) && toNum(r.pcs) > 0
-    );
+    const lotOk = rows.some((r) => (r.artNo || r.itemName) && toNum(r.pcs) > 0);
     const stockOk = stockRows.some(
       (r) =>
         r.itemName &&
-        (toNum(r.consumption) + toNum(r.kho)) > 0 &&
+        toNum(r.consumption) + toNum(r.kho) > 0 &&
         toNum(r.consRate) > 0
     );
     return !(lotOk && stockOk);
@@ -879,6 +948,22 @@ const CuttingModule: React.FC = () => {
       Swal.fire("Validation", msg!, "warning");
       return;
     }
+
+    try {
+      const dupMsg = await checkDuplicateCutLots(payload!);
+      if (dupMsg) {
+        Swal.fire("Error", dupMsg, "error");
+        return;
+      }
+    } catch (e) {
+      Swal.fire(
+        "Error",
+        "Failed to run Cutting Lot No uniqueness check. Please try again.",
+        "error"
+      );
+      return;
+    }
+
     const saved = await saveCutting(payload!);
     await Swal.fire({
       icon: "success",
@@ -896,6 +981,22 @@ const CuttingModule: React.FC = () => {
       Swal.fire("Validation", msg!, "warning");
       return;
     }
+
+    try {
+      const dupMsg = await checkDuplicateCutLots(payload!);
+      if (dupMsg) {
+        Swal.fire("Error", dupMsg, "error");
+        return;
+      }
+    } catch (e) {
+      Swal.fire(
+        "Error",
+        "Failed to run Cutting Lot No uniqueness check. Please try again.",
+        "error"
+      );
+      return;
+    }
+
     await updateCutting(serialNo, payload!);
     await Swal.fire({
       icon: "success",
@@ -924,8 +1025,21 @@ const CuttingModule: React.FC = () => {
     await resetForm(true);
   };
 
+  // ---- View List: sorted by serialNo (challan no) ----
   const openList = async () => {
-    setEntryList(await listCuttings());
+    const data = await listCuttings();
+
+    // Sort by serialNo in sequence (serial wise)
+    const sorted = data
+      .slice()
+      .sort((a, b) =>
+        String(a.serialNo || "").localeCompare(String(b.serialNo || ""), undefined, {
+          numeric: true,
+          sensitivity: "base",
+        })
+      );
+
+    setEntryList(sorted);
     setListOpen(true);
   };
 
@@ -939,7 +1053,6 @@ const CuttingModule: React.FC = () => {
     setSerialNo(data.serialNo);
     setDate(data.date);
 
-    // employeeId = code
     setEmployeeId(data.employeeId || "");
     setEmployeeName(empNameResolved);
 
@@ -996,8 +1109,7 @@ const CuttingModule: React.FC = () => {
         const a =
           artsList.find(
             (x) =>
-              (x.artNo || "").toLowerCase() ===
-              (r.artNo || "").toLowerCase()
+              (x.artNo || "").toLowerCase() === (r.artNo || "").toLowerCase()
           ) ||
           artsList.find(
             (x) =>
@@ -1027,9 +1139,7 @@ const CuttingModule: React.FC = () => {
         if (newRate) {
           updated[idx].rate = String(newRate);
           const pcsNum = toNum(updated[idx].pcs);
-          updated[idx].amount = pcsNum
-            ? (pcsNum * newRate).toFixed(2)
-            : "";
+          updated[idx].amount = pcsNum ? (pcsNum * newRate).toFixed(2) : "";
           changed += 1;
         }
       }
@@ -1079,9 +1189,7 @@ const CuttingModule: React.FC = () => {
         if (locations.length === 0) setLocations(await listLocations());
         if (!issueBranchId) {
           const inputOptions: Record<string, string> = {};
-          locations.forEach(
-            (b) => (inputOptions[String(b.id)] = b.branchName)
-          );
+          locations.forEach((b) => (inputOptions[String(b.id)] = b.branchName));
           const pick = await Swal.fire({
             title: "Select Issue Branch",
             input: "select",
@@ -1265,12 +1373,12 @@ const CuttingModule: React.FC = () => {
           </table>
 
           <div class="totals">
-            <p>Total Consumption: ${totals.cons.toFixed(
-              3
-            )} ${stockRows[0]?.unit || "Kg"}</p>
-            <p>Total KHO: ${totals.kho.toFixed(
-              3
-            )} ${stockRows[0]?.unit || "Kg"}</p>
+            <p>Total Consumption: ${totals.cons.toFixed(3)} ${
+      stockRows[0]?.unit || "Kg"
+    }</p>
+            <p>Total KHO: ${totals.kho.toFixed(3)} ${
+      stockRows[0]?.unit || "Kg"
+    }</p>
             <p>Overall Avg/Per Pcs: ${totals.avgPerPcs}</p>
             <p>Total Cons. Amount: ₹${totals.consAmount.toFixed(2)}</p>
           </div>
@@ -1305,7 +1413,7 @@ const CuttingModule: React.FC = () => {
             <input
               value={listSearch}
               onChange={(e) => setListSearch(e.target.value)}
-              placeholder="Search serial / employee / date / issue to / branch"
+              placeholder="Search serial / lot no / employee / date / issue to / branch"
               className="border p-2 rounded w-full mb-3"
             />
             <div className="overflow-auto max-h-[70vh] border">
@@ -1315,6 +1423,7 @@ const CuttingModule: React.FC = () => {
                     <th className="border p-2">S.No</th>
                     <th className="border p-2">Serial</th>
                     <th className="border p-2">Date</th>
+                    <th className="border p-2">Cutting Lot No</th>
                     <th className="border p-2">Issue To</th>
                     <th className="border p-2">Branch</th>
                     <th className="border p-2">Employee</th>
@@ -1330,8 +1439,12 @@ const CuttingModule: React.FC = () => {
                     .filter((e) => {
                       const q = listSearch.trim().toLowerCase();
                       if (!q) return true;
+                      const lotNos = (e.lotRows || [])
+                        .map((r) => r.cutLotNo || "")
+                        .join(", ");
                       return (
                         (e.serialNo || "").toLowerCase().includes(q) ||
+                        lotNos.toLowerCase().includes(q) ||
                         (
                           (e.employeeName ||
                             resolveEmployeeName(e.employeeId || "") ||
@@ -1354,14 +1467,17 @@ const CuttingModule: React.FC = () => {
                         resolveEmployeeName(e.employeeId || "") ||
                         e.employeeId ||
                         "-";
+                      const lotNos = (e.lotRows || [])
+                        .map((r) => r.cutLotNo)
+                        .filter(Boolean)
+                        .join(", ");
                       return (
                         <tr key={e.serialNo} className="hover:bg-gray-50">
                           <td className="border p-2 text-center">{i + 1}</td>
                           <td className="border p-2">{e.serialNo}</td>
                           <td className="border p-2">{e.date}</td>
-                          <td className="border p-2">
-                            {e.issueTo || "-"}
-                          </td>
+                          <td className="border p-2">{lotNos || "-"}</td>
+                          <td className="border p-2">{e.issueTo || "-"}</td>
                           <td className="border p-2">
                             {e.issueTo === "Outside"
                               ? e.issueBranchName || "-"
@@ -1399,9 +1515,7 @@ const CuttingModule: React.FC = () => {
                                 if (!res.isConfirmed) return;
                                 await deleteCutting(e.serialNo);
                                 setEntryList((prev) =>
-                                  prev.filter(
-                                    (x) => x.serialNo !== e.serialNo
-                                  )
+                                  prev.filter((x) => x.serialNo !== e.serialNo)
                                 );
                                 Swal.fire({
                                   icon: "success",
@@ -1422,7 +1536,7 @@ const CuttingModule: React.FC = () => {
                     <tr>
                       <td
                         className="border p-3 text-center text-gray-500"
-                        colSpan={11}
+                        colSpan={12}
                       >
                         No entries found
                       </td>
@@ -1438,9 +1552,7 @@ const CuttingModule: React.FC = () => {
       {/* PAGE */}
       <div className="p-4 bg-gray-100 min-h-screen">
         <div className="bg-white p-6 rounded-lg shadow-md">
-          <h2 className="text-2xl font-bold text-center mb-4">
-            Cutting Entry
-          </h2>
+          <h2 className="text-2xl font-bold text-center mb-4">Cutting Entry</h2>
 
           {/* Header */}
           <div className="grid grid-cols-4 gap-4 mb-4">
@@ -1455,9 +1567,7 @@ const CuttingModule: React.FC = () => {
               />
             </div>
             <div>
-              <label className="block text-sm font-semibold mb-1">
-                Date
-              </label>
+              <label className="block text-sm font-semibold mb-1">Date</label>
               <input
                 type="date"
                 value={date}
@@ -1472,7 +1582,7 @@ const CuttingModule: React.FC = () => {
               <select
                 value={employeeId}
                 onChange={(e) => {
-                  const val = e.target.value; // employee.code
+                  const val = e.target.value;
                   const labelText =
                     e.target.options[e.target.selectedIndex]?.text || "";
                   handleEmployeeChange(val, labelText);
@@ -1517,9 +1627,7 @@ const CuttingModule: React.FC = () => {
           {/* Cutting Lot + Stock */}
           <div ref={printRef}>
             {/* Cutting Lot Details */}
-            <h3 className="text-lg font-semibold mb-2">
-              Cutting Lot Details
-            </h3>
+            <h3 className="text-lg font-semibold mb-2">Cutting Lot Details</h3>
             <div className="overflow-x-auto">
               <table className="w-full border text-sm">
                 <thead className="bg-gray-100">
@@ -1598,9 +1706,7 @@ const CuttingModule: React.FC = () => {
                         />
                       </td>
                       <td className="border p-1 text-right bg-gray-50">
-                        {r.amount
-                          ? `₹${Number(r.amount).toFixed(2)}`
-                          : "-"}
+                        {r.amount ? `₹${Number(r.amount).toFixed(2)}` : "-"}
                       </td>
                     </tr>
                   ))}
@@ -1611,9 +1717,7 @@ const CuttingModule: React.FC = () => {
                       <td className="border p-2 text-right" colSpan={5}>
                         Totals
                       </td>
-                      <td className="border p-2 text-right">
-                        {totalPcs}
-                      </td>
+                      <td className="border p-2 text-right">{totalPcs}</td>
                       <td className="border p-2 text-right">—</td>
                       <td className="border p-2 text-right">
                         ₹{fmt(totalCuttingAmount, 2)}
@@ -1633,24 +1737,14 @@ const CuttingModule: React.FC = () => {
                 <thead className="bg-gray-100">
                   <tr>
                     <th className="border p-2 text-center">S.No</th>
-                    <th className="border p-2">
-                      Fabric Name (In-house)
-                    </th>
+                    <th className="border p-2">Fabric Name (In-house)</th>
                     <th className="border p-2">Shade</th>
-                    <th className="border p-2 text-right">
-                      Consumption
-                    </th>
+                    <th className="border p-2 text-right">Consumption</th>
                     <th className="border p-2 text-right">KHO</th>
                     <th className="border p-2 text-center">Unit</th>
-                    <th className="border p-2 text-right">
-                      Avg/Per Pcs
-                    </th>
-                    <th className="border p-2 text-right">
-                      Fabric Rate
-                    </th>
-                    <th className="border p-2 text-right">
-                      Per Pcs Rate
-                    </th>
+                    <th className="border p-2 text-right">Avg/Per Pcs</th>
+                    <th className="border p-2 text-right">Fabric Rate</th>
+                    <th className="border p-2 text-right">Per Pcs Rate</th>
                     <th className="border p-2 text-right">Amount</th>
                   </tr>
                 </thead>
@@ -1659,23 +1753,17 @@ const CuttingModule: React.FC = () => {
                     const pcs = totalPcs || 0;
                     const avg =
                       pcs > 0
-                        ? (
-                            (toNum(r.consumption) +
-                              toNum(r.kho)) /
-                            pcs
-                          ).toFixed(4)
+                        ? ((toNum(r.consumption) + toNum(r.kho)) / pcs).toFixed(
+                            4
+                          )
                         : "";
                     const ppr =
                       toNum(avg) && toNum(r.consRate)
-                        ? (
-                            toNum(avg) * toNum(r.consRate)
-                          ).toFixed(2)
+                        ? (toNum(avg) * toNum(r.consRate)).toFixed(2)
                         : "";
                     return (
                       <tr key={r.id}>
-                        <td className="border p-1 text-center">
-                          {i + 1}
-                        </td>
+                        <td className="border p-1 text-center">{i + 1}</td>
                         <td className="border p-1">
                           <input
                             value={r.itemName}
@@ -1716,11 +1804,7 @@ const CuttingModule: React.FC = () => {
                             type="number"
                             value={r.kho}
                             onChange={(e) =>
-                              handleStockChange(
-                                r.id,
-                                "kho",
-                                e.target.value
-                              )
+                              handleStockChange(r.id, "kho", e.target.value)
                             }
                             className="border p-1 rounded w-full text-right"
                             placeholder="0.000"
@@ -1731,11 +1815,7 @@ const CuttingModule: React.FC = () => {
                           <select
                             value={r.unit}
                             onChange={(e) =>
-                              handleStockChange(
-                                r.id,
-                                "unit",
-                                e.target.value
-                              )
+                              handleStockChange(r.id, "unit", e.target.value)
                             }
                             className="border p-1 rounded w-full"
                           >
@@ -1770,10 +1850,7 @@ const CuttingModule: React.FC = () => {
                 {stockRows.length > 0 && (
                   <tfoot>
                     <tr className="bg-gray-100 font-semibold">
-                      <td
-                        className="border p-2 text-right"
-                        colSpan={3}
-                      >
+                      <td className="border p-2 text-right" colSpan={3}>
                         Totals
                       </td>
                       <td className="border p-2 text-right">
@@ -1837,9 +1914,7 @@ const CuttingModule: React.FC = () => {
               onClick={handleUpdate}
               disabled={formInvalid}
               className={`px-4 py-2 rounded text-white ${
-                formInvalid
-                  ? "bg-amber-300 cursor-not-allowed"
-                  : "bg-amber-600"
+                formInvalid ? "bg-amber-300 cursor-not-allowed" : "bg-amber-600"
               }`}
             >
               Update
@@ -1908,10 +1983,7 @@ const CuttingModule: React.FC = () => {
                     const showRate =
                       cached ?? toNum(a.saleRate || a.styleRate || "");
                     return (
-                      <tr
-                        key={a.serialNumber}
-                        className="hover:bg-gray-50"
-                      >
+                      <tr key={a.serialNumber} className="hover:bg-gray-50">
                         <td className="border p-2">{a.artNo}</td>
                         <td className="border p-2">{a.artName}</td>
                         <td className="border p-2 text-right">
@@ -1971,12 +2043,8 @@ const CuttingModule: React.FC = () => {
                     <th className="border p-2">Lot No</th>
                     <th className="border p-2">Item Name</th>
                     <th className="border p-2">Shade</th>
-                    <th className="border p-2 text-right">
-                      KYR+Dyeing Rate
-                    </th>
-                    <th className="border p-2 text-right">
-                      Finishing Rate
-                    </th>
+                    <th className="border p-2 text-right">KYR+Dyeing Rate</th>
+                    <th className="border p-2 text-right">Finishing Rate</th>
                     <th className="border p-2 text-right">Total Rate</th>
                     <th className="border p-2 text-center">Action</th>
                   </tr>
@@ -1987,15 +2055,9 @@ const CuttingModule: React.FC = () => {
                       const q = finishSearch.trim().toLowerCase();
                       if (!q) return true;
                       return (
-                        (f.lotNo || "")
-                          .toLowerCase()
-                          .includes(q) ||
-                        (f.itemName || "")
-                          .toLowerCase()
-                          .includes(q) ||
-                        (f.shade || "")
-                          .toLowerCase()
-                          .includes(q) ||
+                        (f.lotNo || "").toLowerCase().includes(q) ||
+                        (f.itemName || "").toLowerCase().includes(q) ||
+                        (f.shade || "").toLowerCase().includes(q) ||
                         (f.rate || "").toString().includes(q) ||
                         (f.rateFND || "").toString().includes(q)
                       );
@@ -2003,37 +2065,24 @@ const CuttingModule: React.FC = () => {
                     .map((f, idx) => {
                       const kyrDyeingSum = toNum(f.rateFND);
                       const finishingRate = toNum(f.rate);
-                      const totalFabricRate =
-                        kyrDyeingSum + finishingRate;
+                      const totalFabricRate = kyrDyeingSum + finishingRate;
 
                       return (
                         <tr
                           key={f.id ?? `row-${idx}`}
                           className="hover:bg-gray-50"
                         >
-                          <td className="border p-2">
-                            {f.lotNo || "-"}
-                          </td>
-                          <td className="border p-2">
-                            {f.itemName || "-"}
-                          </td>
-                          <td className="border p-2">
-                            {f.shade || "-"}
+                          <td className="border p-2">{f.lotNo || "-"}</td>
+                          <td className="border p-2">{f.itemName || "-"}</td>
+                          <td className="border p-2">{f.shade || "-"}</td>
+                          <td className="border p-2 text-right">
+                            {kyrDyeingSum ? kyrDyeingSum.toFixed(2) : "-"}
                           </td>
                           <td className="border p-2 text-right">
-                            {kyrDyeingSum
-                              ? kyrDyeingSum.toFixed(2)
-                              : "-"}
-                          </td>
-                          <td className="border p-2 text-right">
-                            {finishingRate
-                              ? finishingRate.toFixed(2)
-                              : "-"}
+                            {finishingRate ? finishingRate.toFixed(2) : "-"}
                           </td>
                           <td className="border p-2 text-right font-bold">
-                            {totalFabricRate
-                              ? totalFabricRate.toFixed(2)
-                              : "-"}
+                            {totalFabricRate ? totalFabricRate.toFixed(2) : "-"}
                           </td>
                           <td className="border p-2 text-center">
                             <button

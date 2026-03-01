@@ -1,12 +1,16 @@
 "use client"
 
 import type React from "react"
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import Dashboard from "../Dashboard"
 import Swal from "sweetalert2"
 import api from "../../api/axiosInstance"
 import jsPDF from "jspdf"
 import html2canvas from "html2canvas"
+
+if (typeof window !== "undefined") {
+  ;(window as any).html2canvas = html2canvas
+}
 
 // ================= Types from APIs =================
 interface PartyFromApi {
@@ -37,12 +41,30 @@ interface ArtListItem {
   saleRate?: string
 }
 
-interface SizeDetail {
-  id: number
+interface SizeMaster {
   serialNo: string
   sizeName: string
-  orderNo: string
-  artGroup?: string
+  orderNo?: string
+  artGroup?: string | { artGroupName?: string; [key: string]: any }
+}
+
+interface SizeDetailFromArt {
+  id?: number
+  serialNo?: string
+  sizeName: string
+  orderNo?: string
+  artGroup?: any
+  rate?: string | number
+}
+
+interface SizeDetailWithBoxFromArt {
+  id?: number
+  serialNo?: string
+  sizeName: string
+  orderNo?: string
+  artGroup?: any
+  box?: string | number
+  pcs?: string | number
   rate?: string | number
 }
 
@@ -51,7 +73,8 @@ interface ArtDetail {
   artGroup?: string
   artName: string
   artNo: string
-  sizes?: SizeDetail[]
+  sizes?: SizeDetailFromArt[]
+  sizeDetails?: SizeDetailWithBoxFromArt[]
 }
 
 interface SaleRow {
@@ -62,8 +85,8 @@ interface SaleRow {
   description: string
   peti: string
   remarks: string
-  sizeQty: Record<string, string> // sizeName -> qty (Sale Order Qty)
-  sizeRate: Record<string, string> // sizeName -> rate
+  sizeQty: Record<string, string>
+  sizeRate: Record<string, string>
 }
 
 interface SaleOrderRowPayload {
@@ -86,17 +109,37 @@ interface SaleOrderSaveDto {
   partyName: string
   remarks?: string
   rows: SaleOrderRowPayload[]
+  transportSerialNumber?: string | null
+  transportName?: string | null
 }
 
 type Shade = { shadeCode: string; shadeName: string }
 
-// ================= Utils =================
+type OrderTotals = {
+  totalPeti: number
+  totalBox: number
+  totalPcs: number
+  avgRate: number
+}
+
+// ============== Utils =================
 const todayStr = () => {
   const d = new Date()
   const y = d.getFullYear()
   const m = String(d.getMonth() + 1).padStart(2, "0")
   const dd = String(d.getDate()).padStart(2, "0")
   return `${y}-${m}-${dd}`
+}
+
+// dd/mm/yy display
+const formatDateDDMMYY = (value?: string | Date) => {
+  if (!value) return ""
+  const d = value instanceof Date ? value : new Date(value)
+  if (Number.isNaN(d.getTime())) return ""
+  const day = String(d.getDate()).padStart(2, "0")
+  const month = String(d.getMonth() + 1).padStart(2, "0")
+  const year = String(d.getFullYear()).slice(-2)
+  return `${day}/${month}/${year}`
 }
 
 const sanitizeNumber = (v: string) => {
@@ -124,8 +167,131 @@ const sizeSort = (a: string, b: string) => {
 }
 
 const normStr = (s: any) => String(s ?? "").trim().toLowerCase()
+const cleanNumStr = (v: any) => String(v ?? "").replace(/^'+/, "").trim()
 
-// ================= Shades API =================
+function isFulfilled<T>(r: PromiseSettledResult<T>): r is PromiseFulfilledResult<T> {
+  return (r as PromiseSettledResult<T>).status === "fulfilled"
+}
+
+// -------- Error helper ----------
+const getErrorMessage = (error: any, fallback = "Failed to save Sale Order") => {
+  if (!error) return fallback
+  const resp = (error as any).response
+
+  if (resp) {
+    const data = resp.data
+    if (typeof data === "string" && data.trim()) return data
+    if (data?.message && String(data.message).trim()) return String(data.message)
+
+    if (Array.isArray(data?.errors) && data.errors.length) {
+      const first = data.errors[0]
+      if (typeof first === "string" && first.trim()) return first
+      if (first?.message && String(first.message).trim()) return String(first.message)
+    }
+  }
+
+  if ((error as any).message && String(error.message).trim()) return String(error.message)
+  return fallback
+}
+
+// size key helpers
+const makeSizeKey = (sizeName: string, groupName?: string) => {
+  const name = String(sizeName ?? "").trim()
+  const grp = String(groupName ?? "").trim()
+  return `${name}__${grp}`
+}
+const parseSizeKey = (key: string): { sizeName: string; groupName: string } => {
+  const parts = String(key ?? "").split("__")
+  const sizeName = parts[0] || ""
+  const groupName = parts.slice(1).join("__") || ""
+  return { sizeName, groupName }
+}
+const sizeKeySort = (aKey: string, bKey: string) => {
+  const a = parseSizeKey(aKey)
+  const b = parseSizeKey(bKey)
+  const cmp = sizeSort(a.sizeName, b.sizeName)
+  if (cmp !== 0) return cmp
+  return a.groupName.localeCompare(b.groupName)
+}
+
+const getArtGroupLabel = (ag: any): string => {
+  if (!ag) return ""
+  if (typeof ag === "string") return ag
+  if (typeof ag === "object") {
+    if (ag.artGroupName) return String(ag.artGroupName)
+    if (ag.name) return String(ag.name)
+  }
+  return ""
+}
+const getGroupNameFromSize = (s: any, sizeMaster: SizeMaster[]): string => {
+  if (!s) return ""
+  if (s.artGroup) return getArtGroupLabel(s.artGroup)
+  if (s.artGroupName) return String(s.artGroupName)
+  if (s.sizeGroupName) return String(s.sizeGroupName)
+  if (s.groupName) return String(s.groupName)
+  if (s.serialNo) {
+    const m = sizeMaster.find((x) => String(x.serialNo) === String(s.serialNo))
+    if (m?.artGroup) return getArtGroupLabel(m.artGroup)
+  }
+  return ""
+}
+
+// base size map from ArtDetail
+const buildBaseSizeMapsFromArt = (
+  art: ArtDetail | null | undefined,
+  sizeMaster: SizeMaster[],
+) => {
+  const baseQty: Record<string, string> = {}
+  const baseRate: Record<string, string> = {}
+  let sizes: any[] = []
+  if (Array.isArray(art?.sizes) && art!.sizes!.length) sizes = art!.sizes!
+  else if (Array.isArray(art?.sizeDetails) && art!.sizeDetails!.length) sizes = art!.sizeDetails!
+
+  sizes.forEach((s: any) => {
+    if (!s.sizeName) return
+    const groupName = getGroupNameFromSize(s, sizeMaster)
+    const key = makeSizeKey(s.sizeName, groupName)
+
+    baseQty[key] = ""
+
+    if (s.rate !== undefined && s.rate !== null && s.rate !== "") baseRate[key] = String(s.rate)
+    else baseRate[key] = ""
+  })
+
+  return { baseQty, baseRate }
+}
+
+// merge base qty/rate with overrides
+const mergeSizeRates = (
+  baseQty: Record<string, string>,
+  baseRate: Record<string, string>,
+  overrides: Record<string, string>,
+) => {
+  const keys = new Set<string>([
+    ...Object.keys(baseQty || {}),
+    ...Object.keys(baseRate || {}),
+  ])
+  const sizeQty: Record<string, string> = {}
+  const sizeRate: Record<string, string> = {}
+
+  keys.forEach((key) => {
+    const { sizeName } = parseSizeKey(key)
+
+    sizeQty[key] = baseQty && baseQty[key] !== undefined ? String(baseQty[key]) : ""
+
+    if (overrides && overrides[sizeName] !== undefined && String(overrides[sizeName]) !== "") {
+      sizeRate[key] = String(overrides[sizeName])
+    } else if (baseRate && baseRate[key] !== undefined) {
+      sizeRate[key] = String(baseRate[key])
+    } else {
+      sizeRate[key] = ""
+    }
+  })
+
+  return { sizeQty, sizeRate }
+}
+
+// Shades
 const listShades = async (): Promise<Shade[]> => {
   const res = await api.get<any[]>("/shade/list")
   const data = Array.isArray(res.data) ? res.data : []
@@ -137,9 +303,7 @@ const listShades = async (): Promise<Shade[]> => {
     .sort((a, b) => a.shadeName.localeCompare(b.shadeName))
 }
 
-/* =========================
-   Packing → Sale Rate + PerBox Sync
-========================= */
+/* ============ Packing index ============= */
 
 type PackingRateRow = {
   partyId: number | null
@@ -150,7 +314,7 @@ type PackingRateRow = {
   time: number
 }
 
-type PackingRateIndex = Record<string, PackingRateRow[]> // key = artNo (normalized)
+type PackingRateIndex = Record<string, PackingRateRow[]>
 
 let packingRateIndexPromise: Promise<PackingRateIndex> | null = null
 
@@ -250,8 +414,7 @@ const findPackingFieldInIndex = (
     return best
   }
 
-  const getField = (row: PackingRateRow | null) =>
-    row ? { ...(row[field] || {}) } : {}
+  const getField = (row: PackingRateRow | null) => (row ? { ...(row[field] || {}) } : {})
 
   let candidate: PackingRateRow | null = null
 
@@ -298,63 +461,110 @@ const getPackingSizeRates = async (filter: PackingFilter): Promise<Record<string
   return findPackingRatesInIndex(index, filter)
 }
 
-const mergeSizeRates = (
-  sizeQty: Record<string, string>,
-  sizeRate: Record<string, string>,
-  overrideRates: Record<string, string>,
-) => {
-  const nextQty = { ...(sizeQty || {}) }
-  const nextRate = { ...(sizeRate || {}) }
-  for (const [k, v] of Object.entries(overrideRates || {})) {
-    nextRate[k] = String(v ?? "")
-    if (!Object.prototype.hasOwnProperty.call(nextQty, k)) {
-      nextQty[k] = "0"
-    }
-  }
-  return { sizeQty: nextQty, sizeRate: nextRate }
-}
-
-const isFulfilled = <T,>(r: PromiseSettledResult<T>): r is PromiseFulfilledResult<T> =>
-  r.status === "fulfilled"
-
 // ================= Component =================
 const SaleOrder: React.FC = () => {
-  // Header
   const [orderNo, setOrderNo] = useState("")
   const [dated, setDated] = useState(todayStr())
   const [deliveryDate, setDeliveryDate] = useState("")
   const [partyName, setPartyName] = useState("")
   const [remarks, setRemarks] = useState("")
 
-  // Rows
   const [rows, setRows] = useState<SaleRow[]>([])
 
-  // Party + related masters
   const [partyList, setPartyList] = useState<PartyFromApi[]>([])
   const [showPartyModal, setShowPartyModal] = useState(false)
   const [partySearch, setPartySearch] = useState("")
   const [selectedParty, setSelectedParty] = useState<PartyFromApi | null>(null)
   const [agents, setAgents] = useState<Agent[]>([])
   const [transports, setTransports] = useState<Transporter[]>([])
+  const [selectedTransportSerial, setSelectedTransportSerial] = useState<string>("")
 
-  // Arts
   const [artList, setArtList] = useState<ArtListItem[]>([])
   const [showArtModal, setShowArtModal] = useState(false)
   const [artSearch, setArtSearch] = useState("")
-  const [selectedArts, setSelectedArts] = useState<Set<string>>(new Set())
+  const [selectedArts, setSelectedArts] = useState<string[]>([])
   const [currentRowId, setCurrentRowId] = useState<number | null>(null)
 
-  // Shades
   const [shades, setShades] = useState<Shade[]>([])
   const [showShadeModal, setShowShadeModal] = useState(false)
   const [shadeSearch, setShadeSearch] = useState("")
   const [shadeRowId, setShadeRowId] = useState<number | null>(null)
 
-  // List
   const [showList, setShowList] = useState(false)
   const [saleOrderList, setSaleOrderList] = useState<any[]>([])
   const [listSearch, setListSearch] = useState("")
   const [editingId, setEditingId] = useState<number | null>(null)
+
+  const [orderTotals, setOrderTotals] = useState<Record<number, OrderTotals>>({})
+
+  const [sizeMaster, setSizeMaster] = useState<SizeMaster[]>([])
+
+  // Save in progress (double-save prevention)
+  const [isSaving, setIsSaving] = useState(false)
+
+  // ---------- focus navigation support ----------
+  // rowIndex, colIndex where colIndex is a logical column index in the grid
+  const [pendingFocus, setPendingFocus] = useState<{ rowIndex: number; colIndex: number } | null>(null)
+
+  // GLOBAL ENTER => NEXT CONTROL (except grid cells & SweetAlert)
+  useEffect(() => {
+    const handleGlobalEnter = (e: any) => {
+      if (e.key !== "Enter") return
+
+      const target = e.target as HTMLElement | null
+      if (!target) return
+
+      // SweetAlert dialogs me kuch nahi karna
+      if (target.closest(".swal2-container")) return
+
+      // Grid cell (data-row-index) ke liye custom navigation already hai
+      if (target.hasAttribute("data-row-index")) return
+
+      // Textarea me Enter allow (new line)
+      if (target.tagName === "TEXTAREA") return
+
+      // Global: Enter ko Tab ki tarah treat karo
+      e.preventDefault()
+
+      const focusables = Array.from(
+        document.querySelectorAll<HTMLElement>(
+          'button, [href], input:not([type="hidden"]), select, textarea, [tabindex]:not([tabindex="-1"])',
+        ),
+      ).filter(
+        (el) =>
+          !el.hasAttribute("disabled") &&
+          !el.getAttribute("aria-hidden") &&
+          el.offsetParent !== null,
+      )
+
+      const active = document.activeElement as HTMLElement | null
+      if (!active) return
+
+      const index = focusables.indexOf(active)
+      if (index === -1) return
+
+      const next = focusables[index + 1]
+      if (!next) return
+
+      next.focus()
+      if (next instanceof HTMLInputElement || next instanceof HTMLTextAreaElement) {
+        next.select?.()
+      }
+    }
+
+    window.addEventListener("keydown", handleGlobalEnter)
+    return () => window.removeEventListener("keydown", handleGlobalEnter)
+  }, [])
+
+  // columns in grid:
+  // 0: Art No
+  // 1: Shade
+  // 2: Description
+  // 3: Peti
+  // 4: Remarks
+  // then for each sizeColumn j:
+  //   5 + j*2 -> Qty
+  //   5 + j*2 + 1 -> Rate
 
   const sizeColumns = useMemo(() => {
     const s = new Set<string>()
@@ -362,8 +572,61 @@ const SaleOrder: React.FC = () => {
       Object.keys(r.sizeQty || {}).forEach((k) => s.add(k))
       Object.keys(r.sizeRate || {}).forEach((k) => s.add(k))
     })
-    return Array.from(s).sort(sizeSort)
+    return Array.from(s).sort(sizeKeySort)
   }, [rows])
+
+  // focus effect for pendingFocus (after async actions like add/remove row or modal select)
+  useEffect(() => {
+    if (!pendingFocus) return
+    const selector = `input[data-row-index="${pendingFocus.rowIndex}"][data-col-index="${pendingFocus.colIndex}"]`
+    const el =
+      typeof document !== "undefined"
+        ? (document.querySelector<HTMLInputElement>(selector) as HTMLInputElement | null)
+        : null
+    if (el) {
+      el.focus()
+      if (typeof el.select === "function") {
+        el.select()
+      }
+    }
+    setPendingFocus(null)
+  }, [pendingFocus])
+
+  // Enter key handling for grid
+  const handleCellKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key !== "Enter") return
+    e.preventDefault()
+
+    const rowIndexAttr = e.currentTarget.getAttribute("data-row-index")
+    const colIndexAttr = e.currentTarget.getAttribute("data-col-index")
+    if (rowIndexAttr == null || colIndexAttr == null) return
+
+    const rowIndex = Number(rowIndexAttr)
+    const colIndex = Number(colIndexAttr)
+    if (Number.isNaN(rowIndex) || Number.isNaN(colIndex)) return
+
+    const totalCols = 5 + sizeColumns.length * 2
+    let nextRow = rowIndex
+    let nextCol = colIndex + 1
+
+    if (nextCol >= totalCols) {
+      nextCol = 0
+      nextRow = rowIndex + 1
+    }
+    if (nextRow >= rows.length) return
+
+    const selector = `input[data-row-index="${nextRow}"][data-col-index="${nextCol}"]`
+    const nextEl =
+      typeof document !== "undefined"
+        ? (document.querySelector<HTMLInputElement>(selector) as HTMLInputElement | null)
+        : null
+    if (nextEl) {
+      nextEl.focus()
+      if (typeof nextEl.select === "function") {
+        nextEl.select()
+      }
+    }
+  }
 
   const totalPcs = useMemo(
     () =>
@@ -384,14 +647,27 @@ const SaleOrder: React.FC = () => {
   )
 
   const filteredParties = useMemo(() => {
-    const s = partySearch.toLowerCase()
-    return partyList.filter(
-      (p) =>
+    const s = partySearch.trim().toLowerCase()
+    if (!s) return partyList
+
+    return partyList.filter((p) => {
+      const baseAgentName = p.agent?.agentName || ""
+      const code = p.agent?.serialNo
+      const masterAgentName = code
+        ? agents.find((a) => String(a.serialNo) === String(code))?.agentName || ""
+        : ""
+
+      const agentName = (baseAgentName || masterAgentName || "").toLowerCase()
+
+      return (
         (p.partyName || "").toLowerCase().includes(s) ||
         (p.serialNumber || "").toLowerCase().includes(s) ||
-        (p.gstNo || "").toLowerCase().includes(s),
-    )
-  }, [partyList, partySearch])
+        (p.gstNo || "").toLowerCase().includes(s) ||
+        (p.station || "").toLowerCase().includes(s) ||
+        agentName.includes(s)
+      )
+    })
+  }, [partyList, partySearch, agents])
 
   const filteredArts = useMemo(() => {
     const s = artSearch.toLowerCase()
@@ -421,6 +697,16 @@ const SaleOrder: React.FC = () => {
     return byMaster || selectedParty.transport?.transportName || ""
   }, [selectedParty, transports])
 
+  const selectedTransportName = useMemo(() => {
+    if (selectedTransportSerial) {
+      const t = transports.find(
+        (tr) => String(tr.serialNumber) === String(selectedTransportSerial),
+      )
+      if (t) return t.transportName
+    }
+    return partyTransportName
+  }, [selectedTransportSerial, transports, partyTransportName])
+
   // Load masters + next order no
   useEffect(() => {
     const init = async () => {
@@ -432,6 +718,7 @@ const SaleOrder: React.FC = () => {
           transportsRes,
           artsRes,
           shadesList,
+          sizesRes,
         ] = await Promise.all([
           api.get<string>("/sale-orders/next-order-no").catch(() => ({ data: "" as string })),
           api.get<PartyFromApi[]>("/party/all"),
@@ -439,6 +726,7 @@ const SaleOrder: React.FC = () => {
           api.get<Transporter[]>("/transports").catch(() => ({ data: [] as Transporter[] })),
           api.get<ArtListItem[]>("/arts"),
           listShades().catch(() => [] as Shade[]),
+          api.get<SizeMaster[]>("/sizes").catch(() => ({ data: [] as SizeMaster[] })),
         ])
 
         if (nextRes.data) setOrderNo(nextRes.data)
@@ -447,9 +735,10 @@ const SaleOrder: React.FC = () => {
         setTransports(Array.isArray(transportsRes.data) ? transportsRes.data : [])
         setArtList(Array.isArray(artsRes.data) ? artsRes.data : [])
         setShades(shadesList)
+        setSizeMaster(Array.isArray(sizesRes.data) ? sizesRes.data : [])
       } catch (e) {
         console.error(e)
-        Swal.fire("Error", "Failed to load Parties/Arts/Shades", "error")
+        Swal.fire("Error", "Failed to load Parties/Arts/Shades/Sizes", "error")
       } finally {
         if (rows.length === 0) addRow()
       }
@@ -458,51 +747,63 @@ const SaleOrder: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // Sync selectedParty when partyName changes
+  // party selection + default transport when new
   useEffect(() => {
     if (!partyName) {
       setSelectedParty(null)
+      setSelectedTransportSerial("")
       return
     }
     const found = partyList.find(
       (p) => (p.partyName || "").trim().toLowerCase() === partyName.trim().toLowerCase(),
     )
     setSelectedParty(found || null)
-  }, [partyName, partyList])
 
-  const addRow = useCallback(() => {
-    setRows((prev) => [
-      ...prev,
-      {
+    if (!editingId) {
+      if (found?.transport?.serialNumber) {
+        setSelectedTransportSerial(String(found.transport.serialNumber))
+      } else {
+        setSelectedTransportSerial("")
+      }
+    }
+  }, [partyName, partyList, editingId])
+
+  const addRow = () => {
+    setRows((prev) => {
+      const newRow: SaleRow = {
         id: Date.now() + Math.random(),
         artSerial: undefined,
         artNo: "",
         shade: "",
         description: "",
-        peti: "1",
+        peti: "",
         remarks: "",
         sizeQty: {},
         sizeRate: {},
-      },
-    ])
-  }, [])
+      }
+      const newRows = [...prev, newRow]
+      // focus Art No of the new row
+      setPendingFocus({ rowIndex: newRows.length - 1, colIndex: 0 })
+      return newRows
+    })
+  }
 
-  const removeRow = (id: number) => {
-    setRows((prev) => prev.filter((r) => r.id !== id))
+  const removeRow = (id: number, rowIndex?: number) => {
+    setRows((prev) => {
+      const index = typeof rowIndex === "number" ? rowIndex : prev.findIndex((r) => r.id === id)
+      const newRows = prev.filter((r) => r.id !== id)
+      if (newRows.length > 0 && index !== -1) {
+        const targetRow = Math.min(index, newRows.length - 1)
+        setPendingFocus({ rowIndex: targetRow, colIndex: 0 }) // focus Art No of target row
+      }
+      return newRows
+    })
   }
 
   const setArtToRow = async (rowId: number, art: ArtListItem) => {
     try {
       const { data } = await api.get<ArtDetail>(`/arts/${art.serialNumber}`)
-      const baseQty: Record<string, string> = {}
-      const baseRate: Record<string, string> = {}
-      const sizes = data?.sizes || []
-      if (sizes.length) {
-        sizes.forEach((s) => {
-          baseQty[s.sizeName] = "0"
-          baseRate[s.sizeName] = s.rate !== undefined && s.rate !== null ? String(s.rate) : ""
-        })
-      }
+      const { baseQty, baseRate } = buildBaseSizeMapsFromArt(data, sizeMaster)
 
       const currentShade = rows.find((r) => r.id === rowId)?.shade
       const pid = selectedParty?.id ?? null
@@ -546,25 +847,24 @@ const SaleOrder: React.FC = () => {
     )
   }
 
-  const handleSizeQtyChange = (id: number, size: string, value: string) => {
+  const handleSizeQtyChange = (id: number, sizeKey: string, value: string) => {
     setRows((prev) =>
       prev.map((r) => {
         if (r.id !== id) return r
-        return { ...r, sizeQty: { ...r.sizeQty, [size]: sanitizeNumber(value) } }
+        return { ...r, sizeQty: { ...r.sizeQty, [sizeKey]: sanitizeNumber(value) } }
       }),
     )
   }
 
-  const handleSizeRateChange = (id: number, size: string, value: string) => {
+  const handleSizeRateChange = (id: number, sizeKey: string, value: string) => {
     setRows((prev) =>
       prev.map((r) => {
         if (r.id !== id) return r
-        return { ...r, sizeRate: { ...r.sizeRate, [size]: sanitizeNumber(value) } }
+        return { ...r, sizeRate: { ...r.sizeRate, [sizeKey]: sanitizeNumber(value) } }
       }),
     )
   }
 
-  // Party modal
   const openPartyModal = () => {
     setPartySearch("")
     setShowPartyModal(true)
@@ -575,36 +875,71 @@ const SaleOrder: React.FC = () => {
     setShowPartyModal(false)
   }
 
-  // Art modal
   const openArtModal = (rowId?: number) => {
-    setSelectedArts(new Set())
+    setSelectedArts([])
     setArtSearch("")
     setCurrentRowId(rowId ?? null)
     setShowArtModal(true)
   }
+
   const toggleArtSelection = (serialNumber: string) => {
     setSelectedArts((prev) => {
-      const n = new Set(prev)
-      if (n.has(serialNumber)) n.delete(serialNumber)
-      else n.add(serialNumber)
-      return n
+      if (prev.includes(serialNumber)) {
+        return prev.filter((s) => s !== serialNumber)
+      }
+      return [...prev, serialNumber]
     })
   }
+
+  const removeFromSelected = (serialNumber: string) => {
+    setSelectedArts((prev) => prev.filter((s) => s !== serialNumber))
+  }
+
+  const moveSelectedUp = (serialNumber: string) => {
+    setSelectedArts((prev) => {
+      const idx = prev.indexOf(serialNumber)
+      if (idx <= 0) return prev
+      const arr = [...prev]
+      const [item] = arr.splice(idx, 1)
+      arr.splice(idx - 1, 0, item)
+      return arr
+    })
+  }
+
+  const moveSelectedDown = (serialNumber: string) => {
+    setSelectedArts((prev) => {
+      const idx = prev.indexOf(serialNumber)
+      if (idx === -1 || idx === prev.length - 1) return prev
+      const arr = [...prev]
+      const [item] = arr.splice(idx, 1)
+      arr.splice(idx + 1, 0, item)
+      return arr
+    })
+  }
+
   const selectArtForCurrentRow = async (art: ArtListItem) => {
-    if (!currentRowId) return
+    if (currentRowId == null) return
+    const rowIndex = rows.findIndex((r) => r.id === currentRowId)
     await setArtToRow(currentRowId, art)
     setShowArtModal(false)
     setCurrentRowId(null)
-    setSelectedArts(new Set())
+    setSelectedArts([])
+    // after art select, focus Shade column of that row
+    if (rowIndex >= 0) {
+      setPendingFocus({ rowIndex, colIndex: 1 })
+    }
   }
 
   const addSelectedArts = async () => {
-    if (selectedArts.size === 0) {
+    if (selectedArts.length === 0) {
       Swal.fire("Warning", "Please select at least one Art", "warning")
       return
     }
     try {
-      const chosenArts = artList.filter((a) => selectedArts.has(a.serialNumber))
+      const artMap = new Map(artList.map((a) => [a.serialNumber, a] as const))
+      const chosenArts: ArtListItem[] = selectedArts
+        .map((sn) => artMap.get(sn))
+        .filter((a): a is ArtListItem => Boolean(a))
 
       const artDet = await Promise.allSettled(
         chosenArts.map((a) => api.get<ArtDetail>(`/arts/${a.serialNumber}`)),
@@ -615,15 +950,14 @@ const SaleOrder: React.FC = () => {
 
       const preparedRows: SaleRow[] = chosenArts.map((art, idx) => {
         const res = artDet[idx]
-        const sizeQty: Record<string, string> = {}
-        const sizeRate: Record<string, string> = {}
+
+        let baseQty: Record<string, string> = {}
+        let baseRate: Record<string, string> = {}
 
         if (isFulfilled(res)) {
-          const sizes = res.value.data?.sizes || []
-          sizes.forEach((s) => {
-            sizeQty[s.sizeName] = "0"
-            sizeRate[s.sizeName] = s.rate !== undefined && s.rate !== null ? String(s.rate) : ""
-          })
+          const built = buildBaseSizeMapsFromArt(res.value.data, sizeMaster)
+          baseQty = built.baseQty
+          baseRate = built.baseRate
         }
 
         const over = findPackingRatesInIndex(index, {
@@ -631,7 +965,7 @@ const SaleOrder: React.FC = () => {
           partyName,
           artNo: art.artNo,
         })
-        const merged = mergeSizeRates(sizeQty, sizeRate, over)
+        const merged = mergeSizeRates(baseQty, baseRate, over)
 
         return {
           id: Date.now() + Math.random(),
@@ -639,19 +973,20 @@ const SaleOrder: React.FC = () => {
           artNo: art.artNo,
           shade: "",
           description: art.artName || "",
-          peti: "1",
+          peti: "",
           remarks: "",
           sizeQty: merged.sizeQty,
           sizeRate: merged.sizeRate,
         }
       })
 
-      if (currentRowId) {
+      if (currentRowId != null) {
         const [first, ...rest] = preparedRows
         if (!first) {
           Swal.fire("Info", "No art selected", "info")
           return
         }
+        const rowIndex = rows.findIndex((r) => r.id === currentRowId)
         setRows((prev) => {
           const idx = prev.findIndex((r) => r.id === currentRowId)
           if (idx === -1) return prev
@@ -663,7 +998,6 @@ const SaleOrder: React.FC = () => {
             sizeQty: first.sizeQty,
             sizeRate: first.sizeRate,
             shade: "",
-            peti: "1",
             remarks: "",
           }
           const before = prev.slice(0, idx)
@@ -671,6 +1005,10 @@ const SaleOrder: React.FC = () => {
           return [...before, updatedCurrent, ...rest, ...after]
         })
         Swal.fire("Success", `Applied ${chosenArts.length} art(s)`, "success")
+        if (rowIndex >= 0) {
+          // focus Shade of the updated current row
+          setPendingFocus({ rowIndex, colIndex: 1 })
+        }
       } else {
         setRows((prev) => {
           const nonEmpty = prev.filter((r) => r.artNo.trim() !== "")
@@ -680,14 +1018,13 @@ const SaleOrder: React.FC = () => {
       }
       setShowArtModal(false)
       setCurrentRowId(null)
-      setSelectedArts(new Set())
+      setSelectedArts([])
     } catch (e) {
       console.error(e)
       Swal.fire("Error", "Failed to add selected arts", "error")
     }
   }
 
-  // Shade modal
   const openShadeModal = (rowId: number) => {
     setShadeRowId(rowId)
     setShadeSearch("")
@@ -695,7 +1032,7 @@ const SaleOrder: React.FC = () => {
   }
 
   const selectShadeForCurrentRow = async (shade: Shade) => {
-    if (!shadeRowId) return
+    if (shadeRowId == null) return
     const row = rows.find((r) => r.id === shadeRowId)
 
     setRows((prev) =>
@@ -713,184 +1050,41 @@ const SaleOrder: React.FC = () => {
         artNo: row.artNo,
         shadeName: shade.shadeName,
       })
+
       if (Object.keys(over).length) {
         setRows((prev) =>
-          prev.map((r) =>
-            r.id === row.id
-              ? {
-                  ...r,
-                  ...mergeSizeRates(r.sizeQty || {}, r.sizeRate || {}, over),
-                }
-              : r,
-          ),
+          prev.map((r) => {
+            if (r.id !== row.id) return r
+            const newRate: Record<string, string> = { ...(r.sizeRate || {}) }
+            Object.keys(newRate).forEach((key) => {
+              const { sizeName } = parseSizeKey(key)
+              if (over[sizeName] !== undefined && String(over[sizeName]) !== "") {
+                newRate[key] = String(over[sizeName])
+              }
+            })
+            return { ...r, sizeRate: newRate }
+          }),
         )
       }
     }
   }
 
-  const buildPayload = (): SaleOrderSaveDto => ({
-    orderNo,
-    dated,
-    deliveryDate: deliveryDate || null,
-    partyId: selectedParty?.id ?? null,
-    partyName,
-    remarks,
-    rows: rows
-      .filter((r) => r.artNo.trim() !== "")
-      .map((r) => ({
-        artSerial: r.artSerial,
-        artNo: r.artNo,
-        shade: r.shade,
-        description: r.description,
-        peti: r.peti || "1",
-        remarks: r.remarks,
-        sizes: r.sizeQty,
-        sizesQty: r.sizeQty,
-        sizesRate: r.sizeRate,
-      })),
-  })
-
-  const handleSave = async () => {
-    if (!partyName) {
-      Swal.fire("Error", "Please select Party", "error")
-      return
-    }
-    const meaningfulRows = rows.filter((r) => r.artNo.trim() !== "")
-    if (meaningfulRows.length === 0) {
-      Swal.fire("Error", "Please add at least one Art", "error")
-      return
-    }
-
-    const payload = buildPayload()
-
-    try {
-      if (editingId) {
-        await api.put(`/sale-orders/${editingId}`, payload)
-        Swal.fire("Success", "Sale Order updated!", "success")
-        setEditingId(null)
-      } else {
-        await api.post("/sale-orders", payload)
-        Swal.fire("Success", "Sale Order saved!", "success")
-      }
-
-      try {
-        const { data } = await api.get<string>("/sale-orders/next-order-no")
-        if (data) setOrderNo(data)
-      } catch {}
-
-      resetForm(false)
-    } catch (e: any) {
-      Swal.fire("Error", e?.response?.data?.message || "Failed to save", "error")
-    }
-  }
-
-  const openList = async () => {
-    try {
-      const { data } = await api.get<any[]>("/sale-orders")
-      setSaleOrderList(Array.isArray(data) ? data : [])
-      setShowList(true)
-    } catch {
-      setSaleOrderList([])
-      setShowList(true)
-    }
-  }
-
-  const handleEdit = async (id: number) => {
-    try {
-      const { data } = await api.get(`/sale-orders/${id}`)
-      setOrderNo(data.orderNo || "")
-      setDated(data.dated || todayStr())
-      setDeliveryDate(data.deliveryDate || "")
-      setPartyName(data.partyName || "")
-      setRemarks(data.remarks || "")
-      setEditingId(data.id || id)
-
-      const mapped: SaleRow[] = (data.rows || []).map((r: any, i: number) => {
-        const qtyMap: Record<string, string> = {}
-        const rateMap: Record<string, string> = {}
-        for (const sd of r.sizeDetails || []) {
-          if (!sd.sizeName) continue
-          qtyMap[sd.sizeName] = sd.qty != null ? String(sd.qty) : ""
-          rateMap[sd.sizeName] = sd.rate != null ? String(sd.rate) : ""
-        }
-        return {
-          id: Date.now() + i,
-          artSerial: r.artSerial,
-          artNo: r.artNo || "",
-          shade: r.shadeName || "",
-          description: r.description || "",
-          peti: String(r.peti ?? "1"),
-          remarks: r.remarks || "",
-          sizeQty: qtyMap,
-          sizeRate: rateMap,
-        }
-      })
-      setRows(mapped.length ? mapped : [])
-      setShowList(false)
-    } catch {
-      Swal.fire("Error", "Failed to load record", "error")
-    }
-  }
-
-  const handleDelete = async (id: number) => {
-    const result = await Swal.fire({
-      title: "Delete?",
-      text: "This will delete the record permanently",
-      icon: "warning",
-      showCancelButton: true,
-      confirmButtonText: "Yes, delete it!",
-      confirmButtonColor: "#d33",
-    })
-    if (!result.isConfirmed) return
-    try {
-      await api.delete(`/sale-orders/${id}`)
-      Swal.fire("Deleted!", "Record deleted successfully", "success")
-      openList()
-      try {
-        const { data } = await api.get<string>("/sale-orders/next-order-no")
-        if (data) setOrderNo(data)
-      } catch {}
-    } catch {
-      Swal.fire("Error", "Failed to delete", "error")
-    }
-  }
-
-  const resetForm = (regen = true) => {
-    setRows([])
-    addRow()
-    setPartyName("")
-    setSelectedParty(null)
-    setDeliveryDate("")
-    setRemarks("")
-    setEditingId(null)
-    setDated(todayStr())
-    if (regen) {
-      ;(async () => {
-        try {
-          const { data } = await api.get<string>("/sale-orders/next-order-no")
-          if (data) setOrderNo(data)
-        } catch {}
-      })()
-    }
-  }
-
-  // ----------- Print & PDF (common content) -----------
+  // ========== Print / PDF content ==========
   const buildPrintContent = async (): Promise<{ style: string; bodyContent: string }> => {
     const index = await getPackingRateIndex()
     const printableRows = rows.filter((r) => (r.artNo || "").trim() !== "")
 
-    const grouped: Record<string, SaleRow[]> = {}
+    const grouped = new Map<string, SaleRow[]>()
     printableRows.forEach((r) => {
-      const key = r.artNo
-      if (!grouped[key]) grouped[key] = []
-      grouped[key].push(r)
+      const key = (r.artNo || "").trim()
+      if (!key) return
+      if (!grouped.has(key)) grouped.set(key, [])
+      grouped.get(key)!.push(r)
     })
 
-    // Overall Total Pcs = sum of (peti * perBox * qty) for all arts
     let overallTotalPcsFromPB = 0
 
-    const groupsHtml = Object.entries(grouped)
-      .sort(([a], [b]) => a.localeCompare(b))
+    const groupsHtml = Array.from(grouped.entries())
       .map(([artNo, grpRows]) => {
         const sizeSet = new Set<string>()
         grpRows.forEach((r) => {
@@ -899,29 +1093,20 @@ const SaleOrder: React.FC = () => {
         })
         const allSizes = Array.from(sizeSet)
 
-        // Only those sizes where any row has qty > 0
         const sizeCols = allSizes
-          .filter((sizeName) =>
-            grpRows.some((r) => toNum(r.sizeQty?.[sizeName] || 0) > 0),
+          .filter((key) =>
+            grpRows.some((r) => toNum(r.sizeQty?.[key] || 0) > 0),
           )
-          .sort(sizeSort)
+          .sort(sizeKeySort)
 
-        // Header (two rows)
-        const sizeHeadRow1 = sizeCols
-          .map((s) => `<th colspan="3">${s}</th>`)
+        const sizeHeadRow = sizeCols
+          .map((k) => {
+            const { sizeName, groupName } = parseSizeKey(k)
+            const label = groupName ? `${sizeName} (${groupName})` : sizeName
+            return `<th class="size-head"><div class="grid-cell"><span>${label}</span></div></th>`
+          })
           .join("")
 
-        const sizeHeadRow2 = sizeCols
-          .map(
-            () => `
-              <th>Per/Box</th>
-              <th>Qty</th>
-              <th>Rate</th>
-            `,
-          )
-          .join("")
-
-        // Art Total Pcs (sum of peti * perBox * qty)
         let groupTotalPcsFromPB = 0
 
         const bodyRows = grpRows
@@ -935,47 +1120,56 @@ const SaleOrder: React.FC = () => {
 
             const rowPetiNum = toNum(r.peti || "1") || 1
 
+            const labelCol = `
+              <td class="inner-wrapper">
+                <table class="inner-grid inner-label">
+                  <tr><td>Box</td></tr>
+                  <tr><td>Rate</td></tr>
+                  <tr><td>Per/Box</td></tr>
+                </table>
+              </td>
+            `
+
             const sizeCells = sizeCols
-              .map((s) => {
-                const qtyRaw = r.sizeQty[s] ?? ""
+              .map((key) => {
+                const { sizeName } = parseSizeKey(key)
+
+                const qtyRaw = cleanNumStr(r.sizeQty[key] ?? "")
                 const qtyNum = toNum(qtyRaw)
 
-                const pbRaw = perBoxMap[s] ?? ""
+                const pbRaw = cleanNumStr(perBoxMap[sizeName] ?? "")
                 const pbNum = toNum(pbRaw)
 
-                // Add to art total pcs: peti * perBox * qty
+                const rtRaw = cleanNumStr(r.sizeRate[key] ?? "")
+
                 groupTotalPcsFromPB += rowPetiNum * pbNum * qtyNum
 
-                const displayQty =
-                  qtyRaw.trim() === "" || qtyNum === 0 ? "" : qtyRaw
-                const displayPB =
-                  pbRaw.trim() === "" || pbNum === 0 ? "" : pbRaw
-
-                const rtRaw = r.sizeRate[s] || ""
-                const displayRate = rtRaw ? "₹" + rtRaw : ""
-
                 return `
-                  <td>${displayPB}</td>
-                  <td>${displayQty}</td>
-                  <td>${displayRate}</td>
+                  <td class="inner-wrapper">
+                    <table class="inner-grid">
+                      <tr><td>${qtyRaw}</td></tr>
+                      <tr><td>${rtRaw}</td></tr>
+                      <tr><td>${pbRaw}</td></tr>
+                    </table>
+                  </td>
                 `
               })
               .join("")
 
-            // Total Box for row (qty sum * peti)
             const totalBoxForRow =
               Object.values(r.sizeQty || {}).reduce((s, v) => s + toNum(v), 0) *
               rowPetiNum
 
             return `
               <tr>
-                <td>${i + 1}</td>
-                <td>${r.shade || ""}</td>
-                <td>${r.description || ""}</td>
-                <td>${r.peti || "1"}</td>
-                <td>${r.remarks || ""}</td>
+                <td><div class="grid-cell"><span>${i + 1}</span></div></td>
+                <td><div class="grid-cell"><span>${cleanNumStr(r.shade)}</span></div></td>
+                <td><div class="grid-cell grid-cell-left"><span>${cleanNumStr(r.description)}</span></div></td>
+                <td><div class="grid-cell"><span>${cleanNumStr(r.peti)}</span></div></td>
+                <td><div class="grid-cell grid-cell-left"><span>${cleanNumStr(r.remarks)}</span></div></td>
+                ${labelCol}
                 ${sizeCells}
-                <td>${totalBoxForRow}</td>
+                <td><div class="grid-cell"><span>${totalBoxForRow}</span></div></td>
               </tr>
             `
           })
@@ -994,35 +1188,35 @@ const SaleOrder: React.FC = () => {
           return sum + perRow
         }, 0)
 
-        // add art total pcs to overall
         overallTotalPcsFromPB += groupTotalPcsFromPB
 
         const artName = grpRows.find((r) => r.description)?.description || ""
 
         return `
           <div class="group">
-            <div class="group-title">Art: ${artNo}${artName ? ` — ${artName}` : ""}</div>
+            <div class="group-header">
+              <span class="group-title">ART: ${artNo}</span>
+              ${artName ? `<span class="group-subtitle">${artName}</span>` : ""}
+            </div>
             <table class="grid-table">
               <thead>
                 <tr>
-                  <th rowspan="2">#</th>
-                  <th rowspan="2">Shade</th>
-                  <th rowspan="2">Description</th>
-                  <th rowspan="2">Peti</th>
-                  <th rowspan="2">Remarks</th>
-                  ${sizeHeadRow1}
-                  <th rowspan="2">Total Box</th>
-                </tr>
-                <tr>
-                  ${sizeHeadRow2}
+                  <th><div class="grid-cell"><span>#</span></div></th>
+                  <th><div class="grid-cell"><span>Shade</span></div></th>
+                  <th class="th-left"><div class="grid-cell grid-cell-left"><span>Description</span></div></th>
+                  <th><div class="grid-cell"><span>Peti</span></div></th>
+                  <th class="th-left"><div class="grid-cell grid-cell-left"><span>Remarks</span></div></th>
+                  <th><div class="grid-cell"><span></span></div></th>
+                  ${sizeHeadRow}
+                  <th><div class="grid-cell"><span>Total Box</span></div></th>
                 </tr>
               </thead>
               <tbody>${bodyRows}</tbody>
             </table>
-            <div class="totals">
-              <span>Art Total Peti: ${groupTotalPeti}</span>
-              <span>Art Total Box: ${groupTotalBox}</span>
-              <span>Art Total Pcs: ${groupTotalPcsFromPB}</span>
+            <div class="group-totals">
+              <span><strong>Art Total Peti:</strong> ${groupTotalPeti}</span>
+              <span><strong>Art Total Box:</strong> ${groupTotalBox}</span>
+              <span><strong>Art Total Pcs:</strong> ${groupTotalPcsFromPB}</span>
             </div>
           </div>
         `
@@ -1030,163 +1224,296 @@ const SaleOrder: React.FC = () => {
       .join("")
 
     const style = `
-      * {
-        box-sizing: border-box;
+      * { box-sizing: border-box; }
+      @page { margin: 8mm; }
+      @media print {
+        .group,
+        .grid-table,
+        .grid-table tr,
+        .grid-table thead,
+        .grid-table tbody {
+          page-break-inside: avoid;
+          break-inside: avoid;
+        }
       }
       html, body {
         margin: 0;
         padding: 0;
         font-family: "Segoe UI", Arial, sans-serif;
-        background: #f9fafb;
-        color: #111827;
-        font-size: 11px;
-      }
-      @media print {
-        @page { margin: 8mm 6mm; }
-      }
-      .print-wrapper {
-        max-width: 900px;
-        margin: 12px auto 20px;
         background: #ffffff;
-        border-radius: 8px;
-        padding: 16px 20px 24px;
-        box-shadow: 0 10px 25px rgba(15,23,42,0.12);
-        border: 1px solid #e5e7eb;
-      }
-      h2 {
-        text-align: center;
-        margin: 0 0 6px;
-        font-size: 22px;
-        font-weight: 700;
-        letter-spacing: 0.6px;
-        color: #111827;
-      }
-      .header-meta {
-        text-align: center;
+        color: #000000;
         font-size: 11px;
-        margin-bottom: 6px;
-        color: #1f2937;
       }
-      .header-meta .label {
-        font-weight: 600;
+
+      .print-page {
+        padding: 8px;
       }
-      .header-grid {
-        display: flex;
-        flex-wrap: wrap;
-        justify-content: center;
-        gap: 4px 18px;
-        font-size: 11px;
-        margin-bottom: 6px;
-        color: #111827;
-      }
-      .header-grid div {
-        white-space: nowrap;
-      }
-      .header-grid .label {
-        font-weight: 600;
-      }
-      .remarks-line {
-        font-size: 11px;
-        margin: 4px 0 10px;
-        text-align: center;
-        color: #111827;
-      }
-      .remarks-line .label {
-        font-weight: 600;
-      }
-      .group {
-        margin: 8px 0 14px;
-        page-break-inside: avoid;
-      }
-      .group-title {
-        font-size: 13px;
-        font-weight: 700;
-        margin: 8px 0 4px;
-        padding-bottom: 2px;
-        border-bottom: 1px solid #e5e7eb;
-        color: #111827;
-      }
-      .grid-table {
-        border-collapse: collapse;
+
+      .print-wrapper {
         width: 100%;
-        margin-top: 2px;
+        max-width: 780px;
+        margin: 0 auto;
+        padding: 12px 16px 14px;
+        border-radius: 8px;
+        border: 1.2px solid #000;
+        background: #ffffff;
       }
+
+      .brand-title {
+        text-align: center;
+        font-size: 18px;
+        font-weight: 900;
+        margin: 0 0 2px;
+        letter-spacing: 1px;
+      }
+
+      .header-meta-row {
+        text-align: center;
+        font-size: 11px;
+        margin-bottom: 4px;
+        font-weight: 700;
+      }
+      .header-meta-row .label { font-weight: 800; }
+      .header-meta-row .sep { margin: 0 8px; color: #000; }
+
+      .header-bar {
+        text-align: center;
+        font-size: 10.5px;
+        margin-bottom: 6px;
+        padding: 4px 10px;
+        border-radius: 999px;
+        border: 1px solid #000;
+        font-weight: 600;
+        background: #ffffff;
+      }
+      .header-bar .label { font-weight: 800; }
+      .header-bar .sep { margin: 0 10px; }
+
+      .remarks-line {
+        text-align: left;
+        font-size: 10px;
+        margin: 2px 0 6px;
+        padding: 3px 8px 4px;
+        border-radius: 4px;
+        border: 0.8px dashed #000;
+        font-weight: 600;
+        background: #ffffff;
+      }
+      .remarks-line .label { font-weight: 800; }
+
+      .group {
+        margin: 8px 0 10px;
+        padding: 5px 5px 7px;
+        border-radius: 4px;
+        border: 0.9px solid #000;
+        page-break-inside: avoid;
+        break-inside: avoid;
+        background: #ffffff;
+      }
+
+      .group-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+        margin-bottom: 3px;
+        padding: 2px 4px 3px;
+        border-radius: 3px;
+        border: 0.8px solid #000;
+        background: #ffffff;
+      }
+
+      .group-title {
+        font-size: 10.5px;
+        font-weight: 800;
+      }
+      .group-subtitle {
+        font-size: 10px;
+        font-weight: 600;
+        color: #000;
+      }
+
+      .grid-table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 3px;
+        font-size: 9px;
+        background: #ffffff;
+      }
+
       .grid-table th,
       .grid-table td {
-        border: 1px solid #d1d5db;
-        padding: 3px 4px;
+        border: 0.7px solid #000;
+        padding: 0;
+        vertical-align: middle;
+        background: #ffffff;
+      }
+
+      .grid-cell {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 3px 2px;
+        min-height: 18px;
+        line-height: 1.25;
+        width: 100%;
+        box-sizing: border-box;
+        text-align: center;
+      }
+
+      .grid-cell-left {
+        justify-content: flex-start;
+        text-align: left;
+      }
+
+      .grid-table thead th {
+        font-weight: 700;
+        background: #ffffff;
+      }
+
+      .grid-table thead th.th-left .grid-cell {
+        justify-content: flex-start;
+      }
+
+      .inner-wrapper {
+        padding: 0;
+      }
+
+      .inner-grid {
+        width: 100%;
+        border-collapse: collapse;
+        background: #ffffff;
+      }
+
+      .inner-grid td {
+        border-bottom: 0.7px solid #000;
         text-align: center;
         font-size: 9px;
-        vertical-align: middle;
-        color: #111827;
+        padding: 3px 0;
+        height: 16px;
+        background: #ffffff;
       }
-      .grid-table th {
-        background: #e5edff;
-        font-weight: 600;
+
+      .inner-grid tr:last-child td {
+        border-bottom: none;
       }
-      .grid-table tbody tr:nth-child(even) td {
-        background: #f9fafb;
+
+      .inner-label td {
+        font-weight: 700;
+        background: #ffffff;
       }
-      .totals {
-        margin: 4px 0 6px;
-        font-weight: 600;
+
+      .group-totals {
+        margin-top: 4px;
+        padding: 3px 6px 1px;
+        border-top: 0.8px solid #000;
+        font-size: 10px;
+        text-align: right;
+        background: #ffffff;
+      }
+      .group-totals span + span {
+        margin-left: 12px;
+      }
+
+      .overall-totals {
+        margin-top: 8px;
+        padding: 5px 8px;
+        border-radius: 4px;
+        border: 1px solid #000;
+        font-size: 10px;
+        text-align: right;
+        font-weight: 700;
+        background: #ffffff;
+      }
+      .overall-row {
         display: flex;
         justify-content: flex-end;
         gap: 18px;
-        font-size: 11px;
-        color: #111827;
       }
-      .overall-totals {
+
+      .signature-row {
         margin-top: 10px;
-        padding: 8px 10px;
-        border-radius: 6px;
-        background: #eef2ff;
-        border: 1px solid #c7d2fe;
-        font-weight: 700;
-        text-align: right;
-        font-size: 11px;
-        color: #111827;
-        page-break-inside: avoid;
+        display: flex;
+        gap: 24px;
+        justify-content: space-between;
+        font-size: 9px;
+        background: #ffffff;
+      }
+      .signature-box {
+        flex: 1;
+        text-align: center;
+        padding-top: 16px;
+        border-top: 0.8px dashed #000;
+        font-weight: 600;
       }
     `
 
+    const groupsSection =
+      groupsHtml ||
+      `<div class="group" style="text-align:center;font-size:9px;">No items added</div>`
+
     const bodyContent = `
-      <div class="print-wrapper">
-        <h2>Sale Order</h2>
+      <div class="print-page">
+        <div class="print-wrapper">
+          <div class="brand-title">SALE ORDER</div>
 
-        <div class="header-meta">
-          <span class="label">Order No:</span> ${orderNo || "-"}
-          &nbsp;&nbsp;|&nbsp;&nbsp;
-          <span class="label">Date:</span> ${dated || "-"}
-        </div>
+          <div class="header-meta-row">
+            <span class="label">Order No:</span> ${orderNo || "-"}
+            <span class="sep">|</span>
+            <span class="label">Date:</span> ${dated || "-"}
+          </div>
 
-        <div class="header-grid">
-          <div><span class="label">Party:</span> ${partyName || "-"}</div>
-          ${selectedParty?.station ? `<div><span class="label">Station:</span> ${selectedParty.station}</div>` : ""}
-          ${partyAgentName ? `<div><span class="label">Account By:</span> ${partyAgentName}</div>` : ""}
-          ${partyTransportName ? `<div><span class="label">Transport:</span> ${partyTransportName}</div>` : ""}
-          ${deliveryDate ? `<div><span class="label">Delivery:</span> ${deliveryDate}</div>` : ""}
-        </div>
+          <div class="header-bar">
+            <span class="label">Party:</span> ${partyName || "-"}
+            ${
+              selectedParty?.station
+                ? `<span class="sep">|</span><span class="label">Station:</span> ${selectedParty.station}`
+                : ""
+            }
+            ${
+              partyAgentName
+                ? `<span class="sep">|</span><span class="label">Account By:</span> ${partyAgentName}`
+                : ""
+            }
+            ${
+              selectedTransportName
+                ? `<span class="sep">|</span><span class="label">Transport:</span> ${selectedTransportName}`
+                : ""
+            }
+            ${
+              deliveryDate
+                ? `<span class="sep">|</span><span class="label">Delivery:</span> ${deliveryDate}`
+                : ""
+            }
+          </div>
 
-        ${
-          remarks
-            ? `<div class="remarks-line"><span class="label">Remarks:</span> ${remarks}</div>`
-            : ""
-        }
+          ${
+            remarks
+              ? `<div class="remarks-line"><span class="label">Remarks:</span> ${remarks}</div>`
+              : ""
+          }
 
-        ${groupsHtml}
+          ${groupsSection}
 
-        <div class="overall-totals">
-          <div>Overall Total Peti: ${totalPeti}</div>
-          <div>Overall Total Box: ${totalPcs}</div>
-          <div>Overall Total Pcs: ${overallTotalPcsFromPB}</div>
+          <div class="overall-totals">
+            <div class="overall-row">
+              <span><strong>Total Peti:</strong> ${totalPeti}</span>
+              <span><strong>Total Box:</strong> ${totalPcs}</span>
+              <span><strong>Total Pcs:</strong> ${overallTotalPcsFromPB}</span>
+            </div>
+          </div>
+
+          <div class="signature-row">
+            <div class="signature-box">Prepared By</div>
+            <div class="signature-box">Checked By</div>
+            <div class="signature-box">For ${partyName || "Party"}</div>
+          </div>
         </div>
       </div>
     `
 
     return { style, bodyContent }
   }
- //Handle Print logic
+
   const handlePrint = async () => {
     const printWindow = window.open("", "_blank")
     if (!printWindow) return
@@ -1212,118 +1539,544 @@ const SaleOrder: React.FC = () => {
     printWindow.document.close()
   }
 
+  // ================== PDF EXPORT ==================
   const handleExportPdf = async () => {
-    const { style, bodyContent } = await buildPrintContent()
-
-    const container = document.createElement("div")
-    container.id = "so-pdf-root"
-
-    const styleEl = document.createElement("style")
-    styleEl.innerHTML = style
-    container.appendChild(styleEl)
-
-    const contentEl = document.createElement("div")
-    contentEl.innerHTML = bodyContent
-    container.appendChild(contentEl)
-
-    container.style.position = "fixed"
-    container.style.inset = "0"
-    container.style.overflow = "auto"
-    container.style.background = "#f9fafb"
-    container.style.zIndex = "9999"
-
-    document.body.appendChild(container)
-
     try {
-      const target = (contentEl.querySelector(".print-wrapper") as HTMLElement) || contentEl
+      const { style, bodyContent } = await buildPrintContent()
 
-      const canvas = await html2canvas(target, {
-        scale: 2,
-        useCORS: true,
-        scrollY: -window.scrollY,
+      const container = document.createElement("div")
+      container.style.position = "fixed"
+      container.style.left = "-10000px"
+      container.style.top = "0"
+      container.style.background = "#ffffff"
+      container.innerHTML = `<style>${style}</style>${bodyContent}`
+      document.body.appendChild(container)
+
+      await new Promise((res) => setTimeout(res, 200))
+
+      const pdf: any = new jsPDF("p", "pt", "a4")
+      const pageWidth = pdf.internal.pageSize.getWidth()
+      const pageHeight = pdf.internal.pageSize.getHeight()
+      const margin = 20
+      const imgWidth = pageWidth - margin * 2
+      const maxContentHeightPx = pageHeight - margin * 2 - 8
+
+      const wrapper = container.querySelector(".print-wrapper") as HTMLElement | null
+      if (!wrapper) throw new Error("print-wrapper not found")
+
+      wrapper.style.width = `${imgWidth}px`
+
+      const allChildren = Array.from(wrapper.children) as HTMLElement[]
+      const headerNodes: HTMLElement[] = []
+      const groupNodes: HTMLElement[] = []
+      let totalsNode: HTMLElement | null = null
+      let signatureNode: HTMLElement | null = null
+
+      allChildren.forEach((child) => {
+        if (child.classList.contains("group")) groupNodes.push(child)
+        else if (child.classList.contains("overall-totals")) totalsNode = child
+        else if (child.classList.contains("signature-row")) signatureNode = child
+        else headerNodes.push(child)
       })
 
-      const imgData = canvas.toDataURL("image/jpeg", 0.98)
-      const pdf = new jsPDF("p", "mm", "a4")
-      const pdfWidth = pdf.internal.pageSize.getWidth()
-      const pdfHeight = pdf.internal.pageSize.getHeight()
+      let pageIndex = 0
+      let groupIdx = 0
 
-      const imgWidth = pdfWidth
-      const imgHeight = (canvas.height * imgWidth) / canvas.width
+      while (groupIdx < groupNodes.length) {
+        wrapper.innerHTML = ""
 
-      let heightLeft = imgHeight
-      let position = 0
+        if (pageIndex === 0) {
+          headerNodes.forEach((n) => wrapper.appendChild(n.cloneNode(true) as HTMLElement))
+        }
 
-      pdf.addImage(imgData, "JPEG", 0, position, imgWidth, imgHeight)
-      heightLeft -= pdfHeight
+        let pageHasGroup = false
 
-      while (heightLeft > 0) {
-        position = heightLeft - imgHeight
-        pdf.addPage()
-        pdf.addImage(imgData, "JPEG", 0, position, imgWidth, imgHeight)
-        heightLeft -= pdfHeight
+        while (groupIdx < groupNodes.length) {
+          const grpClone = groupNodes[groupIdx].cloneNode(true) as HTMLElement
+          wrapper.appendChild(grpClone)
+
+          const h = wrapper.scrollHeight
+
+          if (h > maxContentHeightPx && pageHasGroup) {
+            wrapper.removeChild(grpClone)
+            break
+          }
+
+          pageHasGroup = true
+          groupIdx++
+
+          if (h > maxContentHeightPx) {
+            break
+          }
+        }
+
+        const isLastPage = groupIdx >= groupNodes.length
+        if (isLastPage) {
+          if (totalsNode) wrapper.appendChild(totalsNode.cloneNode(true) as HTMLElement)
+          if (signatureNode) wrapper.appendChild(signatureNode.cloneNode(true) as HTMLElement)
+        }
+
+        await new Promise((res) => setTimeout(res, 50))
+
+        const canvas = await html2canvas(wrapper, {
+          scale: 2,
+          useCORS: true,
+        })
+
+        const imgData = canvas.toDataURL("image/png")
+        const imgHeight = (canvas.height * imgWidth) / canvas.width
+
+        if (pageIndex === 0) {
+          pdf.addImage(imgData, "PNG", margin, margin, imgWidth, imgHeight)
+        } else {
+          pdf.addPage()
+          pdf.addImage(imgData, "PNG", margin, margin, imgWidth, imgHeight)
+        }
+
+        pageIndex++
       }
 
       pdf.save(`SaleOrder-${orderNo || "SO"}.pdf`)
-    } catch (e) {
-      console.error("PDF export error", e)
-    } finally {
       document.body.removeChild(container)
+    } catch (err) {
+      console.error("PDF export failed", err)
+      Swal.fire("Error", "Failed to export PDF", "error")
     }
   }
 
-  const filteredList = Array.isArray(saleOrderList)
-    ? saleOrderList.filter((x) => {
-        const s = listSearch.toLowerCase()
-        return (
-          !listSearch ||
-          (x.orderNo || "").toLowerCase().includes(s) ||
-          (x.partyName || "").toLowerCase().includes(s)
-        )
-      })
-    : []
+  // LIST FILTER
+  const filteredList = useMemo(() => {
+    const base = Array.isArray(saleOrderList) ? saleOrderList : []
+    const sorted = [...base].sort((a, b) =>
+      String(a.orderNo || "").localeCompare(String(b.orderNo || "")),
+    )
 
+    const s = listSearch.trim().toLowerCase()
+    if (!s) return sorted
+
+    return sorted.filter((x) => {
+      const orderNoStr = String(x.orderNo || "").toLowerCase()
+      const partyNameStr = String(x.partyName || "").toLowerCase()
+
+      const party = partyList.find(
+        (p) =>
+          normStr(p.partyName) === normStr(x.partyName),
+      )
+
+      const station = String(party?.station || "").toLowerCase()
+
+      const baseAgentName = party?.agent?.agentName || ""
+      const code = party?.agent?.serialNo
+      const masterAgentName =
+        code && agents.length
+          ? agents.find((a) => String(a.serialNo) === String(code))?.agentName || ""
+          : ""
+      const agentName = String(baseAgentName || masterAgentName || "").toLowerCase()
+
+      return (
+        orderNoStr.includes(s) ||
+        partyNameStr.includes(s) ||
+        station.includes(s) ||
+        agentName.includes(s)
+      )
+    })
+  }, [saleOrderList, listSearch, partyList, agents])
+
+  // packing sync on party change
   useEffect(() => {
+    if (!partyName) return
+
     const sync = async () => {
-      if (!partyName || rows.length === 0) return
       const index = await getPackingRateIndex()
       const pid = selectedParty?.id ?? null
 
-      const updates: { id: number; sizeQty: Record<string, string>; sizeRate: Record<string, string> }[] = []
+      setRows((prevRows) => {
+        let anyChanged = false
 
-      for (const r of rows) {
-        if (!r.artNo) continue
-        const over = findPackingRatesInIndex(index, {
-          partyId: pid,
-          partyName,
-          artNo: r.artNo,
-          shadeName: r.shade || undefined,
+        const updatedRows = prevRows.map((r) => {
+          if (!r.artNo) return r
+
+          const over = findPackingRatesInIndex(index, {
+            partyId: pid,
+            partyName,
+            artNo: r.artNo,
+            shadeName: r.shade || undefined,
+          })
+          if (!Object.keys(over).length) return r
+
+          const currentRate = r.sizeRate || {}
+          const newRate: Record<string, string> = { ...currentRate }
+          let changed = false
+
+          Object.keys(newRate).forEach((key) => {
+            const { sizeName } = parseSizeKey(key)
+            if (over[sizeName] !== undefined && String(over[sizeName]) !== "") {
+              const newVal = String(over[sizeName])
+              if (newRate[key] !== newVal) {
+                newRate[key] = newVal
+                changed = true
+              }
+            }
+          })
+
+          if (changed) {
+            anyChanged = true
+            return { ...r, sizeRate: newRate }
+          }
+          return r
         })
-        if (Object.keys(over).length) {
-          const merged = mergeSizeRates(r.sizeQty || {}, r.sizeRate || {}, over)
-          updates.push({ id: r.id, ...merged })
+
+        return anyChanged ? updatedRows : prevRows
+      })
+    }
+
+    sync()
+  }, [partyName, selectedParty])
+
+  // compute totals for list
+  useEffect(() => {
+    const calcTotals = async () => {
+      if (!showList || !saleOrderList.length) return
+
+      try {
+        const index = await getPackingRateIndex()
+        const totals: Record<number, OrderTotals> = {}
+
+        for (const so of saleOrderList) {
+          try {
+            const { data } = await api.get(`/sale-orders/${so.id}`)
+            const rowsDetail: any[] = Array.isArray(data.rows) ? data.rows : []
+
+            let totalPeti = 0
+            let totalBox = 0
+            let totalPcs = 0
+            let rateSum = 0
+            let rateCount = 0
+
+            const partyIdForOrder = data.partyId ?? null
+            const partyNameForOrder = data.partyName
+
+            for (const r of rowsDetail) {
+              const petiNum = toNum(r.peti || "1") || 1
+              totalPeti += petiNum
+
+              const sizeDetails: any[] = Array.isArray(r.sizeDetails) ? r.sizeDetails : []
+              let rowQtySum = 0
+
+              for (const sd of sizeDetails) {
+                const qtyNum = toNum(sd.qty || 0)
+                rowQtySum += qtyNum
+                const rateNum = toNum(sd.rate)
+                if (rateNum) {
+                  rateSum += rateNum
+                  rateCount++
+                }
+              }
+
+              totalBox += rowQtySum * petiNum
+
+              const perBoxMap = findPackingPerBoxInIndex(index, {
+                partyId: partyIdForOrder,
+                partyName: partyNameForOrder,
+                artNo: r.artNo || "",
+                shadeName: r.shadeName || undefined,
+              })
+
+              let rowPcs = 0
+              for (const sd of sizeDetails) {
+                const sizeName = sd.sizeName
+                const qtyNum = toNum(sd.qty || 0)
+                const perBox = toNum(perBoxMap[sizeName] || 0)
+                rowPcs += qtyNum * petiNum * perBox
+              }
+              totalPcs += rowPcs
+            }
+
+            const avgRate = rateCount ? rateSum / rateCount : 0
+            totals[so.id] = { totalPeti, totalBox, totalPcs, avgRate }
+          } catch (err) {
+            console.error("Failed to compute totals for order", so.id, err)
+          }
         }
-      }
-      if (updates.length) {
-        setRows((prev) =>
-          prev.map((row) => {
-            const u = updates.find((x) => x.id === row.id)
-            return u ? { ...row, sizeQty: u.sizeQty, sizeRate: u.sizeRate } : row
-          }),
-        )
+
+        setOrderTotals(totals)
+      } catch (e) {
+        console.error("Failed to compute order totals list", e)
       }
     }
-    sync()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [partyName])
+
+    calcTotals()
+  }, [showList, saleOrderList])
+
+  // Save/reset/list/edit/delete
+  const handleSave = async () => {
+    if (isSaving) return
+
+    try {
+      if (!partyName.trim()) {
+        Swal.fire("Validation", "Please select a party", "warning")
+        return
+      }
+
+      const nonEmptyRows = rows.filter((r) => (r.artNo || "").trim() !== "")
+      if (!nonEmptyRows.length) {
+        Swal.fire("Validation", "Please add at least one row with Art No", "warning")
+        return
+      }
+
+      const payloadRows: SaleOrderRowPayload[] = nonEmptyRows.map((r) => {
+        const sizes: Record<string, string> = {}
+        const sizesQty: Record<string, string> = {}
+        const sizesRate: Record<string, string> = {}
+
+        Object.entries(r.sizeQty || {}).forEach(([key, qty]) => {
+          const qStr = String(qty || "").trim()
+          if (!qStr) return
+          sizesQty[key] = qStr
+
+          const { sizeName } = parseSizeKey(key)
+          const prev = toNum(sizes[sizeName] || 0)
+          const add = toNum(qStr)
+          if (add) sizes[sizeName] = String(prev + add)
+        })
+
+        Object.entries(r.sizeRate || {}).forEach(([key, rate]) => {
+          const rStr = String(rate ?? "").trim()
+          if (!rStr) return
+          sizesRate[key] = rStr
+        })
+
+        return {
+          artSerial: r.artSerial,
+          artNo: r.artNo,
+          shade: r.shade,
+          description: r.description,
+          peti: r.peti || "0",
+          remarks: r.remarks,
+          sizes,
+          sizesQty,
+          sizesRate,
+        }
+      })
+
+      const selectedTransport = transports.find(
+        (t) => String(t.serialNumber) === String(selectedTransportSerial),
+      )
+      const transportSerialNumber =
+        selectedTransport?.serialNumber ?? selectedParty?.transport?.serialNumber ?? null
+      const transportNameToSave =
+        selectedTransport?.transportName ?? partyTransportName ?? ""
+
+      const dto: SaleOrderSaveDto = {
+        orderNo,
+        dated,
+        deliveryDate: deliveryDate || null,
+        partyId: selectedParty?.id ?? null,
+        partyName,
+        remarks,
+        rows: payloadRows,
+        transportSerialNumber,
+        transportName: transportNameToSave,
+      }
+
+      setIsSaving(true)
+
+      if (editingId) {
+        await api.put(`/sale-orders/${editingId}`, dto)
+        Swal.fire("Success", "Sale Order updated successfully", "success")
+      } else {
+        await api.post("/sale-orders", dto)
+        Swal.fire("Success", "Sale Order saved successfully", "success")
+      }
+
+      // Save ke baad pura form reset, taki same entry dobara save na ho
+      resetForm()
+    } catch (err) {
+      console.error("Failed to save sale order", err)
+      const msg = getErrorMessage(err, "Failed to save Sale Order")
+      Swal.fire("Error", msg, "error")
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
+  const resetForm = () => {
+    setEditingId(null)
+    setDated(todayStr())
+    setDeliveryDate("")
+    setPartyName("")
+    setSelectedParty(null)
+    setSelectedTransportSerial("")
+    setRemarks("")
+
+    setRows([
+      {
+        id: Date.now() + Math.random(),
+        artSerial: undefined,
+        artNo: "",
+        shade: "",
+        description: "",
+        peti: "",
+        remarks: "",
+        sizeQty: {},
+        sizeRate: {},
+      },
+    ])
+    // nayi entry ka pehla Art No focus
+    setPendingFocus({ rowIndex: 0, colIndex: 0 })
+
+    api
+      .get<string>("/sale-orders/next-order-no")
+      .then((res) => {
+        if (res.data) setOrderNo(res.data)
+      })
+      .catch((e) => {
+        console.error("Failed to fetch next order no", e)
+      })
+  }
+
+  const openList = async () => {
+    try {
+      const { data } = await api.get<any[]>("/sale-orders")
+      setSaleOrderList(Array.isArray(data) ? data : [])
+      setShowList(true)
+    } catch (err) {
+      console.error("Failed to load sale orders list", err)
+      Swal.fire("Error", "Failed to load Sale Orders list", "error")
+    }
+  }
+
+  const handleEdit = async (id: number) => {
+    try {
+      const { data } = await api.get<any>(`/sale-orders/${id}`)
+
+      setEditingId(id)
+      setShowList(false)
+
+      setOrderNo(String(data.orderNo || ""))
+      setDated(String(data.dated || todayStr()))
+      setDeliveryDate(String(data.deliveryDate || ""))
+      setPartyName(String(data.partyName || ""))
+      setRemarks(String(data.remarks || ""))
+
+      const tSerialFromData =
+        data.transportSerialNumber ??
+        data.transportSerialNo ??
+        data.transportSerial ??
+        data.transportId ??
+        null
+
+      if (tSerialFromData) {
+        setSelectedTransportSerial(String(tSerialFromData))
+      } else if (data.transportName) {
+        const match = transports.find(
+          (t) => normStr(t.transportName) === normStr(data.transportName),
+        )
+        if (match) setSelectedTransportSerial(String(match.serialNumber))
+        else setSelectedTransportSerial("")
+      } else {
+        setSelectedTransportSerial("")
+      }
+
+      const respRows: any[] = Array.isArray(data.rows) ? data.rows : []
+
+      const newRows: SaleRow[] = respRows.map((r: any) => {
+        const sizeQty: Record<string, string> = {}
+        const sizeRate: Record<string, string> = {}
+
+        const sizeDetails: any[] = Array.isArray(r.sizeDetails) ? r.sizeDetails : []
+
+        sizeDetails.forEach((sd) => {
+          const sizeName = String(sd.sizeName || sd.size || "").trim()
+          if (!sizeName) return
+
+          const groupName = getGroupNameFromSize(sd, sizeMaster)
+          const key = makeSizeKey(sizeName, groupName)
+
+          if (sd.qty !== undefined && sd.qty !== null && sd.qty !== "") {
+            sizeQty[key] = String(sd.qty)
+          }
+          if (sd.rate !== undefined && sd.rate !== null && sd.rate !== "") {
+            sizeRate[key] = String(sd.rate)
+          }
+        })
+
+        return {
+          id: Date.now() + Math.random(),
+          artSerial: r.artSerial || r.artSerialNo || r.artSerialNumber,
+          artNo: String(r.artNo || ""),
+          shade: String(r.shade || r.shadeName || ""),
+          description: String(r.description || r.artName || ""),
+          peti: r.peti !== undefined && r.peti !== null ? String(r.peti) : "",
+          remarks: String(r.remarks || ""),
+          sizeQty,
+          sizeRate,
+        }
+      })
+
+      setRows(
+        newRows.length
+          ? newRows
+          : [
+              {
+                id: Date.now() + Math.random(),
+                artSerial: undefined,
+                artNo: "",
+                shade: "",
+                description: "",
+                peti: "",
+                remarks: "",
+                sizeQty: {},
+                sizeRate: {},
+              },
+            ],
+      )
+    } catch (err) {
+      console.error("Failed to load sale order for edit", err)
+      Swal.fire("Error", "Failed to load Sale Order", "error")
+    }
+  }
+
+  const handleDelete = async (id: number) => {
+    const result = await Swal.fire({
+      title: "Are you sure?",
+      text: "Do you really want to delete this Sale Order?",
+      icon: "warning",
+      showCancelButton: true,
+      confirmButtonText: "Yes, delete",
+      cancelButtonText: "Cancel",
+    })
+
+    if (!result.isConfirmed) return
+
+    try {
+      await api.delete(`/sale-orders/${id}`)
+      Swal.fire("Deleted", "Sale Order deleted successfully", "success")
+
+      setSaleOrderList((prev) => prev.filter((so: any) => so.id !== id))
+      setOrderTotals((prev) => {
+        const { [id]: _, ...rest } = prev
+        return rest
+      })
+    } catch (err) {
+      console.error("Failed to delete sale order", err)
+      Swal.fire("Error", "Failed to delete Sale Order", "error")
+    }
+  }
+
+  const handleBack = () => {
+    if (typeof window !== "undefined") {
+      window.history.back()
+    }
+  }
 
   // ================= Render =================
   return (
     <Dashboard>
       <div className="p-6 bg-gray-100 min-h-screen">
         <div className="bg-white p-6 rounded-lg shadow-md">
-          <div className="flex items-center justify-between">
-            <h2 className="text-2xl font-bold mb-4">Sale Order</h2>
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-2xl font-bold">Sale Order</h2>
             {editingId && (
               <span className="px-3 py-1 text-sm rounded bg-blue-50 text-blue-700 border border-blue-200">
                 Editing: #{editingId}
@@ -1331,6 +2084,7 @@ const SaleOrder: React.FC = () => {
             )}
           </div>
 
+          {/* Top form */}
           <div className="grid grid-cols-4 gap-4 mb-6">
             <div>
               <label className="block font-semibold">Order No.</label>
@@ -1377,7 +2131,7 @@ const SaleOrder: React.FC = () => {
               />
             </div>
             <div>
-              <label className="block font-semibold">Account By</label>  
+              <label className="block font-semibold">Agent</label>
               <input
                 type="text"
                 value={partyAgentName}
@@ -1386,15 +2140,23 @@ const SaleOrder: React.FC = () => {
                 className="border p-2 rounded w-full bg-gray-50"
               />
             </div>
+
             <div>
               <label className="block font-semibold">Transport</label>
-              <input
-                type="text"
-                value={partyTransportName}
-                readOnly
-                placeholder="-"
-                className="border p-2 rounded w-full bg-gray-50"
-              />
+              <select
+                value={selectedTransportSerial}
+                onChange={(e) => setSelectedTransportSerial(e.target.value)}
+                className="border p-2 rounded w-full bg-white"
+              >
+                <option value="">
+                  {partyTransportName ? `Party Default: ${partyTransportName}` : "-- Select Transport --"}
+                </option>
+                {transports.map((t) => (
+                  <option key={t.serialNumber} value={t.serialNumber}>
+                    {t.transportName}
+                  </option>
+                ))}
+              </select>
             </div>
 
             <div className="col-span-4">
@@ -1408,24 +2170,30 @@ const SaleOrder: React.FC = () => {
             </div>
           </div>
 
+          {/* Grid (screen) */}
           <div className="overflow-auto">
             <table className="min-w-[1200px] w-full border border-blue-500 text-sm">
               <thead className="bg-gray-200">
                 <tr>
                   <th className="border p-2">S No</th>
-                  <th className="border p-2">Art No</th>
-                  <th className="border p-2">Shade</th>
+                  <th className="border p-2 w-32">Art No</th>
+                  <th className="border p-2 w-24">Shade</th>
                   <th className="border p-2">Description</th>
                   <th className="border p-2">Peti</th>
                   <th className="border p-2">Remarks</th>
-                  {sizeColumns.map((s) => (
-                    <th key={s} className="border p-2">
-                      <div className="flex flex-col items-center">
-                        <div>{s}</div>
-                        <div className="text-[10px] font-normal text-gray-600">Qty / Rate</div>
-                      </div>
-                    </th>
-                  ))}
+                  {sizeColumns.map((key) => {
+                    const { sizeName, groupName } = parseSizeKey(key)
+                    return (
+                      <th key={key} className="border p-2">
+                        <div className="flex flex-col items-center">
+                          <div>{sizeName}</div>
+                          <div className="text-[10px] font-normal text-gray-600">
+                            {groupName ? `${groupName} — Qty / Rate` : "Qty / Rate"}
+                          </div>
+                        </div>
+                      </th>
+                    )
+                  })}
                   <th className="border p-2">Total Pcs</th>
                   <th className="border p-2">Action</th>
                 </tr>
@@ -1437,98 +2205,132 @@ const SaleOrder: React.FC = () => {
                   return (
                     <tr key={row.id}>
                       <td className="border p-2 text-center">{idx + 1}</td>
-                      <td className="border p-1">
+
+                      {/* Art No - colIndex = 0 */}
+                      <td className="border p-1 w-32">
                         <input
                           type="text"
                           value={row.artNo}
                           readOnly
                           onClick={() => openArtModal(row.id)}
                           placeholder="Click to select"
-                          className="border p-1 rounded w-full bg-yellow-50 cursor-pointer"
+                          className="border p-1 rounded w-full bg-yellow-50 cursor-pointer text-center text-xs"
+                          onKeyDown={handleCellKeyDown}
+                          data-row-index={idx}
+                          data-col-index={0}
                         />
                       </td>
-                      <td className="border p-1">
+
+                      {/* Shade - colIndex = 1 */}
+                      <td className="border p-1 w-24">
                         <div className="flex gap-1 items-center">
                           <input
                             type="text"
                             value={row.shade}
                             readOnly
                             onClick={() => openShadeModal(row.id)}
-                            placeholder="Click to select"
-                            className="border p-1 rounded w-full bg-yellow-50 cursor-pointer"
+                            placeholder="Click"
+                            className="border p-1 rounded w-full bg-yellow-50 cursor-pointer text-center text-xs"
+                            onKeyDown={handleCellKeyDown}
+                            data-row-index={idx}
+                            data-col-index={1}
                           />
                           {row.shade && (
                             <button
                               title="Clear"
                               onClick={() => handleRowField(row.id, "shade", "")}
-                              className="px-2 py-[2px] bg-gray-200 rounded hover:bg-gray-300"
+                              className="px-2 py-[2px] bg-gray-200 rounded hover:bg-gray-300 text-xs"
                             >
                               ×
                             </button>
                           )}
                         </div>
                       </td>
+
+                      {/* Description - colIndex = 2 */}
                       <td className="border p-1">
                         <input
                           type="text"
                           value={row.description}
                           onChange={(e) => handleRowField(row.id, "description", e.target.value)}
-                          className="border p-1 rounded w-full"
+                          className="border p-1 rounded w-full text-center"
+                          onKeyDown={handleCellKeyDown}
+                          data-row-index={idx}
+                          data-col-index={2}
                         />
                       </td>
+
+                      {/* Peti - colIndex = 3 */}
                       <td className="border p-1">
                         <input
                           type="text"
                           value={row.peti}
                           onChange={(e) => handleRowField(row.id, "peti", e.target.value)}
-                          className="border p-1 rounded w-full text-right"
+                          className="border p-1 rounded w-full text-center"
+                          onKeyDown={handleCellKeyDown}
+                          data-row-index={idx}
+                          data-col-index={3}
                         />
                       </td>
+
+                      {/* Remarks - colIndex = 4 */}
                       <td className="border p-1">
                         <input
                           type="text"
                           value={row.remarks}
                           onChange={(e) => handleRowField(row.id, "remarks", e.target.value)}
-                          className="border p-1 rounded w-full"
+                          className="border p-1 rounded w-full text-center"
+                          onKeyDown={handleCellKeyDown}
+                          data-row-index={idx}
+                          data-col-index={4}
                         />
                       </td>
 
-                      {sizeColumns.map((s) => {
-                        const enabled = Object.prototype.hasOwnProperty.call(row.sizeQty || {}, s)
+                      {/* Size columns: each has Qty & Rate = 2 logical columns */}
+                      {sizeColumns.map((key, sizeIdx) => {
+                        const enabled = Object.prototype.hasOwnProperty.call(row.sizeQty || {}, key)
+                        const qtyColIndex = 5 + sizeIdx * 2
+                        const rateColIndex = 5 + sizeIdx * 2 + 1
                         return (
-                          <td key={s} className="border p-1">
+                          <td key={key} className="border p-1">
                             <div className={`${enabled ? "" : "opacity-60"}`}>
                               <input
                                 type="text"
-                                value={row.sizeQty[s] || ""}
-                                onChange={(e) => handleSizeQtyChange(row.id, s, e.target.value)}
+                                value={row.sizeQty[key] || ""}
+                                onChange={(e) => handleSizeQtyChange(row.id, key, e.target.value)}
                                 disabled={!enabled}
-                                className={`border p-1 rounded w-full text-right mb-1 ${
+                                className={`border p-1 rounded w-full text-center mb-1 ${
                                   enabled ? "" : "bg-gray-100 text-gray-400 cursor-not-allowed"
                                 }`}
                                 placeholder="Qty"
+                                onKeyDown={handleCellKeyDown}
+                                data-row-index={idx}
+                                data-col-index={qtyColIndex}
                               />
                               <input
                                 type="text"
-                                value={row.sizeRate[s] || ""}
-                                onChange={(e) => handleSizeRateChange(row.id, s, e.target.value)}
+                                value={row.sizeRate[key] || ""}
+                                onChange={(e) => handleSizeRateChange(row.id, key, e.target.value)}
                                 disabled={!enabled}
-                                className={`border p-1 rounded w-full text-right ${
+                                className={`border p-1 rounded w-full text-center ${
                                   enabled ? "" : "bg-gray-100 text-gray-400 cursor-not-allowed"
                                 }`}
                                 placeholder="Rate"
                                 title="Per-size rate (editable)"
+                                onKeyDown={handleCellKeyDown}
+                                data-row-index={idx}
+                                data-col-index={rateColIndex}
                               />
                             </div>
                           </td>
                         )
                       })}
 
-                      <td className="border p-1 text-right pr-2 font-medium">{pcs}</td>
+                      <td className="border p-1 text-center font-medium">{pcs}</td>
                       <td className="border p-1 text-center">
                         <button
-                          onClick={() => removeRow(row.id)}
-                          className="px-2 py-1 bg-red-500 text-white rounded hover:bg-red-600"
+                          onClick={() => removeRow(row.id, idx)}
+                          className="px-2 py-1 bg-red-500 text-white rounded hover:bg-red-600 text-xs"
                         >
                           Remove
                         </button>
@@ -1540,6 +2342,7 @@ const SaleOrder: React.FC = () => {
             </table>
           </div>
 
+          {/* Bottom buttons */}
           <div className="flex justify-between mt-4">
             <div className="flex flex-wrap gap-2">
               <button
@@ -1551,7 +2354,13 @@ const SaleOrder: React.FC = () => {
               <button onClick={addRow} className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600">
                 Add Row
               </button>
-              <button onClick={handleSave} className="px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600">
+              <button
+                onClick={handleSave}
+                disabled={isSaving}
+                className={`px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600 ${
+                  isSaving ? "opacity-50 cursor-not-allowed" : ""
+                }`}
+              >
                 {editingId ? "Update" : "Save"}
               </button>
               {editingId && (
@@ -1583,6 +2392,13 @@ const SaleOrder: React.FC = () => {
               >
                 Export PDF
               </button>
+
+              <button
+                onClick={handleBack}
+                className="px-4 py-2 bg-gray-300 text-black rounded hover:bg-gray-400"
+              >
+                Back
+              </button>
             </div>
             <div className="text-right font-semibold space-y-1">
               <p>Total Peti: {totalPeti}</p>
@@ -1595,44 +2411,56 @@ const SaleOrder: React.FC = () => {
       {/* Party Modal */}
       {showPartyModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg shadow-lg w-full max-w-2xl p-5">
-            <h3 className="text-xl font-bold text-center mb-4">Select Party</h3>
+          <div className="bg-white rounded-lg shadow-lg w-full max-w-5xl h-[80vh] p-6 flex flex-col">
+            <h3 className="text-2xl font-bold text-center mb-4">Select Party</h3>
             <input
               type="text"
-              placeholder="Search party name / serial / GST..."
+              placeholder="Search party / serial / GST / station / agent..."
               value={partySearch}
               onChange={(e) => setPartySearch(e.target.value)}
               className="border p-2 rounded w-full mb-3"
             />
-            <div className="overflow-auto max-h-96">
-              <table className="w-full text-sm border">
+            <div className="overflow-auto flex-1 border rounded">
+              <table className="w-full text-sm">
                 <thead className="bg-gray-200">
                   <tr>
                     <th className="border p-2">Serial No</th>
                     <th className="border p-2">Party Name</th>
                     <th className="border p-2">GST No</th>
+                    <th className="border p-2">Station</th>
+                    <th className="border p-2">Agent</th>
                     <th className="border p-2">Action</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredParties.map((p, i) => (
-                    <tr key={`${p.serialNumber}-${i}`}>
-                      <td className="border p-2">{p.serialNumber}</td>
-                      <td className="border p-2">{p.partyName}</td>
-                      <td className="border p-2">{p.gstNo}</td>
-                      <td className="border p-2 text-center">
-                        <button
-                          onClick={() => selectParty(p)}
-                          className="px-3 py-1 bg-green-500 text-white rounded hover:bg-green-600"
-                        >
-                          Select
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
+                  {filteredParties.map((p, i) => {
+                    const baseAgentName = p.agent?.agentName || ""
+                    const code = p.agent?.serialNo
+                    const masterAgentName = code
+                      ? agents.find((a) => String(a.serialNo) === String(code))?.agentName || ""
+                      : ""
+                    const agentName = baseAgentName || masterAgentName || ""
+                    return (
+                      <tr key={`${p.serialNumber}-${i}`}>
+                        <td className="border p-2 text-center">{p.serialNumber}</td>
+                        <td className="border p-2 text-center">{p.partyName}</td>
+                        <td className="border p-2 text-center">{p.gstNo}</td>
+                        <td className="border p-2 text-center">{p.station}</td>
+                        <td className="border p-2 text-center">{agentName}</td>
+                        <td className="border p-2 text-center">
+                          <button
+                            onClick={() => selectParty(p)}
+                            className="px-3 py-1 bg-green-500 text-white rounded hover:bg-green-600"
+                          >
+                            Select
+                          </button>
+                        </td>
+                      </tr>
+                    )
+                  })}
                   {filteredParties.length === 0 && (
                     <tr>
-                      <td className="border p-4 text-center text-gray-500" colSpan={4}>
+                      <td className="border p-4 text-center text-gray-500" colSpan={6}>
                         No parties found
                       </td>
                     </tr>
@@ -1655,9 +2483,9 @@ const SaleOrder: React.FC = () => {
       {/* Art Modal */}
       {showArtModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg shadow-lg w-full max-w-5xl p-5">
+          <div className="bg-white rounded-lg shadow-lg w-full max-w-5xl p-5 flex flex-col max-h-[90vh]">
             <h3 className="text-xl font-bold text-center mb-1">
-              {currentRowId ? "Select Art(s) for Row" : "Select Art(s)"}
+              {currentRowId != null ? "Select Art(s) for Row" : "Select Art(s)"}
             </h3>
 
             <input
@@ -1667,17 +2495,18 @@ const SaleOrder: React.FC = () => {
               onChange={(e) => setArtSearch(e.target.value)}
               className="border p-2 rounded w-full mb-3"
             />
-            <div className="overflow-auto max-h-[70vh]">
-              <table className="w-full text-sm border">
+
+            <div className="flex-1 overflow-auto border rounded">
+              <table className="w-full text-sm border-collapse">
                 <thead className="bg-gray-200">
                   <tr>
                     <th className="border p-2 w-12">
                       <input
                         type="checkbox"
-                        checked={selectedArts.size === filteredArts.length && filteredArts.length > 0}
+                        checked={selectedArts.length === filteredArts.length && filteredArts.length > 0}
                         onChange={(e) => {
-                          if (e.target.checked) setSelectedArts(new Set(filteredArts.map((a) => a.serialNumber)))
-                          else setSelectedArts(new Set())
+                          if (e.target.checked) setSelectedArts(filteredArts.map((a) => a.serialNumber))
+                          else setSelectedArts([])
                         }}
                       />
                     </th>
@@ -1700,21 +2529,25 @@ const SaleOrder: React.FC = () => {
                         <td className="border p-2 text-center">
                           <input
                             type="checkbox"
-                            checked={selectedArts.has(a.serialNumber)}
+                            checked={selectedArts.includes(a.serialNumber)}
                             onChange={() => toggleArtSelection(a.serialNumber)}
                           />
                         </td>
-                        <td className="border p-2">{a.serialNumber}</td>
-                        <td className="border p-2">{a.artNo}</td>
-                        <td className="border p-2">{a.artName}</td>
+                        <td className="border p-2 text-center">{a.serialNumber}</td>
+                        <td className="border p-2 text-center">{a.artNo}</td>
+                        <td className="border p-2 text-center">{a.artName}</td>
                         <td className="border p-2 text-center">
                           <button
                             onClick={() =>
-                              currentRowId ? selectArtForCurrentRow(a) : toggleArtSelection(a.serialNumber)
+                              currentRowId != null ? selectArtForCurrentRow(a) : toggleArtSelection(a.serialNumber)
                             }
                             className="px-3 py-1 bg-blue-500 text-white rounded hover:bg-blue-600"
                           >
-                            {currentRowId ? "Select" : selectedArts.has(a.serialNumber) ? "Unselect" : "Select"}
+                            {currentRowId != null
+                              ? "Select"
+                              : selectedArts.includes(a.serialNumber)
+                              ? "Unselect"
+                              : "Select"}
                           </button>
                         </td>
                       </tr>
@@ -1723,18 +2556,73 @@ const SaleOrder: React.FC = () => {
                 </tbody>
               </table>
             </div>
+
+            {/* Selected sequence view */}
+            <div className="mt-3 border-t pt-3">
+              <h4 className="font-semibold mb-2 text-sm text-center">Selected (Sequence)</h4>
+              <div className="max-h-32 overflow-auto border rounded">
+                {selectedArts.length === 0 ? (
+                  <div className="p-2 text-xs text-gray-500 text-center">No art selected</div>
+                ) : (
+                  <table className="w-full text-xs">
+                    <thead className="bg-gray-100">
+                      <tr>
+                        <th className="border p-1 w-10">#</th>
+                        <th className="border p-1">Art No</th>
+                        <th className="border p-1">Art Name</th>
+                        <th className="border p-1 w-32">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {selectedArts.map((sn, i) => {
+                        const art = artList.find((a) => a.serialNumber === sn)
+                        if (!art) return null
+                        return (
+                          <tr key={sn}>
+                            <td className="border p-1 text-center">{i + 1}</td>
+                            <td className="border p-1 text-center">{art.artNo}</td>
+                            <td className="border p-1 text-center">{art.artName}</td>
+                            <td className="border p-1 text-center space-x-1">
+                              <button
+                                onClick={() => moveSelectedUp(sn)}
+                                className="px-1 py-[1px] text-xs bg-gray-200 rounded"
+                              >
+                                ↑
+                              </button>
+                              <button
+                                onClick={() => moveSelectedDown(sn)}
+                                className="px-1 py-[1px] text-xs bg-gray-200 rounded"
+                              >
+                                ↓
+                              </button>
+                              <button
+                                onClick={() => removeFromSelected(sn)}
+                                className="px-1 py-[1px] text-xs bg-red-400 text-white rounded"
+                              >
+                                ✕
+                              </button>
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            </div>
+
             <div className="flex justify-center gap-3 mt-4">
               <button
                 onClick={addSelectedArts}
                 className="px-5 py-2 bg-green-500 text-white rounded hover:bg-green-600"
               >
-                Add Selected ({selectedArts.size})
+                Add Selected ({selectedArts.length})
               </button>
               <button
                 onClick={() => {
                   setShowArtModal(false)
                   setCurrentRowId(null)
-                  setSelectedArts(new Set())
+                  setSelectedArts([])
                 }}
                 className="px-5 py-2 bg-gray-300 hover:bg-gray-400 rounded"
               >
@@ -1773,8 +2661,8 @@ const SaleOrder: React.FC = () => {
                 <tbody>
                   {filteredShades.map((sh) => (
                     <tr key={`${sh.shadeCode}-${sh.shadeName}`} className="hover:bg-gray-50">
-                      <td className="border p-2">{sh.shadeCode}</td>
-                      <td className="border p-2">{sh.shadeName}</td>
+                      <td className="border p-2 text-center">{sh.shadeCode}</td>
+                      <td className="border p-2 text-center">{sh.shadeName}</td>
                       <td className="border p-2 text-center">
                         <button
                           onClick={() => selectShadeForCurrentRow(sh)}
@@ -1802,53 +2690,94 @@ const SaleOrder: React.FC = () => {
       {/* List Modal */}
       {showList && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg shadow-lg w-full max-w-5xl p-5 flex flex-col max-h-[90vh]">
+          <div className="bg-white rounded-lg shadow-lg w-[95vw] max-w-[1200px] h-[90vh] p-5 flex flex-col">
             <h3 className="text-xl font-bold text-center mb-4">Sale Order List</h3>
 
             <input
-              placeholder="Search by Order No or Party"
+              placeholder="Search by Order No / Party / Station / Agent"
               className="border p-2 rounded w-full mb-3"
               value={listSearch}
               onChange={(e) => setListSearch(e.target.value)}
             />
 
-            <div className="overflow-auto max-h-[70vh] mt-4">
-              <table className="w-full text-sm border">
+            <div className="flex-1 overflow-auto mt-4">
+              <table className="w-full min-w-[1100px] text-sm border">
                 <thead className="bg-gray-200">
                   <tr>
                     <th className="border p-2">#</th>
                     <th className="border p-2">Order No</th>
                     <th className="border p-2">Date</th>
                     <th className="border p-2">Party</th>
+                    <th className="border p-2">Station</th>
+                    <th className="border p-2">Agent</th>
+                    <th className="border p-2">Total Peti</th>
+                    <th className="border p-2">Total Box</th>
+                    <th className="border p-2">Rate</th>
+                    <th className="border p-2">Total Pcs</th>
                     <th className="border p-2">Action</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredList.map((so: any, i: number) => (
-                    <tr key={so.id}>
-                      <td className="border p-2 text-center">{i + 1}</td>
-                      <td className="border p-2">{so.orderNo}</td>
-                      <td className="border p-2">{so.dated}</td>
-                      <td className="border p-2">{so.partyName}</td>
-                      <td className="border p-2 text-center">
-                        <button
-                          onClick={() => handleEdit(so.id)}
-                          className="px-3 py-1 bg-blue-500 text-white rounded hover:bg-blue-600 mr-2"
-                        >
-                          Edit
-                        </button>
-                        <button
-                          onClick={() => handleDelete(so.id)}
-                          className="px-3 py-1 bg-red-500 text-white rounded hover:bg-red-600"
-                        >
-                          Delete
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
+                  {filteredList.map((so: any, i: number) => {
+                    const party = partyList.find(
+                      (p) =>
+                        normStr(p.partyName) === normStr(so.partyName),
+                    )
+
+                    const station = party?.station || ""
+
+                    const baseAgentName = party?.agent?.agentName || ""
+                    const code = party?.agent?.serialNo
+                    const masterAgentName =
+                      code && agents.length
+                        ? agents.find((a) => String(a.serialNo) === String(code))?.agentName || ""
+                        : ""
+                    const agentName = baseAgentName || masterAgentName || ""
+
+                    const totals = orderTotals[so.id]
+
+                    return (
+                      <tr key={so.id}>
+                        <td className="border p-2 text-center">{i + 1}</td>
+                        <td className="border p-2 text-center">{so.orderNo}</td>
+                        <td className="border p-2 text-center">
+                          {so.dated ? formatDateDDMMYY(so.dated) : ""}
+                        </td>
+                        <td className="border p-2 text-center">{so.partyName}</td>
+                        <td className="border p-2 text-center">{station}</td>
+                        <td className="border p-2 text-center">{agentName}</td>
+                        <td className="border p-2 text-center">
+                          {totals ? totals.totalPeti : ""}
+                        </td>
+                        <td className="border p-2 text-center">
+                          {totals ? totals.totalBox : ""}
+                        </td>
+                        <td className="border p-2 text-center">
+                          {totals ? totals.avgRate.toFixed(2) : ""}
+                        </td>
+                        <td className="border p-2 text-center">
+                          {totals ? totals.totalPcs : ""}
+                        </td>
+                        <td className="border p-2 text-center">
+                          <button
+                            onClick={() => handleEdit(so.id)}
+                            className="px-3 py-1 bg-blue-500 text-white rounded hover:bg-blue-600 mr-2"
+                          >
+                            Edit
+                          </button>
+                          <button
+                            onClick={() => handleDelete(so.id)}
+                            className="px-3 py-1 bg-red-500 text-white rounded hover:bg-red-600"
+                          >
+                            Delete
+                          </button>
+                        </td>
+                      </tr>
+                    )
+                  })}
                   {filteredList.length === 0 && (
                     <tr>
-                      <td className="border p-4 text-center text-gray-500" colSpan={5}>
+                      <td className="border p-4 text-center text-gray-500" colSpan={11}>
                         No records
                       </td>
                     </tr>
@@ -1858,12 +2787,12 @@ const SaleOrder: React.FC = () => {
             </div>
             <div className="flex justify-center mt-4">
               <button
-                onClick={() => setShowList(false)}
+                onClick={() => {
+                  setShowList(false)
+                  setOrderTotals({})
+                }}
                 className="px-5 py-2 bg-gray-300 hover:bg-gray-400 rounded"
               >
-
-
-                
                 Close
               </button>
             </div>
@@ -1875,4 +2804,3 @@ const SaleOrder: React.FC = () => {
 }
 
 export default SaleOrder
-

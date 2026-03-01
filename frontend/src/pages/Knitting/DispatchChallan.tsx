@@ -1,4 +1,3 @@
-// DispatchChallan.tsx
 "use client";
 
 import React, {
@@ -24,6 +23,7 @@ const routes = {
   purchaseOrders: "/purchase-orders",
   arts: "/arts",
   artDetail: (serial: string | number) => `/arts/${serial}`,
+  nextNumbers: "/dispatch-challan/next",
 };
 
 // --- Types ---
@@ -59,15 +59,17 @@ interface Party {
 }
 
 /**
- * Unified item used for Art-No lookup modal.
- * Now **aggregated like Art Stock Report**:
- *   - Art Creation (opening) + Packing Challans
- *   - Box and Pcs are summed
- *   - Rate is weighted-average (value / pcs) like stock report
+ * Item used for Art-No lookup modal.
+ * NET STOCK:
+ *   - Opening stock from Art Creation (qty only, rate = 0)
+ *   - PLUS Packing Challans (qty + rate from packing)
+ *   - MINUS Dispatch Challans (qty only, rate = 0)
+ * 
+ * Rate in modal = LAST PACKING RATE (not average, not stock rate)
  */
 interface PackingSourceItem {
   id: string;
-  packingSerial: string; // not used in aggregated view (kept for compatibility)
+  packingSerial: string;
   challanDate?: string;
   partyName?: string;
 
@@ -81,12 +83,6 @@ interface PackingSourceItem {
   pcs: number;
   rate: number;
   amount: number;
-}
-
-interface SeqInfo {
-  year: string;
-  seq: number;
-  brokerKey: string;
 }
 
 interface ArtListView {
@@ -112,17 +108,29 @@ interface ArtDetailView {
 
 const formatRowSerial = (n: number) => String(n).padStart(4, "0");
 
-// broker key: brokerName > partyName > NO_BROKER
-const makeBrokerKey = (party?: Party) => {
-  const brokerName = party?.agent?.agentName?.trim();
-  const partyName = party?.partyName?.trim();
-  return (brokerName || partyName || "NO_BROKER").toUpperCase();
-};
-
 const toNum = (v: any): number => {
   const n =
     typeof v === "string" ? parseFloat(v) : typeof v === "number" ? v : 0;
   return Number.isFinite(n) ? n : 0;
+};
+
+// Date for print: DD/MM/YYYY
+const formatDateDDMMYYYY = (value?: string | Date) => {
+  if (!value) return "";
+  const d = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(d.getTime())) return "";
+  const day = String(d.getDate()).padStart(2, "0");
+  const month = String(d.getMonth() + 1).padStart(2, "0");
+  const year = d.getFullYear();
+  return `${day}/${month}/${year}`;
+};
+
+// Date for list/search: DD/MM/YY
+const formatDateDDMMYY = (value?: string | Date) => {
+  const full = formatDateDDMMYYYY(value);
+  if (!full) return "";
+  const [dd, mm, yyyy] = full.split("/");
+  return `${dd}/${mm}/${yyyy.slice(-2)}`;
 };
 
 // ----------------- Modal Components (top-level) -----------------
@@ -165,6 +173,15 @@ type PurchaseOrderModalProps = {
   onClose: () => void;
 };
 
+type PartySearchModalProps = {
+  isOpen: boolean;
+  searchText: string;
+  parties: Party[];
+  onSearchTextChange: (value: string) => void;
+  onSelect: (party: Party) => void;
+  onClose: () => void;
+};
+
 const ProductSearchModal: React.FC<ProductSearchModalProps> = ({
   isOpen,
   searchTerm,
@@ -187,7 +204,7 @@ const ProductSearchModal: React.FC<ProductSearchModalProps> = ({
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
       <div className="bg-white rounded-lg shadow-xl w-5/6 max-w-5xl p-4">
         <h3 className="text-xl font-bold mb-4 text-blue-800">
-          Select Item (Art Stock: Art Creation + Packing)
+          Select Item (Net Art Stock: Opening + Packing - Dispatch)
         </h3>
         <input
           ref={inputRef}
@@ -207,7 +224,6 @@ const ProductSearchModal: React.FC<ProductSearchModalProps> = ({
                 <th className="border p-2 text-left">Size</th>
                 <th className="border p-2 text-left">Shade</th>
                 <th className="border p-2 text-right">Box</th>
-                {/* per/box removed as requested */}
                 <th className="border p-2 text-right">Pcs</th>
                 <th className="border p-2 text-right">Rate</th>
               </tr>
@@ -225,7 +241,6 @@ const ProductSearchModal: React.FC<ProductSearchModalProps> = ({
                   <td className="border p-2">{item.size}</td>
                   <td className="border p-2">{item.shade}</td>
                   <td className="border p-2 text-right">{item.box}</td>
-                  {/* per/box hidden but still used internally in selection */}
                   <td className="border p-2 text-right">{item.pcs}</td>
                   <td className="border p-2 text-right">
                     {item.rate.toFixed(2)}
@@ -238,7 +253,7 @@ const ProductSearchModal: React.FC<ProductSearchModalProps> = ({
                     colSpan={8}
                     className="border p-2 text-center text-gray-500"
                   >
-                    No items found from Art Creation / Packing Challans
+                    No items found (Net Stock is zero / negative for all)
                   </td>
                 </tr>
               )}
@@ -248,7 +263,7 @@ const ProductSearchModal: React.FC<ProductSearchModalProps> = ({
         <div className="mt-4 flex justify-end">
           <button
             onClick={onClose}
-            className="px-4 py-2 bg-gray-500 text-white rounded hover:bg-gray-600 transition-colors"
+            className="px-4 py-2 bg-gray-500 text-white rounded hover:bg-gray-600 active:bg-gray-700 transition-colors"
           >
             Close
           </button>
@@ -284,7 +299,7 @@ const ChallanSearchModal: React.FC<ChallanSearchModalProps> = ({
         <input
           ref={inputRef}
           type="text"
-          placeholder="Search by Challan No / Date / Party / Station..."
+          placeholder="Search by Challan No / Date / Party / Station / Art No..."
           value={searchText}
           onChange={(e) => onSearchTextChange(e.target.value)}
           className="border p-2 rounded w-full mb-3 focus:ring-blue-500 focus:border-blue-500"
@@ -298,7 +313,7 @@ const ChallanSearchModal: React.FC<ChallanSearchModalProps> = ({
                 <th className="border p-2">Dated</th>
                 <th className="border p-2">Party_Name</th>
                 <th className="border p-2">Station</th>
-                <th className="border p-2">ART_NO</th>
+                <th className="border p-2">ART_NO(S)</th>
                 <th className="border p-2">Action</th>
               </tr>
             </thead>
@@ -316,32 +331,39 @@ const ChallanSearchModal: React.FC<ChallanSearchModalProps> = ({
                 challans.map((c: any, index: number) => {
                   const station =
                     c.station || c.destination || c.remarks1 || "";
-                  let artNo = "";
-                  if (Array.isArray(c.rows) && c.rows.length > 0) {
-                    artNo = c.rows[0]?.artNo || "";
-                  }
+                  const artNos = Array.isArray(c.rows)
+                    ? Array.from(
+                        new Set(
+                          c.rows
+                            .map((r: any) =>
+                              (r.artNo || "").toString().trim()
+                            )
+                            .filter(Boolean)
+                        )
+                      ).join(", ")
+                    : "";
                   return (
                     <tr key={c.id || index} className="hover:bg-yellow-100">
                       <td className="border p-2 text-center">{index + 1}</td>
                       <td className="border p-2">{c.challanNo}</td>
                       <td className="border p-2">
                         {c.date || c.dated
-                          ? new Date(c.date || c.dated).toLocaleDateString()
+                          ? formatDateDDMMYY(c.date || c.dated)
                           : ""}
                       </td>
                       <td className="border p-2">{c.partyName}</td>
                       <td className="border p-2">{station}</td>
-                      <td className="border p-2">{artNo}</td>
+                      <td className="border p-2">{artNos}</td>
                       <td className="border p-2 text-center space-x-1">
                         <button
                           onClick={() => onEdit(c.id)}
-                          className="px-2 py-1 bg-blue-500 text-white rounded hover:bg-blue-600"
+                          className="px-2 py-1 bg-blue-500 text-white rounded hover:bg-blue-600 active:bg-blue-700"
                         >
                           Edit
                         </button>
                         <button
                           onClick={() => onDelete(c.id)}
-                          className="px-2 py-1 bg-red-500 text-white rounded hover:bg-red-600"
+                          className="px-2 py-1 bg-red-500 text-white rounded hover:bg-red-600 active:bg-red-700"
                         >
                           Delete
                         </button>
@@ -356,7 +378,7 @@ const ChallanSearchModal: React.FC<ChallanSearchModalProps> = ({
         <div className="mt-4 flex justify-end">
           <button
             onClick={onClose}
-            className="px-4 py-2 bg-gray-500 text-white rounded hover:bg-gray-600 transition-colors"
+            className="px-4 py-2 bg-gray-500 text-white rounded hover:bg-gray-600 active:bg-gray-700 transition-colors"
           >
             Close
           </button>
@@ -394,7 +416,7 @@ const ListViewModal: React.FC<ListViewModalProps> = ({
         <input
           ref={inputRef}
           type="text"
-          placeholder="Search by Art No / Size / Shade / Box / Pcs / Rate / Amt / Net Amt..."
+          placeholder="Search by Date / Art No / Size / Shade / Box / Pcs / Rate / Amt / Net Amt..."
           value={searchText}
           onChange={(e) => onSearchTextChange(e.target.value)}
           className="border p-2 rounded w-full mb-3 focus:ring-blue-500 focus:border-blue-500"
@@ -404,6 +426,7 @@ const ListViewModal: React.FC<ListViewModalProps> = ({
             <thead className="bg-green-100 sticky top-0">
               <tr>
                 <th className="border p-2">Sr.No</th>
+                <th className="border p-2">Dated</th>
                 <th className="border p-2">Art No</th>
                 <th className="border p-2">Size</th>
                 <th className="border p-2">Shade</th>
@@ -421,7 +444,7 @@ const ListViewModal: React.FC<ListViewModalProps> = ({
                 <tr>
                   <td
                     className="border p-3 text-center text-gray-500"
-                    colSpan={11}
+                    colSpan={12}
                   >
                     No challans found
                   </td>
@@ -429,10 +452,17 @@ const ListViewModal: React.FC<ListViewModalProps> = ({
               ) : (
                 challans.map((c: any, idx: number) => {
                   const firstRow =
-                    Array.isArray(c.rows) && c.rows.length > 0 ? c.rows[0] : {};
+                    Array.isArray(c.rows) && c.rows.length > 0
+                      ? c.rows[0]
+                      : {};
                   return (
                     <tr key={c.id || idx} className="hover:bg-green-50">
                       <td className="border p-2 text-center">{idx + 1}</td>
+                      <td className="border p-2">
+                        {c.date || c.dated
+                          ? formatDateDDMMYY(c.date || c.dated)
+                          : ""}
+                      </td>
                       <td className="border p-2">{firstRow.artNo || ""}</td>
                       <td className="border p-2">{firstRow.size || ""}</td>
                       <td className="border p-2">{firstRow.shade || ""}</td>
@@ -457,13 +487,13 @@ const ListViewModal: React.FC<ListViewModalProps> = ({
                       <td className="border p-2 text-center space-x-1">
                         <button
                           onClick={() => onEdit(c.id)}
-                          className="px-2 py-1 bg-blue-500 text-white rounded hover:bg-blue-600"
+                          className="px-2 py-1 bg-blue-500 text-white rounded hover:bg-blue-600 active:bg-blue-700"
                         >
                           Edit
                         </button>
                         <button
                           onClick={() => onDelete(c.id)}
-                          className="px-2 py-1 bg-red-500 text-white rounded hover:bg-red-600"
+                          className="px-2 py-1 bg-red-500 text-white rounded hover:bg-red-600 active:bg-red-700"
                         >
                           Delete
                         </button>
@@ -478,7 +508,7 @@ const ListViewModal: React.FC<ListViewModalProps> = ({
         <div className="mt-4 flex justify-end">
           <button
             onClick={onClose}
-            className="px-4 py-2 bg-gray-500 text-white rounded hover:bg-gray-600 transition-colors"
+            className="px-4 py-2 bg-gray-500 text-white rounded hover:bg-gray-600 active:bg-gray-700 transition-colors"
           >
             Close
           </button>
@@ -565,7 +595,7 @@ const PurchaseOrderModal: React.FC<PurchaseOrderModalProps> = ({
                       <td className="border p-2 text-center">
                         <button
                           onClick={() => onSelectPO(po)}
-                          className="px-3 py-1 bg-green-600 text-white rounded hover:bg-green-700"
+                          className="px-3 py-1 bg-green-600 text-white rounded hover:bg-green-700 active:bg-green-800"
                         >
                           Use Items
                         </button>
@@ -580,7 +610,100 @@ const PurchaseOrderModal: React.FC<PurchaseOrderModalProps> = ({
         <div className="mt-4 flex justify-end">
           <button
             onClick={onClose}
-            className="px-4 py-2 bg-gray-500 text-white rounded hover:bg-gray-600 transition-colors"
+            className="px-4 py-2 bg-gray-500 text-white rounded hover:bg-gray-600 active:bg-gray-700 transition-colors"
+          >
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const PartySearchModal: React.FC<PartySearchModalProps> = ({
+  isOpen,
+  searchText,
+  parties,
+  onSearchTextChange,
+  onSelect,
+  onClose,
+}) => {
+  const inputRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    if (isOpen && inputRef.current) {
+      inputRef.current.focus();
+    }
+  }, [isOpen]);
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[52]">
+      <div className="bg-white rounded-lg shadow-xl w-5/6 max-w-4xl p-4 max-h-[90vh] overflow-auto">
+        <h3 className="text-xl font-bold mb-3 text-blue-800">
+          Select Party
+        </h3>
+        <input
+          ref={inputRef}
+          type="text"
+          placeholder="Search by Party / Broker / Transport..."
+          value={searchText}
+          onChange={(e) => onSearchTextChange(e.target.value)}
+          className="border p-2 rounded w-full mb-3 focus:ring-blue-500 focus:border-blue-500"
+        />
+        <div className="overflow-auto max-h-[430px] border border-gray-300">
+          <table className="w-full text-sm">
+            <thead className="bg-sky-100 sticky top-0">
+              <tr>
+                <th className="border p-2">S No</th>
+                <th className="border p-2 text-left">Party Name</th>
+                <th className="border p-2 text-left">Station</th>
+                <th className="border p-2 text-left">Broker</th>
+                <th className="border p-2 text-left">Transport</th>
+                <th className="border p-2 text-center">Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {parties.length === 0 ? (
+                <tr>
+                  <td
+                    className="border p-3 text-center text-gray-500"
+                    colSpan={6}
+                  >
+                    No parties found
+                  </td>
+                </tr>
+              ) : (
+                parties.map((p, idx) => (
+                  <tr key={p.id ?? p.partyName} className="hover:bg-sky-50">
+                    <td className="border p-2 text-center">{idx + 1}</td>
+                    <td className="border p-2">{p.partyName}</td>
+                    <td className="border p-2">{p.station || ""}</td>
+                    <td className="border p-2">
+                      {p.agent?.agentName || ""}
+                    </td>
+                    <td className="border p-2">
+                      {p.transport?.transportName || ""}
+                    </td>
+                    <td className="border p-2 text-center">
+                      <button
+                        onClick={() => onSelect(p)}
+                        className="px-3 py-1 bg-blue-500 text-white rounded hover:bg-blue-600 active:bg-blue-700"
+                      >
+                        Select
+                      </button>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+        <div className="mt-4 flex justify-end">
+          <button
+            onClick={onClose}
+            className="px-4 py-2 bg-gray-500 text-white rounded hover:bg-gray-600 active:bg-gray-700 transition-colors"
           >
             Close
           </button>
@@ -617,21 +740,20 @@ const DispatchChallan: React.FC = () => {
   const [cartage, setCartage] = useState("");
   const [netAmt, setNetAmt] = useState("");
 
-  // editing vs new
+  const [discountMode, setDiscountMode] = useState<
+    "percent" | "amount" | null
+  >(null);
+  const [taxMode, setTaxMode] = useState<"percent" | "amount" | null>(null);
+
   const [editingId, setEditingId] = useState<number | null>(null);
 
-  // masters
   const [partyList, setPartyList] = useState<Party[]>([]);
   const [productList, setProductList] = useState<PackingSourceItem[]>([]);
 
-  // current NEW challan ke liye seq info (broker-wise)
-  const [seqInfo, setSeqInfo] = useState<SeqInfo | null>(null);
-
   // Art lookup modal
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [currentRowIdForLookup, setCurrentRowIdForLookup] = useState<
-    number | null
-  >(null);
+  const [currentRowIdForLookup, setCurrentRowIdForLookup] =
+    useState<number | null>(null);
   const [productSearchTerm, setProductSearchTerm] = useState("");
 
   // Challan search modal
@@ -649,39 +771,88 @@ const DispatchChallan: React.FC = () => {
   const [poList, setPoList] = useState<any[]>([]);
   const [poSearchTerm, setPoSearchTerm] = useState("");
 
-  // --- Broker-wise next number (without committing to localStorage) ---
-  const getNextNumbers = useCallback((brokerKey: string) => {
-    const year = String(new Date().getFullYear());
-    const yearKey = `dispatchYear_${brokerKey}`;
-    const seqKey = `dispatchSeq_${brokerKey}`;
+  // Party search modal
+  const [isPartyModalOpen, setIsPartyModalOpen] = useState(false);
+  const [partySearchText, setPartySearchText] = useState("");
 
-    const storedYear = localStorage.getItem(yearKey);
-    let lastSeq = 0;
-    if (storedYear === year) {
-      const ls = parseInt(localStorage.getItem(seqKey) || "0", 10);
-      if (Number.isFinite(ls) && ls > 0) lastSeq = ls;
-    }
+  // Save in progress
+  const [isSaving, setIsSaving] = useState(false);
 
-    const nextSeq = lastSeq + 1;
-    const seqStr = String(nextSeq).padStart(5, "0");
+  // --- Focus navigation state (row/col) ---
+  const [pendingFocus, setPendingFocus] = useState<{
+    rowIndex: number;
+    colIndex: number;
+  } | null>(null);
 
-    return {
-      challanNo: `${year}/${seqStr}`,
-      serialNo: `DC-${year}/${seqStr}`,
-      year,
-      seq: nextSeq,
+  const fieldOrder: (keyof DispatchRow)[] = [
+    "barCode",
+    "artNo",
+    "description",
+    "size",
+    "shade",
+    "box",
+    "pcsPerBox",
+    "pcs",
+    "rate",
+    "amt",
+  ];
+
+  // ================= GLOBAL ENTER => NEXT CONTROL (TAB) =================
+  useEffect(() => {
+    const handleGlobalEnter = (e: any) => {
+      if (e.key !== "Enter") return;
+
+      const target = e.target as HTMLElement | null;
+      if (!target) return;
+
+      if (target.closest(".swal2-container")) return;
+      if (target.hasAttribute("data-row-index")) return;
+      if (target.tagName === "TEXTAREA") return;
+
+      e.preventDefault();
+
+      const focusables = Array.from(
+        document.querySelectorAll<HTMLElement>(
+          'button, [href], input:not([type="hidden"]), select, textarea, [tabindex]:not([tabindex="-1"])'
+        )
+      ).filter(
+        (el) =>
+          !el.hasAttribute("disabled") &&
+          !el.getAttribute("aria-hidden") &&
+          el.offsetParent !== null
+      );
+
+      const active = document.activeElement as HTMLElement | null;
+      if (!active) return;
+
+      const index = focusables.indexOf(active);
+      if (index === -1) return;
+
+      const next = focusables[index + 1];
+      if (!next) return;
+
+      next.focus();
+      if (
+        next instanceof HTMLInputElement ||
+        next instanceof HTMLTextAreaElement
+      ) {
+        next.select?.();
+      }
     };
+
+    window.addEventListener("keydown", handleGlobalEnter);
+    return () => window.removeEventListener("keydown", handleGlobalEnter);
   }, []);
 
   // --- Row management ---
 
   const addMainRow = useCallback(() => {
     setRows((prev) => {
-      const nextIndex = prev.length + 1;
+      const nextIndex = prev.length;
       const newRow: DispatchRow = {
         id: Date.now() + Math.random(),
         barCode: "",
-        baleNo: formatRowSerial(nextIndex),
+        baleNo: formatRowSerial(nextIndex + 1),
         artNo: "",
         description: "",
         lotNumber: "",
@@ -693,29 +864,83 @@ const DispatchChallan: React.FC = () => {
         rate: "",
         amt: "",
       };
-      return [...prev, newRow];
+      const newRows = [...prev, newRow];
+      setPendingFocus({ rowIndex: newRows.length - 1, colIndex: 0 });
+      return newRows;
     });
   }, []);
 
-  const deleteMainRow = useCallback((indexToDelete?: number) => {
-    setRows((prev) =>
-      typeof indexToDelete === "number"
-        ? prev.filter((_, index) => index !== indexToDelete)
-        : prev.slice(0, Math.max(prev.length - 1, 0))
-    );
-  }, []);
+  const deleteMainRow = useCallback(
+    (indexToDelete?: number) => {
+      setRows((prev) => {
+        let newRows: DispatchRow[];
+        let removedIndex: number;
+        if (typeof indexToDelete === "number") {
+          removedIndex = indexToDelete;
+          newRows = prev.filter((_, index) => index !== indexToDelete);
+        } else {
+          removedIndex = prev.length - 1;
+          newRows = prev.slice(0, Math.max(prev.length - 1, 0));
+        }
+
+        if (newRows.length > 0) {
+          const targetRow = Math.min(removedIndex, newRows.length - 1);
+          setPendingFocus({ rowIndex: targetRow, colIndex: 0 });
+        } else {
+          setPendingFocus(null);
+        }
+        return newRows;
+      });
+    },
+    [setPendingFocus]
+  );
 
   const addPackingRow = useCallback(() => {
-    setPackingRows((prev) => [
-      ...prev,
-      { id: Date.now() + Math.random(), itemName: "", quantity: "" },
-    ]);
+    setPackingRows((prev) => {
+      const newRow: PackingRow = {
+        id: Date.now() + Math.random(),
+        itemName: "",
+        quantity: "",
+      };
+      const newRows = [...prev, newRow];
+
+      setTimeout(() => {
+        const el = document.querySelector<HTMLInputElement>(
+          `input[data-packing-id="${newRow.id}"][data-packing-field="itemName"]`
+        );
+        if (el) {
+          el.focus();
+          el.select?.();
+        }
+      }, 0);
+
+      return newRows;
+    });
   }, []);
 
   useEffect(() => {
     if (rows.length === 0) addMainRow();
     if (packingRows.length === 0) addPackingRow();
   }, [addMainRow, addPackingRow, rows.length, packingRows.length]);
+
+  // --- Focus effect for pendingFocus ---
+  useEffect(() => {
+    if (!pendingFocus) return;
+    const selector = `input[data-row-index="${pendingFocus.rowIndex}"][data-col-index="${pendingFocus.colIndex}"]`;
+    const el =
+      typeof document !== "undefined"
+        ? (document.querySelector<HTMLInputElement>(selector) as
+            | HTMLInputElement
+            | null)
+        : null;
+    if (el) {
+      el.focus();
+      if (typeof el.select === "function") {
+        el.select();
+      }
+    }
+    setPendingFocus(null);
+  }, [pendingFocus, rows.length]);
 
   // --- Row change ---
 
@@ -775,7 +1000,78 @@ const DispatchChallan: React.FC = () => {
     );
   };
 
-  // --- Totals ---
+  // --- Keyboard navigation: Enter -> next col/row (grid only) ---
+  const handleCellKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLInputElement>) => {
+      if (e.key !== "Enter") return;
+      e.preventDefault();
+
+      const rowIndexStr = e.currentTarget.getAttribute("data-row-index");
+      const colIndexStr = e.currentTarget.getAttribute("data-col-index");
+      if (rowIndexStr == null || colIndexStr == null) return;
+
+      const rowIndex = parseInt(rowIndexStr, 10);
+      const colIndex = parseInt(colIndexStr, 10);
+      if (Number.isNaN(rowIndex) || Number.isNaN(colIndex)) return;
+
+      const totalCols = fieldOrder.length;
+
+      let nextRow = rowIndex;
+      let nextCol = colIndex + 1;
+
+      if (nextCol >= totalCols) {
+        nextCol = 0;
+        nextRow = rowIndex + 1;
+      }
+
+      if (nextRow >= rows.length) return;
+
+      const selector = `input[data-row-index="${nextRow}"][data-col-index="${nextCol}"]`;
+      const nextEl =
+        typeof document !== "undefined"
+          ? (document.querySelector<HTMLInputElement>(selector) as
+              | HTMLInputElement
+              | null)
+          : null;
+
+      if (nextEl) {
+        nextEl.focus();
+        if (typeof nextEl.select === "function") {
+          nextEl.select();
+        }
+      }
+    },
+    [rows.length, fieldOrder.length]
+  );
+
+  // --- Totals (boxes/pcs/art count + amount) ---
+
+  const { totalBoxes, totalPcsSum, uniqueArtNosCount } = useMemo(() => {
+    let boxSum = 0;
+    let pcsSum = 0;
+    const artNos = new Set<string>();
+
+    rows.forEach((row) => {
+      const boxNum = parseFloat(row.box);
+      const pcsNum = parseFloat(row.pcs);
+
+      if (!Number.isNaN(boxNum)) {
+        boxSum += boxNum;
+      }
+      if (!Number.isNaN(pcsNum)) {
+        pcsSum += pcsNum;
+      }
+      if (row.artNo) {
+        artNos.add(row.artNo);
+      }
+    });
+
+    return {
+      totalBoxes: boxSum,
+      totalPcsSum: pcsSum,
+      uniqueArtNosCount: artNos.size,
+    };
+  }, [rows]);
 
   useEffect(() => {
     const total = rows.reduce((sum, row) => {
@@ -790,6 +1086,7 @@ const DispatchChallan: React.FC = () => {
   ) => {
     const val = e.target.value;
     setDiscountPercent(val);
+    setDiscountMode("percent");
 
     const t = parseFloat(totalAmt);
     const p = parseFloat(val);
@@ -806,6 +1103,7 @@ const DispatchChallan: React.FC = () => {
   ) => {
     const val = e.target.value;
     setDiscount(val);
+    setDiscountMode("amount");
 
     const t = parseFloat(totalAmt);
     const a = parseFloat(val);
@@ -820,6 +1118,7 @@ const DispatchChallan: React.FC = () => {
   const handleTaxPercentChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const val = e.target.value;
     setTaxPercent(val);
+    setTaxMode("percent");
 
     const t = parseFloat(totalAmt);
     const p = parseFloat(val);
@@ -834,6 +1133,7 @@ const DispatchChallan: React.FC = () => {
   const handleTaxAmountChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const val = e.target.value;
     setTax(val);
+    setTaxMode("amount");
 
     const t = parseFloat(totalAmt);
     const a = parseFloat(val);
@@ -847,23 +1147,24 @@ const DispatchChallan: React.FC = () => {
 
   useEffect(() => {
     const t = parseFloat(totalAmt);
-    if (!Number.isNaN(t)) {
-      if (discountPercent) {
-        const p = parseFloat(discountPercent);
-        if (!Number.isNaN(p)) {
-          const amt = (t * p) / 100;
-          setDiscount(amt ? String(amt) : "");
-        }
-      }
-      if (taxPercent) {
-        const p = parseFloat(taxPercent);
-        if (!Number.isNaN(p)) {
-          const amt = (t * p) / 100;
-          setTax(amt ? String(amt) : "");
-        }
+    if (Number.isNaN(t) || t === 0) return;
+
+    if (discountMode === "percent" && discountPercent) {
+      const p = parseFloat(discountPercent);
+      if (!Number.isNaN(p)) {
+        const amt = (t * p) / 100;
+        setDiscount(amt ? String(amt) : "");
       }
     }
-  }, [totalAmt, discountPercent, taxPercent]);
+
+    if (taxMode === "percent" && taxPercent) {
+      const p = parseFloat(taxPercent);
+      if (!Number.isNaN(p)) {
+        const amt = (t * p) / 100;
+        setTax(amt ? String(amt) : "");
+      }
+    }
+  }, [totalAmt, discountPercent, taxPercent, discountMode, taxMode]);
 
   useEffect(() => {
     const t = parseFloat(totalAmt);
@@ -894,20 +1195,20 @@ const DispatchChallan: React.FC = () => {
   }, []);
 
   /**
-   * Load products for Art-No selection:
-   *   Aggregated like Art Stock Report:
-   *     - Opening stock from Art Creation (/arts + /arts/{id})
-   *     - Items from Packing Challans (/packing-challans)
-   *   For same ArtNo + Size + Shade:
-   *     - Box and Pcs are **summed** (e.g. Art=10 box, Packing=5 box => 15 box)
-   *     - Rate = weighted-average by Pcs (like stock value / pcs)
+   * ⭐ NET ART STOCK:
+   *   - Opening from Art Creation (rate = 0)
+   *   - PLUS Packing Challans (rate from packing)
+   *   - MINUS Dispatch Challans (rate = 0)
+   * 
+   * Final rate = LAST PACKING RATE (per Art+Size+Shade+Description),
+   *              NOT average, NOT from Art master.
    */
   const loadProducts = useCallback(async () => {
     try {
-      // 1) Load Art list and Packing challans in parallel
-      const [artsRes, packingRes] = await Promise.all([
+      const [artsRes, packingRes, dispatchRes] = await Promise.all([
         api.get<ArtListView[]>(routes.arts),
         api.get<any[]>(routes.packingChallans),
+        api.get<any[]>(routes.list),
       ]);
 
       const arts: ArtListView[] = Array.isArray(artsRes.data)
@@ -915,6 +1216,9 @@ const DispatchChallan: React.FC = () => {
         : [];
       const challans: any[] = Array.isArray(packingRes.data)
         ? packingRes.data
+        : [];
+      const dispatchChallans: any[] = Array.isArray(dispatchRes.data)
+        ? dispatchRes.data
         : [];
 
       interface AggregatedItem {
@@ -924,7 +1228,7 @@ const DispatchChallan: React.FC = () => {
         shade: string;
         box: number;
         pcs: number;
-        totalValue: number; // sum(pcs * rate)
+        rate: number; // LAST packing rate for this Art+Size+Shade+Description
       }
 
       const aggregateMap = new Map<string, AggregatedItem>();
@@ -943,23 +1247,23 @@ const DispatchChallan: React.FC = () => {
         shade: string;
         box: number;
         pcs: number;
-        rate: number;
+        rate: number; // 0 for opening/dispatch, >0 for packing
       }) => {
         const { artNo, description, size, shade, box, pcs, rate } = params;
         if (!artNo || !size) return;
 
         const key = makeKey(artNo, size, shade, description);
-        const existing = aggregateMap.get(key);
-
         const cleanBox = Number.isFinite(box) ? box : 0;
         const cleanPcs = Number.isFinite(pcs) ? pcs : 0;
         const cleanRate = Number.isFinite(rate) ? rate : 0;
 
+        const existing = aggregateMap.get(key);
         if (existing) {
           existing.box += cleanBox;
           existing.pcs += cleanPcs;
-          if (cleanPcs > 0 && cleanRate > 0) {
-            existing.totalValue += cleanPcs * cleanRate;
+          // ⭐ Packing challan ka RATE jaise-jaise aata hai, LAST wala save karte rahenge
+          if (cleanRate > 0) {
+            existing.rate = cleanRate;
           }
         } else {
           aggregateMap.set(key, {
@@ -969,85 +1273,90 @@ const DispatchChallan: React.FC = () => {
             shade,
             box: cleanBox,
             pcs: cleanPcs,
-            totalValue:
-              cleanPcs > 0 && cleanRate > 0 ? cleanPcs * cleanRate : 0,
+            rate: cleanRate > 0 ? cleanRate : 0,
           });
         }
       };
 
-      // 1.a) Load details for every art to build opening stock rows.
-      const artDetails: (ArtDetailView | null)[] = await Promise.all(
-        arts.map((a) =>
-          api
-            .get<ArtDetailView>(routes.artDetail(a.serialNumber))
-            .then((res) => res.data)
-            .catch((err) => {
-              console.error(
-                "Error loading art detail for serial:",
-                a.serialNumber,
-                err
-              );
-              return null;
-            })
-        )
-      );
+      // ---------- 1) Opening stock from Art Creation (RATE = 0) ----------
+      try {
+        const artDetails: (ArtDetailView | null)[] = await Promise.all(
+          arts.map((a) =>
+            api
+              .get<ArtDetailView>(routes.artDetail(a.serialNumber))
+              .then((res) => res.data)
+              .catch((err) => {
+                console.error(
+                  "Error loading art detail for serial:",
+                  a.serialNumber,
+                  err
+                );
+                return null;
+              })
+          )
+        );
 
-      artDetails.forEach((det, idx) => {
-        if (!det) return;
-        const listArt = arts[idx];
+        artDetails.forEach((det, idx) => {
+          if (!det) return;
+          const listArt = arts[idx];
 
-        const artNo = String(det.artNo || listArt?.artNo || "").trim();
-        if (!artNo) return;
+          const artNo = String(det.artNo || listArt?.artNo || "").trim();
+          if (!artNo) return;
 
-        const desc = String(det.artName || listArt?.artName || "").trim();
+          const desc = String(det.artName || listArt?.artName || "").trim();
 
-        const artShades =
-          Array.isArray(det.shades) && det.shades.length > 0
-            ? det.shades
-            : [{ shadeName: "", shadeCode: "", colorFamily: "" }];
+          const artShades =
+            Array.isArray(det.shades) && det.shades.length > 0
+              ? det.shades
+              : [{ shadeName: "", shadeCode: "", colorFamily: "" }];
 
-        const sizeList: any[] =
-          Array.isArray(det.sizeDetails) && det.sizeDetails.length > 0
-            ? (det.sizeDetails as any[])
-            : Array.isArray(det.sizes)
-            ? (det.sizes as any[])
-            : [];
+          const sizeList: any[] =
+            Array.isArray(det.sizeDetails) && det.sizeDetails.length > 0
+              ? (det.sizeDetails as any[])
+              : Array.isArray(det.sizes)
+              ? (det.sizes as any[])
+              : [];
 
-        sizeList.forEach((sz: any) => {
-          const sizeName = String(sz.sizeName || sz.size || "").trim();
-          if (!sizeName) return;
+          sizeList.forEach((sz: any) => {
+            const sizeName = String(sz.sizeName || sz.size || "").trim();
+            if (!sizeName) return;
 
-          const perBox = toNum(sz.pcs);
-          const box = toNum(sz.box);
-          const pcs = box * perBox;
-          const rate = toNum(
-            sz.rate ?? det.saleRate ?? (listArt as any)?.saleRate ?? 0
-          );
+            const perBox = toNum(sz.pcs);
+            const box = toNum(sz.box);
+            const pcs = box * perBox;
 
-          artShades.forEach((sh: any) => {
-            const shade = String(sh.shadeName || sh.shade || "").trim();
+            // ⭐ Opening ka rate = 0, sirf qty add karo
+            const rate = 0;
 
-            addToAggregate({
-              artNo,
-              description: desc,
-              size: sizeName,
-              shade,
-              box,
-              pcs,
-              rate,
+            artShades.forEach((sh: any) => {
+              const shade = String(sh.shadeName || sh.shade || "").trim();
+
+              addToAggregate({
+                artNo,
+                description: desc,
+                size: sizeName,
+                shade,
+                box,
+                pcs,
+                rate,
+              });
             });
           });
         });
-      });
+      } catch (err) {
+        console.error("Opening stock (Art Creation) load error:", err);
+      }
 
-      // 2) Add items from Packing Challans
+      // ---------- 2) PLUS Packing Challans (incoming, yahan ka RATE use hoga) ----------
       challans.forEach((ch: any) => {
         const rows = Array.isArray(ch.rows) ? ch.rows : [];
         rows.forEach((r: any) => {
           const artNo = String(r.artNo || "").trim();
           if (!artNo) return;
 
-          const description = String(r.workOnArt || r.description || "").trim();
+          const description = String(
+            r.workOnArt || r.description || ""
+          ).trim();
           const shade = String(r.shadeName || r.shade || "").trim();
 
           const sizeDetails = Array.isArray(r.sizeDetails) ? r.sizeDetails : [];
@@ -1065,6 +1374,8 @@ const DispatchChallan: React.FC = () => {
                   : Number.isFinite(box * perBox)
                   ? box * perBox
                   : 0;
+
+              // ⭐ Yehi packing-challan ka rate hai:
               const rate = Number(sd.rate ?? 0);
 
               if (!sizeName && !description && !artNo) return;
@@ -1108,15 +1419,53 @@ const DispatchChallan: React.FC = () => {
         });
       });
 
-      // 3) Convert aggregated map to list of PackingSourceItem
+      // ---------- 3) MINUS Dispatch Challans (qty out, RATE = 0) ----------
+      dispatchChallans.forEach((dc: any) => {
+        const rows = Array.isArray(dc.rows) ? dc.rows : [];
+        rows.forEach((r: any) => {
+          const artNo = String(r.artNo || "").trim();
+          if (!artNo) return;
+
+          const description = String(r.description || "").trim();
+          const sizeName = String(r.sizeName || r.size || "").trim();
+          const shade = String(r.shadeName || r.shade || "").trim();
+          if (!sizeName) return;
+
+          const box = Number(r.box ?? 0);
+          const perBox = Number(r.pcsPerBox ?? 0);
+          const pcs =
+            r.pcs != null
+              ? Number(r.pcs)
+              : Number.isFinite(box * perBox)
+              ? box * perBox
+              : 0;
+
+          const negBox = -Math.abs(box);
+          const negPcs = -Math.abs(pcs);
+
+          // minus qty, rate zero
+          addToAggregate({
+            artNo,
+            description,
+            size: sizeName,
+            shade,
+            box: negBox,
+            pcs: negPcs,
+            rate: 0,
+          });
+        });
+      });
+
+      // ---------- 4) FINAL NET STOCK ITEMS ----------
       const items: PackingSourceItem[] = [];
       aggregateMap.forEach((agg, key) => {
         if (!agg.box && !agg.pcs) return;
 
-        const perBox = agg.box > 0 && agg.pcs > 0 ? agg.pcs / agg.box : 0;
+        const perBox =
+          agg.box > 0 && agg.pcs > 0 ? agg.pcs / agg.box : 0;
 
-        const rate =
-          agg.pcs > 0 && agg.totalValue > 0 ? agg.totalValue / agg.pcs : 0;
+        // ⭐ Final RATE = LAST PACKING RATE (agg.rate)
+        const rate = agg.rate > 0 ? agg.rate : 0;
 
         const amount = agg.pcs * rate;
 
@@ -1141,13 +1490,13 @@ const DispatchChallan: React.FC = () => {
       setProductList(items);
     } catch (err) {
       console.error(
-        "Error loading Art Stock (Art Creation + Packing) for dispatch:",
+        "Error loading Net Art Stock (Opening + Packing - Dispatch) for dispatch:",
         err
       );
       setProductList([]);
       Swal.fire(
         "Error",
-        "Failed to load Art Stock (Art Creation + Packing) for dispatch",
+        "Failed to load Net Art Stock (Opening + Packing - Dispatch) for dispatch",
         "error"
       );
     }
@@ -1166,6 +1515,7 @@ const DispatchChallan: React.FC = () => {
     setRemarks2("");
     setDispatchedBy("");
     setStation("");
+
     setTotalAmt("");
     setDiscount("");
     setDiscountPercent("");
@@ -1173,10 +1523,13 @@ const DispatchChallan: React.FC = () => {
     setTaxPercent("");
     setCartage("");
     setNetAmt("");
+    setDiscountMode(null);
+    setTaxMode(null);
+
     setRows([]);
     setPackingRows([]);
     setEditingId(null);
-    setSeqInfo(null);
+    setPendingFocus(null);
 
     if (showToast) {
       Swal.fire("Cleared", "Ready for new dispatch challan", "success");
@@ -1188,59 +1541,64 @@ const DispatchChallan: React.FC = () => {
     loadParties();
     loadProducts();
     handleAddNew(false);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [loadParties, loadProducts, handleAddNew]);
 
-  // --- Party select → broker + auto number (broker-wise) + station ---
+  // --- Backend se next Serial/Challan No (party select / date change par) ---
+
+  const fetchNextNumbers = useCallback(
+    async (currentDate: string, currentParty: string, currentBroker: string) => {
+      if (!currentParty || !currentDate) return;
+      try {
+        const res = await api.get(routes.nextNumbers, {
+          params: {
+            date: currentDate,
+            partyName: currentParty,
+            brokerName: currentBroker || undefined,
+          },
+        });
+        if (res?.data) {
+          setSerialNo(res.data.serialNo || "");
+          setChallanNo(res.data.challanNo || "");
+        }
+      } catch (err) {
+        console.error("Error fetching next numbers:", err);
+        Swal.fire(
+          "Error",
+          "Failed to get next Serial/Challan No from server",
+          "error"
+        );
+      }
+    },
+    []
+  );
+
+  // --- Party select → broker + transport + station + next serial/challan ---
 
   useEffect(() => {
     const selectedParty = partyList.find((p) => p.partyName === partyName);
 
-    if (selectedParty) {
-      const broker = selectedParty.agent?.agentName || "";
-      setBrokerName(broker);
+    let derivedBroker = "";
+
+    if (selectedParty && !editingId) {
+      derivedBroker = selectedParty.agent?.agentName || "";
+      setBrokerName(derivedBroker);
       setTransportName(selectedParty.transport?.transportName || "");
 
-      // Auto-fill station for NEW challans when empty
-      if (!editingId && !station) {
+      if (!station) {
         setStation(selectedParty.station || "");
       }
-    } else {
+    } else if (!selectedParty && !editingId) {
       setBrokerName("");
       setTransportName("");
-      if (!editingId) {
-        setStation("");
-      }
+      setStation("");
     }
 
-    if (!partyName || editingId) return;
+    if (selectedParty && !editingId) {
+      fetchNextNumbers(date, partyName, derivedBroker);
+    }
+  }, [partyName, partyList, editingId, station, date, fetchNextNumbers]);
 
-    const brokerKey = makeBrokerKey(selectedParty);
-
-    if (seqInfo && seqInfo.brokerKey === brokerKey && serialNo && challanNo)
-      return;
-
-    const {
-      challanNo: cn,
-      serialNo: sn,
-      year,
-      seq,
-    } = getNextNumbers(brokerKey);
-    setChallanNo(cn);
-    setSerialNo(sn);
-    setSeqInfo({ year, seq, brokerKey });
-  }, [
-    partyName,
-    partyList,
-    editingId,
-    station,
-    getNextNumbers,
-    seqInfo,
-    serialNo,
-    challanNo,
-  ]);
-
-  // --- Art lookup (Art Stock: Art Creation + Packing) with simple substring search ---
+  // --- Art lookup (Net Art Stock) with simple substring search ---
 
   const filteredProducts = useMemo(() => {
     const term = productSearchTerm.trim().toLowerCase();
@@ -1263,12 +1621,18 @@ const DispatchChallan: React.FC = () => {
   };
 
   const handleProductSelect = (item: PackingSourceItem) => {
+    let targetRowIndex = -1;
+    if (currentRowIdForLookup !== null) {
+      targetRowIndex = rows.findIndex(
+        (r) => r.id === currentRowIdForLookup
+      );
+    }
+
     if (currentRowIdForLookup !== null) {
       setRows((prev) =>
         prev.map((r) => {
           if (r.id !== currentRowIdForLookup) return r;
 
-          // Fill row from aggregated Art Stock
           let updated: DispatchRow = {
             ...r,
             artNo: item.artNo,
@@ -1278,10 +1642,10 @@ const DispatchChallan: React.FC = () => {
             box: item.box ? String(item.box) : "",
             pcsPerBox: item.perBox ? String(item.perBox) : "",
             lotNumber: item.cuttingLotNo || r.lotNumber,
+            // ⭐ Rate packing ke Net Stock se aa raha hai (LAST PACKING RATE)
             rate: item.rate ? String(item.rate) : r.rate,
           };
 
-          // Recalculate pcs and amount
           const boxNum = Number(updated.box);
           const perBoxNum = Number(updated.pcsPerBox);
           if (
@@ -1313,6 +1677,20 @@ const DispatchChallan: React.FC = () => {
       );
     }
 
+    if (targetRowIndex >= 0) {
+      const artIndex = fieldOrder.indexOf("artNo");
+      const nextColIndex =
+        artIndex >= 0 && artIndex + 1 < fieldOrder.length
+          ? artIndex + 1
+          : artIndex >= 0
+          ? artIndex
+          : 0;
+      setPendingFocus({
+        rowIndex: targetRowIndex,
+        colIndex: nextColIndex,
+      });
+    }
+
     setIsModalOpen(false);
     setCurrentRowIdForLookup(null);
   };
@@ -1323,8 +1701,12 @@ const DispatchChallan: React.FC = () => {
     if (!challanSearchText) return challanList;
     const term = challanSearchText.toLowerCase();
     return challanList.filter((c: any) => {
-      const challanNo = (c.challanNo || "").toLowerCase();
-      const dated = (c.date || c.dated || "").toLowerCase();
+      const challanNoVal = (c.challanNo || "").toLowerCase();
+
+      const rawDate = c.date || c.dated || "";
+      const datedRaw = String(rawDate).toLowerCase();
+      const datedFormatted = formatDateDDMMYY(rawDate).toLowerCase();
+
       const party = (c.partyName || "").toLowerCase();
       const stationVal = (
         c.station ||
@@ -1332,11 +1714,22 @@ const DispatchChallan: React.FC = () => {
         c.remarks1 ||
         ""
       ).toLowerCase();
+
+      const allArtNosText = Array.isArray(c.rows)
+        ? c.rows
+            .map((r: any) =>
+              (r.artNo || "").toString().toLowerCase()
+            )
+            .join(" ")
+        : "";
+
       return (
-        challanNo.includes(term) ||
-        dated.includes(term) ||
+        challanNoVal.includes(term) ||
+        datedRaw.includes(term) ||
+        datedFormatted.includes(term) ||
         party.includes(term) ||
-        stationVal.includes(term)
+        stationVal.includes(term) ||
+        allArtNosText.includes(term)
       );
     });
   }, [challanSearchText, challanList]);
@@ -1344,7 +1737,14 @@ const DispatchChallan: React.FC = () => {
   const openChallanSearch = async () => {
     try {
       const res = await api.get(routes.list);
-      const data = Array.isArray(res.data) ? res.data : [];
+      let data = Array.isArray(res.data) ? res.data : [];
+
+      data = data
+        .slice()
+        .sort((a: any, b: any) =>
+          String(a.challanNo || "").localeCompare(String(b.challanNo || ""))
+        );
+
       setChallanList(data);
       setChallanSearchText("");
       setIsChallanModalOpen(true);
@@ -1371,18 +1771,36 @@ const DispatchChallan: React.FC = () => {
       const pcs = String(firstRow.pcs ?? "").toLowerCase();
       const rate = String(firstRow.rate ?? "").toLowerCase();
       const amt = String(firstRow.amt ?? "").toLowerCase();
-      const netAmt = String(c.netAmt ?? "").toLowerCase();
+      const netAmtStr = String(c.netAmt ?? "").toLowerCase();
 
-      return [artNo, size, shade, box, pcsPerBox, pcs, rate, amt, netAmt].some(
-        (field) => field.includes(term)
-      );
+      const dateVal = formatDateDDMMYY(c.date || c.dated || "").toLowerCase();
+
+      return [
+        dateVal,
+        artNo,
+        size,
+        shade,
+        box,
+        pcsPerBox,
+        pcs,
+        rate,
+        amt,
+        netAmtStr,
+      ].some((field) => field.includes(term));
     });
   }, [listViewSearchText, listViewChallanList]);
 
   const openListViewModal = async () => {
     try {
       const res = await api.get(routes.list);
-      const data = Array.isArray(res.data) ? res.data : [];
+      let data = Array.isArray(res.data) ? res.data : [];
+
+      data = data
+        .slice()
+        .sort((a: any, b: any) =>
+          String(a.challanNo || "").localeCompare(String(b.challanNo || ""))
+        );
+
       setListViewChallanList(data);
       setListViewSearchText("");
       setIsListViewModalOpen(true);
@@ -1429,6 +1847,8 @@ const DispatchChallan: React.FC = () => {
       setTaxPercent(numToStr(ch.taxPercent));
       setCartage(numToStr(ch.cartage));
       setNetAmt(numToStr(ch.netAmt));
+      setDiscountMode(null);
+      setTaxMode(null);
 
       const mappedRows: DispatchRow[] = Array.isArray(ch.rows)
         ? ch.rows.map((r: any, idx: number) => ({
@@ -1467,10 +1887,11 @@ const DispatchChallan: React.FC = () => {
       setPackingRows(mappedPacking);
 
       setEditingId(ch.id || id);
-      setSeqInfo(null);
 
       setIsChallanModalOpen(false);
       setIsListViewModalOpen(false);
+
+      await loadProducts();
     } catch (err) {
       console.error("Error loading challan:", err);
       Swal.fire("Error", "Failed to load challan", "error");
@@ -1498,6 +1919,8 @@ const DispatchChallan: React.FC = () => {
       if (editingId === id) {
         handleAddNew(false);
       }
+
+      await loadProducts();
     } catch (err) {
       console.error("Delete Error:", err);
       Swal.fire("Error", "Delete failed", "error");
@@ -1507,12 +1930,10 @@ const DispatchChallan: React.FC = () => {
   // --- Save / Update / Delete ---
 
   const handleSave = async () => {
-    if (!date || !challanNo || !partyName) {
-      Swal.fire(
-        "Error",
-        "Please fill Date, Challan No and Party Name",
-        "error"
-      );
+    if (isSaving) return;
+
+    if (!date || !partyName) {
+      Swal.fire("Error", "Please fill Date and Party Name", "error");
       return;
     }
 
@@ -1567,25 +1988,32 @@ const DispatchChallan: React.FC = () => {
       packingRows: packingRowsPayload,
     };
 
+    setIsSaving(true);
     try {
       if (editingId) {
-        await api.put(routes.update(editingId), payload);
+        const res = await api.put(routes.update(editingId), payload);
+        const updated = res?.data;
+        if (updated) {
+          setSerialNo(updated.serialNo || "");
+          setChallanNo(updated.challanNo || "");
+        }
         Swal.fire("Success", "Dispatch challan updated!", "success");
       } else {
         const res = await api.post(routes.create, payload);
-
-        if (seqInfo) {
-          const yearKey = `dispatchYear_${seqInfo.brokerKey}`;
-          const seqKey = `dispatchSeq_${seqInfo.brokerKey}`;
-          localStorage.setItem(yearKey, seqInfo.year);
-          localStorage.setItem(seqKey, String(seqInfo.seq));
+        const saved = res?.data;
+        if (saved) {
+          setSerialNo(saved.serialNo || "");
+          setChallanNo(saved.challanNo || "");
+          if (saved.id) {
+            setEditingId(saved.id);
+          }
         }
-
         Swal.fire("Success", "Dispatch challan saved successfully!", "success");
-        if (res?.data?.id) {
-          setEditingId(res.data.id);
-        }
       }
+
+      await loadProducts();
+
+      handleAddNew(false);
     } catch (error: any) {
       console.error("Error saving challan:", error);
       Swal.fire(
@@ -1593,6 +2021,8 @@ const DispatchChallan: React.FC = () => {
         error?.response?.data?.message || "Failed to save challan",
         "error"
       );
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -1621,6 +2051,8 @@ const DispatchChallan: React.FC = () => {
       await api.delete(routes.delete(editingId));
       Swal.fire("Deleted!", "Challan deleted successfully", "success");
       handleAddNew(false);
+
+      await loadProducts();
     } catch (err) {
       console.error("Delete Error:", err);
       Swal.fire("Error", "Delete failed", "error");
@@ -1682,7 +2114,36 @@ const DispatchChallan: React.FC = () => {
     setIsPOModalOpen(false);
   };
 
-  // --- Print challan (hidden iframe) ---
+  // --- Party modal filtering & handlers ---
+
+  const filteredParties = useMemo(() => {
+    const term = partySearchText.trim().toLowerCase();
+    if (!term) return partyList;
+    return partyList.filter((p) => {
+      const pn = (p.partyName || "").toLowerCase();
+      const st = (p.station || "").toLowerCase();
+      const br = (p.agent?.agentName || "").toLowerCase();
+      const tr = (p.transport?.transportName || "").toLowerCase();
+      return (
+        pn.includes(term) ||
+        st.includes(term) ||
+        br.includes(term) ||
+        tr.includes(term)
+      );
+    });
+  }, [partySearchText, partyList]);
+
+  const openPartyModal = () => {
+    setPartySearchText("");
+    setIsPartyModalOpen(true);
+  };
+
+  const handlePartySelect = (party: Party) => {
+    setPartyName(party.partyName);
+    setIsPartyModalOpen(false);
+  };
+
+  // --- Print challan ---
 
   const handlePrint = () => {
     if (typeof window === "undefined" || typeof document === "undefined") {
@@ -1690,7 +2151,7 @@ const DispatchChallan: React.FC = () => {
     }
 
     try {
-      const formattedDate = date ? new Date(date).toLocaleDateString() : "";
+      const formattedDate = formatDateDDMMYYYY(date);
 
       const rowHtml = rows
         .filter(
@@ -1706,31 +2167,88 @@ const DispatchChallan: React.FC = () => {
         .map(
           (r, idx) => `
         <tr>
-          <td>${idx + 1}</td>
-          <td>${r.artNo || ""}</td>
-          <td>${r.description || ""}</td>
-          <td>${r.size || ""}</td>
-          <td>${r.shade || ""}</td>
-          <td style="text-align:right;">${r.box || ""}</td>
-          <td style="text-align:right;">${r.pcsPerBox || ""}</td>
-          <td style="text-align:right;">${r.pcs || ""}</td>
+          <td style="text-align:center;">${idx + 1}</td>
+          <td style="text-align:center;">${r.artNo || ""}</td>
+          <td style="text-align:left;">${r.description || ""}</td>
+          <td style="text-align:center;">${r.shade || ""}</td>
+          <td style="text-align:center;">${r.size || ""}</td>
+          <td style="text-align:center;">${r.box || ""}</td>
+          <td style="text-align:center;">${r.pcsPerBox || ""}</td>
+          <td style="text-align:center;">${r.pcs || ""}</td>
           <td style="text-align:right;">${r.rate || ""}</td>
           <td style="text-align:right;">${r.amt || ""}</td>
         </tr>`
         )
         .join("");
 
+      const totalBox = totalBoxes;
+      const totalPcs = totalPcsSum;
+
       const packingHtml = packingRows
         .filter((p) => p.itemName || p.quantity)
         .map(
           (p, idx) => `
         <tr>
-          <td>${idx + 1}</td>
-          <td>${p.itemName || ""}</td>
-          <td style="text-align:right;">${p.quantity || ""}</td>
+          <td style="text-align:center; border:1px solid #000;">${idx + 1}</td>
+          <td style="text-align:left; border:1px solid #000;">${
+            p.itemName || ""
+          }</td>
+          <td style="text-align:right; border:1px solid #000;">${
+            p.quantity || ""
+          }</td>
         </tr>`
         )
         .join("");
+
+      const dNum = parseFloat(discount || "0");
+      const tNum = parseFloat(tax || "0");
+      const cNum = parseFloat(cartage || "0");
+
+      const hasDiscountRow =
+        !!discount && !Number.isNaN(dNum) && dNum !== 0;
+      const hasTaxRow = !!tax && !Number.isNaN(tNum) && tNum !== 0;
+      const hasCartageRow =
+        !!cartage && !Number.isNaN(cNum) && cNum !== 0;
+
+      const discountRowHtml = hasDiscountRow
+        ? `<tr>
+              <td>Discount</td>
+              <td>${discount}</td>
+           </tr>`
+        : "";
+
+      const taxRowHtml = hasTaxRow
+        ? `<tr>
+              <td>Tax</td>
+              <td>${tax}</td>
+           </tr>`
+        : "";
+
+      const cartageRowHtml = hasCartageRow
+        ? `<tr>
+              <td>Cartage</td>
+              <td>${cartage}</td>
+           </tr>`
+        : "";
+
+      const packingSectionRowHtml = packingHtml
+        ? `
+        <tr>
+          <td colspan="10" style="padding:0; text-align:left;">
+            <div style="font-size:11px; padding:2px 4px;">
+              <strong>Packing Details</strong>
+            </div>
+            <table style="width:100%; border-collapse:collapse; font-size:11px;">
+              <tr>
+                <th style="width:10%; border:1px solid #000;">S.n</th>
+                <th style="border:1px solid #000;">Item Name</th>
+                <th style="width:20%; border:1px solid #000;">Quantity</th>
+              </tr>
+              ${packingHtml}
+            </table>
+          </td>
+        </tr>`
+        : "";
 
       const html = `<!doctype html>
 <html>
@@ -1738,125 +2256,218 @@ const DispatchChallan: React.FC = () => {
   <meta charset="utf-8" />
   <title>Dispatch Challan</title>
   <style>
-    body { font-family: Arial, sans-serif; margin: 16px; color: #111; }
-    h1, h2, h3 { margin: 0; padding: 0; }
-    .header { display: flex;
-  flex-wrap: nowrap;          
-  justify-content: space-between;
-  align-items: center;
-  gap: 12px;
-  margin-bottom: 8px;
-  padding: 6px 0;
-  border-bottom: 1px solid #ddd;
-  font-size: 13px; }
-    .header-left { font-size: 14px; }
-    .header-right { font-size: 14px; text-align: right; }
-    .section { margin-top: 8px; font-size: 13px; }
-    table { border-collapse: collapse; width: 100%; font-size: 11px; margin-top: 8px; }
-    th, td { border: 1px solid #444; padding: 4px 6px; }
-    th { background: #eee; }
-    .totals { margin-top: 10px; width: 100%; font-size: 12px; }
-    .totals-right {  width: 40%; float: right; }
-    .totals-row { display: flex; justify-content: space-between; margin-bottom: 2px; }
+    @page {
+      margin: 5mm;
+    }
+    body {
+      font-family: Arial, sans-serif;
+      margin: 0;
+      padding: 0;
+      color: #000;
+    }
+    .page {
+      width: 148mm;
+      height: 210mm;
+      margin: 0 auto;
+      border: 1px solid #000;
+      box-sizing: border-box;
+      padding: 6mm;
+    }
+    table.outer {
+      border-collapse: collapse;
+      width: 100%;
+      height: 100%;
+      font-size: 11px;
+    }
+    th, td {
+      border: 1px solid #000;
+      padding: 2px 4px;
+      vertical-align: top;
+      text-align: center;
+    }
+    th {
+      font-weight: bold;
+    }
+    .title-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 12px;
+      margin-bottom: 4px;
+    }
+    .title-center {
+      font-size: 18px;
+      font-weight: bold;
+      text-align: center;
+      flex: 1;
+    }
+    .title-right {
+      text-align: right;
+      white-space: nowrap;
+    }
+    .inner-totals td {
+      border: none;
+      padding: 2px 4px;
+      font-size: 11px;
+      text-align: left;
+    }
+    .inner-totals td:last-child {
+      text-align: right;
+    }
+    .signature-row td {
+      font-size: 11px;
+      text-align: left;
+    }
+    .signature-row td:last-child {
+      text-align: right;
+    }
+    .no-print {
+      text-align: right;
+      margin: 8px;
+    }
+    .filler-row td {
+      border-top: 0;
+      border-bottom: 0;
+      padding: 0;
+      height: 100%;
+    }
+    .totals-row td {
+      font-weight: bold;
+    }
     @media print {
-      body { margin: 8mm; }
-      .no-print { display: none; }
+      .no-print {
+        display: none;
+      }
+      body {
+        margin: 0;
+      }
     }
   </style>
 </head>
 <body>
-  <div class="no-print" style="text-align:right; margin-bottom:8px;">
+  <div class="no-print">
     <button onclick="window.print()">Print</button>
   </div>
 
-  <div style="text-align:center; margin-bottom:8px;">
-    <h2>Dispatch Challan</h2>
-  </div>
-
-  <div class="header">
-    <div class="header-left">
-      <div><strong>Challan No:</strong> ${challanNo || ""}</div>
-      <div><strong>Party:</strong> ${partyName || ""}</div>
-      <div><strong>Station:</strong> ${station || ""}</div>
-      <div><strong>Broker:</strong> ${brokerName || ""}</div>
-      <div><strong>Transport:</strong> ${transportName || ""}</div>
-    </div>
-    <div class="header-right">
-      <div><strong>Date:</strong> ${formattedDate}</div>
-      <div><strong>Dispatched By:</strong> ${dispatchedBy || ""}</div>
-      <div><strong>Remarks 1:</strong> ${remarks1 || ""}</div>
-      <div><strong>Remarks 2:</strong> ${remarks2 || ""}</div>
-    </div>
-  </div>
-
-  <h3>Item Details</h3>
-  <table>
-    <thead>
+  <div class="page">
+    <table class="outer">
       <tr>
-        <th>S.No</th>
-        <th>Art No</th>
-        <th>Description</th>
-        <th>Size</th>
-        <th>Shade</th>
-        <th style="text-align:right;">Box</th>
-        <th style="text-align:right;">Pcs/Box</th>
-        <th style="text-align:right;">Pcs</th>
-        <th style="text-align:right;">Rate</th>
-        <th style="text-align:right;">Amt</th>
+        <td colspan="10" style="border:1px solid #000;">
+          <div class="title-row">
+            <div class="title-center">SUG</div>
+            <div class="title-right">Page 1 of 1</div>
+          </div>
+        </td>
       </tr>
-    </thead>
-    <tbody>
+
+      <tr>
+        <td colspan="6" style="font-size:14px; text-align:left;">
+          <div>Challan No. : ${challanNo || ""}</div>
+          <div>Party Name : ${partyName || ""}</div>
+          <div>Station : ${station || ""}</div>
+        </td>
+        <td colspan="4" style="font-size:14px; text-align:left;">
+          <div>Challan Date : ${formattedDate || ""}</div>
+          <div>Serial No. : ${serialNo || ""}</div>
+          <div style="margin-top:4px;">BY A/C : ${brokerName || ""}</div>
+        </td>
+      </tr>
+
+      <tr>
+        <th style="width:5%;">S.n</th>
+        <th style="width:10%;">Art No</th>
+        <th style="width:27%;">Description</th>
+        <th style="width:8%;">Shade</th>
+        <th style="width:8%;">Size</th>
+        <th style="width:7%;">Box</th>
+        <th style="width:7%;">Pcs/Box</th>
+        <th style="width:8%;">Pcs</th>
+        <th style="width:10%;">Rate</th>
+        <th style="width:10%;">Amount</th>
+      </tr>
+
       ${
         rowHtml ||
         `<tr><td colspan="10" style="text-align:center;">No rows</td></tr>`
       }
-    </tbody>
-  </table>
 
-  ${
-    packingHtml
-      ? `
-  <h3 style="margin-top:14px;">Packing Details</h3>
-  <table>
-    <thead>
-      <tr>
-        <th>S.No</th>
-        <th>Item Name</th>
-        <th style="text-align:right;">Quantity</th>
+      ${packingSectionRowHtml}
+
+      <tr class="filler-row">
+        <td>&nbsp;</td>
+        <td>&nbsp;</td>
+        <td>&nbsp;</td>
+        <td>&nbsp;</td>
+        <td>&nbsp;</td>
+        <td>&nbsp;</td>
+        <td>&nbsp;</td>
+        <td>&nbsp;</td>
+        <td>&nbsp;</td>
+        <td>&nbsp;</td>
       </tr>
-    </thead>
-    <tbody>
-      ${packingHtml}
-    </tbody>
-  </table>
-  `
-      : ""
-  }
 
-  <div class="section" style="margin-top:14px;">
-    <div class="totals-right">
-      <div class="totals-row">
-        <span><strong>Total Amount:</strong></span>
-        <span>${totalAmt || "0"}</span>
-      </div>
-      <div class="totals-row">
-        <span><strong>Discount (${discountPercent || "0"}%):</strong></span>
-        <span>${discount || "0"}</span>
-      </div>
-      <div class="totals-row">
-        <span><strong>Tax (${taxPercent || "0"}%):</strong></span>
-        <span>${tax || "0"}</span>
-      </div>
-      <div class="totals-row">
-        <span><strong>Cartage:</strong></span>
-        <span>${cartage || "0"}</span>
-      </div>
-      <div class="totals-row" style="margin-top:4px;">
-        <span><strong>Net Amount:</strong></span>
-        <span><strong>${netAmt || "0"}</strong></span>
-      </div>
-    </div>
-    <div style="clear:both;"></div>
+      <tr class="totals-row">
+        <td></td>
+        <td></td>
+        <td style="text-align:left;">Total</td>
+        <td></td>
+        <td></td>
+        <td style="text-align:center;">${totalBox || ""}</td>
+        <td></td>
+        <td style="text-align:center;">${totalPcs || ""}</td>
+        <td></td>
+        <td style="text-align:right;">${totalAmt || ""}</td>
+      </tr>
+
+      <tr>
+        <td colspan="8" style="font-size:11px; text-align:left; vertical-align:top;">
+          <div>
+            ${
+              dispatchedBy
+                ? `LR No : ${dispatchedBy.replace(/\n/g, "<br/>")}`
+                : ""
+            }
+          </div>
+          <div style="margin-top:2px;">
+            ${
+              remarks1
+                ? `LR Date : ${remarks1.replace(/\n/g, "<br/>")}`
+                : ""
+            }
+          </div>
+          <div style="margin-top:4px;">
+            TRANSPORT : ${transportName || ""}
+          </div>
+          <div style="margin-top:2px;">
+            ${
+              remarks2
+                ? `Remarks : ${remarks2.replace(/\n/g, "<br/>")}`
+                : ""
+            }
+          </div>
+        </td>
+        <td colspan="2" style="vertical-align:top; padding:0;">
+          <table class="inner-totals" style="width:100%;">
+            ${discountRowHtml}
+            ${taxRowHtml}
+            ${cartageRowHtml}
+            <tr>
+              <td><strong>Grand Total</strong></td>
+              <td><strong>${netAmt || ""}</strong></td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+
+      <tr class="signature-row">
+        <td colspan="5">
+          Receiver Signature
+        </td>
+        <td colspan="5">
+          Auth. Signature
+        </td>
+      </tr>
+    </table>
   </div>
 
   <script>
@@ -1907,21 +2518,7 @@ const DispatchChallan: React.FC = () => {
     }
   };
 
-  // --- Main Render ---
-
-  const fieldOrder: (keyof DispatchRow)[] = [
-    "barCode",
-    "artNo",
-    "description",
-    "size",
-    "shade",
-    "box",
-    "pcsPerBox",
-    "pcs",
-    "rate",
-    "amt",
-  ];
-
+  // ================= Render =================
   return (
     <Dashboard>
       {/* Modals */}
@@ -1959,6 +2556,14 @@ const DispatchChallan: React.FC = () => {
         onSelectPO={handleSelectPOForPacking}
         onClose={() => setIsPOModalOpen(false)}
       />
+      <PartySearchModal
+        isOpen={isPartyModalOpen}
+        searchText={partySearchText}
+        parties={filteredParties}
+        onSearchTextChange={setPartySearchText}
+        onSelect={handlePartySelect}
+        onClose={() => setIsPartyModalOpen(false)}
+      />
 
       {/* Main content */}
       <div className="p-3">
@@ -1970,11 +2575,12 @@ const DispatchChallan: React.FC = () => {
           {/* Header */}
           <div className="grid grid-cols-4 gap-3 mb-6">
             <div>
-              <label className="block font-semibold">Serial No.</label>
+              <label className="block font-semibold">Serial Number</label>
               <input
                 type="text"
                 value={serialNo}
                 readOnly
+                placeholder="Auto"
                 className="border p-2 rounded w-full bg-gray-100"
               />
             </div>
@@ -1995,26 +2601,22 @@ const DispatchChallan: React.FC = () => {
                 type="text"
                 value={challanNo}
                 readOnly
+                placeholder="Auto"
                 className="border p-2 rounded w-full bg-gray-100"
               />
             </div>
+
             <div>
               <label className="block font-semibold">Party Name</label>
-              <select
+              <input
+                type="text"
                 value={partyName}
-                onChange={(e) => setPartyName(e.target.value)}
-                className="border p-2 rounded w-full"
-              >
-                <option value="">Select Party</option>
-                {partyList.map((party) => (
-                  <option
-                    key={party.id ?? party.partyName}
-                    value={party.partyName}
-                  >
-                    {party.partyName}
-                  </option>
-                ))}
-              </select>
+                readOnly
+                onFocus={openPartyModal}
+                onClick={openPartyModal}
+                placeholder="Click to select Party"
+                className="border p-2 rounded w-full bg-yellow-50 cursor-pointer"
+              />
             </div>
 
             <div>
@@ -2028,7 +2630,7 @@ const DispatchChallan: React.FC = () => {
             </div>
 
             <div>
-              <label className="block font-semibold">Dispatched By</label>
+              <label className="block font-semibold">LR No</label>
               <input
                 type="text"
                 value={dispatchedBy}
@@ -2037,7 +2639,7 @@ const DispatchChallan: React.FC = () => {
               />
             </div>
             <div>
-              <label className="block font-semibold">Remarks 1</label>
+              <label className="block font-semibold">LR Date</label>
               <input
                 type="text"
                 value={remarks1}
@@ -2046,7 +2648,7 @@ const DispatchChallan: React.FC = () => {
               />
             </div>
             <div>
-              <label className="block font-semibold">Remarks 2</label>
+              <label className="block font-semibold">Remarks</label>
               <input
                 type="text"
                 value={remarks2}
@@ -2055,7 +2657,7 @@ const DispatchChallan: React.FC = () => {
               />
             </div>
             <div>
-              <label className="block font-semibold">Broker Name</label>
+              <label className="block font-semibold">A/c By</label>
               <input
                 type="text"
                 value={brokerName}
@@ -2068,8 +2670,8 @@ const DispatchChallan: React.FC = () => {
               <input
                 type="text"
                 value={transportName}
-                readOnly
-                className="border p-2 rounded w-full bg-gray-100"
+                onChange={(e) => setTransportName(e.target.value)}
+                className="border p-2 rounded w-full"
               />
             </div>
             <div className="col-span-3"></div>
@@ -2097,7 +2699,7 @@ const DispatchChallan: React.FC = () => {
                 {rows.map((row, index) => (
                   <tr key={row.id}>
                     <td className="border p-1 text-center">{index + 1}</td>
-                    {fieldOrder.map((field) => (
+                    {fieldOrder.map((field, colIndex) => (
                       <td key={field} className="border p-1">
                         <input
                           type="text"
@@ -2110,6 +2712,9 @@ const DispatchChallan: React.FC = () => {
                               ? () => handleArtNoFocus(row.id)
                               : undefined
                           }
+                          onKeyDown={handleCellKeyDown}
+                          data-row-index={index}
+                          data-col-index={colIndex}
                           className={`border p-1 rounded w-full ${
                             field === "artNo"
                               ? "bg-yellow-50 cursor-pointer"
@@ -2117,7 +2722,7 @@ const DispatchChallan: React.FC = () => {
                           }`}
                           placeholder={
                             field === "artNo"
-                              ? "Click to select from Packing"
+                              ? "Click to select from Net Stock"
                               : ""
                           }
                         />
@@ -2129,17 +2734,32 @@ const DispatchChallan: React.FC = () => {
             </table>
           </div>
 
+          {/* Summary Totals */}
+          <div className="flex justify-end gap-6 mt-2 text-md font-semibold">
+            <div>
+              Total Arts:{" "}
+              <span className="text-blue-700">{uniqueArtNosCount}</span>
+            </div>
+            <div>
+              Total Boxes:{" "}
+              <span className="text-blue-700">{totalBoxes}</span>
+            </div>
+            <div>
+              Total Pcs: <span className="text-blue-700">{totalPcsSum}</span>
+            </div>
+          </div>
+
           {/* Row buttons */}
           <div className="flex justify-start mt-6 space-x-3">
             <button
               onClick={addMainRow}
-              className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 mt-2"
+              className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 active:bg-blue-700 mt-2"
             >
               Add Row
             </button>
             <button
               onClick={() => deleteMainRow()}
-              className="px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600 mt-2"
+              className="px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600 active:bg-red-700 mt-2"
             >
               Delete Row
             </button>
@@ -2153,7 +2773,7 @@ const DispatchChallan: React.FC = () => {
                 <h3 className="text-lg font-semibold">Packing</h3>
                 <button
                   onClick={openPurchaseOrderModal}
-                  className="px-3 py-1 bg-indigo-500 text-white rounded hover:bg-indigo-600 text-sm"
+                  className="px-3 py-1 bg-indigo-500 text-white rounded hover:bg-indigo-600 active:bg-indigo-700 text-sm"
                 >
                   Load From Purchase Order
                 </button>
@@ -2174,6 +2794,8 @@ const DispatchChallan: React.FC = () => {
                         <input
                           type="text"
                           value={row.itemName}
+                          data-packing-id={row.id}
+                          data-packing-field="itemName"
                           onChange={(e) =>
                             handlePackingChange(
                               row.id,
@@ -2188,6 +2810,8 @@ const DispatchChallan: React.FC = () => {
                         <input
                           type="text"
                           value={row.quantity}
+                          data-packing-id={row.id}
+                          data-packing-field="quantity"
                           onChange={(e) =>
                             handlePackingChange(
                               row.id,
@@ -2278,43 +2902,46 @@ const DispatchChallan: React.FC = () => {
           <div className="flex justify-start mt-6 space-x-3">
             <button
               onClick={addPackingRow}
-              className="px-4 py-2 bg-purple-500 text-white rounded hover:bg-purple-600"
+              className="px-4 py-2 bg-purple-500 text-white rounded hover:bg-purple-600 active:bg-purple-700"
             >
               Add Packing
             </button>
             <button
               onClick={handleSave}
-              className="px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600"
+              disabled={isSaving}
+              className={`px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600 active:bg-green-700 ${
+                isSaving ? "opacity-50 cursor-not-allowed" : ""
+              }`}
             >
               Save
             </button>
             <button
               onClick={handleUpdate}
-              className="px-4 py-2 bg-yellow-500 text-white rounded hover:bg-yellow-600"
+              className="px-4 py-2 bg-yellow-500 text-white rounded hover:bg-yellow-600 active:bg-yellow-700"
             >
               Update
             </button>
             <button
               onClick={handleDelete}
-              className="px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600"
+              className="px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600 active:bg-red-700"
             >
               Delete
             </button>
             <button
               onClick={openListViewModal}
-              className="px-4 py-2 bg-teal-500 text-white rounded hover:bg-teal-600"
+              className="px-4 py-2 bg-teal-500 text-white rounded hover:bg-teal-600 active:bg-teal-700"
             >
               List View
             </button>
             <button
               onClick={handlePrint}
-              className="px-4 py-2 bg-gray-600 text-white rounded hover:bg-gray-700"
+              className="px-4 py-2 bg-gray-600 text-white rounded hover:bg-gray-700 active:bg-gray-800"
             >
               Print
             </button>
             <button
               onClick={() => handleAddNew(true)}
-              className="px-4 py-2 bg-blue-700 text-white rounded hover:bg-blue-800"
+              className="px-4 py-2 bg-blue-700 text-white rounded hover:bg-blue-800 active:bg-blue-900"
             >
               New
             </button>

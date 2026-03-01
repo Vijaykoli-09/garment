@@ -1,19 +1,14 @@
 package com.garment.controller;
 
+import java.time.LocalDate;
 import java.util.List;
 
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.CrossOrigin;
-import org.springframework.web.bind.annotation.DeleteMapping;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.PutMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 
 import com.garment.DTO.DispatchChallanDTO;
+import com.garment.DTO.NextDispatchNumbersDTO;
 import com.garment.service.DispatchChallanService;
 
 @RestController
@@ -61,5 +56,17 @@ public class DispatchChallanController {
     public ResponseEntity<Void> delete(@PathVariable Long id) {
         service.delete(id);
         return ResponseEntity.noContent().build();
+    }
+
+    // NEW: GET /dispatch-challan/next?date=2026-01-01&partyName=...&brokerName=...
+    @GetMapping("/next")
+    public ResponseEntity<NextDispatchNumbersDTO> getNextNumbers(
+            @RequestParam(required = false)
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
+            @RequestParam String partyName,
+            @RequestParam(required = false) String brokerName
+    ) {
+        NextDispatchNumbersDTO dto = service.getNextNumbers(date, partyName, brokerName);
+        return ResponseEntity.ok(dto);
     }
 }

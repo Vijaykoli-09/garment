@@ -82,148 +82,109 @@ import UserManagement from "./pages/Administration/UserManagement";
 import RateList from "./pages/Reports/RateList";
 import PaymentMode from "./pages/Payment/PaymentMode";
 import OtherDispatchChallan from "./pages/Knitting/OtherDispatchChallan";
-
-
-
-
-
+import AccountStatement from "./pages/Reports/AccountStatement";
 
 function App() {
   return (
     <Router>
       <Routes>
-        {/* Redirect root (/) to /login */}
+        {/* Redirect root to /login */}
         <Route path="/" element={<Navigate to="/login" replace />} />
         <Route path="/login" element={<Login />} />
         <Route path="/signup" element={<Signup />} />
+
+        {/* Master */}
         <Route path="/master/company" element={<CompanyDetails />} />
         <Route path="/master/size" element={<SizeCreation />} />
         <Route path="/master/party" element={<PartyCreation />} />
         <Route path="/master/grade" element={<CustomerGrade />} />
         <Route path="/master/category" element={<CategoryCreation />} />
         <Route path="/master/art/art-creation" element={<ArtCreation />} />
-        <Route
-          path="/master/art/art-group-creation"
-          element={<ArtGroupCreation />}
-        />
+        <Route path="/master/art/art-group-creation" element={<ArtGroupCreation />} />
         <Route path="/master/art/range-creation" element={<RangeCreation />} />
         <Route path="/master/art/shade-creation" element={<ShadeCreation />} />
-        <Route
-          path="/master/art/accessories-creation"
-          element={<AccessoriesCreation />}
-        />
+        <Route path="/master/art/accessories-creation" element={<AccessoriesCreation />} />
         <Route path="/master/order_register" element={<OrderRegister />} />
         <Route path="/master/yarn-creation" element={<YarnCreation />} />
         <Route path="/master/transport" element={<TransportCreation />} />
         <Route path="/master/agent" element={<AgentCreation />} />
         <Route path="/master/process" element={<ProcessCreation />} />
         <Route path="/master/employee" element={<EmployeeCreation />} />
-        <Route
-          path="/master/material/material-creation"
-          element={<MaterialCreation />}
-        />
-        <Route
-          path="/master/material/material-group"
-          element={<MaterialGroup />}
-        />
+        <Route path="/master/material/material-creation" element={<MaterialCreation />} />
+        <Route path="/master/material/item-creation" element={<MaterialCreation />} />
+        <Route path="/master/material/material-group" element={<MaterialGroup />} />
+        <Route path="/master/material/item-group" element={<MaterialGroup />} />
         <Route path="/master/fabrication" element={<FabricationCreation />} />
-        <Route
-          path="/knitting/challan/outward-challan"
-          element={<KnittingOutwardChallan />}
-        />
-        <Route
-          path="/knitting/challan/inward-challan"
-          element={<KnittingInwardChallan />}
-        />
-        <Route
-          path="/knitting/challan/material-return"
-          element={<KnittingMaterialReturn />}
-        />
+        <Route path="/master/location" element={<LocationCreation />} />
+
+        {/* Knitting – challan */}
+        <Route path="/knitting/challan/outward-challan" element={<KnittingOutwardChallan />} />
+        <Route path="/knitting/challan/inward-challan" element={<KnittingInwardChallan />} />
+        <Route path="/knitting/challan/material-return" element={<KnittingMaterialReturn />} />
+        <Route path="/knitting/challan/stock-statement" element={<KnittingStockStatement />} />
+        <Route path="/knitting/challan/amount-statement" element={<KnittingAmountStatement />} />
+
+        {/* Knitting – purchase */}
         <Route path="/knitting/purchase-entry" element={<PurchaseEntry />} />
         <Route path="/knitting/purchase-order" element={<PurchaseOrder />} />
         <Route path="/knitting/purchase-return" element={<PurchaseReturn />} />
-        <Route path="/knitting/dyeing/stock-statement" element={<DyeingStockStatement />} />
+        <Route path="/knitting/purchase-pending-orders" element={<PurchasePendingOrders />} />
+        <Route path="/sales/dispatch-challan" element={<DispatchChallan />} />
+        <Route path="/sales/other-dispatch-challan" element={<OtherDispatchChallan />} />
+
+        {/* Knitting – dyeing */}
+        <Route path="/knitting/dyeing/inward-challan" element={<DyeingInward />} />
+        <Route path="/knitting/dyeing/outward-challan" element={<DyeingOutward />} />
+        <Route path="/knitting/dyeing/outwar-challan" element={<DyeingOutward />} />
         <Route path="/knitting/dyeing/material-return" element={<DyeingMaterialReturn />} />
+        <Route path="/knitting/dyeing/stock-statement" element={<DyeingStockStatement />} />
         <Route path="/knitting/dyeing/item-wise-outstanding" element={<DyeingItemWiseOutstanding />} />
+        <Route path="/knitting/dyeing/dyeing-amount-statement" element={<DyeingAmountStatement />} />
+
+        {/* Knitting – finishing */}
+        <Route path="/knitting/finishing/outward-challan" element={<FinishingOutward />} />
+        <Route path="/knitting/finishing/inward-challan" element={<FinishingInward />} />
+        <Route path="/knitting/finishing/finishing-stock-statement" element={<FinishingStockStatement />} />
+        <Route path="/knitting/finishing/finishing-amount-statement" element={<FinishingAmountStatement />} />
+        <Route path="/knitting/finishing/in-house-stock-statement" element={<FinishingInHouseStock />} />
+
+        {/* Knitting – packing & reports */}
+        <Route path="/knitting/packing/packing-challan" element={<PackingChallan />} />
         <Route path="/knitting/purchase-reports/material-stock-report" element={<MaterialStockReport />} />
         <Route path="/knitting/purchase-reports/amount-report" element={<AmountReport />} />
-        <Route path="/knitting/challan/amount-statement" element={<KnittingAmountStatement />} />
-        <Route path="/knitting/challan/stock-statement" element={<KnittingStockStatement />} />
-        <Route path="/knitting/purchase-pending-orders" element={<PurchasePendingOrders />} />
-        <Route path="/knitting/packing/packing-challan" element={<PackingChallan />} />
-        <Route
-          path="/knitting/dispatch-challan"
-          element={<DispatchChallan />}
-        />
-        <Route
-          path="/knitting/other-dispatch-challan"
-          element={<OtherDispatchChallan />}
-        />
-        <Route
-          path="/knitting/dyeing/inward-challan"
-          element={<DyeingInward />}
-        />
-        <Route
-          path="/knitting/dyeing/outward-challan"
-          element={<DyeingOutward />}
-        />
-        {/* Aliases for menu links (typos / alternate paths) */}
-        <Route path="/master/material/item-creation" element={<MaterialCreation />} />
-        <Route path="/master/material/item-group" element={<MaterialGroup />} />
-        <Route path="/knitting/dyeing/outwar-challan" element={<DyeingOutward />} />
-        <Route path="/Sales/sales-order" element={<SaleOrder />} />
-        <Route path="/master/location" element={<LocationCreation />} />
+
+        {/* Cutting / Job work */}
         <Route path="/cutting/cutting-module" element={<CuttingModule />} />
         <Route path="/job_work/outward-challan" element={<OutwardChallan />} />
         <Route path="/job_work/inward-challan" element={<InwardChallan />} />
+
+        {/* Sales */}
+        <Route path="/Sales/sales-order" element={<SaleOrder />} />
         <Route path="/sales/sale-order-settle" element={<OrderSettle />} />
         <Route path="/sales/sale-order-pendency" element={<SaleOrderPendency />} />
         <Route path="/sales/sale-order-return" element={<SaleOrderReturn />} />
-        <Route path="/administration/user-managment" element={<UserManagement />} />
-        {/* Finishing Routes    🧑‍🏫 */}
-        <Route
-          path="/knitting/finishing/outward-challan"
-          element={<FinishingOutward />}
-        />
-        <Route
-          path="/knitting/finishing/inward-challan"
-          element={<FinishingInward />}
-        />
-        <Route
-          path="/knitting/finishing/finishing-stock-statement"
-          element={<FinishingStockStatement />}
-        />
-        <Route
-          path="/knitting/finishing/finishing-amount-statement"
-          element={<FinishingAmountStatement />}
-        />
-        <Route
-          path="/knitting/finishing/in-house-stock-statement"
-          element={<FinishingInHouseStock />}
-        />
-        <Route
-          path="/knitting/dyeing/dyeing-amount-statement"
-          element={<DyeingAmountStatement />}
-        />
 
-        {/* Finishing Routes end  🧑‍🏫*/}
-        {/* Reports Routes Start 🧑‍🏫*/}
+        {/* Administration */}
+        <Route path="/administration/user-managment" element={<UserManagement />} />
+
+        {/* Production & Payment */}
+        <Route path="/production/receipt" element={<ProductionReceipt />} />
+        <Route path="/payment/payment-method" element={<PaymentMethod />} />
+        <Route path="/payment/payment-recipt" element={<PaymentRecipt />} />
+        <Route path="/payment/payment-mode" element={<PaymentMode />} />
+
+        {/* Reports (nested) */}
         <Route path="reports">
           <Route path="art-report" element={<ArtReport />} />
           <Route path="salary-report" element={<SalaryReport />} />
           <Route path="dispatch-report" element={<DispatchReport />} />
           <Route path="job-work-report" element={<JobWorkReport />} />
           <Route path="rate-list-report" element={<RateList />} />
+          <Route path="account-report" element={<AccountStatement />} />
         </Route>
-        {/* Reports Routes end  🧑‍🏫*/}
 
-        <Route path="/production/receipt" element={<ProductionReceipt />} />
-
-        {/* Payments */}
-
-        <Route path="/payment/payment-method" element={<PaymentMethod />} />
-        <Route path="/payment/payment-recipt" element={<PaymentRecipt />} />
-        <Route path="/payment/payment-mode" element={<PaymentMode/>}/>
+ 
+        {/* Dashboard (protected) */}
         <Route
           path="/dashboard"
           element={

@@ -8,8 +8,22 @@ import html2canvas from "html2canvas";
 import jsPDF from "jspdf";
 
 type Destination = { id: number; name: string }; // Station
-type Party = { id: number; partyName: string; station?: string | null };
+type Broker = { id: number; name: string }; // Broker = Agent
+type Party = {
+  id: number;
+  partyName: string;
+  station?: string | null;
+  broker?: string | null; // agent.agentName
+};
 type Art = { id: number; artNo: string; artName: string };
+
+// Sale order lite type (sirf party + art ke liye)
+type SaleOrderLite = {
+  partyId?: number;
+  partyName?: string;
+  dated?: string;
+  rows?: { artNo?: string; description?: string; artName?: string }[];
+};
 
 type SORow = {
   id: number;
@@ -22,10 +36,13 @@ type SORow = {
   artNo: string;
   artName: string;
 
+  brokerName?: string;
+  brokerId?: number;
+
   opening: number;
   receipt: number;
-  dispatch: number;
-  pending: number;
+  dispatch: number; // BOXES
+  pending: number; // BOXES
 };
 
 const fmt = (n: number, d = 0) => (isFinite(n) ? Number(n).toFixed(d) : "0");
@@ -36,6 +53,64 @@ const inRange = (dStr: string, from: string, to: string) => {
   const d = String(dStr || "").slice(0, 10);
   if (!d) return false;
   return d >= from && d <= to;
+};
+
+// Size sorting helper: XS..5XL first, then numeric, then alpha
+const sizeSort = (a: string, b: string) => {
+  const known = [
+    "3XS",
+    "XXXS",
+    "2XS",
+    "XXS",
+    "XS",
+    "S",
+    "M",
+    "L",
+    "XL",
+    "XXL",
+    "2XL",
+    "3XL",
+    "4XL",
+    "5XL",
+  ];
+
+  const au = a.toUpperCase();
+  const bu = b.toUpperCase();
+  const ai = known.indexOf(au);
+  const bi = known.indexOf(bu);
+
+  if (ai !== -1 && bi !== -1) return ai - bi;
+
+  const an = Number(a);
+  const bn = Number(b);
+  if (!isNaN(an) && !isNaN(bn)) return an - bn;
+  if (!isNaN(an)) return -1;
+  if (!isNaN(bn)) return 1;
+
+  return a.localeCompare(b);
+};
+
+type SizeAgg = {
+  opening: number;
+  receipt: number;
+  dispatch: number;
+  pending: number;
+};
+
+type GroupedRow = {
+  key: string;
+  partyId: number;
+  partyName: string;
+  artId: number;
+  artNo: string;
+  artName: string;
+  brokerId?: number;
+  brokerName?: string;
+  perSize: Record<string, SizeAgg>;
+  openingTotal: number;
+  receiptTotal: number;
+  dispatchTotal: number;
+  pendingTotal: number;
 };
 
 const SaleOrderPendencyArtSizeWise: React.FC = () => {
@@ -49,16 +124,26 @@ const SaleOrderPendencyArtSizeWise: React.FC = () => {
   );
 
   // Masters
-  const [destinations, setDestinations] = useState<Destination[]>([]);
+  const [destinations, setDestinations] = useState<Destination[]>([]); // ALL stations
+  const [brokers, setBrokers] = useState<Broker[]>([]); // Broker = Agent
   const [parties, setParties] = useState<Party[]>([]);
   const [arts, setArts] = useState<Art[]>([]);
   const [allSizes, setAllSizes] = useState<string[]>([]);
+  const [saleOrders, setSaleOrders] = useState<SaleOrderLite[]>([]); // for art filter
 
   // Selections
+  const [selBrokerIds, setSelBrokerIds] = useState<number[]>([]);
   const [selDestIds, setSelDestIds] = useState<number[]>([]);
   const [selPartyIds, setSelPartyIds] = useState<number[]>([]);
   const [selArtIds, setSelArtIds] = useState<number[]>([]);
   const [selSizes, setSelSizes] = useState<string[]>([]);
+
+  // Search inputs
+  const [brokerSearch, setBrokerSearch] = useState<string>("");
+  const [destSearch, setDestSearch] = useState<string>("");
+  const [partySearch, setPartySearch] = useState<string>("");
+  const [artSearch, setArtSearch] = useState<string>("");
+  const [sizeSearch, setSizeSearch] = useState<string>("");
 
   // Data
   const [rows, setRows] = useState<SORow[]>([]);
@@ -67,20 +152,24 @@ const SaleOrderPendencyArtSizeWise: React.FC = () => {
 
   const reportRef = useRef<HTMLDivElement | null>(null);
 
-  // Load Masters
+  // Load Masters + Sale Orders
   useEffect(() => {
     (async () => {
-      // Parties + Destinations
+      // Parties + Destinations + Brokers (broker = agentName)
       try {
         const { data } = await api.get<any[]>("/party/all");
         const list = Array.isArray(data) ? data : [];
+
         const mappedParties: Party[] = list.map((p, i) => ({
           id: Number(p.id ?? i + 1),
           partyName: String(p.partyName ?? ""),
           station: p.station ?? null,
+          // BROKER = AGENT (from PartyCreation you shared)
+          broker: p.agent?.agentName ?? null,
         }));
         setParties(mappedParties);
 
+        // All Destinations (stations) master
         const stationNames = mappedParties
           .map((p) => String(p.station || "").trim())
           .filter(Boolean);
@@ -90,13 +179,25 @@ const SaleOrderPendencyArtSizeWise: React.FC = () => {
           name,
         }));
         setDestinations(mappedDest);
+
+        // Brokers (from parties' agentName)
+        const brokerNames = mappedParties
+          .map((p) => String(p.broker || "").trim())
+          .filter(Boolean);
+        const uniqueBrokers = Array.from(new Set(brokerNames));
+        const mappedBrokers: Broker[] = uniqueBrokers.map((name, idx) => ({
+          id: idx + 1,
+          name,
+        }));
+        setBrokers(mappedBrokers);
       } catch (e) {
-        console.error("Error loading parties:", e);
+        console.error("Error loading parties/brokers:", e);
         setParties([]);
         setDestinations([]);
+        setBrokers([]);
       }
 
-      // Arts
+      // Arts master
       try {
         const { data } = await api.get<any[]>("/arts");
         const list = Array.isArray(data) ? data : [];
@@ -124,27 +225,159 @@ const SaleOrderPendencyArtSizeWise: React.FC = () => {
         console.error("Error loading sizes:", e);
         setAllSizes(["S", "M", "L", "XL", "XXL"]);
       }
+
+      // Sale Orders (party-wise art filter)
+      try {
+        const { data } = await api.get<any[]>("/sale-orders");
+        setSaleOrders(Array.isArray(data) ? data : []);
+      } catch (e) {
+        console.error("Error loading sale orders:", e);
+        setSaleOrders([]);
+      }
     })();
   }, []);
 
-  // Cascading options
+  const availableBrokers = brokers;
+
+  // ==== DESTINATION OPTIONS: broker ke hisab se ====
+  const availableDestinations = useMemo(() => {
+    if (!destinations.length) return [];
+
+    // Agar broker master hi nahi hai → pura destinations
+    if (!brokers.length) return destinations;
+
+    // Broker master hai, par koi broker select nahi → koi destination nahi dikhana
+    if (!selBrokerIds.length) return [];
+
+    const selBrokerNames = new Set(
+      brokers
+        .filter((b) => selBrokerIds.includes(b.id))
+        .map((b) => norm(b.name))
+    );
+
+    const stationNormSet = new Set(
+      parties
+        .filter(
+          (p) =>
+            p.broker &&
+            p.station &&
+            selBrokerNames.has(norm(p.broker))
+        )
+        .map((p) => norm(p.station))
+    );
+
+    return destinations.filter((d) => stationNormSet.has(norm(d.name)));
+  }, [destinations, brokers, selBrokerIds, parties]);
+
+  // Parties: filtered by Destination (selected) + Broker selection
   const availableParties = useMemo(() => {
     if (selDestIds.length === 0 || destinations.length === 0) return [];
+
     const selDestNames = new Set(
       destinations
         .filter((d) => selDestIds.includes(d.id))
         .map((d) => d.name.trim().toUpperCase())
     );
-    return parties.filter((p) => {
-      if (!p.station) return false;
-      return selDestNames.has(String(p.station).trim().toUpperCase());
-    });
-  }, [selDestIds, destinations, parties]);
 
-  const availableArts = useMemo(() => {
-    if (selDestIds.length === 0 || selPartyIds.length === 0) return [];
-    return arts;
-  }, [selDestIds, selPartyIds, arts]);
+    // If no broker master, behave like old (destination-only)
+    if (brokers.length === 0) {
+      return parties.filter((p) => {
+        if (!p.station) return false;
+        return selDestNames.has(norm(p.station));
+      });
+    }
+
+    // Brokers exist -> broker selection bhi zaroori
+    if (selBrokerIds.length === 0) return [];
+
+    const selBrokerNames = new Set(
+      brokers
+        .filter((b) => selBrokerIds.includes(b.id))
+        .map((b) => b.name.trim().toUpperCase())
+    );
+
+    return parties.filter((p) => {
+      if (!p.station || !p.broker) return false;
+      const stationOk = selDestNames.has(norm(p.station));
+      const brokerOk = selBrokerNames.has(norm(p.broker));
+      return stationOk && brokerOk;
+    });
+  }, [selDestIds, destinations, parties, brokers, selBrokerIds]);
+
+  // AVAILABLE ARTS: sirf un arts ka list jinke SALE ORDER selected party+destination+date me hain
+  const availableArts = useMemo<Art[]>(() => {
+    if (
+      selDestIds.length === 0 ||
+      selPartyIds.length === 0 ||
+      saleOrders.length === 0
+    )
+      return [];
+
+    const selPartySet = new Set(selPartyIds.map(Number));
+
+    const selDestNames = new Set(
+      destinations
+        .filter((d) => selDestIds.includes(d.id))
+        .map((d) => d.name.trim().toUpperCase())
+    );
+
+    const allowedPartyIds = new Set<number>();
+    parties.forEach((p) => {
+      if (!selPartySet.has(p.id)) return;
+      if (!p.station) return;
+      if (!selDestNames.has(String(p.station).trim().toUpperCase())) return;
+      allowedPartyIds.add(p.id);
+    });
+    if (!allowedPartyIds.size) return [];
+
+    const artNoSet = new Set<string>();
+
+    saleOrders.forEach((so: any) => {
+      const pid = Number(so.partyId ?? 0);
+      if (!allowedPartyIds.has(pid)) return;
+
+      const dStr = so.dated || so.datedStr || "";
+      if (fromDate && toDate) {
+        const d = String(dStr || "").slice(0, 10);
+        if (!d || d < fromDate || d > toDate) return;
+      }
+
+      const rows = Array.isArray(so.rows) ? so.rows : [];
+      rows.forEach((r: any) => {
+        const an = String(r.artNo || "").trim();
+        if (an) artNoSet.add(an.toLowerCase());
+      });
+    });
+
+    if (!artNoSet.size) return [];
+
+    const result: Art[] = [];
+    artNoSet.forEach((anLower) => {
+      const master = arts.find(
+        (a) => a.artNo.trim().toLowerCase() === anLower
+      );
+      if (master) result.push(master);
+      else {
+        result.push({
+          id: result.length + 1,
+          artNo: anLower,
+          artName: anLower,
+        });
+      }
+    });
+
+    result.sort((a, b) => a.artNo.localeCompare(b.artNo));
+    return result;
+  }, [
+    selDestIds,
+    selPartyIds,
+    destinations,
+    parties,
+    saleOrders,
+    arts,
+    fromDate,
+    toDate,
+  ]);
 
   const availableSizes = useMemo(() => {
     if (
@@ -156,7 +389,54 @@ const SaleOrderPendencyArtSizeWise: React.FC = () => {
     return allSizes;
   }, [selDestIds, selPartyIds, selArtIds, allSizes]);
 
-  // prune selections
+  // Filtered lists based on search
+  const filteredBrokers = useMemo(() => {
+    const q = norm(brokerSearch);
+    if (!q) return availableBrokers;
+    return availableBrokers.filter((b) => norm(b.name).includes(q));
+  }, [availableBrokers, brokerSearch]);
+
+  const filteredDestinations = useMemo(() => {
+    const q = norm(destSearch);
+    if (!q) return availableDestinations;
+    return availableDestinations.filter((d) => norm(d.name).includes(q));
+  }, [availableDestinations, destSearch]);
+
+  const filteredParties = useMemo(() => {
+    const q = norm(partySearch);
+    if (!q) return availableParties;
+    return availableParties.filter((p) => norm(p.partyName).includes(q));
+  }, [availableParties, partySearch]);
+
+  const filteredArts = useMemo(() => {
+    const q = norm(artSearch);
+    if (!q) return availableArts;
+    return availableArts.filter(
+      (a) => norm(a.artNo).includes(q) || norm(a.artName).includes(q)
+    );
+  }, [availableArts, artSearch]);
+
+  const filteredSizes = useMemo(() => {
+    const q = norm(sizeSearch);
+    if (!q) return availableSizes;
+    return availableSizes.filter((s) => norm(s).includes(q));
+  }, [availableSizes, sizeSearch]);
+
+  // prune selections when underlying options change
+  useEffect(() => {
+    setSelBrokerIds((prev) =>
+      prev.filter((id) => availableBrokers.some((b) => b.id === id))
+    );
+  }, [availableBrokers]);
+
+  useEffect(() => {
+    setSelDestIds((prev) =>
+      prev.filter((id) =>
+        availableDestinations.some((d) => d.id === id)
+      )
+    );
+  }, [availableDestinations]);
+
   useEffect(() => {
     setSelPartyIds((prev) =>
       prev.filter((id) => availableParties.some((p) => p.id === id))
@@ -173,9 +453,11 @@ const SaleOrderPendencyArtSizeWise: React.FC = () => {
     setSelSizes((prev) => prev.filter((s) => availableSizes.includes(s)));
   }, [availableSizes]);
 
-  // toggle helpers
+  // toggle helpers (All / Unselect)
+  const toggleAllBroker = (checked: boolean) =>
+    setSelBrokerIds(checked ? availableBrokers.map((b) => b.id) : []);
   const toggleAllDest = (checked: boolean) =>
-    setSelDestIds(checked ? destinations.map((d) => d.id) : []);
+    setSelDestIds(checked ? availableDestinations.map((d) => d.id) : []);
   const toggleAllParty = (checked: boolean) =>
     setSelPartyIds(checked ? availableParties.map((p) => p.id) : []);
   const toggleAllArt = (checked: boolean) =>
@@ -183,6 +465,10 @@ const SaleOrderPendencyArtSizeWise: React.FC = () => {
   const toggleAllSize = (checked: boolean) =>
     setSelSizes(checked ? availableSizes.slice() : []);
 
+  const toggleBroker = (id: number) =>
+    setSelBrokerIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
   const toggleDest = (id: number) =>
     setSelDestIds((prev) =>
       prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
@@ -200,8 +486,12 @@ const SaleOrderPendencyArtSizeWise: React.FC = () => {
       prev.includes(s) ? prev.filter((x) => x !== s) : [...prev, s]
     );
 
+  const allBrokerSelected =
+    availableBrokers.length > 0 &&
+    selBrokerIds.length === availableBrokers.length;
   const allDestSelected =
-    destinations.length > 0 && selDestIds.length === destinations.length;
+    availableDestinations.length > 0 &&
+    selDestIds.length === availableDestinations.length;
   const allPartySelected =
     availableParties.length > 0 &&
     selPartyIds.length === availableParties.length;
@@ -210,8 +500,11 @@ const SaleOrderPendencyArtSizeWise: React.FC = () => {
   const allSizeSelected =
     availableSizes.length > 0 && selSizes.length === availableSizes.length;
 
-  // ===== Report =====
+  // ===== Report (data load) =====
   const showReport = async () => {
+    // Broker pahle select hona chahiye
+    if (brokers.length > 0 && selBrokerIds.length === 0)
+      return Swal.fire("Select at least one Broker (Agent)", "", "warning");
     if (selDestIds.length === 0)
       return Swal.fire("Select at least one Destination", "", "warning");
     if (selPartyIds.length === 0)
@@ -220,6 +513,13 @@ const SaleOrderPendencyArtSizeWise: React.FC = () => {
       return Swal.fire("Select at least one Art", "", "warning");
     if (selSizes.length === 0)
       return Swal.fire("Select at least one Size", "", "warning");
+
+    // Selected art nos set – isi ke hisab se report filter hogi
+    const selectedArts = availableArts.filter((a) => selArtIds.includes(a.id));
+    const selectedArtNos = selectedArts.map((a) => a.artNo.trim());
+    const selectedArtNosSet = new Set(
+      selectedArtNos.map((x) => x.toLowerCase())
+    );
 
     try {
       setLoading(true);
@@ -230,10 +530,7 @@ const SaleOrderPendencyArtSizeWise: React.FC = () => {
         .join(",");
 
       const partyIdsStr = selPartyIds.join(",");
-      const artNos = arts
-        .filter((a) => selArtIds.includes(a.id))
-        .map((a) => a.artNo)
-        .join(",");
+      const artNos = selectedArtNos.join(",");
       const sizesStr = selSizes.join(",");
 
       // 1) Base pendency from backend (Opening + Receipt)
@@ -255,42 +552,57 @@ const SaleOrderPendencyArtSizeWise: React.FC = () => {
           destinations.find(
             (d) =>
               d.name.trim().toUpperCase() ===
-              String(r.destination || "")
-                .trim()
-                .toUpperCase()
+              String(r.destination || "").trim().toUpperCase()
           )?.id ?? 0;
 
-        const party =
-          parties.find((p) => Number(p.id) === Number(r.partyId)) || {
+        const party: Party =
+          (parties.find(
+            (p) => Number(p.id) === Number(r.partyId)
+          ) as Party) || {
             id: 0,
-            partyName: r.partyName || "",
+            partyName: String(r.partyName || ""),
+            station: null,
+            broker:
+              r.brokerName ??
+              r.agentName ??
+              r.agent ??
+              null,
           };
 
-        const art =
-          arts.find(
-            (a) =>
-              a.artNo.trim().toLowerCase() ===
-                String(r.artNo || "").trim().toLowerCase() ||
-              a.artName.trim().toLowerCase() ===
-                String(r.artName || "").trim().toLowerCase()
-          ) || {
-            id: 0,
-            artNo: r.artNo || "",
-            artName: r.artName || r.artNo || "",
-          };
+        const brokerName = String(party.broker || "");
+        const brokerId =
+          brokers.find((b) => norm(b.name) === norm(brokerName))?.id ??
+          undefined;
 
-        const opening = Number(r.opening || 0);
-        const receipt = Number(r.receipt || 0);
+        const artNoApi = String(r.artNo || "").trim();
+        const artNameApi = String(r.artName || r.artNo || "").trim();
+
+        const masterArt = arts.find(
+          (a) => a.artNo.trim().toLowerCase() === artNoApi.toLowerCase()
+        );
+
+        const finalArtNo = artNoApi || masterArt?.artNo || "";
+        const finalArtName = masterArt?.artName || artNameApi || finalArtNo;
+
+        const num = (v: any) => {
+          const n = Number(v);
+          return Number.isFinite(n) ? n : 0;
+        };
+
+        const opening = num(r.opening ?? 0); // BOX
+        const receipt = num(r.receipt ?? 0); // BOX
 
         return {
           id: i + 1,
           destinationId: destId,
           partyId: Number(party.id),
-          artId: Number(art.id),
+          artId: masterArt?.id ?? 0,
           size: String(r.size || ""),
           partyName: String(party.partyName || r.partyName || ""),
-          artNo: String(art.artNo || r.artNo || ""),
-          artName: String(art.artName || r.artName || ""),
+          artNo: finalArtNo,
+          artName: finalArtName,
+          brokerName,
+          brokerId,
           opening,
           receipt,
           dispatch: 0,
@@ -298,7 +610,14 @@ const SaleOrderPendencyArtSizeWise: React.FC = () => {
         };
       });
 
-      // 2) Dispatch Challan – dispatch calc
+      // STRICT ART FILTER:
+      if (selectedArtNosSet.size > 0) {
+        baseRows = baseRows.filter((r) =>
+          selectedArtNosSet.has(r.artNo.trim().toLowerCase())
+        );
+      }
+
+      // 2) Dispatch Challan – DISPATCH IN BOXES
       const dispatchMap = new Map<string, number>();
       try {
         const { data: dcData } = await api.get<any[]>("/dispatch-challan");
@@ -324,12 +643,7 @@ const SaleOrderPendencyArtSizeWise: React.FC = () => {
             const size = String(r.size || "").trim();
             if (!artNo || !size) return;
 
-            const artMatch = arts
-              .filter((a) => selArtIds.includes(a.id))
-              .some(
-                (a) => a.artNo.trim().toUpperCase() === artNo.toUpperCase()
-              );
-            if (!artMatch) return;
+            if (!selectedArtNosSet.has(artNo.toLowerCase())) return;
 
             if (
               !selSizes
@@ -338,16 +652,18 @@ const SaleOrderPendencyArtSizeWise: React.FC = () => {
             )
               return;
 
-            const pcs =
-              r.pcs != null
-                ? Number(r.pcs)
-                : Number(r.box || 0) * Number(r.pcsPerBox || 0);
+            const box =
+              r.box != null
+                ? Number(r.box)
+                : r.pcs != null && r.pcsPerBox
+                ? Number(r.pcs) / Number(r.pcsPerBox)
+                : 0;
 
-            if (!pcs || isNaN(pcs)) return;
+            if (!box || isNaN(box)) return;
 
             const key = `${norm(pName)}|${norm(artNo)}|${norm(size)}`;
             const prev = dispatchMap.get(key) || 0;
-            dispatchMap.set(key, prev + pcs);
+            dispatchMap.set(key, prev + box);
           });
         });
 
@@ -367,7 +683,7 @@ const SaleOrderPendencyArtSizeWise: React.FC = () => {
         console.error("Dispatch-challan fetch error:", e);
       }
 
-      // 3) Order Settle – settle qty ko minus karo
+      // 3) Order Settle – settle qty ko minus karo (already in BOX)
       try {
         const { data: osData } = await api.get<any[]>("/order-settles");
         const settles = Array.isArray(osData) ? osData : [];
@@ -393,12 +709,7 @@ const SaleOrderPendencyArtSizeWise: React.FC = () => {
             const artNo = String(r.artNo || "").trim();
             if (!artNo) return;
 
-            const artMatch = arts
-              .filter((a) => selArtIds.includes(a.id))
-              .some(
-                (a) => a.artNo.trim().toUpperCase() === artNo.toUpperCase()
-              );
-            if (!artMatch) return;
+            if (!selectedArtNosSet.has(artNo.toLowerCase())) return;
 
             const dets = Array.isArray(r.sizeDetails) ? r.sizeDetails : [];
             dets.forEach((sd: any) => {
@@ -438,6 +749,9 @@ const SaleOrderPendencyArtSizeWise: React.FC = () => {
         console.error("Order-settles fetch error (pendency report):", e);
       }
 
+      // Only rows with pending ≠ 0
+      baseRows = baseRows.filter((r) => (r.pending ?? 0) !== 0);
+
       setRows(baseRows);
       setShowReportView(true);
     } catch (e: any) {
@@ -455,7 +769,9 @@ const SaleOrderPendencyArtSizeWise: React.FC = () => {
   };
 
   const refresh = () => {
+    const brokerOk = brokers.length === 0 || selBrokerIds.length > 0;
     if (
+      brokerOk &&
       selDestIds.length &&
       selPartyIds.length &&
       selArtIds.length &&
@@ -465,7 +781,7 @@ const SaleOrderPendencyArtSizeWise: React.FC = () => {
     else
       Swal.fire(
         "Info",
-        "Please select Destination, Party, Art and Size, then click Show",
+        "Please select Broker (Agent), Destination, Party, Art and Size, then click Show",
         "info"
       );
   };
@@ -483,28 +799,26 @@ const SaleOrderPendencyArtSizeWise: React.FC = () => {
 
     const title = `Sale-Order-Pendency-ArtSize_${fromDate}_to_${toDate}`;
     const styles = `
-      @page { size: A4 landscape; margin: 12mm; }
+      @page { size: A4 landscape; margin: 10mm; }
       * { box-sizing: border-box; }
-      body { font-family: Arial, sans-serif; font-size: 12px; }
-
-      table { width: 100%; border-collapse: collapse; font-size: 12px; }
-      th, td { border: 1px solid #D1D5DB; padding: 7px 9px; }
-      thead th { background: #F3F4F6; }
-      tbody tr:nth-child(even) { background: #FAFAFA; }
-      tfoot td { background: #F9FAFB; font-weight: 700; }
-      th:nth-child(5), th:nth-child(6), th:nth-child(7), th:nth-child(8),
-      td:nth-child(5), td:nth-child(6), td:nth-child(7), td:nth-child(8) { text-align: right; }
+      body { font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif; font-size: 11px; }
+      table { width: 100%; border-collapse: collapse; font-size: 11px; border: 1px solid #111827; }
+      th, td { border: 1px solid #111827; padding: 5px 7px; }
+      thead th { background: #E5E7EB; position: sticky; top: 0; }
+      tbody tr:nth-child(even) { background: #F9FAFB; }
+      tfoot td { background: #F3F4F6; font-weight: 700; }
+      th, td { white-space: nowrap; }
     `;
 
     const header = `
-      <div style="text-align:center;margin-bottom:12px">
-        <div style="font-size:20px;font-weight:bold">
+      <div style="text-align:center;margin-bottom:8px">
+        <div style="font-size:18px;font-weight:700;letter-spacing:0.5px">
           Sale Order Pendency (Art + Size Wise)
         </div>
-        <div style="font-size:12px;margin-top:4px">
+        <div style="font-size:11px;margin-top:4px">
           <b>From:</b> ${fromDate} &nbsp; | &nbsp; <b>To:</b> ${toDate}
         </div>
-        <hr/>
+        <hr style="margin-top:8px"/>
       </div>
     `;
 
@@ -517,7 +831,7 @@ const SaleOrderPendencyArtSizeWise: React.FC = () => {
           <script>
             window.onload = () => {
               setTimeout(() => window.print(), 100);
-              setTimeout(() => window.close(), 500);
+              setTimeout(() => window.close(), 400);
             }
           </script>
         </body>
@@ -526,91 +840,91 @@ const SaleOrderPendencyArtSizeWise: React.FC = () => {
     printWindow.document.close();
   };
 
-  // PDF
+  // PDF (full content)
   const handleExportPDF = async () => {
+    if (!rows.length) return Swal.fire("Info", "No rows to export", "info");
     const content = reportRef.current;
     if (!content) return Swal.fire("Info", "Nothing to export", "info");
-    if (!rows.length) return Swal.fire("Info", "No rows to export", "info");
 
     const fileName = `Sale-Order-Pendency-ArtSize_${fromDate}_to_${toDate}.pdf`;
 
-    const wrapper = document.createElement("div");
-    wrapper.style.position = "fixed";
-    wrapper.style.left = "-10000px";
-    wrapper.style.top = "0";
-    wrapper.style.background = "#fff";
-    wrapper.style.padding = "12px";
-    wrapper.style.width = `${content.scrollWidth || 1200}px`;
+    const pdfRoot = document.createElement("div");
+    pdfRoot.style.position = "fixed";
+    pdfRoot.style.left = "-99999px";
+    pdfRoot.style.top = "0";
+    pdfRoot.style.background = "#ffffff";
+    pdfRoot.style.zIndex = "-1";
+    pdfRoot.style.padding = "12px";
 
-    wrapper.innerHTML = `
-      <style>
-        table { width: 100%; border-collapse: collapse; font-size: 12px; }
-        th, td { border: 1px solid #D1D5DB; padding: 7px 9px; }
-        thead th { background: #F3F4F6; }
-      </style>
-      <div style="text-align:center;margin-bottom:12px">
-        <div style="font-size:20px;font-weight:bold">
+    const header = document.createElement("div");
+    header.innerHTML = `
+      <div style="text-align:center;margin-bottom:8px">
+        <div style="font-size:18px;font-weight:bold">
           Sale Order Pendency (Art + Size Wise)
         </div>
-        <div style="font-size:12px;margin-top:4px">
+        <div style="font-size:11px;margin-top:4px">
           <b>From:</b> ${fromDate} &nbsp; | &nbsp; <b>To:</b> ${toDate}
         </div>
-        <hr/>
+        <hr style="margin-top:8px"/>
       </div>
     `;
 
     const cloned = content.cloneNode(true) as HTMLElement;
     cloned.style.overflow = "visible";
-    wrapper.appendChild(cloned);
+    cloned.style.maxHeight = "none";
 
-    document.body.appendChild(wrapper);
+    cloned
+      .querySelectorAll<HTMLElement>("[class*='overflow-']")
+      .forEach((el) => {
+        el.style.overflow = "visible";
+        el.style.maxHeight = "none";
+      });
+
+    pdfRoot.appendChild(header);
+    pdfRoot.appendChild(cloned);
+    document.body.appendChild(pdfRoot);
+
     await new Promise((r) => requestAnimationFrame(() => r(null)));
 
-    const canvas = await html2canvas(wrapper, {
+    const canvas = await html2canvas(pdfRoot, {
       scale: 2,
       useCORS: true,
       backgroundColor: "#ffffff",
-      windowWidth: wrapper.scrollWidth,
-      windowHeight: wrapper.scrollHeight,
+      scrollY: 0,
     });
-    const imgData = canvas.toDataURL("image/jpeg", 0.95);
 
+    const imgData = canvas.toDataURL("image/jpeg", 0.95);
     const pdf = new jsPDF({
       orientation: "landscape",
       unit: "mm",
       format: "a4",
     });
+
     const pageWidth = pdf.internal.pageSize.getWidth();
     const pageHeight = pdf.internal.pageSize.getHeight();
     const margin = 10;
-    const printableWidth = pageWidth - margin * 2;
-    const printableHeight = pageHeight - margin * 2;
 
-    const imgWidth = printableWidth;
+    const imgWidth = pageWidth - margin * 2;
     const imgHeight = (canvas.height * imgWidth) / canvas.width;
 
-    pdf.addImage(imgData, "JPEG", margin, margin, imgWidth, imgHeight);
+    let heightLeft = imgHeight;
+    let position = margin;
 
-    let heightLeft = imgHeight - printableHeight;
-    let yOffset = printableHeight;
+    pdf.addImage(imgData, "JPEG", margin, position, imgWidth, imgHeight);
+    heightLeft -= pageHeight - margin * 2;
+
     while (heightLeft > 0) {
-      pdf.addPage("a4", "landscape");
-      pdf.addImage(
-        imgData,
-        "JPEG",
-        margin,
-        margin - yOffset,
-        imgWidth,
-        imgHeight
-      );
-      heightLeft -= printableHeight;
-      yOffset += printableHeight;
+      position = heightLeft - imgHeight + margin;
+      pdf.addPage();
+      pdf.addImage(imgData, "JPEG", margin, position, imgWidth, imgHeight);
+      heightLeft -= pageHeight - margin * 2;
     }
 
     pdf.save(fileName);
-    wrapper.remove();
+    pdfRoot.remove();
   };
 
+  // === totals ===
   const totals = useMemo(
     () =>
       rows.reduce(
@@ -626,326 +940,768 @@ const SaleOrderPendencyArtSizeWise: React.FC = () => {
     [rows]
   );
 
+  // per-size aggregates (pure report level)
+  const sizeTotals = useMemo<Record<string, SizeAgg>>(() => {
+    const res: Record<string, SizeAgg> = {};
+    rows.forEach((r) => {
+      if (!res[r.size]) {
+        res[r.size] = { opening: 0, receipt: 0, dispatch: 0, pending: 0 };
+      }
+      const t = res[r.size];
+      t.opening += r.opening || 0;
+      t.receipt += r.receipt || 0;
+      t.dispatch += r.dispatch || 0;
+      t.pending += r.pending || 0;
+    });
+    return res;
+  }, [rows]);
+
+  // size columns: sequence + only sizes having any non‑zero value
+  const sizeColumns = useMemo(() => {
+    const cols: string[] = [];
+
+    const selUpper = new Set(selSizes.map((s) => s.toUpperCase()));
+
+    Object.entries(sizeTotals).forEach(([size, agg]) => {
+      const total =
+        (agg.opening || 0) +
+        (agg.receipt || 0) +
+        (agg.dispatch || 0) +
+        (agg.pending || 0);
+
+      if (total === 0) return;
+      if (selUpper.size && !selUpper.has(size.toUpperCase())) return;
+
+      cols.push(size);
+    });
+
+    return cols.sort(sizeSort);
+  }, [sizeTotals, selSizes]);
+
+  // Grouped rows: Broker + Party + Art wise, per size aggregates
+  const groupedRows = useMemo<GroupedRow[]>(() => {
+    const map = new Map<string, GroupedRow>();
+
+    rows.forEach((r) => {
+      const key = `${norm(r.brokerName || "")}|${norm(
+        r.partyName
+      )}|${norm(r.artNo)}|${r.partyId ?? 0}`;
+      let g = map.get(key);
+      if (!g) {
+        g = {
+          key,
+          partyId: r.partyId,
+          partyName: r.partyName,
+          artId: r.artId,
+          artNo: r.artNo,
+          artName: r.artName,
+          brokerId: r.brokerId,
+          brokerName: r.brokerName || "",
+          perSize: {},
+          openingTotal: 0,
+          receiptTotal: 0,
+          dispatchTotal: 0,
+          pendingTotal: 0,
+        };
+        map.set(key, g);
+      }
+
+      const existing = g.perSize[r.size] || {
+        opening: 0,
+        receipt: 0,
+        dispatch: 0,
+        pending: 0,
+      };
+
+      existing.opening += r.opening || 0;
+      existing.receipt += r.receipt || 0;
+      existing.dispatch += r.dispatch || 0;
+      existing.pending += r.pending || 0;
+
+      g.perSize[r.size] = existing;
+
+      g.openingTotal += r.opening || 0;
+      g.receiptTotal += r.receipt || 0;
+      g.dispatchTotal += r.dispatch || 0;
+      g.pendingTotal += r.pending || 0;
+    });
+
+    const arr = Array.from(map.values()).filter(
+      (g) => (g.pendingTotal ?? 0) !== 0
+    );
+
+    // Sort by Broker -> Party -> Art
+    return arr.sort((a, b) => {
+      const bcmp = (a.brokerName || "").localeCompare(b.brokerName || "");
+      if (bcmp !== 0) return bcmp;
+      const p = a.partyName.localeCompare(b.partyName);
+      if (p !== 0) return p;
+      return a.artNo.localeCompare(b.artNo);
+    });
+  }, [rows]);
+
   return (
     <Dashboard>
-      <div className="max-w-6xl mx-auto p-6">
-        {!showReportView && (
-          <div className="bg-white rounded-2xl shadow-lg p-6">
-            <h2 className="text-2xl font-bold text-center mb-4">
-              Sale Order Pendency (Art + Size Wise)
-            </h2>
-
-            {/* Dates */}
-            <div className="grid grid-cols-4 gap-4 mb-4">
-              <div>
-                <label className="block text-sm font-semibold mb-1">
-                  From Date
-                </label>
-                <input
-                  type="date"
-                  value={fromDate}
-                  onChange={(e) => setFromDate(e.target.value)}
-                  className="border rounded px-3 py-2 w-full"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-semibold mb-1">
-                  To Date
-                </label>
-                <input
-                  type="date"
-                  value={toDate}
-                  onChange={(e) => setToDate(e.target.value)}
-                  className="border rounded px-3 py-2 w-full"
-                />
-              </div>
-            </div>
-
-            {/* Filters */}
-            <div className="grid grid-cols-4 gap-6">
-              {/* Destination */}
-              <div>
-                <div className="flex items-center justify-between mb-2">
-                  <div className="font-semibold">Destination</div>
-                  <label className="text-sm">
-                    <input
-                      type="checkbox"
-                      className="mr-2"
-                      checked={allDestSelected}
-                      onChange={(e) => toggleAllDest(e.target.checked)}
-                    />
-                    Select All/Unselect All
-                  </label>
+      <div className="min-h-screen bg-slate-100/80 pb-10">
+        <div className="max-w-7xl mx-auto px-4 pt-6">
+          {/* ---------- FILTER VIEW ---------- */}
+          {!showReportView && (
+            <div className="bg-white rounded-2xl shadow-xl shadow-slate-200 border border-slate-200 p-6">
+              <div className="flex items-center justify-between mb-5">
+                <div>
+                  <h2 className="text-2xl font-bold text-slate-800 tracking-tight">
+                    Sale Order Pendency (Art + Size Wise)
+                  </h2>
+                  <p className="text-sm text-slate-500 mt-1">
+                    Broker (Agent) → Destination → Party → Art → Size wise
+                    pending quantity.
+                  </p>
                 </div>
-                <div className="border rounded h-48 overflow-auto p-2 bg-white">
-                  {destinations.length === 0 ? (
-                    <div className="text-sm text-gray-500">
-                      No stations found
+                <div className="rounded-full bg-indigo-50 px-4 py-1 text-xs font-semibold text-indigo-700 border border-indigo-100">
+                  Report Mode
+                </div>
+              </div>
+
+              {/* Dates */}
+              <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 mb-5">
+                <div>
+                  <label className="block text-xs font-semibold mb-1 text-slate-600">
+                    From Date
+                  </label>
+                  <input
+                    type="date"
+                    value={fromDate}
+                    onChange={(e) => setFromDate(e.target.value)}
+                    className="border border-slate-300 rounded-lg px-3 py-2 w-full text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold mb-1 text-slate-600">
+                    To Date
+                  </label>
+                  <input
+                    type="date"
+                    value={toDate}
+                    onChange={(e) => setToDate(e.target.value)}
+                    className="border border-slate-300 rounded-lg px-3 py-2 w-full text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                  />
+                </div>
+              </div>
+
+              {/* Filters: Broker first, phir destination broker ke hisab se */}
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-5">
+                {/* Broker (Agent) */}
+                <div className="border border-slate-200 rounded-xl bg-slate-50/70 p-3">
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="font-semibold text-sm text-slate-800">
+                      Broker (Agent)
                     </div>
-                  ) : (
-                    destinations.map((d) => (
-                      <label
-                        key={d.id}
-                        className="flex items-center py-1 text-sm"
-                      >
+                    <div className="flex items-center gap-2 text-[11px] text-slate-600">
+                      <label>
                         <input
                           type="checkbox"
-                          className="mr-2"
-                          checked={selDestIds.includes(d.id)}
-                          onChange={() => toggleDest(d.id)}
+                          className="mr-1 align-middle"
+                          checked={allBrokerSelected}
+                          onChange={(e) => toggleAllBroker(e.target.checked)}
+                          disabled={availableBrokers.length === 0}
                         />
-                        {d.name}
+                        All
                       </label>
-                    ))
-                  )}
-                </div>
-              </div>
+                      <button
+                        type="button"
+                        className="text-[11px] text-red-600 underline"
+                        onClick={() => toggleAllBroker(false)}
+                        disabled={selBrokerIds.length === 0}
+                      >
+                        Unselect
+                      </button>
+                    </div>
+                  </div>
 
-              {/* Party */}
-              <div>
-                <div className="flex items-center justify-between mb-2">
-                  <div className="font-semibold">Party</div>
-                  <label className="text-sm">
+                  <div className="relative mb-2">
                     <input
-                      type="checkbox"
-                      className="mr-2"
-                      checked={allPartySelected}
-                      onChange={(e) => toggleAllParty(e.target.checked)}
+                      type="text"
+                      value={brokerSearch}
+                      onChange={(e) => setBrokerSearch(e.target.value)}
+                      placeholder="Search Broker"
+                      className="border border-slate-300 rounded-lg px-2 py-1.5 w-full text-xs pr-6 focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 disabled:bg-slate-100"
+                      disabled={availableBrokers.length === 0}
+                    />
+                    {brokerSearch && availableBrokers.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => setBrokerSearch("")}
+                        className="absolute right-1 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700 text-xs px-1"
+                      >
+                        ×
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="border border-slate-200 rounded-lg h-48 overflow-auto bg-white p-2">
+                    {availableBrokers.length === 0 ? (
+                      <div className="text-xs text-slate-500">
+                        No brokers found
+                      </div>
+                    ) : filteredBrokers.length === 0 ? (
+                      <div className="text-xs text-slate-500">
+                        No matching broker
+                      </div>
+                    ) : (
+                      filteredBrokers.map((b) => (
+                        <label
+                          key={b.id}
+                          className="flex items-center py-0.5 text-xs text-slate-700"
+                        >
+                          <input
+                            type="checkbox"
+                            className="mr-2"
+                            checked={selBrokerIds.includes(b.id)}
+                            onChange={() => toggleBroker(b.id)}
+                          />
+                          {b.name}
+                        </label>
+                      ))
+                    )}
+                  </div>
+                </div>
+
+                {/* Destination - broker ke hisab se */}
+                <div className="border border-slate-200 rounded-xl bg-slate-50/70 p-3">
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="font-semibold text-sm text-slate-800">
+                      Destination
+                    </div>
+                    <div className="flex items-center gap-2 text-[11px] text-slate-600">
+                      <label>
+                        <input
+                          type="checkbox"
+                          className="mr-1 align-middle"
+                          checked={allDestSelected}
+                          onChange={(e) => toggleAllDest(e.target.checked)}
+                          disabled={
+                            availableDestinations.length === 0 ||
+                            (brokers.length > 0 &&
+                              selBrokerIds.length === 0)
+                          }
+                        />
+                        All
+                      </label>
+                      <button
+                        type="button"
+                        className="text-[11px] text-red-600 underline"
+                        onClick={() => toggleAllDest(false)}
+                        disabled={selDestIds.length === 0}
+                      >
+                        Unselect
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="relative mb-2">
+                    <input
+                      type="text"
+                      value={destSearch}
+                      onChange={(e) => setDestSearch(e.target.value)}
+                      placeholder="Search Destination"
+                      className="border border-slate-300 rounded-lg px-2 py-1.5 w-full text-xs pr-6 focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 disabled:bg-slate-100"
+                      disabled={
+                        availableDestinations.length === 0 ||
+                        (brokers.length > 0 && selBrokerIds.length === 0)
+                      }
+                    />
+                    {destSearch &&
+                      availableDestinations.length > 0 &&
+                      !(brokers.length > 0 && selBrokerIds.length === 0) && (
+                        <button
+                          type="button"
+                          onClick={() => setDestSearch("")}
+                          className="absolute right-1 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700 text-xs px-1"
+                        >
+                          ×
+                        </button>
+                      )}
+                  </div>
+
+                  <div className="border border-slate-200 rounded-lg h-48 overflow-auto bg-white p-2">
+                    {brokers.length > 0 && selBrokerIds.length === 0 ? (
+                      <div className="text-xs text-slate-500">
+                        Select Broker first
+                      </div>
+                    ) : availableDestinations.length === 0 ? (
+                      <div className="text-xs text-slate-500">
+                        No stations found for selected broker
+                      </div>
+                    ) : filteredDestinations.length === 0 ? (
+                      <div className="text-xs text-slate-500">
+                        No matching destination
+                      </div>
+                    ) : (
+                      filteredDestinations.map((d) => (
+                        <label
+                          key={d.id}
+                          className="flex items-center py-0.5 text-xs text-slate-700"
+                        >
+                          <input
+                            type="checkbox"
+                            className="mr-2"
+                            checked={selDestIds.includes(d.id)}
+                            onChange={() => toggleDest(d.id)}
+                          />
+                          {d.name}
+                        </label>
+                      ))
+                    )}
+                  </div>
+                </div>
+
+                {/* Party */}
+                <div className="border border-slate-200 rounded-xl bg-slate-50/70 p-3">
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="font-semibold text-sm text-slate-800">
+                      Party
+                    </div>
+                    <div className="flex items-center gap-2 text-[11px] text-slate-600">
+                      <label>
+                        <input
+                          type="checkbox"
+                          className="mr-1 align-middle"
+                          checked={allPartySelected}
+                          onChange={(e) => toggleAllParty(e.target.checked)}
+                          disabled={availableParties.length === 0}
+                        />
+                        All
+                      </label>
+                      <button
+                        type="button"
+                        className="text-[11px] text-red-600 underline"
+                        onClick={() => toggleAllParty(false)}
+                        disabled={selPartyIds.length === 0}
+                      >
+                        Unselect
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="relative mb-2">
+                    <input
+                      type="text"
+                      value={partySearch}
+                      onChange={(e) => setPartySearch(e.target.value)}
+                      placeholder="Search Party"
+                      className="border border-slate-300 rounded-lg px-2 py-1.5 w-full text-xs pr-6 focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 disabled:bg-slate-100"
                       disabled={availableParties.length === 0}
                     />
-                    Select All/Unselect All
-                  </label>
-                </div>
-                <div className="border rounded h-48 overflow-auto p-2 bg-white">
-                  {availableParties.length === 0 ? (
-                    <div className="text-sm text-gray-500">
-                      Select Destination first
-                    </div>
-                  ) : (
-                    availableParties.map((p) => (
-                      <label
-                        key={p.id}
-                        className="flex items-center py-1 text-sm"
+                    {partySearch && availableParties.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => setPartySearch("")}
+                        className="absolute right-1 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700 text-xs px-1"
                       >
+                        ×
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="border border-slate-200 rounded-lg h-48 overflow-auto bg-white p-2">
+                    {availableParties.length === 0 ? (
+                      <div className="text-xs text-slate-500">
+                        {brokers.length > 0 && selBrokerIds.length === 0
+                          ? "Select Broker first"
+                          : "Select Destination first"}
+                      </div>
+                    ) : filteredParties.length === 0 ? (
+                      <div className="text-xs text-slate-500">
+                        No matching party
+                      </div>
+                    ) : (
+                      filteredParties.map((p) => (
+                        <label
+                          key={p.id}
+                          className="flex items-center py-0.5 text-xs text-slate-700"
+                        >
+                          <input
+                            type="checkbox"
+                            className="mr-2"
+                            checked={selPartyIds.includes(p.id)}
+                            onChange={() => toggleParty(p.id)}
+                          />
+                          {p.partyName}
+                        </label>
+                      ))
+                    )}
+                  </div>
+                </div>
+
+                {/* Art */}
+                <div className="border border-slate-200 rounded-xl bg-slate-50/70 p-3">
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="font-semibold text-sm text-slate-800">
+                      Art
+                    </div>
+                    <div className="flex items-center gap-2 text-[11px] text-slate-600">
+                      <label>
                         <input
                           type="checkbox"
-                          className="mr-2"
-                          checked={selPartyIds.includes(p.id)}
-                          onChange={() => toggleParty(p.id)}
+                          className="mr-1 align-middle"
+                          checked={allArtSelected}
+                          onChange={(e) => toggleAllArt(e.target.checked)}
+                          disabled={availableArts.length === 0}
                         />
-                        {p.partyName}
+                        All
                       </label>
-                    ))
-                  )}
-                </div>
-              </div>
+                      <button
+                        type="button"
+                        className="text-[11px] text-red-600 underline"
+                        onClick={() => toggleAllArt(false)}
+                        disabled={selArtIds.length === 0}
+                      >
+                        Unselect
+                      </button>
+                    </div>
+                  </div>
 
-              {/* Art */}
-              <div>
-                <div className="flex items-center justify-between mb-2">
-                  <div className="font-semibold">Art</div>
-                  <label className="text-sm">
+                  <div className="relative mb-2">
                     <input
-                      type="checkbox"
-                      className="mr-2"
-                      checked={allArtSelected}
-                      onChange={(e) => toggleAllArt(e.target.checked)}
+                      type="text"
+                      value={artSearch}
+                      onChange={(e) => setArtSearch(e.target.value)}
+                      placeholder="Search Art No"
+                      className="border border-slate-300 rounded-lg px-2 py-1.5 w-full text-xs pr-6 focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 disabled:bg-slate-100"
                       disabled={availableArts.length === 0}
                     />
-                    Select All/Unselect All
-                  </label>
-                </div>
-                <div className="border rounded h-48 overflow-auto p-2 bg-white">
-                  {availableArts.length === 0 ? (
-                    <div className="text-sm text-gray-500">Select Party</div>
-                  ) : (
-                    availableArts.map((a) => (
-                      <label
-                        key={a.id}
-                        className="flex items-center py-1 text-sm"
+                    {artSearch && availableArts.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => setArtSearch("")}
+                        className="absolute right-1 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700 text-xs px-1"
                       >
+                        ×
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="border border-slate-200 rounded-lg h-48 overflow-auto bg-white p-2">
+                    {availableArts.length === 0 ? (
+                      <div className="text-xs text-slate-500">
+                        Select Party
+                      </div>
+                    ) : filteredArts.length === 0 ? (
+                      <div className="text-xs text-slate-500">
+                        No matching art
+                      </div>
+                    ) : (
+                      filteredArts.map((a) => (
+                        <label
+                          key={a.id}
+                          className="flex items-center py-0.5 text-xs text-slate-700"
+                        >
+                          <input
+                            type="checkbox"
+                            className="mr-2"
+                            checked={selArtIds.includes(a.id)}
+                            onChange={() => toggleArt(a.id)}
+                          />
+                          {a.artNo}
+                        </label>
+                      ))
+                    )}
+                  </div>
+                </div>
+
+                {/* Size */}
+                <div className="border border-slate-200 rounded-xl bg-slate-50/70 p-3">
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="font-semibold text-sm text-slate-800">
+                      Size
+                    </div>
+                    <div className="flex items-center gap-2 text-[11px] text-slate-600">
+                      <label>
                         <input
                           type="checkbox"
-                          className="mr-2"
-                          checked={selArtIds.includes(a.id)}
-                          onChange={() => toggleArt(a.id)}
+                          className="mr-1 align-middle"
+                          checked={allSizeSelected}
+                          onChange={(e) => toggleAllSize(e.target.checked)}
+                          disabled={availableSizes.length === 0}
                         />
-                        {a.artNo} - {a.artName}
+                        All
                       </label>
-                    ))
-                  )}
-                </div>
-              </div>
+                      <button
+                        type="button"
+                        className="text-[11px] text-red-600 underline"
+                        onClick={() => toggleAllSize(false)}
+                        disabled={selSizes.length === 0}
+                      >
+                        Unselect
+                      </button>
+                    </div>
+                  </div>
 
-              {/* Size */}
-              <div>
-                <div className="flex items-center justify-between mb-2">
-                  <div className="font-semibold">Size</div>
-                  <label className="text-sm">
+                  <div className="relative mb-2">
                     <input
-                      type="checkbox"
-                      className="mr-2"
-                      checked={allSizeSelected}
-                      onChange={(e) => toggleAllSize(e.target.checked)}
+                      type="text"
+                      value={sizeSearch}
+                      onChange={(e) => setSizeSearch(e.target.value)}
+                      placeholder="Search Size"
+                      className="border border-slate-300 rounded-lg px-2 py-1.5 w-full text-xs pr-6 focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 disabled:bg-slate-100"
                       disabled={availableSizes.length === 0}
                     />
-                    Select All/Unselect All
-                  </label>
-                </div>
-                <div className="border rounded h-48 overflow-auto p-2 bg-white">
-                  {availableSizes.length === 0 ? (
-                    <div className="text-sm text-gray-500">Select Art</div>
-                  ) : (
-                    availableSizes.map((s) => (
-                      <label key={s} className="flex items-center py-1 text-sm">
-                        <input
-                          type="checkbox"
-                          className="mr-2"
-                          checked={selSizes.includes(s)}
-                          onChange={() => toggleSize(s)}
-                        />
-                        {s}
-                      </label>
-                    ))
-                  )}
+                    {sizeSearch && availableSizes.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => setSizeSearch("")}
+                        className="absolute right-1 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700 text-xs px-1"
+                      >
+                        ×
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="border border-slate-200 rounded-lg h-48 overflow-auto bg-white p-2">
+                    {availableSizes.length === 0 ? (
+                      <div className="text-xs text-slate-500">
+                        Select Art
+                      </div>
+                    ) : filteredSizes.length === 0 ? (
+                      <div className="text-xs text-slate-500">
+                        No matching size
+                      </div>
+                    ) : (
+                      filteredSizes.map((s) => (
+                        <label
+                          key={s}
+                          className="flex items-center py-0.5 text-xs text-slate-700"
+                        >
+                          <input
+                            type="checkbox"
+                            className="mr-2"
+                            checked={selSizes.includes(s)}
+                            onChange={() => toggleSize(s)}
+                          />
+                          {s}
+                        </label>
+                      ))
+                    )}
+                  </div>
                 </div>
               </div>
-            </div>
 
-            <div className="mt-5 flex gap-3">
-              <button
-                onClick={showReport}
-                className="px-6 py-2 bg-indigo-600 text-white rounded shadow"
-              >
-                Show
-              </button>
-              <button
-                onClick={handleExit}
-                className="px-6 py-2 bg-gray-500 text-white rounded shadow"
-              >
-                Exit
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* Report View */}
-        {showReportView && (
-          <div className="bg-white rounded-2xl shadow-md p-6 w-full mx-auto mt-2">
-            <div className="flex items-center justify-between mb-3">
-              <div className="flex items-center gap-3 flex-wrap">
-                <div className="flex items-center gap-2">
-                  <span className="font-semibold">From:</span>
-                  <span className="px-2 py-1 border rounded bg-gray-50">
-                    {fromDate}
-                  </span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="font-semibold">To:</span>
-                  <span className="px-2 py-1 border rounded bg-gray-50">
-                    {toDate}
-                  </span>
-                </div>
-              </div>
-              <div className="flex gap-2">
+              <div className="mt-6 flex flex-wrap gap-3">
                 <button
-                  onClick={handleBack}
-                  className="bg-gray-500 text-white px-4 py-2 rounded-lg hover:bg-gray-600"
+                  onClick={showReport}
+                  className="px-6 py-2 rounded-lg bg-indigo-600 text-white text-sm font-semibold shadow-sm hover:bg-indigo-700 transition"
                 >
-                  Back
+                  Show Report
                 </button>
                 <button
-                  onClick={handlePrint}
-                  className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700"
+                  onClick={handleExit}
+                  className="px-6 py-2 rounded-lg bg-slate-500 text-white text-sm font-semibold shadow-sm hover:bg-slate-600 transition"
                 >
-                  Print
-                </button>
-                <button
-                  onClick={handleExportPDF}
-                  className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700"
-                  title="Export to PDF"
-                >
-                  Export PDF
+                  Exit
                 </button>
               </div>
             </div>
+          )}
 
-            {loading ? (
-              <div className="p-6 text-center">Loading...</div>
-            ) : rows.length === 0 ? (
-              <div className="text-center text-gray-600 py-8">
-                No data found
+          {/* ---------- REPORT VIEW ---------- */}
+          {showReportView && (
+            <div className="bg-white rounded-2xl shadow-xl shadow-slate-200 border border-slate-200 p-5 mt-4">
+              <div className="flex items-center justify-between mb-4">
+                <div className="space-y-1">
+                  <h3 className="text-lg font-semibold text-slate-800">
+                    Sale Order Pendency (Art + Size Wise)
+                  </h3>
+                  <div className="flex flex-wrap gap-2 text-xs text-slate-600">
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-100 border border-slate-200">
+                      <span className="font-semibold text-slate-700">
+                        From:
+                      </span>
+                      {fromDate}
+                    </span>
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-100 border border-slate-200">
+                      <span className="font-semibold text-slate-700">
+                        To:
+                      </span>
+                      {toDate}
+                    </span>
+                    {selBrokerIds.length > 0 && (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-purple-50 border border-purple-100 text-purple-700">
+                        Brokers: {selBrokerIds.length}
+                      </span>
+                    )}
+                    {selDestIds.length > 0 && (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-indigo-50 border border-indigo-100 text-indigo-700">
+                        Destinations: {selDestIds.length}
+                      </span>
+                    )}
+                    {selPartyIds.length > 0 && (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-50 border border-emerald-100 text-emerald-700">
+                        Parties: {selPartyIds.length}
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={handleBack}
+                    className="bg-slate-500 text-white px-4 py-1.5 rounded-lg text-xs font-semibold hover:bg-slate-600"
+                  >
+                    Back
+                  </button>
+                  <button
+                    onClick={handlePrint}
+                    className="bg-emerald-600 text-white px-4 py-1.5 rounded-lg text-xs font-semibold hover:bg-emerald-700"
+                  >
+                    Print
+                  </button>
+                  <button
+                    onClick={handleExportPDF}
+                    className="bg-indigo-600 text-white px-4 py-1.5 rounded-lg text-xs font-semibold hover:bg-indigo-700"
+                    title="Export to PDF"
+                  >
+                    Export PDF
+                  </button>
+                </div>
               </div>
-            ) : (
-              <div ref={reportRef} className="overflow-x-auto bg-white">
-                <table className="min-w-full border text-sm">
-                  <thead className="bg-gray-200 text-gray-700">
-                    <tr>
-                      <th className="border p-2">S.No</th>
-                      <th className="border p-2">Party Name</th>
-                      <th className="border p-2">Art No</th>
-                      <th className="border p-2">Size</th>
-                      <th className="border p-2 text-right">Opening</th>
-                      <th className="border p-2 text-right">Receipt</th>
-                      <th className="border p-2 text-right">Dispatch</th>
-                      <th className="border p-2 text-right">Pending</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {rows.map((r, i) => (
-                      <tr key={r.id} className="hover:bg-gray-50">
-                        <td className="border p-2 text-center">{i + 1}</td>
-                        <td className="border p-2">{r.partyName}</td>
-                        <td className="border p-2">{r.artNo}</td>
-                        <td className="border p-2">{r.size}</td>
-                        <td className="border p-2 text-right">
-                          {fmt(r.opening)}
+
+              {loading ? (
+                <div className="p-6 text-center text-slate-600 text-sm">
+                  Loading...
+                </div>
+              ) : groupedRows.length === 0 ? (
+                <div className="text-center text-slate-600 py-10 text-sm">
+                  No data found for selected filters.
+                </div>
+              ) : (
+                <div
+                  ref={reportRef}
+                  className="overflow-x-auto bg-white border border-slate-200 rounded-xl"
+                >
+                  <table className="min-w-full text-xs">
+                    <thead className="bg-slate-100 text-slate-700 sticky top-0 z-10">
+                      <tr>
+                        <th className="border border-slate-200 p-2">S.No</th>
+                        <th className="border border-slate-200 p-2">
+                          Broker
+                        </th>
+                        <th className="border border-slate-200 p-2">
+                          Party Name
+                        </th>
+                        <th className="border border-slate-200 p-2">Art No</th>
+                        {sizeColumns.map((s) => (
+                          <th
+                            key={s}
+                            className="border border-slate-200 p-2 text-right"
+                          >
+                            {s}
+                          </th>
+                        ))}
+                        <th className="border border-slate-200 p-2 text-right">
+                          Opening
+                        </th>
+                        <th className="border border-slate-200 p-2 text-right">
+                          Receipt
+                        </th>
+                        <th className="border border-slate-200 p-2 text-right">
+                          Dispatch
+                        </th>
+                        <th className="border border-slate-200 p-2 text-right">
+                          Pending
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {groupedRows.map((g, i) => (
+                        <tr
+                          key={g.key}
+                          className={i % 2 === 0 ? "bg-white" : "bg-slate-50"}
+                        >
+                          <td className="border border-slate-200 p-1.5 text-center">
+                            {i + 1}
+                          </td>
+                          <td className="border border-slate-200 p-1.5">
+                            {g.brokerName}
+                          </td>
+                          <td className="border border-slate-200 p-1.5">
+                            {g.partyName}
+                          </td>
+                          <td className="border border-slate-200 p-1.5">
+                            {g.artNo}
+                          </td>
+                          {sizeColumns.map((s) => {
+                            const cell = g.perSize[s];
+                            return (
+                              <td
+                                key={s}
+                                className="border border-slate-200 p-1.5 text-right"
+                              >
+                                {cell ? fmt(cell.pending) : ""}
+                              </td>
+                            );
+                          })}
+                          <td className="border border-slate-200 p-1.5 text-right">
+                            {fmt(g.openingTotal)}
+                          </td>
+                          <td className="border border-slate-200 p-1.5 text-right">
+                            {fmt(g.receiptTotal)}
+                          </td>
+                          <td className="border border-slate-200 p-1.5 text-right">
+                            {fmt(g.dispatchTotal)}
+                          </td>
+                          <td className="border border-slate-200 p-1.5 text-right font-semibold text-slate-800">
+                            {fmt(g.pendingTotal)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot>
+                      <tr className="bg-slate-100 font-semibold text-slate-800">
+                        <td
+                          className="border border-slate-200 p-1.5 text-right"
+                          colSpan={4}
+                        >
+                          Total
                         </td>
-                        <td className="border p-2 text-right">
-                          {fmt(r.receipt)}
+                        {sizeColumns.map((s) => {
+                          const t = sizeTotals[s];
+                          return (
+                            <td
+                              key={s}
+                              className="border border-slate-200 p-1.5 text-right"
+                            >
+                              {t ? fmt(t.pending) : ""}
+                            </td>
+                          );
+                        })}
+                        <td className="border border-slate-200 p-1.5 text-right">
+                          {fmt(totals.opening)}
                         </td>
-                        <td className="border p-2 text-right">
-                          {fmt(r.dispatch)}
+                        <td className="border border-slate-200 p-1.5 text-right">
+                          {fmt(totals.receipt)}
                         </td>
-                        <td className="border p-2 text-right">
-                          {fmt(r.pending)}
+                        <td className="border border-slate-200 p-1.5 text-right">
+                          {fmt(totals.dispatch)}
+                        </td>
+                        <td className="border border-slate-200 p-1.5 text-right">
+                          {fmt(totals.pending)}
                         </td>
                       </tr>
-                    ))}
-                  </tbody>
-                  <tfoot>
-                    <tr className="bg-gray-100 font-semibold">
-                      <td className="border p-2 text-right" colSpan={4}>
-                        Total
-                      </td>
-                      <td className="border p-2 text-right">
-                        {fmt(totals.opening)}
-                      </td>
-                      <td className="border p-2 text-right">
-                        {fmt(totals.receipt)}
-                      </td>
-                      <td className="border p-2 text-right">
-                        {fmt(totals.dispatch)}
-                      </td>
-                      <td className="border p-2 text-right">
-                        {fmt(totals.pending)}
-                      </td>
-                    </tr>
-                  </tfoot>
-                </table>
-              </div>
-            )}
+                    </tfoot>
+                  </table>
+                </div>
+              )}
 
-            <div className="flex justify-end gap-3 mt-6">
-              <button
-                onClick={refresh}
-                className="bg-indigo-600 text-white px-6 py-2 rounded-lg hover:bg-indigo-700"
-              >
-                Refresh
-              </button>
+              <div className="flex justify-end gap-3 mt-5">
+                <button
+                  onClick={refresh}
+                  className="bg-indigo-600 text-white px-5 py-1.5 rounded-lg text-sm font-semibold hover:bg-indigo-700"
+                >
+                  Refresh
+                </button>
+              </div>
             </div>
-          </div>
-        )}
+          )}
+        </div>
       </div>
     </Dashboard>
   );

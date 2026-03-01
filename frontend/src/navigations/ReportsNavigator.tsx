@@ -25,7 +25,10 @@ const sidebarNestedItemStyle: React.CSSProperties = {
   paddingLeft: "18px",
 };
 
-const iconSmallStyle: React.CSSProperties = { width: "14px", height: "14px" };
+const iconSmallStyle: React.CSSProperties = {
+  width: "14px",
+  height: "14px",
+};
 
 const ReportsNavigator: React.FC<ReportsNavigatorProps> = ({ onNavigate }) => {
   const [open, setOpen] = useState(false);
@@ -54,9 +57,14 @@ const ReportsNavigator: React.FC<ReportsNavigatorProps> = ({ onNavigate }) => {
       path: "/reports/job-work-report",
     },
     {
-      key: "Rate List report",
+      key: "rate-list-report",
       label: "Rate List Report",
       path: "/reports/rate-list-report",
+    },
+    {
+      key: "account-report",
+      label: "Account Report",
+      path: "/reports/account-report",
     },
   ];
 

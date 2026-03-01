@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState, useCallback } from "react";
 import Dashboard from "../Dashboard";
 import Swal from "sweetalert2";
 import api from "../../api/axiosInstance";
@@ -101,11 +101,11 @@ const CuttingLotModal: React.FC<{
 
   if (!open) return null;
   return (
-    <div className="z-[1200] fixed inset-0 flex justify-center items-center bg-black/50">
-      <div className="flex flex-col bg-white shadow-lg p-5 rounded-lg w-full max-w-4xl max-h-[85vh]">
-        <div className="flex justify-between items-center mb-3">
-          <h3 className="font-bold text-lg">Select Cutting Lot</h3>
-          <button onClick={onClose} className="bg-gray-200 px-3 py-1 rounded">
+    <div className="fixed inset-0 bg-black/50 z-[1200] flex items-center justify-center">
+      <div className="bg-white rounded-lg shadow-lg w-full max-w-4xl p-5 flex flex-col max-h-[85vh]">
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-lg font-bold">Select Cutting Lot</h3>
+          <button onClick={onClose} className="px-3 py-1 bg-gray-200 rounded">
             Close
           </button>
         </div>
@@ -113,35 +113,35 @@ const CuttingLotModal: React.FC<{
           value={q}
           onChange={(e) => setQ(e.target.value)}
           placeholder="Search lot no / art no / item…"
-          className="mb-3 p-2 border rounded w-full"
+          className="border p-2 rounded w-full mb-3"
         />
-        <div className="border rounded overflow-auto">
+        <div className="overflow-auto border rounded">
           <table className="w-full text-sm">
             <thead className="bg-gray-100">
               <tr>
-                <th className="p-2 border">Lot No</th>
-                <th className="p-2 border">Art No</th>
-                <th className="p-2 border">Item</th>
-                <th className="p-2 border text-center">Action</th>
+                <th className="border p-2">Lot No</th>
+                <th className="border p-2">Art No</th>
+                <th className="border p-2">Item</th>
+                <th className="border p-2 text-center">Action</th>
               </tr>
             </thead>
             <tbody>
               {filtered.length === 0 ? (
                 <tr>
-                  <td className="p-3 border text-gray-500 text-center" colSpan={4}>
+                  <td className="border p-3 text-center text-gray-500" colSpan={4}>
                     No records
                   </td>
                 </tr>
               ) : (
                 filtered.map((x) => (
                   <tr key={x.lotNo} className="hover:bg-gray-50">
-                    <td className="p-2 border">{x.lotNo}</td>
-                    <td className="p-2 border">{x.artNo}</td>
-                    <td className="p-2 border">{x.itemName}</td>
-                    <td className="p-2 border text-center">
+                    <td className="border p-2">{x.lotNo}</td>
+                    <td className="border p-2">{x.artNo}</td>
+                    <td className="border p-2">{x.itemName}</td>
+                    <td className="border p-2 text-center">
                       <button
                         onClick={() => onSelect(x)}
-                        className="bg-blue-600 px-3 py-1 rounded text-white"
+                        className="px-3 py-1 bg-blue-600 text-white rounded"
                       >
                         Select
                       </button>
@@ -181,11 +181,11 @@ const ShadeModal: React.FC<{
 
   if (!open) return null;
   return (
-    <div className="z-[1200] fixed inset-0 flex justify-center items-center bg-black/50">
-      <div className="bg-white shadow-lg p-5 rounded-lg w-full max-w-3xl">
-        <div className="flex justify-between items-center mb-3">
-          <h3 className="font-bold text-lg">Select Shade</h3>
-          <button onClick={onClose} className="bg-gray-200 px-3 py-1 rounded">
+    <div className="fixed inset-0 bg-black/50 z-[1200] flex items-center justify-center">
+      <div className="bg-white rounded-lg shadow-lg w-full max-w-3xl p-5">
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-lg font-bold">Select Shade</h3>
+          <button onClick={onClose} className="px-3 py-1 bg-gray-200 rounded">
             Close
           </button>
         </div>
@@ -193,33 +193,33 @@ const ShadeModal: React.FC<{
           value={q}
           onChange={(e) => setQ(e.target.value)}
           placeholder="Search shade name / code"
-          className="mb-3 p-2 border rounded w-full"
+          className="border p-2 rounded w-full mb-3"
         />
-        <div className="border max-h-[70vh] overflow-auto">
+        <div className="overflow-auto max-h-[70vh] border">
           <table className="w-full text-sm">
             <thead className="bg-gray-100">
               <tr>
-                <th className="p-2 border">Shade Code</th>
-                <th className="p-2 border">Shade Name</th>
-                <th className="p-2 border text-center">Action</th>
+                <th className="border p-2">Shade Code</th>
+                <th className="border p-2">Shade Name</th>
+                <th className="border p-2 text-center">Action</th>
               </tr>
             </thead>
             <tbody>
               {filtered.length === 0 ? (
                 <tr>
-                  <td className="p-3 border text-gray-500 text-center" colSpan={3}>
+                  <td className="border p-3 text-center text-gray-500" colSpan={3}>
                     No shades found
                   </td>
                 </tr>
               ) : (
                 filtered.map((sh) => (
                   <tr key={`${sh.code}-${sh.name}`} className="hover:bg-gray-50">
-                    <td className="p-2 border">{sh.code}</td>
-                    <td className="p-2 border">{sh.name}</td>
-                    <td className="p-2 border text-center">
+                    <td className="border p-2">{sh.code}</td>
+                    <td className="border p-2">{sh.name}</td>
+                    <td className="border p-2 text-center">
                       <button
                         onClick={() => onSelect(sh)}
-                        className="bg-blue-600 px-3 py-1 rounded text-white"
+                        className="px-3 py-1 bg-blue-600 text-white rounded"
                       >
                         Select
                       </button>
@@ -290,6 +290,83 @@ const PackingChallan: React.FC = () => {
       },
     ]);
 
+  // ⭐ NEW: Available cutting lots = all cutting lots - already used in any packing-challan
+  const fetchAvailableLots = useCallback(async () => {
+    try {
+      // 1) Collect all cutting lots that are already used in any packing-challan
+      let usedLots = new Set<string>();
+      try {
+        const { data: challansData } = await api.get<any[]>("/packing-challans");
+        const challans = Array.isArray(challansData) ? challansData : [];
+        challans.forEach((ch) => {
+          const challanRows: any[] = Array.isArray(ch.rows) ? ch.rows : [];
+          challanRows.forEach((r: any) => {
+            const lotNo = String(
+              r.cuttingLotNo ||
+                r.cutLotNo ||
+                r.cutlotNo ||
+                r.cuttinglotNo ||
+                ""
+            ).trim();
+            if (lotNo) usedLots.add(lotNo);
+          });
+        });
+      } catch (err) {
+        usedLots = new Set();
+      }
+
+      // 2) Load cutting lots with art/item from /cutting-entries, and skip usedLots
+      try {
+        const { data } = await api.get<any[]>("/cutting-entries");
+        const docs = Array.isArray(data) ? data : [];
+        const map = new Map<string, LotRecord>();
+        for (const d of docs) {
+          for (const r of d?.lotRows || []) {
+            const lotNo = String(
+              r.cutLotNo || r.cutlotNo || r.cuttingLotNo || ""
+            ).trim();
+            if (!lotNo) continue;
+            if (usedLots.has(lotNo)) continue; // skip lots already used in any challan
+            if (!map.has(lotNo)) {
+              map.set(lotNo, {
+                lotNo,
+                artNo: String(r.artNo || ""),
+                itemName: String(r.itemName || ""),
+                artGroup: String(
+                  r.artGroupName || r.artGroup || r.group || ""
+                ),
+              });
+            }
+          }
+        }
+        if (map.size > 0) {
+          setLots(Array.from(map.values()));
+          return;
+        }
+      } catch (err) {
+        // ignore, fallback below
+      }
+
+      // 3) Fallback: get simple lot numbers from /packing-challans/cutting-lots and skip usedLots
+      try {
+        const { data } = await api.get<string[]>("/packing-challans/cutting-lots");
+        const list: string[] = Array.isArray(data)
+          ? data.filter(Boolean).map(String)
+          : [];
+        const filtered = list.filter(
+          (x) => !usedLots.has(String(x).trim())
+        );
+        setLots(
+          filtered.map((x) => ({ lotNo: x, artNo: "", itemName: "" }))
+        );
+      } catch (err) {
+        setLots([]);
+      }
+    } catch {
+      setLots([]);
+    }
+  }, []);
+
   useEffect(() => {
     if (rows.length === 0) addBlankRow();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -304,48 +381,10 @@ const PackingChallan: React.FC = () => {
     })();
   }, []);
 
-  // Load Cutting Lots with art/item
+  // Load Cutting Lots with art/item (only lots which are not used in any challan)
   useEffect(() => {
-    (async () => {
-      try {
-        const { data } = await api.get<any[]>("/cutting-entries");
-        const docs = Array.isArray(data) ? data : [];
-        const map = new Map<string, LotRecord>();
-        for (const d of docs) {
-          for (const r of d?.lotRows || []) {
-            const lotNo = String(
-              r.cutLotNo || r.cutlotNo || r.cuttingLotNo || ""
-            ).trim();
-            if (!lotNo) continue;
-            if (!map.has(lotNo)) {
-              map.set(lotNo, {
-                lotNo,
-                artNo: String(r.artNo || ""),
-                itemName: String(r.itemName || ""),
-                artGroup: String(
-                  r.artGroupName || r.artGroup || r.group || ""
-                ), // try common keys
-              });
-            }
-          }
-        }
-        if (map.size > 0) {
-          setLots(Array.from(map.values()));
-          return;
-        }
-      } catch {}
-      // Fallback only lot nos
-      try {
-        const { data } = await api.get<string[]>("/packing-challans/cutting-lots");
-        const list: string[] = Array.isArray(data)
-          ? data.filter(Boolean).map(String)
-          : [];
-        setLots(list.map((x) => ({ lotNo: x, artNo: "", itemName: "" })));
-      } catch {
-        setLots([]);
-      }
-    })();
-  }, []);
+    fetchAvailableLots();
+  }, [fetchAvailableLots]);
 
   // Load shades once
   useEffect(() => {
@@ -380,45 +419,43 @@ const PackingChallan: React.FC = () => {
         } = {};
 
         for (const ch of challans) {
-  const challanRows: any[] = Array.isArray(ch.rows) ? ch.rows : [];
-  for (const r of challanRows) {
-    const artNo = String(r.artNo || "").trim();
-    if (!artNo) continue;
+          const challanRows: any[] = Array.isArray(ch.rows) ? ch.rows : [];
+          for (const r of challanRows) {
+            const artNo = String(r.artNo || "").trim();
+            if (!artNo) continue;
 
-    const details: any[] = Array.isArray(r.sizeDetails)
-      ? r.sizeDetails
-      : [];
+            const details: any[] = Array.isArray(r.sizeDetails)
+              ? r.sizeDetails
+              : [];
 
-    if (!map[artNo]) {
-      map[artNo] = {
-        sizeRate: {},
-        sizePerBox: {},
-      };
-    }
-    const entry = map[artNo];
+            if (!map[artNo]) {
+              map[artNo] = {
+                sizeRate: {},
+                sizePerBox: {},
+              };
+            }
+            const entry = map[artNo];
 
-    details.forEach((sd) => {
-      const sizeName = String(sd.sizeName || sd.size || "").trim();
-      if (!sizeName) return;
+            details.forEach((sd) => {
+              const sizeName = String(sd.sizeName || sd.size || "").trim();
+              if (!sizeName) return;
 
-      const rateVal = sd.rate;
-      const perBoxVal = sd.perBox;
+              const rateVal = sd.rate;
+              const perBoxVal = sd.perBox;
 
-      // 👉 ALWAYS overwrite, so the *last* challan row for this Art+Size wins
-      if (rateVal !== null && rateVal !== undefined && rateVal !== "") {
-        entry.sizeRate[sizeName] = String(rateVal);
-      }
+              // 👉 ALWAYS overwrite, so the *last* challan row for this Art+Size wins
+              if (rateVal !== null && rateVal !== undefined && rateVal !== "") {
+                entry.sizeRate[sizeName] = String(rateVal);
+              }
 
-      if (perBoxVal !== null && perBoxVal !== undefined && perBoxVal !== "") {
-        entry.sizePerBox[sizeName] = String(perBoxVal);
-      }
-    });
-  }
-}
-
+              if (perBoxVal !== null && perBoxVal !== undefined && perBoxVal !== "") {
+                entry.sizePerBox[sizeName] = String(perBoxVal);
+              }
+            });
+          }
+        }
 
         setArtDefaults(map);
-        // console.log("artDefaults", map);
       } catch (err) {
         console.error("Failed to load art defaults from packing challans", err);
       }
@@ -678,6 +715,9 @@ const PackingChallan: React.FC = () => {
     setLotModalForRowId(null);
     if (rowId == null) return; // allow 0
 
+    // ✅ Immediately remove this lot from the available list
+    setLots((prev) => prev.filter((l) => l.lotNo !== lot.lotNo));
+
     const artNo = (lot.artNo || "").trim();
 
     // Prefer artGroup already on lot (from cutting-entries) if present
@@ -825,6 +865,9 @@ const PackingChallan: React.FC = () => {
           showConfirmButton: false,
         });
       }
+
+      // ✅ After save, re-calculate available lots from server
+      await fetchAvailableLots();
     } catch (e: any) {
       Swal.fire(
         "Error",
@@ -833,21 +876,6 @@ const PackingChallan: React.FC = () => {
       );
     }
   };
-
-  // const _handleDelete = async () => {
-  //   const ok = await Swal.fire({
-  //     title: "Delete this challan?",
-  //     text: "This cannot be undone.",
-  //     icon: "warning",
-  //     showCancelButton: true,
-  //     confirmButtonText: "Yes, delete",
-  //   });
-  //   if (!ok.isConfirmed) return;
-  //   setRows([{ ...rows[0], id: Date.now() }]);
-  //   setPartyId("");
-  //   setDate("");
-  //   Swal.fire("Deleted!", "", "success");
-  // };
 
   //Print Function
   const handlePrint = () => {
@@ -927,7 +955,7 @@ const PackingChallan: React.FC = () => {
         <tbody>
           ${printableRows
             .map((r, idx) => {
-              // only show sizes which have any value (box/perBox/rate)
+              // only show sizes which have any value (box / perBox / rate)
               const sizeParts = sizeColumns
                 .map((s) => {
                   const box = Number(r.sizeBox?.[s] || 0);
@@ -1038,6 +1066,7 @@ const PackingChallan: React.FC = () => {
           partyName,
           cuttingLotNo: r.cuttingLotNo || r.cutLotNo || "",
           artGroup: r.artGroupName || "",
+          artNo: r.artNo || "", // show Art No in view list
           workOnArt: r.workOnArt || "",
           size: sizeLabel,
           shade: r.shadeName || "",
@@ -1160,6 +1189,10 @@ const PackingChallan: React.FC = () => {
       // refresh list
       const { data } = await api.get<any[]>("/packing-challans");
       setListData(Array.isArray(data) ? data : []);
+
+      // ✅ After delete, recalc available lots (freed lots will re-appear)
+      await fetchAvailableLots();
+
       Swal.fire("Deleted", "Challan deleted.", "success");
     } catch (e) {
       console.error(e);
@@ -1185,9 +1218,9 @@ const PackingChallan: React.FC = () => {
 
       {/* ======= View List Modal ======= */}
       {listOpen && (
-        <div className="z-[1500] fixed inset-0 flex justify-center items-center bg-black/50">
-          <div className="bg-white shadow-lg p-6 rounded-lg w-11/12 md:w-10/12 lg:w-9/12 xl:w-8/12 max-h-[90vh] overflow-y-auto">
-            <h2 className="mb-4 font-semibold text-blue-600 text-2xl text-center">
+        <div className="fixed inset-0 bg-black/50 z-[1500] flex items-center justify-center">
+          <div className="bg-white rounded-lg shadow-lg w-11/12 md:w-10/12 lg:w-9/12 xl:w-8/12 p-6 max-h-[90vh] overflow-y-auto">
+            <h2 className="text-2xl font-semibold mb-4 text-center text-blue-600">
               Packing Challans
             </h2>
 
@@ -1196,64 +1229,63 @@ const PackingChallan: React.FC = () => {
                 value={listSearch}
                 onChange={(e) => setListSearch(e.target.value)}
                 placeholder="Search anything…"
-                className="p-2 border rounded w-full"
+                className="border p-2 rounded w-full"
               />
             </div>
 
             <div className="overflow-x-auto">
-              <table className="border border-gray-300 min-w-full text-sm">
+              <table className="min-w-full border border-gray-300 text-sm">
                 <thead className="bg-blue-100">
                   <tr>
-                    <th className="p-2 border text-center">S.No</th>
-                    <th className="p-2 border text-center">Date</th>
-                    <th className="p-2 border text-center">Party Name</th>
-                    <th className="p-2 border text-center">Cutting Lot No</th>
-                    <th className="p-2 border text-center">Art Group</th>
-                    <th className="p-2 border text-center">Work on Art</th>
-                    <th className="p-2 border text-center">Size</th>
-                    <th className="p-2 border text-center">Shade</th>
-                    <th className="p-2 border text-center">Box</th>
-                    <th className="p-2 border text-center">Pcs</th>
-                    {/* <th className="p-2 border text-center">Rate</th> */}
-                    <th className="p-2 border text-center">Amount</th>
-                    <th className="p-2 border text-center">Action</th>
+                    <th className="border p-2 text-center">S.No</th>
+                    <th className="border p-2 text-center">Date</th>
+                    <th className="border p-2 text-center">Party Name</th>
+                    <th className="border p-2 text-center">Cutting Lot No</th>
+                    <th className="border p-2 text-center">Art Group</th>
+                    <th className="border p-2 text-center">Art No</th>
+                    <th className="border p-2 text-center">Size</th>
+                    <th className="border p-2 text-center">Shade</th>
+                    <th className="border p-2 text-center">Box</th>
+                    <th className="border p-2 text-center">Pcs</th>
+                    {/* <th className="border p-2 text-center">Rate</th> */}
+                    <th className="border p-2 text-center">Amount</th>
+                    <th className="border p-2 text-center">Action</th>
                   </tr>
                 </thead>
                 <tbody>
                   {flatRows.map((r, i) => (
                     <tr key={i}>
-                      {/* <td className="p-2 border text-center">{r.sno}</td> */}
-                       <td className="p-2 border text-center">{i + 1}</td>
-                      <td className="p-2 border text-center">{r.date}</td>
-                      <td className="p-2 border text-center">{r.partyName}</td>
-                      <td className="p-2 border text-center">
+                      <td className="border p-2 text-center">{i + 1}</td>
+                      <td className="border p-2 text-center">{r.date}</td>
+                      <td className="border p-2 text-center">{r.partyName}</td>
+                      <td className="border p-2 text-center">
                         {r.cuttingLotNo}
                       </td>
-                      <td className="p-2 border text-center">{r.artGroup}</td>
-                      <td className="p-2 border text-center">
-                        {r.workOnArt}
+                      <td className="border p-2 text-center">{r.artGroup}</td>
+                      <td className="border p-2 text-center">
+                        {r.artNo}
                       </td>
-                      <td className="p-2 border min-w-[260px] text-center whitespace-pre-line">
+                      <td className="border p-2 text-center whitespace-pre-line min-w-[260px]">
                         {r.size}
                       </td>
-                      <td className="p-2 border text-center">{r.shade}</td>
-                      <td className="p-2 border text-center">{r.box}</td>
-                      <td className="p-2 border text-center">{r.pcs}</td>
-                      {/* <td className="p-2 border text-center">{r.rate}</td> */}
-                      <td className="p-2 border text-center">
+                      <td className="border p-2 text-center">{r.shade}</td>
+                      <td className="border p-2 text-center">{r.box}</td>
+                      <td className="border p-2 text-center">{r.pcs}</td>
+                      {/* <td className="border p-2 text-center">{r.rate}</td> */}
+                      <td className="border p-2 text-center">
                         {Number(r.amount).toFixed(2)}
                       </td>
-                      <td className="p-2 border">
-                        <div className="flex justify-center items-center gap-2">
+                      <td className="border p-2">
+                        <div className="flex items-center justify-center gap-2">
                           <button
                             onClick={() => handleEditFromList(r.serialNo)}
-                            className="bg-green-500 hover:bg-green-600 px-3 py-1 rounded text-white"
+                            className="px-3 py-1 bg-green-500 text-white rounded hover:bg-green-600"
                           >
                             Edit
                           </button>
                           <button
                             onClick={() => handleDeleteFromList(r.serialNo)}
-                            className="bg-red-500 hover:bg-red-600 px-3 py-1 rounded text-white"
+                            className="px-3 py-1 bg-red-500 text-white rounded hover:bg-red-600"
                           >
                             Delete
                           </button>
@@ -1264,7 +1296,7 @@ const PackingChallan: React.FC = () => {
                   {flatRows.length === 0 && (
                     <tr>
                       <td
-                        className="p-3 border text-gray-500 text-center"
+                        className="border p-3 text-center text-gray-500"
                         colSpan={13}
                       >
                         No records
@@ -1275,10 +1307,10 @@ const PackingChallan: React.FC = () => {
               </table>
             </div>
 
-            <div className="mt-6 text-center">
+            <div className="text-center mt-6">
               <button
                 onClick={() => setListOpen(false)}
-                className="bg-gray-600 hover:bg-gray-700 px-5 py-2 rounded text-white transition-all"
+                className="px-5 py-2 bg-gray-600 text-white rounded hover:bg-gray-700 transition-all"
               >
                 Close
               </button>
@@ -1288,21 +1320,21 @@ const PackingChallan: React.FC = () => {
       )}
 
       {/* ======= Page ======= */}
-      <div className="bg-gray-100 p-6 min-h-screen">
-        <div className="bg-white shadow-md p-6 rounded-lg">
-          <h2 className="mb-4 font-bold text-2xl text-center">
+      <div className="p-6 bg-gray-100 min-h-screen">
+        <div className="bg-white p-6 rounded-lg shadow-md">
+          <h2 className="text-2xl font-bold text-center mb-4">
             Packing Challan
           </h2>
 
           {/* Header */}
-          <div className="gap-4 grid grid-cols-3 mb-6">
+          <div className="grid grid-cols-3 gap-4 mb-6">
             <div>
               <label className="block font-semibold">Date</label>
               <input
                 type="date"
                 value={date}
                 onChange={(e) => setDate(e.target.value)}
-                className="p-2 border rounded w-full"
+                className="border p-2 rounded w-full"
               />
             </div>
             <div>
@@ -1310,7 +1342,7 @@ const PackingChallan: React.FC = () => {
               <select
                 value={partyId}
                 onChange={(e) => setPartyId(e.target.value)}
-                className="p-2 border rounded w-full"
+                className="border p-2 rounded w-full"
               >
                 <option value="">Select Party</option>
                 {parties.map((p) => (
@@ -1324,39 +1356,39 @@ const PackingChallan: React.FC = () => {
 
           {/* Table */}
           <div className="overflow-x-auto">
-            <table className="border min-w-full text-sm">
+            <table className="min-w-full border text-sm">
               <thead className="bg-gray-200">
                 <tr>
-                  <th className="p-2 border text-center">Sr No.</th>
-                  <th className="p-2 border text-center">Cutting Lot No.</th>
-                  <th className="p-2 border text-center">Art No</th>
-                  <th className="p-2 border text-center">Art Group</th>
-                  <th className="p-2 border text-center">Work on Art</th>
+                  <th className="border p-2 text-center">Sr No.</th>
+                  <th className="border p-2 text-center">Cutting Lot No.</th>
+                  <th className="border p-2 text-center">Art No</th>
+                  <th className="border p-2 text-center">Art Group</th>
+                  <th className="border p-2 text-center">Work on Art</th>
                   {/* Dynamic Size Columns → Box / Rate / PerBox (stacked) */}
                   {sizeColumns.map((s) => (
-                    <th key={s} className="p-2 border text-center">
+                    <th key={s} className="border p-2 text-center">
                       <div className="flex flex-col items-center">
                         <div>{s}</div>
-                        <div className="font-normal text-[10px] text-gray-600">
+                        <div className="text-[10px] font-normal text-gray-600">
                           Box / Rate / PerBox
                         </div>
                       </div>
                     </th>
                   ))}
-                  <th className="p-2 border text-center">Shade</th>
-                  <th className="p-2 border text-center">Pcs</th>
-                  <th className="p-2 border text-center">Amount</th>
+                  <th className="border p-2 text-center">Shade</th>
+                  <th className="border p-2 text-center">Pcs</th>
+                  <th className="border p-2 text-center">Amount</th>
                 </tr>
               </thead>
               <tbody>
                 {rows.map((r, idx) => (
                   <tr key={r.id}>
-                    <td className="p-1 border text-center">{idx + 1}</td>
+                    <td className="border p-1 text-center">{idx + 1}</td>
 
                     {/* Cutting Lot: input opens modal (no button) */}
-                    <td className="p-1 border">
+                    <td className="border p-1">
                       <input
-                        className="bg-yellow-50 hover:bg-yellow-100 p-1 border rounded w-full cursor-pointer"
+                        className="border p-1 rounded w-full bg-yellow-50 cursor-pointer hover:bg-yellow-100"
                         value={r.cuttinglotNo}
                         readOnly
                         onClick={() => openLotModalForRow(r.id)}
@@ -1366,9 +1398,9 @@ const PackingChallan: React.FC = () => {
                     </td>
 
                     {/* Art No */}
-                    <td className="p-1 border">
+                    <td className="border p-1">
                       <input
-                        className="p-1 border rounded w-full"
+                        className="border p-1 rounded w-full"
                         value={r.artNo}
                         onChange={(e) =>
                           patchRow(r.id, { artNo: e.target.value })
@@ -1377,9 +1409,9 @@ const PackingChallan: React.FC = () => {
                     </td>
 
                     {/* Art Group */}
-                    <td className="p-1 border">
+                    <td className="border p-1">
                       <input
-                        className="p-1 border rounded w-full"
+                        className="border p-1 rounded w-full"
                         value={r.artGroup}
                         onChange={(e) =>
                           patchRow(r.id, { artGroup: e.target.value })
@@ -1388,9 +1420,9 @@ const PackingChallan: React.FC = () => {
                     </td>
 
                     {/* Work on Art */}
-                    <td className="p-1 border">
+                    <td className="border p-1">
                       <input
-                        className="p-1 border rounded w-full"
+                        className="border p-1 rounded w-full"
                         value={r.workOnArt}
                         onChange={(e) =>
                           patchRow(r.id, { workOnArt: e.target.value })
@@ -1414,7 +1446,7 @@ const PackingChallan: React.FC = () => {
                           s
                         );
                       return (
-                        <td key={s} className="p-1 border">
+                        <td key={s} className="border p-1">
                           <div className={`${enabled ? "" : "opacity-60"}`}>
                             <div className="flex flex-col gap-1">
                               <input
@@ -1481,9 +1513,9 @@ const PackingChallan: React.FC = () => {
                     })}
 
                     {/* Shade: input opens modal (no button) */}
-                    <td className="p-1 border">
+                    <td className="border p-1">
                       <input
-                        className="bg-yellow-50 hover:bg-yellow-100 p-1 border rounded w-full cursor-pointer"
+                        className="border p-1 rounded w-full bg-yellow-50 cursor-pointer hover:bg-yellow-100"
                         value={r.shade}
                         readOnly
                         onClick={() => openShadeModalForRow(r.id)}
@@ -1493,20 +1525,20 @@ const PackingChallan: React.FC = () => {
                     </td>
 
                     {/* Pcs (auto) */}
-                    <td className="p-1 border">
+                    <td className="border p-1">
                       <input
                         readOnly
-                        className="bg-gray-100 p-1 border rounded w-full text-right"
+                        className="border p-1 rounded w-full bg-gray-100 text-right"
                         value={r.pcs}
                         title="Auto: (Total Box × Total Per/Box)"
                       />
                     </td>
 
                     {/* Amount (auto) */}
-                    <td className="p-1 border">
+                    <td className="border p-1">
                       <input
                         readOnly
-                        className="bg-gray-100 p-1 border rounded w-full text-right"
+                        className="border p-1 rounded w-full bg-gray-100 text-right"
                         value={r.amount}
                       />
                     </td>
@@ -1517,17 +1549,17 @@ const PackingChallan: React.FC = () => {
           </div>
 
           {/* Totals + Buttons */}
-          <div className="flex flex-wrap justify-end items-center gap-6 mt-4 font-semibold">
+          <div className="flex flex-wrap items-center justify-end gap-6 mt-4 font-semibold">
             <p>Total Box: {totalBox}</p>
             <p>Total Per/Box: {totalPerBox}</p>
             <p>Total Pcs: {totalPcs}</p>
             <p>Total Amount: ₹{totalAmount.toFixed(2)}</p>
           </div>
 
-          <div className="flex flex-wrap gap-2 mt-4">
+          <div className="mt-4 flex flex-wrap gap-2">
             <button
               onClick={addBlankRow}
-              className="bg-blue-500 px-4 py-2 rounded text-white"
+              className="px-4 py-2 bg-blue-500 text-white rounded"
             >
               Add Row
             </button>
@@ -1535,20 +1567,20 @@ const PackingChallan: React.FC = () => {
             {/* Single Save/Update button — label changes with editingSerial */}
             <button
               onClick={handleSave}
-              className="bg-green-600 px-4 py-2 rounded text-white"
+              className="px-4 py-2 bg-green-600 text-white rounded"
             >
               {editingSerial ? "Update" : "Save"}
             </button>
 
             <button
               onClick={handlePrint}
-              className="bg-yellow-500 px-4 py-2 rounded text-white"
+              className="px-4 py-2 bg-yellow-500 text-white rounded"
             >
               Print
             </button>
             <button
               onClick={openList}
-              className="bg-gray-600 px-4 py-2 rounded text-white"
+              className="px-4 py-2 bg-gray-600 text-white rounded"
             >
               View List
             </button>

@@ -19,6 +19,7 @@ public class DispatchChallanDTO {
     private String brokerName;
     private String transportName;
     private String dispatchedBy;
+    private String station;
     private String remarks1;
     private String remarks2;
 

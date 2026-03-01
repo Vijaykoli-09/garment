@@ -4,12 +4,59 @@ import React, { useEffect, useMemo, useState } from "react";
 import Dashboard from "../Dashboard";
 import api from "../../api/axiosInstance";
 
+// ================= Types =================
+type Employee = {
+  code: string;
+  employeeName: string;
+  process?: { serialNo: string; processName: string };
+};
+
+type CuttingEntryDTO = {
+  serialNo: string;
+  date: string;
+  employeeId?: string;
+  employeeName?: string;
+  lotRows: {
+    id?: number;
+    cutLotNo: string;
+    artNo: string;
+    itemName: string;
+    shade: string;
+    pcs: string;
+    rate: string;
+    amount: string;
+    remarks?: string;
+  }[];
+};
+
+type ProductionReceiptDTO = {
+  id: number;
+  dated?: string;
+  date?: string;
+  processName?: string;
+  process?: string;
+  employeeName?: string;
+  employee?: string;
+  rows: {
+    pcs?: string;
+    piece?: string;
+    rate?: string;
+    amount?: string;
+    artNo?: string;
+    ArtNo?: string;
+    cardNo?: string;
+    cutLotNo?: string;
+    lotNo?: string;
+    remarks?: string;
+  }[];
+};
+
 type PRRow = {
   id: number;
-  date: string; // ISO yyyy-mm-dd
+  date: string;
   artNo: string;
-  lotNo: string; // cardNo
-  piece: number; // pcs
+  lotNo: string;
+  piece: number;
   rate: number;
   amount: number;
   process: string;
@@ -17,10 +64,9 @@ type PRRow = {
   remarks?: string;
 };
 
-type GroupedJSON = Record<string, Record<string, PRRow[]>>;
-
 const fmtDateHeader = (iso: string) => {
   const d = new Date(iso);
+  if (isNaN(d.getTime())) return "Invalid Date";
   return `${String(d.getDate()).padStart(2, "0")}/${String(
     d.getMonth() + 1
   ).padStart(2, "0")}/${d.getFullYear()}`;
@@ -38,7 +84,6 @@ const fmtRate = (n: number) =>
     maximumFractionDigits: 3,
   });
 
-// Helpers for default dates
 const getTodayIso = () => new Date().toISOString().slice(0, 10);
 const getFirstOfMonthIso = () => {
   const d = new Date();
@@ -47,84 +92,151 @@ const getFirstOfMonthIso = () => {
 };
 
 const SalaryReport: React.FC = () => {
-  const [savedRecords, setSavedRecords] = useState<any[]>([]);
-  const [employees, setEmployees] = useState<any[]>([]);
+  const [cuttingEntries, setCuttingEntries] = useState<CuttingEntryDTO[]>([]);
+  const [productionReceipts, setProductionReceipts] = useState<
+    ProductionReceiptDTO[]
+  >([]);
+  const [employees, setEmployees] = useState<Employee[]>([]);
   const [payments, setPayments] = useState<any[]>([]);
+  const [processList, setProcessList] = useState<any[]>([]);
 
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Controls / filters
   const [processName, setProcessName] = useState<string>("");
   const [employeeName, setEmployeeName] = useState<string>("");
 
-  // From = 1st of current month, To = today
   const [fromDate, setFromDate] = useState<string>(getFirstOfMonthIso());
   const [toDate, setToDate] = useState<string>(getTodayIso());
-
   const [sorting, setSorting] = useState<
     "Date Wise" | "Art No Wise" | "Lot Wise"
   >("Date Wise");
 
-  // Force ascending order (no UI to change)
-  // const order: "Asc" | "Desc" = "Asc";
-
   const [showModal, setShowModal] = useState(false);
   const [fullScreen, setFullScreen] = useState(false);
 
-  // Fetch production receipt records + employees + payments from API
+  // ---------- Load all data ----------
   useEffect(() => {
     const load = async () => {
       setLoading(true);
       setError(null);
       try {
-        const [prRes, empRes, payRes] = await Promise.all([
-          api.get("/production-receipt"),
-          api.get("/employees"),
-          api.get("/payment"),
-        ]);
+        const [cuttingRes, prodRes, empRes, payRes, procRes] =
+          await Promise.all([
+            api.get("/cutting-entries"),
+            api.get("/production-receipt"),
+            api.get("/employees"),
+            api.get("/payment"),
+            api.get("/process/list"),
+          ]);
 
-        const prData = Array.isArray(prRes.data) ? prRes.data : [];
-        setSavedRecords(prData);
+        const cuttingList: CuttingEntryDTO[] = Array.isArray(cuttingRes.data)
+          ? cuttingRes.data
+          : cuttingRes.data?.data || [];
 
-        const empData = Array.isArray(empRes.data) ? empRes.data : [];
-        setEmployees(empData);
+        const prodList: ProductionReceiptDTO[] = Array.isArray(prodRes.data)
+          ? prodRes.data
+          : prodRes.data?.data || [];
 
-        const payData = Array.isArray(payRes.data) ? payRes.data : [];
-        setPayments(payData);
+        const empList: Employee[] = Array.isArray(empRes.data)
+          ? empRes.data
+          : empRes.data?.data || [];
 
-        // set default process after load if not set
-        if (!processName && prData.length > 0) {
-          setProcessName(prData[0].processName || "");
-        }
+        const payList: any[] = Array.isArray(payRes.data)
+          ? payRes.data
+          : payRes.data?.data || [];
+
+        const procList: any[] = Array.isArray(procRes.data)
+          ? procRes.data
+          : procRes.data?.data || [];
+
+        setCuttingEntries(cuttingList);
+        setProductionReceipts(prodList);
+        setEmployees(empList);
+        setPayments(payList);
+        setProcessList(
+          procList.map((p: any) => ({
+            ...p,
+            processName: (p.processName || "").trim(),
+          }))
+        );
       } catch (err: any) {
-        console.error("Failed to load data:", err);
+        console.error("Error loading data:", err);
         setError(err?.message || "Failed to load data");
       } finally {
         setLoading(false);
       }
     };
     load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Transform savedRecords into flat PRRow[]
+  const allEmployees = useMemo(
+    () =>
+      employees.filter(
+        (emp) => emp.employeeName && emp.employeeName.trim().length > 0
+      ),
+    [employees]
+  );
+
+  // ---------- Flatten Cutting + Production into common rows ----------
   const allRows: PRRow[] = useMemo(() => {
     const rows: PRRow[] = [];
-    savedRecords.forEach((rec: any) => {
-      const dated = rec.dated || rec.date || "";
-      const process = rec.processName || rec.process || "";
-      const employee = rec.employeeName || rec.employee || "";
-      (rec.rows || []).forEach((r: any, idx: number) => {
-        const pcs = Number.parseFloat(r.pcs) || 0;
+
+    // Cutting
+    cuttingEntries.forEach((entry) => {
+      const dated = entry.date || "";
+      const employee = (entry.employeeName || "").trim();
+      const process = "Cutting";
+
+      (entry.lotRows || []).forEach((r, idx) => {
+        const piece = Number.parseFloat(r.pcs) || 0;
         const rate = Number.parseFloat(r.rate) || 0;
-        const amount = Number.parseFloat(r.amount) || pcs * rate || 0;
+        const amount =
+          Number.parseFloat(r.amount) || Number(piece * rate) || 0;
+        const uniqueIdBase = entry.serialNo
+          ? entry.serialNo
+              .split("")
+              .reduce((acc, char) => acc + char.charCodeAt(0), 0)
+          : Math.random() * 100000;
+        const id = uniqueIdBase * 1000 + (idx + 1);
+
         rows.push({
-          id: (rec.id ? Number(rec.id) : 0) * 1000 + (idx + 1),
+          id,
           date: dated,
-          artNo: r.artNo || r.ArtNo || "",
-          lotNo: r.cardNo || r.cutLotNo || r.lotNo || "",
-          piece: pcs,
+          artNo: (r.artNo || "").trim(),
+          lotNo: (r.cutLotNo || "").trim(),
+          piece,
+          rate,
+          amount,
+          process,
+          employee,
+          remarks: r.remarks || "",
+        });
+      });
+    });
+
+    // Other production receipts
+    productionReceipts.forEach((rec) => {
+      const dated = rec.dated || rec.date || "";
+      const process = (rec.processName || rec.process || "").trim();
+      const employee = (rec.employeeName || rec.employee || "").trim();
+
+      (rec.rows || []).forEach((r, idx) => {
+        const piece = Number.parseFloat(r.pcs || r.piece || "0") || 0;
+        const rate = Number.parseFloat(r.rate || "0") || 0;
+        const amount =
+          Number.parseFloat(r.amount || "0") ||
+          Number(piece * rate) ||
+          0;
+        const uniqueIdBase = rec.id ? Number(rec.id) : Math.random() * 100000;
+        const id = uniqueIdBase * 1000 + (idx + 1);
+
+        rows.push({
+          id,
+          date: dated,
+          artNo: (r.artNo || r.ArtNo || "").trim(),
+          lotNo: (r.cardNo || r.cutLotNo || r.lotNo || "").trim(),
+          piece,
           rate,
           amount,
           process,
@@ -135,175 +247,232 @@ const SalaryReport: React.FC = () => {
     });
 
     return rows;
-  }, [savedRecords]);
+  }, [cuttingEntries, productionReceipts]);
 
-  // Build grouped JSON by process -> employee
-  const groupedJSON: GroupedJSON = useMemo(() => {
-    const g: GroupedJSON = {};
-    allRows.forEach((r) => {
-      if (!g[r.process]) g[r.process] = {};
-      if (!g[r.process][r.employee]) g[r.process][r.employee] = [];
-      g[r.process][r.employee].push(r);
-    });
-
-    // Deterministic ordering per employee (date asc -> lotNo -> artNo)
-    Object.keys(g).forEach((proc) => {
-      Object.keys(g[proc]).forEach((emp) => {
-        g[proc][emp].sort((a, b) => {
-          const ta = new Date(a.date).getTime();
-          const tb = new Date(b.date).getTime();
-          if (ta !== tb) return ta - tb;
-          if (a.lotNo !== b.lotNo) return a.lotNo.localeCompare(b.lotNo);
-          return a.artNo.localeCompare(b.artNo);
-        });
-      });
-    });
-
-    return g;
-  }, [allRows]);
-
+  // ---------- Process dropdown ----------
   const processes = useMemo(() => {
-    return Object.keys(groupedJSON).sort();
-  }, [groupedJSON]);
+    const fromData = allRows
+      .map((r) => r.process)
+      .filter((p) => p && p.trim().length > 0);
+    const fromMaster = processList
+      .map((p) => p.processName)
+      .filter((p: string) => p && p.trim().length > 0);
 
-  // ⬇️ CHANGED: when no process is selected, show ALL employees in dropdown
-  const employeesForProcess = useMemo(() => {
-    if (!processName) {
-      // All processes selected -> show all employees from /employees
-      const names = employees
-        .map((e) => (e.employeeName || "").trim())
-        .filter((n) => n.length > 0);
-
-      // unique + sorted
-      return Array.from(new Set(names)).sort((a, b) =>
-        a.localeCompare(b, undefined, { sensitivity: "base" })
-      );
-    }
-
-    // Specific process selected -> show only employees that have PR rows in that process
-    const names = Object.keys(groupedJSON[processName] ?? {});
-    return names.sort((a, b) =>
+    const combined = Array.from(new Set([...fromData, ...fromMaster]));
+    return combined.sort((a, b) =>
       a.localeCompare(b, undefined, { sensitivity: "base" })
     );
-  }, [groupedJSON, processName, employees]);
+  }, [allRows, processList]);
 
-  // Flatten groupedJSON for display
-  const flatten = useMemo(() => {
-    return Object.values(groupedJSON)
-      .flatMap((empMap) => Object.values(empMap))
-      .flat();
-  }, [groupedJSON]);
+  // ---------- Employee dropdown ----------
+  const employeesForProcess = useMemo(() => {
+    let filteredEmployees = allEmployees;
+    if (processName) {
+      const pLower = processName.trim().toLowerCase();
+      filteredEmployees = allEmployees.filter(
+        (e) =>
+          (e.process?.processName || "")
+            .trim()
+            .toLowerCase() === pLower
+      );
+    }
+    const names = filteredEmployees
+      .map((e) => (e.employeeName || "").trim())
+      .filter((n) => n.length > 0);
+    return Array.from(new Set(names)).sort((a, b) =>
+      a.localeCompare(b, undefined, { sensitivity: "base" })
+    );
+  }, [allEmployees, processName]);
 
-  // Filter by date / process / employee
-  const toTime = (iso: string) => new Date(iso).getTime();
+  // ---------- Filtering & sorting ----------
+  const toTime = (iso: string) => {
+    const d = new Date(iso);
+    return isNaN(d.getTime()) ? -Infinity : d.getTime();
+  };
+
   const filtered = useMemo(() => {
     const f = toTime(fromDate);
     const t = toTime(toDate) + 24 * 60 * 60 * 1000 - 1;
-    return flatten.filter((r) => {
+
+    return allRows.filter((r) => {
       const tt = toTime(r.date);
-      if (isNaN(tt)) return false;
-      if (tt < f || tt > t) return false;
-      if (processName && r.process !== processName) return false;
-      if (employeeName && r.employee !== employeeName) return false;
+      if (isNaN(tt) || tt < f || tt > t) return false;
+
+      if (
+        processName &&
+        r.process.trim().toLowerCase() !== processName.trim().toLowerCase()
+      )
+        return false;
+      if (
+        employeeName &&
+        r.employee.trim().toLowerCase() !== employeeName.trim().toLowerCase()
+      )
+        return false;
       return true;
     });
-  }, [flatten, fromDate, toDate, processName, employeeName]);
+  }, [allRows, fromDate, toDate, processName, employeeName]);
 
-  // Sorting (always ascending)
   const sorted = useMemo(() => {
     const data = [...filtered];
     switch (sorting) {
       case "Date Wise":
         data.sort((a, b) => {
-          if (toTime(a.date) !== toTime(b.date))
-            return toTime(a.date) - toTime(b.date);
-          if (a.lotNo !== b.lotNo) return a.lotNo.localeCompare(b.lotNo);
+          const dc = toTime(a.date) - toTime(b.date);
+          if (dc !== 0) return dc;
+          const lc = a.lotNo.localeCompare(b.lotNo);
+          if (lc !== 0) return lc;
           return a.artNo.localeCompare(b.artNo);
         });
         break;
       case "Art No Wise":
         data.sort((a, b) => {
-          if (a.artNo !== b.artNo) return a.artNo.localeCompare(b.artNo);
-          if (toTime(a.date) !== toTime(b.date))
-            return toTime(a.date) - toTime(b.date);
+          const ac = a.artNo.localeCompare(b.artNo);
+          if (ac !== 0) return ac;
+          const dc = toTime(a.date) - toTime(b.date);
+          if (dc !== 0) return dc;
           return a.lotNo.localeCompare(b.lotNo);
         });
         break;
       case "Lot Wise":
         data.sort((a, b) => {
-          if (a.lotNo !== b.lotNo) return a.lotNo.localeCompare(b.lotNo);
-          if (toTime(a.date) !== toTime(b.date))
-            return toTime(a.date) - toTime(b.date);
+          const lc = a.lotNo.localeCompare(b.lotNo);
+          if (lc !== 0) return lc;
+          const dc = toTime(a.date) - toTime(b.date);
+          if (dc !== 0) return dc;
           return a.artNo.localeCompare(b.artNo);
         });
         break;
     }
-    return data; // Asc only
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- order is constant Asc
+    return data;
   }, [filtered, sorting]);
 
   const totals = useMemo(() => {
     const pieces = sorted.reduce((s, r) => s + r.piece, 0);
-    const amount = Number(sorted.reduce((s, r) => s + r.amount, 0).toFixed(2));
+    const amount = Number(
+      sorted.reduce((s, r) => s + r.amount, 0).toFixed(2)
+    );
     return { rows: sorted.length, pieces, amount };
   }, [sorted]);
 
-  /**
-   * Payment summary:
-   *  - ADV = sum of Payment.amount for selected employee (paymentTo = "Employee") in date range
-   *  - Opening = openingBalance from Employee Creation for selected employee
-   *  - Net = Gross Payment (production amount) - ADV + Opening
-   */
+  // ---------- Payment summary (Gross, ADV, Opening, Net) ----------
+  // Opening = (GrossBefore - AdvBefore)
+  // GrossPayment = amount for current date-range
+  // ADV = AdvCurrent (isin date-range)
+  // Net = GrossPayment - ADV + Opening
   const paymentSummary = useMemo(() => {
-    const grossPayment = totals.amount;
+    const grossCurrent = totals.amount;
 
-    // If no employee selected, we can't show personal ADV/opening
-    if (!employeeName) {
-      const advances = 0;
-      const opening = 0;
-      const net = Number((grossPayment - advances + opening).toFixed(2));
-      return { advances, grossPayment, opening, net };
+    // Jo employees abhi grid me dikh rahe hain:
+    const employeeKeysInRows = Array.from(
+      new Set(
+        sorted
+          .map((r) => (r.employee || "").trim().toLowerCase())
+          .filter((n) => n.length > 0)
+      )
+    );
+
+    if (employeeKeysInRows.length === 0) {
+      return { advances: 0, grossPayment: grossCurrent, opening: 0, net: grossCurrent };
     }
 
-    // Opening from employee creation
-    const emp = employees.find(
-      (e) => (e.employeeName || "").trim() === employeeName.trim()
-    );
-    const opening = emp ? Number.parseFloat(emp.openingBalance) || 0 : 0;
+    let relevantEmployeeKeys = employeeKeysInRows;
+    if (employeeName) {
+      relevantEmployeeKeys = [employeeName.trim().toLowerCase()];
+    }
 
-    // ADV from Payment table
-    const f = toTime(fromDate);
-    const t = toTime(toDate) + 24 * 60 * 60 * 1000 - 1;
+    const fromT = toTime(fromDate);
+    const toT = toTime(toDate) + 24 * 60 * 60 * 1000 - 1;
 
-    const advances = payments
-      .filter((p: any) => {
-        if (p.paymentTo !== "Employee") return false;
+    const empMatch = (name: string) =>
+      relevantEmployeeKeys.includes(name.trim().toLowerCase());
 
-        const name = (p.employeeName || p.partyName || "").toString().trim();
-        if (name !== employeeName.trim()) return false;
+    // ----- GrossBefore (allRows, employee + process filtered, date < from) -----
+    const grossBefore = allRows.reduce((sum, r) => {
+      const nm = (r.employee || "").trim().toLowerCase();
+      if (!empMatch(nm)) return sum;
+      if (
+        processName &&
+        r.process.trim().toLowerCase() !== processName.trim().toLowerCase()
+      )
+        return sum;
+      const tt = toTime(r.date);
+      if (isNaN(tt) || tt >= fromT) return sum;
+      return sum + r.amount;
+    }, 0);
 
-        const dstr = p.paymentDate || p.date;
-        if (!dstr) return false;
-        const tt = new Date(dstr).getTime();
-        if (isNaN(tt)) return false;
+    // ----- ADV Before + ADV Current (payments se) -----
+    let advBefore = 0;
+    let advCurrent = 0;
 
-        return tt >= f && tt <= t;
+    payments.forEach((p: any) => {
+      const nm = (
+        p.employeeName ||
+        p.partyName ||
+        p.name ||
+        p.employee ||
+        ""
+      )
+        .toString()
+        .trim()
+        .toLowerCase();
+      if (!empMatch(nm)) return;
 
-        // Optionally filter only advance payments by entryType:
-        // if (!["ADVANCE", "ADV"].includes((p.entryType || "").toUpperCase())) return false;
-      })
-      .reduce(
-        (sum: number, p: any) => sum + (Number.parseFloat(p.amount) || 0),
-        0
-      );
+      const paymentTo = (p.paymentTo || p.type || "")
+        .toString()
+        .trim()
+        .toLowerCase();
+      if (
+        paymentTo &&
+        !["employee", "cutting employee", "cutting", "worker"].includes(
+          paymentTo
+        )
+      ) {
+        return;
+      }
 
-    const net = Number((grossPayment - advances + opening).toFixed(2));
+      if (processName) {
+        const pProc = (p.processName || p.process || "")
+          .toString()
+          .trim()
+          .toLowerCase();
+        if (pProc && pProc !== processName.trim().toLowerCase()) {
+          return;
+        }
+      }
 
-    return { advances, grossPayment, opening, net };
-  }, [totals, employees, payments, employeeName, fromDate, toDate]);
+      const dstr = p.paymentDate || p.date || p.dated;
+      if (!dstr) return;
+      const tt = new Date(dstr).getTime();
+      if (isNaN(tt)) return;
 
+      const amt = Number.parseFloat(String(p.amount)) || 0;
+      if (tt < fromT) advBefore += amt;
+      else if (tt <= toT) advCurrent += amt;
+    });
+
+    const opening = Number((grossBefore - advBefore).toFixed(2));
+    const net = Number((grossCurrent - advCurrent + opening).toFixed(2));
+
+    return {
+      advances: advCurrent,
+      grossPayment: grossCurrent,
+      opening,
+      net,
+    };
+  }, [
+    totals.amount,
+    sorted,
+    allRows,
+    payments,
+    fromDate,
+    toDate,
+    processName,
+    employeeName,
+  ]);
+
+  // ---------- UI handlers ----------
   function resetAll() {
-    setProcessName(processes[0] ?? "");
+    setProcessName("");
     setEmployeeName("");
     setFromDate(getFirstOfMonthIso());
     setToDate(getTodayIso());
@@ -312,25 +481,17 @@ const SalaryReport: React.FC = () => {
     setFullScreen(false);
   }
 
-  // ⬇️ CHANGED: allow showing report even when employeeName is empty
   function handleShow() {
-    // If employeeName is "", you will see data for ALL employees
-    // (respecting process & date filters).
     setShowModal(true);
   }
 
-  /**
-   * Reliable print using a hidden iframe
-   */
   function handlePrintReport() {
     if (typeof window === "undefined" || typeof document === "undefined") {
       return;
     }
-
     try {
       const totalPieces = totals.pieces;
       const totalAmount = totals.amount;
-
       const html = `<!doctype html>
 <html>
   <head>
@@ -366,7 +527,6 @@ const SalaryReport: React.FC = () => {
         <strong>Amount:</strong> ${fmtNumber(totalAmount)}
       </div>
     </div>
-
     <table>
       <thead>
         <tr>
@@ -401,7 +561,6 @@ const SalaryReport: React.FC = () => {
           .join("")}
       </tbody>
     </table>
-
     <div class="totals">
       <div>Total Pieces: ${totalPieces.toLocaleString()}</div>
       <div>Total Amount: ${fmtNumber(totalAmount)}</div>
@@ -413,7 +572,6 @@ const SalaryReport: React.FC = () => {
       )})
       </div>
     </div>
-
     <script>
       window.onload = function () {
         try {
@@ -433,7 +591,6 @@ const SalaryReport: React.FC = () => {
     </script>
   </body>
 </html>`;
-
       const iframe = document.createElement("iframe");
       iframe.style.position = "fixed";
       iframe.style.right = "0";
@@ -442,16 +599,13 @@ const SalaryReport: React.FC = () => {
       iframe.style.height = "0";
       iframe.style.border = "0";
       iframe.style.visibility = "hidden";
-
       document.body.appendChild(iframe);
-
       const printWindow = iframe.contentWindow;
       if (!printWindow) {
         document.body.removeChild(iframe);
         alert("Unable to open print preview.");
         return;
       }
-
       const printDoc = printWindow.document;
       printDoc.open();
       printDoc.write(html);
@@ -462,24 +616,20 @@ const SalaryReport: React.FC = () => {
     }
   }
 
-  const sortLabel = `${sorting} (Increase)`;
-
   return (
     <Dashboard>
-      <div className="bg-gray-100 p-6">
-        <div className="bg-white shadow p-4 rounded">
-          <h2 className="mb-3 font-bold text-xl">
+      <div className="p-6 bg-gray-100">
+        <div className="bg-white p-4 rounded shadow">
+          <h2 className="text-xl font-bold mb-3">
             Salary Details (Employee Wise)
           </h2>
-
           {loading && (
-            <div className="mb-2 text-gray-600 text-sm">Loading data...</div>
+            <div className="text-sm text-gray-600 mb-2">Loading data...</div>
           )}
           {error && (
-            <div className="mb-2 text-red-600 text-sm">Error: {error}</div>
+            <div className="text-sm text-red-600 mb-2">Error: {error}</div>
           )}
-
-          <div className="items-end gap-3 grid grid-cols-12">
+          <div className="grid grid-cols-12 gap-3 items-end">
             <div className="col-span-3">
               <label className="block text-sm">Process Name</label>
               <select
@@ -498,7 +648,6 @@ const SalaryReport: React.FC = () => {
                 ))}
               </select>
             </div>
-
             <div className="col-span-3">
               <label className="block text-sm">Employee Name</label>
               <select
@@ -506,7 +655,11 @@ const SalaryReport: React.FC = () => {
                 onChange={(e) => setEmployeeName(e.target.value)}
                 className="mt-1 p-2 border rounded w-full"
               >
-                <option value="">-- All Employees --</option>
+                <option value="">
+                  {processName
+                    ? `-- All ${processName} Employees --`
+                    : "-- All Employees --"}
+                </option>
                 {employeesForProcess.map((e) => (
                   <option key={e} value={e}>
                     {e}
@@ -514,7 +667,6 @@ const SalaryReport: React.FC = () => {
                 ))}
               </select>
             </div>
-
             <div className="col-span-2">
               <label className="block text-sm">From</label>
               <input
@@ -524,7 +676,6 @@ const SalaryReport: React.FC = () => {
                 className="mt-1 p-2 border rounded w-full"
               />
             </div>
-
             <div className="col-span-2">
               <label className="block text-sm">To</label>
               <input
@@ -534,12 +685,15 @@ const SalaryReport: React.FC = () => {
                 className="mt-1 p-2 border rounded w-full"
               />
             </div>
-
             <div className="col-span-2">
               <label className="block text-sm">Sorting</label>
               <select
                 value={sorting}
-                onChange={(e) => setSorting(e.target.value as any)}
+                onChange={(e) =>
+                  setSorting(
+                    e.target.value as "Date Wise" | "Art No Wise" | "Lot Wise"
+                  )
+                }
                 className="mt-1 p-2 border rounded w-full"
               >
                 <option>Date Wise</option>
@@ -548,20 +702,20 @@ const SalaryReport: React.FC = () => {
               </select>
             </div>
           </div>
-
           <div className="flex items-center gap-3 mt-4">
             <button
-              className="bg-blue-600 px-4 py-2 rounded text-white"
+              className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
               onClick={handleShow}
             >
               Show
             </button>
-
-            <button className="px-4 py-2 border rounded" onClick={resetAll}>
+            <button
+              className="px-4 py-2 border rounded hover:bg-gray-100"
+              onClick={resetAll}
+            >
               Reset
             </button>
-
-            <div className="ml-auto text-gray-600 text-sm">
+            <div className="ml-auto text-sm text-gray-600">
               Rows: <strong>{totals.rows}</strong> | Pieces:{" "}
               <strong>{totals.pieces.toLocaleString()}</strong> | Amount:{" "}
               <strong>{fmtNumber(totals.amount)}</strong>
@@ -571,7 +725,7 @@ const SalaryReport: React.FC = () => {
 
         {/* Modal */}
         {showModal && (
-          <div className="z-50 fixed inset-0 flex justify-center items-start pt-8">
+          <div className="fixed inset-0 z-50 flex items-start justify-center pt-8">
             <div
               className="absolute inset-0 bg-black opacity-30"
               onClick={() => setShowModal(false)}
@@ -582,53 +736,49 @@ const SalaryReport: React.FC = () => {
               }`}
               style={{ maxHeight: fullScreen ? "100vh" : "90vh" }}
             >
-              <div className="flex justify-between items-center p-3 border-b">
+              <div className="flex items-center justify-between p-3 border-b">
                 <div>
-                  <div className="text-gray-700 text-sm">
+                  <div className="text-sm text-gray-700">
                     <strong>Process:</strong> {processName || "All"} &nbsp; |
                     &nbsp; <strong>Employee:</strong> {employeeName || "All"}{" "}
                     &nbsp; | &nbsp; <strong>From:</strong>{" "}
                     {fmtDateHeader(fromDate)} &nbsp; | &nbsp;{" "}
                     <strong>To:</strong> {fmtDateHeader(toDate)}
                   </div>
-                  <div className="mt-1 text-gray-600 text-xs">
+                  <div className="text-xs text-gray-600 mt-1">
                     Rows: {totals.rows} | Pieces:{" "}
                     {totals.pieces.toLocaleString()} | Amount:{" "}
-                    {fmtNumber(totals.amount)} | Sort: {sortLabel}
+                    {fmtNumber(totals.amount)} | Sort: {sorting}
                   </div>
                 </div>
-
                 <div className="flex items-center gap-2">
                   <button
-                    className="px-2 py-1 border rounded text-sm"
+                    className="px-2 py-1 border rounded text-sm hover:bg-gray-100"
                     onClick={() => setFullScreen(!fullScreen)}
                   >
                     {fullScreen ? "Exit Fullscreen" : "Fullscreen"}
                   </button>
-
                   <button
-                    className="px-2 py-1 border rounded text-sm"
+                    className="px-2 py-1 border rounded text-sm hover:bg-gray-100"
                     onClick={handlePrintReport}
                   >
                     Print
                   </button>
-
                   <button
-                    className="bg-red-500 px-2 py-1 rounded text-white text-sm"
+                    className="px-2 py-1 bg-red-500 text-white rounded text-sm hover:bg-red-600"
                     onClick={() => setShowModal(false)}
                   >
                     Close
                   </button>
                 </div>
               </div>
-
               <div
                 className="p-2 overflow-auto"
                 style={{ height: fullScreen ? "calc(100vh - 72px)" : "78vh" }}
               >
                 <div className="min-w-max">
-                  <table className="w-full text-sm border-collapse table-auto">
-                    <thead className="top-0 sticky bg-gray-50">
+                  <table className="w-full table-auto text-sm border-collapse">
+                    <thead className="bg-gray-50 sticky top-0">
                       <tr>
                         <th className="px-2 py-1 border">S No</th>
                         <th className="px-2 py-1 border">Date</th>
@@ -641,7 +791,6 @@ const SalaryReport: React.FC = () => {
                         <th className="px-2 py-1 border">Employee</th>
                       </tr>
                     </thead>
-
                     <tbody>
                       {sorted.map((r, idx) => (
                         <tr
@@ -668,65 +817,62 @@ const SalaryReport: React.FC = () => {
                         </tr>
                       ))}
 
-                      {/* totals + payment summary */}
+                      {/* Totals + payment summary row */}
                       <tr>
                         <td colSpan={9} className="p-0">
-                          <div className="bg-white border-t w-full">
+                          <div className="w-full bg-white border-t">
                             <div className="p-3">
-                              <div className="items-center gap-4 grid grid-cols-12">
+                              <div className="grid grid-cols-12 gap-4 items-center">
                                 <div className="col-span-4">
-                                  <div className="font-semibold text-sm">
+                                  <div className="text-sm font-semibold">
                                     Totals
                                   </div>
-                                  <div className="mt-1 text-gray-700 text-xs">
+                                  <div className="text-xs text-gray-700 mt-1">
                                     Pieces:{" "}
                                     <strong>
                                       {totals.pieces.toLocaleString()}
                                     </strong>
                                   </div>
-                                  <div className="text-gray-700 text-xs">
+                                  <div className="text-xs text-gray-700">
                                     Amount:{" "}
                                     <strong>{fmtNumber(totals.amount)}</strong>
                                   </div>
                                 </div>
-
                                 <div className="col-span-5">
-                                  <div className="font-semibold text-sm">
+                                  <div className="text-sm font-semibold">
                                     Payment Details
                                   </div>
-                                  <div className="gap-2 grid grid-cols-2 mt-2 text-xs">
+                                  <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
                                     <div className="text-gray-700">ADV:</div>
-                                    <div className="text-gray-900 text-right">
+                                    <div className="text-right text-gray-900">
                                       {fmtNumber(paymentSummary.advances)}
                                     </div>
-
                                     <div className="text-gray-700">
                                       Gross Payment:
                                     </div>
-                                    <div className="text-gray-900 text-right">
-                                      {fmtNumber(paymentSummary.grossPayment)}
+                                    <div className="text-right text-gray-900">
+                                      {fmtNumber(
+                                        paymentSummary.grossPayment
+                                      )}
                                     </div>
-
                                     <div className="text-gray-700">
                                       Opening:
                                     </div>
-                                    <div className="text-gray-900 text-right">
+                                    <div className="text-right text-gray-900">
                                       {fmtNumber(paymentSummary.opening)}
                                     </div>
                                   </div>
                                 </div>
-
                                 <div className="col-span-3 text-right">
-                                  <div className="font-semibold text-sm">
+                                  <div className="text-sm font-semibold">
                                     Net Salary
                                   </div>
-                                  <div className="inline-block bg-yellow-200 mt-2 px-3 py-1 rounded font-bold text-black text-lg">
+                                  <div className="text-lg text-black font-bold bg-yellow-200 inline-block px-3 py-1 rounded mt-2">
                                     {fmtNumber(paymentSummary.net)}
                                   </div>
                                 </div>
                               </div>
-
-                              <div className="mt-3 text-gray-600 text-xs">
+                              <div className="mt-3 text-xs text-gray-600">
                                 <div>
                                   Calculation:{" "}
                                   <strong>
@@ -734,8 +880,10 @@ const SalaryReport: React.FC = () => {
                                   </strong>
                                 </div>
                                 <div>
-                                  = {fmtNumber(paymentSummary.grossPayment)} -{" "}
-                                  {fmtNumber(paymentSummary.advances)} +{" "}
+                                  = {fmtNumber(
+                                    paymentSummary.grossPayment
+                                  )}{" "}
+                                  - {fmtNumber(paymentSummary.advances)} +{" "}
                                   {fmtNumber(paymentSummary.opening)} ={" "}
                                   <strong>
                                     {fmtNumber(paymentSummary.net)}

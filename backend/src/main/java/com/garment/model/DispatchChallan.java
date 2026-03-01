@@ -30,6 +30,7 @@ public class DispatchChallan {
     private String challanNo;
     private String partyName;
     private String brokerName;
+    private String station;
     private String transportName;
     private String dispatchedBy;
     private String remarks1;

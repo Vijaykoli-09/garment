@@ -2,8 +2,7 @@ import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import Swal from "sweetalert2";
 import api from "../api/axiosInstance";
-import { Link } from "react-router-dom";
- 
+
 const Login: React.FC = () => {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -123,12 +122,12 @@ const Login: React.FC = () => {
           Login
         </button>
 
-        <p style={{ marginTop: "1rem" }}>
+        {/* <p style={{ marginTop: "1rem" }}>
           Don’t have an account?{" "}
           <Link to="/signup" style={{ color: "#007bff", fontWeight: "bold" }}>
             Sign Up
           </Link>
-        </p>
+        </p> */}
       </form>
     </div>
   );

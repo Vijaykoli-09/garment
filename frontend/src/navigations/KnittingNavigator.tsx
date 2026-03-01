@@ -24,7 +24,10 @@ const sidebarNestedItemStyle: React.CSSProperties = {
   paddingLeft: "15px",
 };
 
-const iconSmallStyle: React.CSSProperties = { width: "14px", height: "14px" };
+const iconSmallStyle: React.CSSProperties = {
+  width: "14px",
+  height: "14px",
+};
 
 const KnittingNavigator: React.FC<KnittingNavigatorProps> = ({
   onNavigate,
@@ -58,6 +61,7 @@ const KnittingNavigator: React.FC<KnittingNavigatorProps> = ({
           )}
         </span>
       </button>
+
       {open["purchase-entry"] && (
         <div style={{ marginLeft: "15px" }}>
           {[
@@ -66,38 +70,6 @@ const KnittingNavigator: React.FC<KnittingNavigatorProps> = ({
             "Purchase Pending Orders",
             "Purchase Return",
           ].map((sub, i) => (
-            <button
-              key={i}
-              style={sidebarNestedItemStyle}
-              onClick={() =>
-                onNavigate?.(
-                  `/knitting/${sub.toLowerCase().replace(/\s+/g, "-")}`
-                )
-              }
-            >
-              {sub}
-            </button>
-          ))}
-        </div>
-      )}
-
-      {/* Sale Challan */}
-      <button
-        style={sidebarSubItemStyle}
-        onClick={() => toggle("sale-challan")}
-      >
-        Sale Challan
-        <span style={{ marginLeft: "auto" }}>
-          {open["sale-challan"] ? (
-            <ChevronUpIcon style={iconSmallStyle} />
-          ) : (
-            <ChevronDownIcon style={iconSmallStyle} />
-          )}
-        </span>
-      </button>
-      {open["sale-challan"] && (
-        <div style={{ marginLeft: "15px" }}>
-          {["Dispatch Challan" , "Other Dispatch Challan"].map((sub, i) => (
             <button
               key={i}
               style={sidebarNestedItemStyle}
@@ -124,6 +96,7 @@ const KnittingNavigator: React.FC<KnittingNavigatorProps> = ({
           )}
         </span>
       </button>
+
       {open["knitting"] && (
         <div style={{ marginLeft: "15px" }}>
           {[
@@ -138,7 +111,9 @@ const KnittingNavigator: React.FC<KnittingNavigatorProps> = ({
               style={sidebarNestedItemStyle}
               onClick={() =>
                 onNavigate?.(
-                  `/knitting/challan/${sub.toLowerCase().replace(/\s+/g, "-")}`
+                  `/knitting/challan/${sub
+                    .toLowerCase()
+                    .replace(/\s+/g, "-")}`
                 )
               }
             >
@@ -159,6 +134,7 @@ const KnittingNavigator: React.FC<KnittingNavigatorProps> = ({
           )}
         </span>
       </button>
+
       {open["dyeing"] && (
         <div style={{ marginLeft: "15px" }}>
           {[
@@ -169,11 +145,12 @@ const KnittingNavigator: React.FC<KnittingNavigatorProps> = ({
             "Dyeing Amount Statement",
             "Stock Statement",
           ].map((sub, i) => {
-            // Special handling for Material Return to use a different path
             const path =
               sub === "Material Return"
                 ? "/knitting/dyeing/material-return"
-                : `/knitting/dyeing/${sub.toLowerCase().replace(/\s+/g, "-")}`;
+                : `/knitting/dyeing/${sub
+                    .toLowerCase()
+                    .replace(/\s+/g, "-")}`;
 
             return (
               <button
@@ -199,6 +176,7 @@ const KnittingNavigator: React.FC<KnittingNavigatorProps> = ({
           )}
         </span>
       </button>
+
       {open["finishing"] && (
         <div style={{ marginLeft: "15px" }}>
           {[
@@ -236,6 +214,7 @@ const KnittingNavigator: React.FC<KnittingNavigatorProps> = ({
           )}
         </span>
       </button>
+
       {open["reports"] && (
         <div style={{ marginLeft: "15px" }}>
           {[
@@ -248,7 +227,9 @@ const KnittingNavigator: React.FC<KnittingNavigatorProps> = ({
               style={sidebarNestedItemStyle}
               onClick={() =>
                 onNavigate?.(
-                  `/knitting/reports/${sub.toLowerCase().replace(/\s+/g, "-")}`
+                  `/knitting/reports/${sub
+                    .toLowerCase()
+                    .replace(/\s+/g, "-")}`
                 )
               }
             >
@@ -258,21 +239,22 @@ const KnittingNavigator: React.FC<KnittingNavigatorProps> = ({
         </div>
       )}
 
-      {/* Stock Reports */}
+      {/* Purchase Reports */}
       <button
         style={sidebarSubItemStyle}
-        onClick={() => toggle("purchasereports")}
+        onClick={() => toggle("purchase-reports")}
       >
         Purchase Reports
         <span style={{ marginLeft: "auto" }}>
-          {open["purchasereports"] ? (
+          {open["purchase-reports"] ? (
             <ChevronUpIcon style={iconSmallStyle} />
           ) : (
             <ChevronDownIcon style={iconSmallStyle} />
           )}
         </span>
       </button>
-      {open["purchasereports"] && (
+
+      {open["purchase-reports"] && (
         <div style={{ marginLeft: "15px" }}>
           {["Material Stock Report", "Amount Report"].map((sub, i) => (
             <button
@@ -292,32 +274,28 @@ const KnittingNavigator: React.FC<KnittingNavigatorProps> = ({
         </div>
       )}
 
-      {/* Packing Challan */}
+      {/* Packing */}
       <button style={sidebarSubItemStyle} onClick={() => toggle("packing")}>
         Packing
         <span style={{ marginLeft: "auto" }}>
-          {open["Packing"] ? (
+          {open["packing"] ? (
             <ChevronUpIcon style={iconSmallStyle} />
           ) : (
             <ChevronDownIcon style={iconSmallStyle} />
           )}
         </span>
       </button>
+
       {open["packing"] && (
         <div style={{ marginLeft: "15px" }}>
-          {["Packing Challan"].map((sub, i) => (
-            <button
-              key={i}
-              style={sidebarNestedItemStyle}
-              onClick={() =>
-                onNavigate?.(
-                  `/knitting/packing/${sub.toLowerCase().replace(/\s+/g, "-")}`
-                )
-              }
-            >
-              {sub}
-            </button>
-          ))}
+          <button
+            style={sidebarNestedItemStyle}
+            onClick={() =>
+              onNavigate?.("/knitting/packing/packing-challan")
+            }
+          >
+            Packing Challan
+          </button>
         </div>
       )}
     </div>

@@ -10,6 +10,7 @@ import Dashboard from "../Dashboard";
 
 import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
+import { INDIA_STATES } from "../../api/indiaStates";
 
 type ColumnId =
   | "srNo"
@@ -85,6 +86,13 @@ const PartyCreation: React.FC = () => {
   const [filterTransport, setFilterTransport] = useState<string>("");
   const [searchTerm, setSearchTerm] = useState<string>("");
 
+  // ---------- Station dropdown ----------
+  const [stationOptions, setStationOptions] = useState<string[]>([]);
+  const [isStationDropdownOpen, setIsStationDropdownOpen] =
+    useState<boolean>(false);
+  const [stationSearchTerm, setStationSearchTerm] = useState<string>("");
+  const stationWrapperRef = useRef<HTMLDivElement | null>(null);
+
   // Column visibility for table + print
   const [columnVisibility, setColumnVisibility] = useState<
     Record<ColumnId, boolean>
@@ -154,6 +162,50 @@ const PartyCreation: React.FC = () => {
     loadAllParties();
   }, []);
 
+  // Build station options from all parties whenever data changes
+  useEffect(() => {
+    const stations = Array.from(
+      new Set(
+        allParties
+          .map((p: any) => p.station)
+          .filter(
+            (v: any) => v !== null && v !== undefined && v.toString().trim() !== ""
+          )
+      )
+    ).sort((a: string, b: string) => a.localeCompare(b));
+    setStationOptions(stations);
+  }, [allParties]);
+
+  // click-outside to close custom station dropdown
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (
+        stationWrapperRef.current &&
+        !stationWrapperRef.current.contains(event.target as Node)
+      ) {
+        setIsStationDropdownOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  // filtered station list based on search term in dropdown
+  const filteredStationOptions = useMemo(() => {
+    const q = stationSearchTerm.trim().toLowerCase();
+    if (!q) return stationOptions;
+    return stationOptions.filter((s) => s.toLowerCase().includes(q));
+  }, [stationOptions, stationSearchTerm]);
+
+  const stationExistsExact = useMemo(
+    () =>
+      !!stationSearchTerm.trim() &&
+      stationOptions.some(
+        (s) => s.toLowerCase() === stationSearchTerm.trim().toLowerCase()
+      ),
+    [stationOptions, stationSearchTerm]
+  );
+
   // ------------ Form handlers ------------
   const handleChange = (
     e: React.ChangeEvent<
@@ -209,6 +261,9 @@ const PartyCreation: React.FC = () => {
         await api.post("/party/save", formData);
         Swal.fire("Added!", "Party saved successfully", "success");
       }
+
+      // After save, reload parties. New station (if any) will come in this list,
+      // and stationOptions (derived from allParties) will include it automatically.
       loadAllParties();
       handleAddNew();
     } catch (err) {
@@ -283,7 +338,6 @@ const PartyCreation: React.FC = () => {
 
     let filtered = allParties;
 
-    // Global search across many fields
     if (term) {
       filtered = filtered.filter((p: any) => {
         const values = [
@@ -395,12 +449,12 @@ const PartyCreation: React.FC = () => {
     }));
   };
 
-  // For PRINT: if user has unchecked all columns, print ALL columns
   const getPrintColumns = (): ColumnId[] => {
     const selected = (Object.keys(columnVisibility) as ColumnId[]).filter(
       (id) => columnVisibility[id]
     );
     if (selected.length === 0) {
+      // If no columns are selected, print all of them as a fallback
       return Object.keys(columnVisibility) as ColumnId[];
     }
     return selected;
@@ -456,12 +510,15 @@ const PartyCreation: React.FC = () => {
 
   // ------------ Print ------------
   const handlePrint = () => {
-    const partiesToPrint = filteredParties;
-
-    if (!partiesToPrint.length) {
+    if (!filteredParties.length) {
       Swal.fire("No data", "No parties to print. Check filters.", "info");
       return;
     }
+
+    // Sort parties alphabetically by partyName for printing
+    const partiesToPrintSorted = [...filteredParties].sort((a, b) =>
+      (a.partyName || "").localeCompare(b.partyName || "")
+    );
 
     const cols = getPrintColumns();
 
@@ -469,7 +526,7 @@ const PartyCreation: React.FC = () => {
       .map((colId) => `<th>${columnLabels[colId]}</th>`)
       .join("");
 
-    const bodyHtml = partiesToPrint
+    const bodyHtml = partiesToPrintSorted // Use the sorted array here
       .map((p, i) => {
         const cells = cols
           .map(
@@ -536,7 +593,90 @@ const PartyCreation: React.FC = () => {
     }
 
     try {
-      const canvas = await html2canvas(input, { scale: 2 });
+      // Sort parties alphabetically by partyName for PDF export as well
+      const partiesForPdf = [...filteredParties].sort((a, b) =>
+        (a.partyName || "").localeCompare(b.partyName || "")
+      );
+
+      // Temporarily render a full table with ALL columns for html2canvas
+      // This is necessary because html2canvas only renders what's visible
+      // in the DOM, so we use the hidden `pdfTableRef` which contains all columns.
+      // We need to pass the sorted data to it somehow for rendering.
+      // A more robust solution might involve creating the PDF HTML manually,
+      // similar to `handlePrint`, but for a fixed-layout PDF.
+      // For now, we'll assume `pdfTableRef` gets its data from `filteredParties`
+      // and sort `filteredParties` before calling `html2canvas`.
+
+      // To make pdfTableRef use the sorted data, you'd typically need to
+      // re-render it with the sorted data. Since it's hidden and always
+      // renders all parties, we just need to ensure the data source `filteredParties`
+      // is sorted *before* `html2canvas` is called.
+      // The current `pdfTableRef` JSX already iterates over `filteredParties`.
+      // The `filteredParties` state itself is what needs to be sorted temporarily
+      // or a new component needs to render the sorted list.
+      // For `html2canvas` on a hidden element, it will capture what's in the DOM.
+      // The most straightforward way is to manage the sort on `filteredParties`
+      // before it's passed to the hidden table, or ensure the hidden table
+      // explicitly uses a sorted version.
+
+      // A simple approach for the `pdfTableRef` is to use the `partiesForPdf` directly:
+      // This part is tricky. `html2canvas(input)` will capture the current state of `input`.
+      // If `input`'s content is rendered from `filteredParties`, then `filteredParties`
+      // *must* be sorted before `html2canvas` is called.
+
+      // Let's modify the JSX for `pdfTableRef` slightly to accept a prop
+      // or ensure `filteredParties` is sorted before being rendered into the ref.
+      // Since `pdfTableRef` is rendered using `filteredParties.map`,
+      // we need to make sure `filteredParties` is sorted at the moment of capture.
+      // The easiest way for a one-off capture is to generate the HTML string
+      // or modify the ref's content directly (less React-idiomatic).
+      // Given `pdfTableRef` directly renders from `filteredParties`, we need
+      // to make a temporary `div` or ensure the `filteredParties` state is sorted.
+
+      // For simplicity and correctness with the existing structure, let's create
+      // a temporary div, populate it with sorted data, and then capture it.
+      const tempDiv = document.createElement('div');
+      tempDiv.innerHTML = `
+        <style>
+          table { width:100%; border-collapse:collapse; margin-top:10px; }
+          th,td { border:1px solid #333; padding:4px; font-size:10px; text-align:center; }
+          thead th { background:#eee; }
+        </style>
+        <table>
+          <thead>
+            <tr>
+              <th>Sr No</th><th>Serial No</th><th>Party Name</th><th>GST No</th>
+              <th>Mobile No</th><th>State Name</th><th>Station</th><th>Category</th>
+              <th>Opening Balance</th><th>Opening Tax Balance</th><th>Date</th>
+              <th>Agent</th><th>Transporter</th><th>Credit Days</th><th>Credit Amount</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${partiesForPdf.map((p, idx) => `
+              <tr>
+                <td>${idx + 1}</td>
+                <td>${p.serialNumber || ''}</td>
+                <td>${p.partyName || ''}</td>
+                <td>${p.gstNo || ''}</td>
+                <td>${p.mobileNo || ''}</td>
+                <td>${p.stateName || ''}</td>
+                <td>${p.station || ''}</td>
+                <td>${p.category?.categoryName || ''}</td>
+                <td>${formatOpeningBalance(p) || ''}</td>
+                <td>${p.openingTaxBalance === null || p.openingTaxBalance === undefined ? '' : String(p.openingTaxBalance)}</td>
+                <td>${p.date || ''}</td>
+                <td>${p.agent?.agentName || ''}</td>
+                <td>${p.transport?.transportName || ''}</td>
+                <td>${p.creditDays === null || p.creditDays === undefined ? '' : String(p.creditDays)}</td>
+                <td>${p.creditAmount === null || p.creditAmount === undefined ? '' : String(p.creditAmount)}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      `;
+      document.body.appendChild(tempDiv); // Temporarily add to DOM for capture
+
+      const canvas = await html2canvas(tempDiv, { scale: 2 });
       const imgData = canvas.toDataURL("image/png");
 
       const pdf = new jsPDF("l", "mm", "a4");
@@ -547,14 +687,17 @@ const PartyCreation: React.FC = () => {
       const imgHeightPx = canvas.height;
 
       const ratio = Math.min(pdfWidth / imgWidthPx, pdfHeight / imgHeightPx);
-      const imgWidth = imgWidthPx * ratio;
-      const imgHeight = imgHeightPx * ratio;
+      const imgWidth = imgWidthPx * ratio * 0.9; // Adjust scale for better fit
+      const imgHeight = imgHeightPx * ratio * 0.9; // Adjust scale for better fit
 
       const x = (pdfWidth - imgWidth) / 2;
       const y = 10;
 
       pdf.addImage(imgData, "PNG", x, y, imgWidth, imgHeight);
       pdf.save(`party-list-${Date.now()}.pdf`);
+
+      document.body.removeChild(tempDiv); // Clean up temporary div
+
     } catch (err) {
       console.error(err);
       Swal.fire("Error", "Failed to export PDF", "error");
@@ -667,6 +810,22 @@ const PartyCreation: React.FC = () => {
   const smallTextStyle: React.CSSProperties = {
     fontSize: 12,
     color: "#666",
+  };
+
+  const stationDropdownStyle: React.CSSProperties = {
+    position: "absolute",
+    top: "100%",
+    left: 0,
+    right: 0,
+    backgroundColor: "#fff",
+    border: "1px solid #ccc",
+    borderTop: "none",
+    zIndex: 20,
+  };
+
+  const stationDropdownItemStyle: React.CSSProperties = {
+    padding: "6px 10px",
+    cursor: "pointer",
   };
 
   // ------------ JSX ------------
@@ -829,32 +988,152 @@ const PartyCreation: React.FC = () => {
 
           <div style={formRowStyle}>
             <label style={labelStyle}>State Name</label>
-            <input
-              type="text"
-              name="stateName"
+            <select
               value={formData.stateName}
-              onChange={handleChange}
+              onChange={(e) => {
+                const selected = INDIA_STATES.find(
+                  (s) => s.name === e.target.value
+                );
+
+                setFormData((prev: any) => ({
+                  ...prev,
+                  stateName: selected?.name || "",
+                  stateCode: selected?.code || "",
+                }));
+              }}
               style={inputStyle}
-            />
+            >
+              <option value="">-- Select State --</option>
+              {INDIA_STATES.map((s) => (
+                <option key={s.code} value={s.name}>
+                  {s.name}
+                </option>
+              ))}
+            </select>
+
             <label style={labelStyle}>State Code</label>
             <input
               type="text"
-              name="stateCode"
               value={formData.stateCode}
-              onChange={handleChange}
-              style={inputStyle}
+              disabled
+              style={{ ...inputStyle, backgroundColor: "#e9ecef" }}
             />
           </div>
 
           <div style={formRowStyle}>
             <label style={labelStyle}>Station</label>
-            <input
-              type="text"
-              name="station"
-              value={formData.station}
-              onChange={handleChange}
-              style={inputStyle}
-            />
+            <div
+              ref={stationWrapperRef}
+              style={{ position: "relative", flex: 1 }}
+            >
+              {/* Clickable label area */}
+              <div
+                onClick={() => {
+                  setIsStationDropdownOpen((prev) => !prev);
+                  setStationSearchTerm("");
+                }}
+                style={{
+                  border: "1px solid #ccc",
+                  borderRadius: 4,
+                  padding: "8px 10px",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  cursor: "pointer",
+                  backgroundColor: "#fff",
+                  fontSize: 14,
+                }}
+              >
+                <span
+                  style={{
+                    color: formData.station ? "#000" : "#6c757d",
+                  }}
+                >
+                  {formData.station || "Select Station"}
+                </span>
+                <span style={{ fontSize: 12 }}>▼</span>
+              </div>
+
+              {/* Dropdown with search + list */}
+              {isStationDropdownOpen && (
+                <div style={stationDropdownStyle}>
+                  <div style={{ padding: "6px 8px", borderBottom: "1px solid #ddd" }}>
+                    <input
+                      type="text"
+                      value={stationSearchTerm}
+                      onChange={(e) => setStationSearchTerm(e.target.value)}
+                      placeholder="Search or type station"
+                      style={{
+                        width: "100%",
+                        padding: "6px 8px",
+                        border: "1px solid #ccc",
+                        borderRadius: 4,
+                        fontSize: 13,
+                      }}
+                    />
+                  </div>
+                  <div
+                    style={{
+                      maxHeight: "200px",
+                      overflowY: "auto",
+                    }}
+                  >
+                    {filteredStationOptions.map((st) => (
+                      <div
+                        key={st}
+                        style={stationDropdownItemStyle}
+                        onClick={() => {
+                          setFormData((prev: any) => ({
+                            ...prev,
+                            station: st,
+                          }));
+                          setIsStationDropdownOpen(false);
+                          setStationSearchTerm("");
+                        }}
+                      >
+                        {st}
+                      </div>
+                    ))}
+
+                    {/* Option to use new station if not in list */}
+                    {stationSearchTerm.trim() && !stationExistsExact && (
+                      <div
+                        style={{
+                          ...stationDropdownItemStyle,
+                          borderTop: "1px solid #eee",
+                          fontStyle: "italic",
+                          backgroundColor: "#f8f9fa",
+                        }}
+                        onClick={() => {
+                          const val = stationSearchTerm.trim();
+                          setFormData((prev: any) => ({
+                            ...prev,
+                            station: val,
+                          }));
+                          setIsStationDropdownOpen(false);
+                          setStationSearchTerm("");
+                        }}
+                      >
+                        Use "{stationSearchTerm.trim()}"
+                      </div>
+                    )}
+
+                    {filteredStationOptions.length === 0 &&
+                      !stationSearchTerm.trim() && (
+                        <div
+                          style={{
+                            ...stationDropdownItemStyle,
+                            color: "#999",
+                            cursor: "default",
+                          }}
+                        >
+                          No stations available
+                        </div>
+                      )}
+                  </div>
+                </div>
+              )}
+            </div>
 
             <label style={labelStyle}>Grade</label>
             <select
@@ -1199,7 +1478,10 @@ const PartyCreation: React.FC = () => {
                       </tr>
                     </thead>
                     <tbody>
-                      {filteredParties.map((p, idx) => (
+                      {/* Sort for display in modal table too (optional, but good for consistency) */}
+                      {filteredParties.sort((a, b) =>
+                        (a.partyName || "").localeCompare(b.partyName || "")
+                      ).map((p, idx) => (
                         <tr key={p.id}>
                           {columnVisibility.srNo && (
                             <td
@@ -1405,8 +1687,8 @@ const PartyCreation: React.FC = () => {
                   </table>
                 </div>
 
-                {/* Hidden FULL table (all columns) for PDF export */}
-                <div
+                {/* Hidden FULL table (all columns) for PDF export - THIS IS NO LONGER USED, replaced by tempDiv creation */}
+                {/* <div
                   ref={pdfTableRef}
                   style={{
                     position: "absolute",
@@ -1473,7 +1755,7 @@ const PartyCreation: React.FC = () => {
                       </tr>
                     </thead>
                     <tbody>
-                      {filteredParties.map((p, idx) => (
+                       {filteredParties.map((p, idx) => ( // This will now render sorted if filteredParties itself is sorted.
                         <tr key={p.id}>
                           <td style={{ border: "1px solid #eee", padding: 4 }}>
                             {idx + 1}
@@ -1524,7 +1806,7 @@ const PartyCreation: React.FC = () => {
                       ))}
                     </tbody>
                   </table>
-                </div>
+                </div> */}
               </div>
 
               {/* Footer */}
