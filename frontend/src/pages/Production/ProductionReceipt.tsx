@@ -1,4 +1,3 @@
-
 "use client"
 
 import type React from "react"
@@ -148,6 +147,21 @@ const ProductionReceipt: React.FC = () => {
     }
   }
 
+  // const getConsumedPcs = useCallback(
+  //   (cardNo: string, artNo: string, shade: string): number => {
+  //     let consumed = 0
+  //     savedRecords.forEach((record) => {
+  //       ;(record.rows || []).forEach((row: any) => {
+  //         if (row.cardNo === cardNo && row.artNo === artNo && row.shade === shade) {
+  //           consumed += Number.parseFloat(row.pcs) || 0
+  //         }
+  //       })
+  //     })
+  //     return consumed
+  //   },
+  //   [savedRecords],
+  // )
+
   const handleProcessSelect = async (selectedProcess: any) => {
     setProcessName(selectedProcess.processName)
     setShowProcessModal(false)
@@ -170,6 +184,8 @@ const ProductionReceipt: React.FC = () => {
     artsWithProcess.forEach((art) => {
       const processDetail = art.processes.find((p) => p.processName === selectedProcess.processName)
       const processRate = processDetail?.rate || ""
+
+      // const _sizes = art.sizes || []
 
       const cuttingForArt: any[] = []
       cuttingEntries.forEach((entry) => {
@@ -571,18 +587,18 @@ const ProductionReceipt: React.FC = () => {
 
   return (
     <Dashboard>
-      <div className="p-6 bg-gray-100 min-h-screen">
-        <div className="bg-white p-6 rounded-lg shadow-md">
-          <h2 className="text-2xl font-bold text-center mb-4">Production Receipt</h2>
+      <div className="bg-gray-100 p-6 min-h-screen">
+        <div className="bg-white shadow-md p-6 rounded-lg">
+          <h2 className="mb-4 font-bold text-2xl text-center">Production Receipt</h2>
 
-          <div className="grid grid-cols-4 gap-4 mb-4">
+          <div className="gap-4 grid grid-cols-4 mb-4">
             <div>
               <label className="block font-semibold">Dated</label>
               <input
                 type="date"
                 value={dated}
                 onChange={(e) => setDated(e.target.value)}
-                className="border p-2 rounded w-full"
+                className="p-2 border rounded w-full"
               />
             </div>
             <div>
@@ -592,7 +608,7 @@ const ProductionReceipt: React.FC = () => {
                 value={processName}
                 onClick={openProcessModal}
                 readOnly
-                className="border p-2 rounded w-full cursor-pointer bg-gray-50 hover:bg-gray-100"
+                className="bg-gray-50 hover:bg-gray-100 p-2 border rounded w-full cursor-pointer"
                 placeholder="Click to select process"
               />
             </div>
@@ -603,7 +619,7 @@ const ProductionReceipt: React.FC = () => {
                 value={employeeName}
                 onClick={openEmployeeModal}
                 readOnly
-                className="border p-2 rounded w-full cursor-pointer bg-gray-50 hover:bg-gray-100"
+                className="bg-gray-50 hover:bg-gray-100 p-2 border rounded w-full cursor-pointer"
                 placeholder="Click to select employee"
               />
             </div>
@@ -618,95 +634,95 @@ const ProductionReceipt: React.FC = () => {
             </div>
           </div>
 
-          <div className="overflow-auto max-h-[350px]">
-            <table className="min-w-full w-full border border-blue-500 text-sm">
-              <thead className="bg-gray-200 sticky top-0">
+          <div className="max-h-[350px] overflow-auto">
+            <table className="border border-blue-500 w-full min-w-full text-sm">
+              <thead className="top-0 sticky bg-gray-200">
                 <tr>
-                  <th className="border p-2 min-w-[120px]">Cutting Lot No</th>
-                  <th className="border p-2 min-w-[100px]">Art No</th>
-                  <th className="border p-2 min-w-[80px]">Shade</th>
-                  <th className="border p-2 min-w-[80px]">Pcs</th>
-                  <th className="border p-2 min-w-[100px]">Weightage</th>
-                  <th className="border p-2 min-w-[80px]">Rate</th>
-                  <th className="border p-2 min-w-[90px]">Amount</th>
-                  <th className="border p-2 min-w-[150px]">Remarks</th>
-                  <th className="border p-2 min-w-[60px]">Select</th>
+                  <th className="p-2 border min-w-[120px]">Cutting Lot No</th>
+                  <th className="p-2 border min-w-[100px]">Art No</th>
+                  <th className="p-2 border min-w-[80px]">Shade</th>
+                  <th className="p-2 border min-w-[80px]">Pcs</th>
+                  <th className="p-2 border min-w-[100px]">Weightage</th>
+                  <th className="p-2 border min-w-[80px]">Rate</th>
+                  <th className="p-2 border min-w-[90px]">Amount</th>
+                  <th className="p-2 border min-w-[150px]">Remarks</th>
+                  <th className="p-2 border min-w-[60px]">Select</th>
                 </tr>
               </thead>
               <tbody>
                 {rows.map((row) => (
                   <tr key={row.id}>
-                    <td className="border p-1">
+                    <td className="p-1 border">
                       <input
                         type="text"
                         value={row.cardNo}
                         onChange={(e) => handleChange(row.id, "cardNo", e.target.value)}
-                        className="border p-1 rounded w-full"
+                        className="p-1 border rounded w-full"
                         placeholder="Cutting Lot No"
                         disabled={row.originalPcs !== ""}
                       />
                     </td>
-                    <td className="border p-1">
+                    <td className="p-1 border">
                       <input
                         type="text"
                         value={row.artNo}
                         onChange={(e) => handleChange(row.id, "artNo", e.target.value)}
-                        className="border p-1 rounded w-full"
+                        className="p-1 border rounded w-full"
                         disabled={row.originalPcs !== ""}
                       />
                     </td>
-                    <td className="border p-1">
+                    <td className="p-1 border">
                       <input
                         type="text"
                         value={row.shade}
                         onChange={(e) => handleChange(row.id, "shade", e.target.value)}
-                        className="border p-1 rounded w-full text-center"
+                        className="p-1 border rounded w-full text-center"
                         placeholder="Enter shade"
                       />
                     </td>
-                    <td className="border p-1">
+                    <td className="p-1 border">
                       <input
                         type="text"
                         value={row.pcs}
                         onChange={(e) => handleChange(row.id, "pcs", e.target.value)}
-                        className="border p-1 rounded w-full text-center"
+                        className="p-1 border rounded w-full text-center"
                       />
                     </td>
-                    <td className="border p-1">
+                    <td className="p-1 border">
                       <input
                         type="text"
                         value={row.weightage}
                         onChange={(e) => handleChange(row.id, "weightage", e.target.value)}
-                        className="border p-1 rounded w-full text-center"
+                        className="p-1 border rounded w-full text-center"
                         placeholder="Weightage"
                       />
                     </td>
-                    <td className="border p-1">
+                    <td className="p-1 border">
                       <input
                         type="text"
                         value={row.rate}
                         onChange={(e) => handleChange(row.id, "rate", e.target.value)}
-                        className="border p-1 rounded w-full text-center"
+                        className="p-1 border rounded w-full text-center"
                         placeholder="Rate"
                       />
                     </td>
-                    <td className="border p-1">
+                    <td className="p-1 border">
                       <input
                         type="text"
                         value={row.amount}
                         readOnly
-                        className="border p-1 rounded w-full bg-gray-50 text-center"
+                        className="bg-gray-50 p-1 border rounded w-full text-center"
                       />
                     </td>
-                    <td className="border p-1">
+                    <td className="p-1 border">
                       <input
                         type="text"
                         value={row.remarks}
                         onChange={(e) => handleChange(row.id, "remarks", e.target.value)}
-                        className="border p-1 rounded w-full"
+                        className="p-1 border rounded w-full"
                       />
                     </td>
-                    <td className="border p-1 text-center">
+                    <td className="p-1 border text-center">
                       <input
                         type="checkbox"
                         checked={row.isSelected}
@@ -720,7 +736,7 @@ const ProductionReceipt: React.FC = () => {
             </table>
           </div>
 
-          <div className="mt-2 text-sm text-gray-600 bg-gray-50 p-2 rounded">
+          <div className="bg-gray-50 mt-2 p-2 rounded text-gray-600 text-sm">
             <div className="flex justify-between">
               <span>
                 Total Pcs: <b className="text-blue-600">{totalPcs}</b>
@@ -733,24 +749,24 @@ const ProductionReceipt: React.FC = () => {
 
           <div className="flex justify-between mt-4">
             <div>
-              <button onClick={addRow} className="px-4 py-2 bg-blue-500 text-white rounded mr-2 hover:bg-blue-600">
+              <button onClick={addRow} className="bg-blue-500 hover:bg-blue-600 mr-2 px-4 py-2 rounded text-white">
                 Add
               </button>
               <button
                 onClick={handleSave}
-                className="px-4 py-2 bg-green-500 text-white rounded mr-2 hover:bg-green-600"
+                className="bg-green-500 hover:bg-green-600 mr-2 px-4 py-2 rounded text-white"
               >
                 {editingId ? "Update" : "Save"}
               </button>
               <button
                 onClick={resetForm}
-                className="px-4 py-2 bg-orange-500 text-white rounded mr-2 hover:bg-orange-600"
+                className="bg-orange-500 hover:bg-orange-600 mr-2 px-4 py-2 rounded text-white"
               >
                 Cancel
               </button>
               <button
                 onClick={openList}
-                className="px-4 py-2 bg-yellow-500 text-white rounded mr-2 hover:bg-yellow-600"
+                className="bg-yellow-500 hover:bg-yellow-600 mr-2 px-4 py-2 rounded text-white"
               >
                 List
               </button>
@@ -762,16 +778,16 @@ const ProductionReceipt: React.FC = () => {
                     Swal.fire("Info", "No record selected to delete", "info")
                   }
                 }}
-                className="px-4 py-2 bg-red-500 text-white rounded mr-2 hover:bg-red-600"
+                className="bg-red-500 hover:bg-red-600 mr-2 px-4 py-2 rounded text-white"
               >
                 Delete
               </button>
-              <button onClick={handlePrint} className="px-4 py-2 bg-gray-600 text-white rounded mr-2 hover:bg-gray-700">
+              <button onClick={handlePrint} className="bg-gray-600 hover:bg-gray-700 mr-2 px-4 py-2 rounded text-white">
                 Print
               </button>
               <button
                 onClick={() => navigate(-1)}
-                className="px-4 py-2 bg-gray-400 text-white rounded mr-2 hover:bg-gray-500"
+                className="bg-gray-400 hover:bg-gray-500 mr-2 px-4 py-2 rounded text-white"
               >
                 Exit
               </button>
@@ -782,9 +798,9 @@ const ProductionReceipt: React.FC = () => {
 
       {/* Employee Selection Modal */}
       {showEmployeeModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg shadow-lg w-full max-w-2xl p-5">
-            <h3 className="text-xl font-bold text-center mb-4">
+        <div className="z-50 fixed inset-0 flex justify-center items-center bg-black bg-opacity-50">
+          <div className="bg-white shadow-lg p-5 rounded-lg w-full max-w-2xl">
+            <h3 className="mb-4 font-bold text-xl text-center">
               Select Employee for {processName}
             </h3>
             <input
@@ -792,35 +808,35 @@ const ProductionReceipt: React.FC = () => {
               placeholder="Search employee name..."
               value={employeeSearchText}
               onChange={(e) => setEmployeeSearchText(e.target.value)}
-              className="border p-2 rounded w-full mb-3"
+              className="mb-3 p-2 border rounded w-full"
             />
-            <div className="overflow-auto max-h-96">
-              <table className="w-full text-sm border">
+            <div className="max-h-96 overflow-auto">
+              <table className="border w-full text-sm">
                 <thead className="bg-gray-200">
                   <tr>
-                    <th className="border p-2">Employee Name</th>
-                    <th className="border p-2">Code</th>
-                    <th className="border p-2">Process</th>
-                    <th className="border p-2">Action</th>
+                    <th className="p-2 border">Employee Name</th>
+                    <th className="p-2 border">Code</th>
+                    <th className="p-2 border">Process</th>
+                    <th className="p-2 border">Action</th>
                   </tr>
                 </thead>
                 <tbody>
                   {filteredEmployeesForModal.length === 0 ? (
                     <tr>
-                      <td colSpan={4} className="border p-4 text-center text-gray-500">
+                      <td colSpan={4} className="p-4 border text-gray-500 text-center">
                         No employees found for {processName} process
                       </td>
                     </tr>
                   ) : (
                     filteredEmployeesForModal.map((e) => (
                       <tr key={e.id}>
-                        <td className="border p-2">{e.name || e.employeeName}</td>
-                        <td className="border p-2">{e.code || e.employeeCode}</td>
-                        <td className="border p-2">{e.process?.processName || "-"}</td>
-                        <td className="border p-2 text-center">
+                        <td className="p-2 border">{e.name || e.employeeName}</td>
+                        <td className="p-2 border">{e.code || e.employeeCode}</td>
+                        <td className="p-2 border">{e.process?.processName || "-"}</td>
+                        <td className="p-2 border text-center">
                           <button
                             onClick={() => selectEmployee(e)}
-                            className="px-3 py-1 bg-green-500 text-white rounded hover:bg-green-600"
+                            className="bg-green-500 hover:bg-green-600 px-3 py-1 rounded text-white"
                           >
                             Select
                           </button>
@@ -834,7 +850,7 @@ const ProductionReceipt: React.FC = () => {
             <div className="flex justify-center mt-4">
               <button
                 onClick={() => setShowEmployeeModal(false)}
-                className="px-5 py-2 bg-gray-300 hover:bg-gray-400 rounded"
+                className="bg-gray-300 hover:bg-gray-400 px-5 py-2 rounded"
               >
                 Close
               </button>
@@ -845,34 +861,34 @@ const ProductionReceipt: React.FC = () => {
 
       {/* Process Selection Modal */}
       {showProcessModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg shadow-lg w-full max-w-2xl p-5">
-            <h3 className="text-xl font-bold text-center mb-4">Select Process</h3>
+        <div className="z-50 fixed inset-0 flex justify-center items-center bg-black bg-opacity-50">
+          <div className="bg-white shadow-lg p-5 rounded-lg w-full max-w-2xl">
+            <h3 className="mb-4 font-bold text-xl text-center">Select Process</h3>
             <input
               type="text"
               placeholder="Search process name..."
               value={processSearchText}
               onChange={(e) => setProcessSearchText(e.target.value)}
-              className="border p-2 rounded w-full mb-3"
+              className="mb-3 p-2 border rounded w-full"
             />
-            <div className="overflow-auto max-h-96">
-              <table className="w-full text-sm border">
+            <div className="max-h-96 overflow-auto">
+              <table className="border w-full text-sm">
                 <thead className="bg-gray-200">
                   <tr>
-                    <th className="border p-2">Process Name</th>
-                    <th className="border p-2">Category</th>
-                    <th className="border p-2">Action</th>
+                    <th className="p-2 border">Process Name</th>
+                    <th className="p-2 border">Category</th>
+                    <th className="p-2 border">Action</th>
                   </tr>
                 </thead>
                 <tbody>
                   {filteredProcesses.map((p) => (
                     <tr key={p.serialNo}>
-                      <td className="border p-2">{p.processName}</td>
-                      <td className="border p-2">{p.category}</td>
-                      <td className="border p-2 text-center">
+                      <td className="p-2 border">{p.processName}</td>
+                      <td className="p-2 border">{p.category}</td>
+                      <td className="p-2 border text-center">
                         <button
                           onClick={() => handleProcessSelect(p)}
-                          className="px-3 py-1 bg-green-500 text-white rounded hover:bg-green-600"
+                          className="bg-green-500 hover:bg-green-600 px-3 py-1 rounded text-white"
                         >
                           Select
                         </button>
@@ -885,7 +901,7 @@ const ProductionReceipt: React.FC = () => {
             <div className="flex justify-center mt-4">
               <button
                 onClick={() => setShowProcessModal(false)}
-                className="px-5 py-2 bg-gray-300 hover:bg-gray-400 rounded"
+                className="bg-gray-300 hover:bg-gray-400 px-5 py-2 rounded"
               >
                 Close
               </button>
@@ -896,34 +912,34 @@ const ProductionReceipt: React.FC = () => {
 
       {/* List View Modal */}
       {showList && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg shadow-lg w-full max-w-5xl p-5 flex flex-col max-h-[90vh]">
-            <h3 className="text-xl font-bold text-center mb-4">Production Receipt List</h3>
+        <div className="z-50 fixed inset-0 flex justify-center items-center bg-black bg-opacity-50">
+          <div className="flex flex-col bg-white shadow-lg p-5 rounded-lg w-full max-w-5xl max-h-[90vh]">
+            <h3 className="mb-4 font-bold text-xl text-center">Production Receipt List</h3>
 
             <input
               placeholder="Search by Employee or Art No"
-              className="border p-2 rounded w-full mb-3"
+              className="mb-3 p-2 border rounded w-full"
               value={searchText}
               onChange={(e) => setSearchText(e.target.value)}
             />
 
-            <div className="overflow-auto flex-1">
-              <table className="w-full text-sm border">
-                <thead className="bg-gray-200 sticky top-0">
+            <div className="flex-1 overflow-auto">
+              <table className="border w-full text-sm">
+                <thead className="top-0 sticky bg-gray-200">
                   <tr>
-                    <th className="border p-2">#</th>
-                    <th className="border p-2">Date</th>
-                    <th className="border p-2">Art No</th>
-                    <th className="border p-2">Employee</th>
-                    <th className="border p-2">Process</th>
-                    <th className="border p-2">Total Pcs</th>
-                    <th className="border p-2">Actions</th>
+                    <th className="p-2 border">#</th>
+                    <th className="p-2 border">Date</th>
+                    <th className="p-2 border">Art No</th>
+                    <th className="p-2 border">Employee</th>
+                    <th className="p-2 border">Process</th>
+                    <th className="p-2 border">Total Pcs</th>
+                    <th className="p-2 border">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
                   {filteredList.length === 0 ? (
                     <tr>
-                      <td colSpan={7} className="border p-4 text-center text-gray-500">
+                      <td colSpan={7} className="p-4 border text-gray-500 text-center">
                         No records found
                       </td>
                     </tr>
@@ -945,22 +961,22 @@ const artNos = artNoSet.join(", ")
 
                       return (
                         <tr key={d.id}>
-                          <td className="border p-2 text-center">{i + 1}</td>
-                          <td className="border p-2">{d.dated ? new Date(d.dated).toLocaleDateString() : "-"}</td>
-                          <td className="border p-2">{artNos || "-"}</td>
-                          <td className="border p-2">{d.employeeName}</td>
-                          <td className="border p-2">{d.processName}</td>
-                          <td className="border p-2 text-right">{totalPcs}</td>
-                          <td className="border p-2 text-center">
+                          <td className="p-2 border text-center">{i + 1}</td>
+                          <td className="p-2 border">{d.dated ? new Date(d.dated).toLocaleDateString() : "-"}</td>
+                          <td className="p-2 border">{artNos || "-"}</td>
+                          <td className="p-2 border">{d.employeeName}</td>
+                          <td className="p-2 border">{d.processName}</td>
+                          <td className="p-2 border text-right">{totalPcs}</td>
+                          <td className="p-2 border text-center">
                             <button
                               onClick={() => handleEdit(d.id)}
-                              className="px-2 py-1 bg-blue-500 text-white rounded mr-1 hover:bg-blue-600"
+                              className="bg-blue-500 hover:bg-blue-600 mr-1 px-2 py-1 rounded text-white"
                             >
                               Edit
                             </button>
                             <button
                               onClick={() => handleDelete(d.id)}
-                              className="px-2 py-1 bg-red-500 text-white rounded hover:bg-red-600"
+                              className="bg-red-500 hover:bg-red-600 px-2 py-1 rounded text-white"
                             >
                               Delete
                             </button>
@@ -974,7 +990,7 @@ const artNos = artNoSet.join(", ")
             </div>
 
             <div className="flex justify-center mt-5">
-              <button onClick={() => setShowList(false)} className="px-5 py-2 bg-gray-300 hover:bg-gray-400 rounded">
+              <button onClick={() => setShowList(false)} className="bg-gray-300 hover:bg-gray-400 px-5 py-2 rounded">
                 Close
               </button>
             </div>

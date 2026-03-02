@@ -8,6 +8,7 @@ import com.garment.DTO.SaleOrderPendencyRowDTO;
 import com.garment.DTO.SaleOrderSaveDTO;
 
 public interface SaleOrderService {
+
     SaleOrderDTO create(SaleOrderSaveDTO dto);
     SaleOrderDTO update(Long id, SaleOrderSaveDTO dto);
     SaleOrderDTO get(Long id);
@@ -15,13 +16,13 @@ public interface SaleOrderService {
     void delete(Long id);
     String nextOrderNo();
 
-    // NEW: pendency aggregation
+    // Pendency aggregation
     List<SaleOrderPendencyRowDTO> pendency(
             LocalDate from,
             LocalDate to,
-            List<String> destinationsUpper, // station names (UPPER)
+            List<String> destinationsUpper, // station names UPPER
             List<Long> partyIds,
-            List<String> artNosLower,
-            List<String> sizeNamesUpper
+            List<String> artNosLower,      // art no lower
+            List<String> sizeNamesUpper    // size upper ("M", "L", "XL"...)
     );
 }

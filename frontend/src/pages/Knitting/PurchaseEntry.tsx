@@ -1,4 +1,9 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 import Dashboard from "../Dashboard";
 import api from "../../api/axiosInstance";
 import Swal from "sweetalert2";
@@ -132,13 +137,12 @@ const PurchaseEntry: React.FC = () => {
   }, []);
 
   useEffect(() => {
-  // Load draft items only when creating a NEW entry
-  if (partyId && entryId === null) {
-    fetchDraftByParty();
-  }
-// eslint-disable-next-line react-hooks/exhaustive-deps
-}, [partyId, entryId]);
-
+    // Load draft items only when creating a NEW entry
+    if (partyId && entryId === null) {
+      fetchDraftByParty();
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [partyId, entryId]);
 
   const handleMaterialGroupSelect = (id: number, groupId: string) => {
     setRows((prev) =>
@@ -340,7 +344,11 @@ const PurchaseEntry: React.FC = () => {
     if (result.isDismissed) return;
 
     if (result.isDenied) {
-      return Swal.fire("Info", "Other process selected. Feature coming soon!", "info");
+      return Swal.fire(
+        "Info",
+        "Other process selected. Feature coming soon!",
+        "info"
+      );
     }
 
     try {
@@ -400,7 +408,11 @@ const PurchaseEntry: React.FC = () => {
     } catch (err: any) {
       console.error("Issue error:", err);
       Swal.close();
-      Swal.fire("Error", err?.response?.data?.message || "Issue failed.", "error");
+      Swal.fire(
+        "Error",
+        err?.response?.data?.message || "Issue failed.",
+        "error"
+      );
     } finally {
       setLoading(false);
     }
@@ -503,6 +515,16 @@ const PurchaseEntry: React.FC = () => {
       }
     }
   };
+
+  // 🔹 Total amount (main table)
+  const totalAmount = useMemo(
+    () =>
+      rows.reduce(
+        (sum, r) => sum + (parseFloat(r.amount || "0") || 0),
+        0
+      ),
+    [rows]
+  );
 
   return (
     <Dashboard>
@@ -734,6 +756,12 @@ const PurchaseEntry: React.FC = () => {
             </table>
           </div>
 
+          {/* 🔹 Total Amount below table */}
+          <div className="flex justify-end mt-2 text-sm md:text-base font-semibold">
+            <span>Total Amount:&nbsp;</span>
+            <span>₹{totalAmount.toFixed(2)}</span>
+          </div>
+
           {/* Buttons */}
           <div className="flex justify-start space-x-3 mt-5">
             <button
@@ -754,7 +782,7 @@ const PurchaseEntry: React.FC = () => {
             <button
               onClick={handleIssueTo}
               disabled={loading}
-              className="px-5 py-2 bg紫-500 bg-purple-500 text-white rounded hover:bg-purple-600"
+              className="px-5 py-2 bg-purple-500 text-white rounded hover:bg-purple-600"
             >
               Issued To
             </button>
@@ -822,7 +850,7 @@ const PurchaseEntry: React.FC = () => {
                               sum + (Number(i.wtPerBox) || 0),
                             0
                           );
-                          const totalAmount = (entry.items || []).reduce(
+                          const totalAmountEntry = (entry.items || []).reduce(
                             (sum: number, i: { amount: number }) =>
                               sum + (Number(i.amount) || 0),
                             0
@@ -844,9 +872,7 @@ const PurchaseEntry: React.FC = () => {
                               </td>
                               <td className="border p-2 text-center">
                                 {(entry.items || [])
-                                  .map(
-                                    (i: any) => i.yarnName || "-"
-                                  )
+                                  .map((i: any) => i.yarnName || "-")
                                   .join(", ")}
                               </td>
                               <td className="border p-2 text-center">
@@ -864,7 +890,7 @@ const PurchaseEntry: React.FC = () => {
                                 {totalWtBox}
                               </td>
                               <td className="border p-2 text-center">
-                                ₹{totalAmount?.toFixed(2)}
+                                ₹{totalAmountEntry.toFixed(2)}
                               </td>
                               <td className="border p-2 text-center">
                                 <button

@@ -8,15 +8,18 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor
 @AllArgsConstructor
 public class SaleOrderPendencyRowDTO {
-    private String destination;   // station
-    private Long partyId;
+
+    private String destination;   // station name (UPPER)
+    private Long   partyId;
     private String partyName;
+
     private String artNo;
     private String artName;
-    private String size;
 
-    private Integer opening;      // SO before fromDate
-    private Integer receipt;      // SO in [fromDate,toDate]
-    private Integer dispatch;     // PC in [fromDate,toDate]
-    private Integer pending;      // opening + receipt - dispatch
+    private String size;          // base size (e.g. "M", "L", "XL")
+
+    private Integer opening;
+    private Integer receipt;
+    private Integer dispatch;
+    private Integer pending;
 }

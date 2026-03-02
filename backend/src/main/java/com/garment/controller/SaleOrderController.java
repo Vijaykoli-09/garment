@@ -53,7 +53,7 @@ public class SaleOrderController {
         svc.delete(id);
     }
 
-    // NEW: Sale Order Pendency API
+    // Sale Order Pendency API
     @GetMapping("/pendency")
     public List<SaleOrderPendencyRowDTO> pendency(
             @RequestParam String fromDate,
@@ -64,14 +64,14 @@ public class SaleOrderController {
             @RequestParam(required = false) String sizes
     ) {
         LocalDate from = LocalDate.parse(fromDate);
-        LocalDate to = LocalDate.parse(toDate);
+        LocalDate to   = LocalDate.parse(toDate);
 
-        List<String> destList = csvToList(destinations, true);   // UPPER for station
-        List<Long> partyIdList = csvToLongList(partyIds);
-        List<String> artNoList = csvToList(artNos, false);       // lower for art no
-        List<String> sizeList = csvToList(sizes, true);          // UPPER for size
+        List<String> destList   = csvToList(destinations, true); // UPPER
+        List<Long>   partyList  = csvToLongList(partyIds);
+        List<String> artNoList  = csvToList(artNos, false);      // lower
+        List<String> sizeList   = csvToList(sizes, true);        // UPPER
 
-        return svc.pendency(from, to, destList, partyIdList, artNoList, sizeList);
+        return svc.pendency(from, to, destList, partyList, artNoList, sizeList);
     }
 
     private static List<String> csvToList(String csv, boolean upper) {

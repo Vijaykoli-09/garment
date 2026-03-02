@@ -2,7 +2,6 @@ package com.garment.controller;
 
 import java.util.List;
 
-
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.CrossOrigin;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -16,7 +15,6 @@ import org.springframework.web.bind.annotation.RestController;
 
 import com.garment.DTO.PurchaseOrderRequestDTO;
 import com.garment.DTO.PurchaseOrderResponseDTO;
-//import com.garment.DTO.PurchasePendingOrdersDTO;
 import com.garment.model.PurchaseOrder;
 import com.garment.service.PurchaseOrderService;
 import com.garment.serviceImpl.PurchaseOrderServiceImpl;
@@ -28,33 +26,40 @@ import lombok.RequiredArgsConstructor;
 @RequiredArgsConstructor
 @CrossOrigin(origins = "http://localhost:3000")
 public class PurchaseOrderController {
-	private final PurchaseOrderService service;
+    private final PurchaseOrderService service;
+
+    // 🔹 NEW: Next auto-generated order number
+    @GetMapping("/next-order-no")
+    public ResponseEntity<String> getNextOrderNo() {
+        String nextOrderNo = service.generateNextOrderNo();
+        return ResponseEntity.ok(nextOrderNo);
+    }
 
     // Create Purchase Order
     @PostMapping
     public ResponseEntity<PurchaseOrder> create(@RequestBody PurchaseOrderRequestDTO dto) {
+        // NOTE: dto.getOrderNo() ko ignore kiya jaa raha hai, backend khud set karega
         PurchaseOrder createdOrder = service.createOrder(dto);
         return ResponseEntity.ok(createdOrder);
     }
 
- // Get Purchase Order by ID
+    // Get Purchase Order by ID
     @GetMapping("/{id}")
     public ResponseEntity<PurchaseOrderResponseDTO> get(@PathVariable Long id) {
         PurchaseOrder order = service.getOrder(id);
 
-        // ✅ Convert entity to DTO response
         if (service instanceof PurchaseOrderServiceImpl impl) {
             PurchaseOrderResponseDTO response = impl.getAllOrderResponses().stream()
-                .filter(o -> o.getId().equals(id))
-                .findFirst()
-                .orElseThrow(() -> new RuntimeException("Order not found"));
+                    .filter(o -> o.getId().equals(id))
+                    .findFirst()
+                    .orElseThrow(() -> new RuntimeException("Order not found"));
             return ResponseEntity.ok(response);
         }
 
         throw new RuntimeException("ServiceImpl not found");
     }
 
-    // ✅ Get All Purchase Orders (Response DTO version)
+    // Get All Purchase Orders (Response DTO version)
     @GetMapping
     public ResponseEntity<List<PurchaseOrderResponseDTO>> getAll() {
         if (service instanceof PurchaseOrderServiceImpl impl) {
@@ -84,14 +89,6 @@ public class PurchaseOrderController {
         service.issueToPurchaseEntity(id);
         return ResponseEntity.ok().build();
     }
-    
-    //For Pending ORder logic
-//    @GetMapping("/pending")
-//    public ResponseEntity<List<PurchasePendingOrdersDTO>> getPendingOrders() {
-//        if (service instanceof PurchaseOrderServiceImpl impl) {
-//            return ResponseEntity.ok(impl.getPendingOrders());
-//        }
-//        throw new RuntimeException("ServiceImpl not found");
-//    }
 
+    // Pending order code (commented) same rehne do...
 }

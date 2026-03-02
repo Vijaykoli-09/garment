@@ -119,6 +119,7 @@ interface SizeFromCreation {
   serialNo: string
   sizeName: string
   orderNo: string
+  artGroup?: string | { artGroupName?: string; [key: string]: any }
   box?: string
   pcs?: string
   rate?: string
@@ -1593,8 +1594,17 @@ const handleSaveSize = () => {
     <option value="">Select Size...</option>
     {availableSizes.map((size) => (
       <option key={size.serialNo} value={size.serialNo}>
-        {size.sizeName}
-      </option>
+  {size.sizeName} {
+    (() => {
+      if (!size.artGroup) return "";
+      if (typeof size.artGroup === 'string') return `(${size.artGroup})`;
+      if (typeof size.artGroup === 'object' && 'artGroupName' in size.artGroup) {
+        return `(${size.artGroup.artGroupName})`;
+      }
+      return "";
+    })()
+  }
+</option>
     ))}
   </select>
 </div>
@@ -1689,20 +1699,31 @@ const handleSaveSize = () => {
     </div>
     <div style={{ maxHeight: "300px", overflowY: "auto" }}>
       <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "11px" }}>
-        <thead>
-          <tr style={{ backgroundColor: "#f3e5f5" }}>
-            <th style={{ ...thtd, padding: "6px", fontSize: "10px" }}>Size</th>
-            <th style={{ ...thtd, padding: "6px", fontSize: "10px", textAlign: "center" }}>Box</th>
-            <th style={{ ...thtd, padding: "6px", fontSize: "10px", textAlign: "center" }}>Pcs</th>
-            <th style={{ ...thtd, padding: "6px", fontSize: "10px", textAlign: "right" }}>Rate</th>
-            <th style={{ ...thtd, padding: "6px", fontSize: "10px", textAlign: "center" }}>Action</th>
-          </tr>
-        </thead>
+<thead>
+  <tr style={{ backgroundColor: "#f3e5f5" }}>
+    <th style={{ ...thtd, padding: "6px", fontSize: "10px" }}>Size</th>
+    <th style={{ ...thtd, padding: "6px", fontSize: "10px" }}>Group</th>
+    <th style={{ ...thtd, padding: "6px", fontSize: "10px", textAlign: "center" }}>Box</th>
+    <th style={{ ...thtd, padding: "6px", fontSize: "10px", textAlign: "center" }}>Pcs</th>
+    <th style={{ ...thtd, padding: "6px", fontSize: "10px", textAlign: "right" }}>Rate</th>
+    <th style={{ ...thtd, padding: "6px", fontSize: "10px", textAlign: "center" }}>Action</th>
+  </tr>
+</thead>
         <tbody>
           {selectedSizes.map((size, index) => (
-            <tr key={size.serialNo} style={{ backgroundColor: index % 2 === 0 ? "#f8f9fa" : "#ffffff" }}>
-              <td style={{ ...thtd, padding: "6px", fontWeight: "bold" }}>{size.sizeName}</td>
-              <td style={{ ...thtd, padding: "4px", textAlign: "center" }}>
+  <tr key={size.serialNo} style={{ backgroundColor: index % 2 === 0 ? "#f8f9fa" : "#ffffff" }}>
+    <td style={{ ...thtd, padding: "6px", fontWeight: "bold" }}>{size.sizeName}</td>
+    <td style={{ ...thtd, padding: "6px", fontSize: "10px", color: "#666" }}>
+      {(() => {
+        if (!size.artGroup) return "-";
+        if (typeof size.artGroup === 'string') return size.artGroup;
+        if (typeof size.artGroup === 'object' && 'artGroupName' in size.artGroup) {
+          return size.artGroup.artGroupName;
+        }
+        return "-";
+      })()}
+    </td>
+    <td style={{ ...thtd, padding: "4px", textAlign: "center" }}>
                 <input
                   type="text"
                   value={size.box || ""}

@@ -227,7 +227,13 @@ public class SaleOrderServiceImpl implements SaleOrderService {
         repo.deleteById(id);
     }
 
-    /* ---------- PENDENCY (Receipt only: Peti × Box; Opening=0; Dispatch=0) ---------- */
+    /* ---------- PENDENCY (Art + Size Wise) ----------
+       - Uses SaleOrder rows only (opening = 0, dispatch = 0 for now)
+       - Receipt in BOX:
+           peti > 0  => peti * qty
+           peti == 0 => qty (legacy behaviour)
+       - Size key may be "M__GENTS", we map this to base "M" for filters and output.
+    ------------------------------------------------ */
 
     @Override
     @Transactional(readOnly = true)
@@ -239,10 +245,10 @@ public class SaleOrderServiceImpl implements SaleOrderService {
             List<String> artNosLower,
             List<String> sizeNamesUpper
     ) {
-        // Only SO in [from,to] for receipt; opening=0, dispatch=0
+        // Get sale orders in given date range
         List<SaleOrder> soRecv = repo.findByDatedBetween(from, to);
 
-        // Resolve station (destination) for involved parties
+        // Resolve station for parties
         Set<Long> partyIdSet = new HashSet<>();
         soRecv.forEach(so -> { if (so.getPartyId()!=null) partyIdSet.add(so.getPartyId()); });
 
@@ -254,65 +260,120 @@ public class SaleOrderServiceImpl implements SaleOrderService {
         }
 
         // Filters
-        final Set<String> destFilter = new HashSet<>(destinationsUpper == null ? List.of() : destinationsUpper);
-        final Set<Long> partyFilter = new HashSet<>(partyIds == null ? List.of() : partyIds);
-        final Set<String> artFilter = new HashSet<>(artNosLower == null ? List.of() : artNosLower);
-        final Set<String> sizeFilter = new HashSet<>(sizeNamesUpper == null ? List.of() : sizeNamesUpper);
+        final Set<String> destFilter  = new HashSet<>(destinationsUpper == null ? List.of() : destinationsUpper);
+        final Set<Long>   partyFilter = new HashSet<>(partyIds == null ? List.of() : partyIds);
+        final Set<String> artFilter   = new HashSet<>(artNosLower == null ? List.of() : artNosLower);
+        final Set<String> sizeFilter  = new HashSet<>(sizeNamesUpper == null ? List.of() : sizeNamesUpper);
 
-        class Agg { int receipt=0; String dest; Long pid; String pname; String artNo; String artName; String size; }
+        class Agg {
+            int opening = 0;
+            int receipt = 0;
+            int dispatch = 0;
+            int pending = 0;
+            String dest;
+            Long   pid;
+            String pname;
+            String artNo;
+            String artName;
+            String size;
+        }
+
         Map<String, Agg> map = new LinkedHashMap<>();
 
-        java.util.function.Function<String,String> up = s -> s==null? "": s.trim().toUpperCase();
-        java.util.function.Function<String,String> low = s -> s==null? "": s.trim().toLowerCase();
+        java.util.function.Function<String,String> up  = s -> s == null ? "" : s.trim().toUpperCase();
+        java.util.function.Function<String,String> low = s -> s == null ? "" : s.trim().toLowerCase();
 
-        java.util.function.BiConsumer<String, java.util.function.Consumer<Agg>> put = (key, consumer) -> {
-            Agg a = map.get(key);
-            if (a == null) { a = new Agg(); map.put(key, a); }
-            consumer.accept(a);
-        };
+        java.util.function.BiConsumer<String, java.util.function.Consumer<Agg>> put =
+                (key, consumer) -> {
+                    Agg a = map.get(key);
+                    if (a == null) {
+                        a = new Agg();
+                        map.put(key, a);
+                    }
+                    consumer.accept(a);
+                };
 
-        // Accumulate receipt: per-size 'box' × peti
+        // Aggregate
         for (SaleOrder so : soRecv) {
             Long pid = so.getPartyId();
             String station = pid != null ? up.apply(partyStation.get(pid)) : "";
+
+            // Destination filter
             if (!destFilter.isEmpty() && (station.isEmpty() || !destFilter.contains(station))) continue;
+
+            // Party filter
             if (!partyFilter.isEmpty() && (pid == null || !partyFilter.contains(pid))) continue;
+
             String partyName = Optional.ofNullable(so.getPartyName()).orElse("");
 
             for (SaleOrderRow row : Optional.ofNullable(so.getRows()).orElse(List.of())) {
                 String artNo = Optional.ofNullable(row.getArtNo()).orElse("");
-                if (!artFilter.isEmpty() && !artFilter.contains(low.apply(artNo))) continue;
+                String artNoLower = low.apply(artNo);
+
+                // Art filter
+                if (!artFilter.isEmpty() && !artFilter.contains(artNoLower)) continue;
+
                 String artName = Optional.ofNullable(row.getDescription()).orElse(artNo);
-                int peti = Optional.ofNullable(row.getPeti()).orElse(1); // PETI
+
+                Integer rawPeti = row.getPeti();
+                int effectivePeti = (rawPeti == null ? 1 : rawPeti);
 
                 for (SaleOrderSizeDetail sd : Optional.ofNullable(row.getSizeDetails()).orElse(List.of())) {
-                    String sizeName = up.apply(Optional.ofNullable(sd.getSizeName()).orElse(""));
-                    if (!sizeFilter.isEmpty() && !sizeFilter.contains(sizeName)) continue;
+                    String rawSize = Optional.ofNullable(sd.getSizeName()).orElse("");
+                    // stored size can be "M__GENTS" => base "M"
+                    String[] parts = rawSize.split("__", 2);
+                    String baseSize = up.apply(parts[0]);
 
-                    int box = Optional.ofNullable(sd.getQty()).orElse(0); // treat per-size qty as BOX
-                    int rec = peti * box;                                // Receipt = Peti × Box
+                    // Size filter
+                    if (!sizeFilter.isEmpty() && !sizeFilter.contains(baseSize)) continue;
 
-                    String key = station + "|" + String.valueOf(pid) + "|" + artNo + "|" + sizeName;
+                    int box = Optional.ofNullable(sd.getQty()).orElse(0);
+
+                    int rec;
+                    if (rawPeti != null && rawPeti == 0) {
+                        rec = box;
+                    } else {
+                        rec = effectivePeti * box;
+                    }
+                    if (rec == 0) continue;
+
+                    String key = station + "|" + String.valueOf(pid) + "|" + artNoLower + "|" + baseSize;
                     put.accept(key, a -> {
-                        a.dest = station; a.pid = pid; a.pname = partyName;
-                        a.artNo = artNo; a.artName = artName; a.size = sizeName;
+                        a.dest    = station;
+                        a.pid     = pid;
+                        a.pname   = partyName;
+                        a.artNo   = artNo;
+                        a.artName = artName;
+                        a.size    = baseSize;
+
                         a.receipt += rec;
+                        a.pending  = a.opening + a.receipt - a.dispatch;
                     });
                 }
             }
         }
 
-        // Build DTOs: opening=0, dispatch=0, pending=receipt
-        return map.values().stream().map(a ->
-                new SaleOrderPendencyRowDTO(
-                        a.dest, a.pid, a.pname, a.artNo, a.artName, a.size,
-                        0, a.receipt, 0, a.receipt
+        // Build DTOs
+        return map.values().stream()
+                .map(a -> new SaleOrderPendencyRowDTO(
+                        a.dest,
+                        a.pid,
+                        a.pname,
+                        a.artNo,
+                        a.artName,
+                        a.size,
+                        a.opening,
+                        a.receipt,
+                        a.dispatch,
+                        a.pending
+                ))
+                .sorted(
+                        Comparator
+                                .comparing(SaleOrderPendencyRowDTO::getDestination, Comparator.nullsLast(String::compareTo))
+                                .thenComparing(SaleOrderPendencyRowDTO::getPartyName, Comparator.nullsLast(String::compareTo))
+                                .thenComparing(SaleOrderPendencyRowDTO::getArtNo, Comparator.nullsLast(String::compareTo))
+                                .thenComparing(SaleOrderPendencyRowDTO::getSize, Comparator.nullsLast(String::compareTo))
                 )
-        ).sorted(Comparator
-                .comparing(SaleOrderPendencyRowDTO::getDestination, Comparator.nullsLast(String::compareTo))
-                .thenComparing(SaleOrderPendencyRowDTO::getPartyName, Comparator.nullsLast(String::compareTo))
-                .thenComparing(SaleOrderPendencyRowDTO::getArtNo, Comparator.nullsLast(String::compareTo))
-                .thenComparing(SaleOrderPendencyRowDTO::getSize, Comparator.nullsLast(String::compareTo))
-        ).collect(Collectors.toList());
+                .collect(Collectors.toList());
     }
 }
