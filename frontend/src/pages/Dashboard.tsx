@@ -30,7 +30,7 @@ const Dashboard: React.FC<DashboardProps> = ({ children }) => {
   const [openCutting, setOpenCutting] = useState(false);
   const [openPayments, setOpenPayments] = useState(false);
   const [dropdownOpen, setDropdownOpen] = useState(false);
-  const [companyName] = useState<string>("Company Name");
+  const [companyName] = useState<string>("Shri Uday Garments");
   const dropdownRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
   const location = useLocation();
@@ -196,6 +196,8 @@ const Dashboard: React.FC<DashboardProps> = ({ children }) => {
             <HomeIcon style={iconStyle} /> Production
           </button>
 
+          
+
           {/* REPORTS */}
           <button
             style={buttonStyle}
@@ -260,7 +262,34 @@ const Dashboard: React.FC<DashboardProps> = ({ children }) => {
           {openAdministration && (
             <AdministrationNavigator onNavigate={(path) => navigate(path)} />
           )}
-          
+
+
+          {/* Customer Requests */}
+<button
+  style={buttonStyle}
+  onClick={() => navigate("/app/CustomerRequests")}
+>
+  <HomeIcon style={iconStyle} /> Customer Requests
+</button>
+
+{/* Add Product */}
+<button
+  style={buttonStyle}
+  onClick={() => navigate("/app/AddProduct")}
+>
+  <HomeIcon style={iconStyle} /> Add Product
+</button>
+
+{/* View Sales */}
+<button
+  style={buttonStyle}
+  onClick={() => navigate("/app/ViewSales")}
+>
+  <HomeIcon style={iconStyle} /> View Sales
+</button>
+
+
+
 
         </div>
 
