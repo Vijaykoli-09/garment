@@ -2,6 +2,7 @@ import axios from "axios";
 
 const api = axios.create({
   baseURL: "https://garment-1-1v21.onrender.com/api",
+  // baseURL: "http://localhost:8080/api",
   headers: { "Content-Type": "application/json" },
   withCredentials: true,
 });
