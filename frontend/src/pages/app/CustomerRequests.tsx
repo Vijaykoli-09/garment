@@ -1,339 +1,710 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import Dashboard from "../Dashboard";
+import api from "../../api/axiosInstance";
 
 interface Customer {
   id: number;
   fullName: string;
   email: string;
   phone: string;
-  customerType: "Whole Seller" | "Semi Whole Seller" | "Retailer";
+  customerType: string;
   deliveryAddress: string;
   gstNo: string;
   brokerName: string;
   brokerPhone: string;
-  createdDate: string;
-  status: "Pending" | "Approved" | "Rejected";
-
+  createdAt: string;
+  status: "PENDING" | "APPROVED" | "REJECTED";
   creditEnabled?: boolean;
   creditLimit?: number;
   advanceOption?: boolean;
 }
 
+type ModalMode = "approve" | "edit";
+
 const CustomerRequests = () => {
+  const [customers, setCustomers] = useState<Customer[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [pageError, setPageError] = useState("");
+
+  // filters
   const [search, setSearch] = useState("");
   const [selectedType, setSelectedType] = useState("");
   const [selectedDate, setSelectedDate] = useState("");
   const [selectedStatus, setSelectedStatus] = useState("");
 
-  const [showModal, setShowModal] = useState(false);
-  const [selectedCustomerId, setSelectedCustomerId] = useState<number | null>(null);
+  // modal state
+  const [modalOpen, setModalOpen] = useState(false);
+  const [modalMode, setModalMode] = useState<ModalMode>("approve");
+  const [activeCustomer, setActiveCustomer] = useState<Customer | null>(null);
 
+  // form fields inside modal
+  const [formStatus, setFormStatus] = useState<"APPROVED" | "REJECTED">("APPROVED");
   const [creditEnabled, setCreditEnabled] = useState(false);
   const [creditLimit, setCreditLimit] = useState("");
   const [advanceOption, setAdvanceOption] = useState(false);
-  const [error, setError] = useState("");
+  const [modalError, setModalError] = useState("");
+  const [saving, setSaving] = useState(false);
 
-  const [customers, setCustomers] = useState<Customer[]>([
-    {
-      id: 1,
-      fullName: "Ravi Kumar",
-      email: "ravi@gmail.com",
-      phone: "9876543210",
-      customerType: "Whole Seller",
-      deliveryAddress: "Chennai",
-      gstNo: "33ABCDE1234F1Z5",
-      brokerName: "Suresh",
-      brokerPhone: "9123456789",
-      createdDate: "2026-03-01",
-      status: "Pending",
-    },
-    {
-      id: 2,
-      fullName: "Anita Sharma",
-      email: "anita@gmail.com",
-      phone: "9876501234",
-      customerType: "Retailer",
-      deliveryAddress: "Mumbai",
-      gstNo: "27ABCDE1234F1Z5",
-      brokerName: "Ramesh",
-      brokerPhone: "9988776655",
-      createdDate: "2026-03-03",
-      status: "Approved",
-      creditEnabled: true,
-      creditLimit: 500000,
-      advanceOption: true,
-    },
-  ]);
+  useEffect(() => { fetchCustomers(); }, []);
 
-  // 🔎 Filtering
-  const filteredCustomers = useMemo(() => {
-    return customers.filter((cust) => {
+  const fetchCustomers = async () => {
+    setLoading(true);
+    try {
+      const res = await api.get("/admin/customers");
+      setCustomers(res.data);
+    } catch {
+      setPageError("Failed to load customers. Please refresh.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const filtered = useMemo(() => {
+    return customers.filter((c) => {
+      const dateStr = c.createdAt?.split("T")[0] ?? "";
       return (
-        cust.fullName.toLowerCase().includes(search.toLowerCase()) &&
-        (selectedType ? cust.customerType === selectedType : true) &&
-        (selectedDate ? cust.createdDate === selectedDate : true) &&
-        (selectedStatus ? cust.status === selectedStatus : true)
+        c.fullName.toLowerCase().includes(search.toLowerCase()) &&
+        (selectedType ? c.customerType === selectedType : true) &&
+        (selectedDate ? dateStr === selectedDate : true) &&
+        (selectedStatus ? c.status === selectedStatus : true)
       );
     });
   }, [customers, search, selectedType, selectedDate, selectedStatus]);
 
-  // Open modal
-  const handleApproveClick = (id: number) => {
-    setSelectedCustomerId(id);
-    setShowModal(true);
-  };
-
-  // Reject
-  const handleReject = (id: number) => {
-    setCustomers((prev) =>
-      prev.map((cust) =>
-        cust.id === id ? { ...cust, status: "Rejected" } : cust
-      )
-    );
-  };
-
-  // Save Approval
-  const handleSaveApproval = () => {
-    if (selectedCustomerId === null) return;
-
-    // 🔥 VALIDATION
-    if (creditEnabled && (!creditLimit || Number(creditLimit) <= 0)) {
-      setError("Credit limit is required and must be greater than 0.");
-      return;
-    }
-
-    setCustomers((prev) =>
-      prev.map((cust) =>
-        cust.id === selectedCustomerId
-          ? {
-              ...cust,
-              status: "Approved",
-              creditEnabled,
-              creditLimit: creditEnabled ? Number(creditLimit) : undefined,
-              advanceOption,
-            }
-          : cust
-      )
-    );
-
-    // Reset
-    setShowModal(false);
+  // ── Open approve modal (for PENDING customers) ──────────────────
+  const openApproveModal = (customer: Customer) => {
+    setActiveCustomer(customer);
+    setModalMode("approve");
+    setFormStatus("APPROVED");
     setCreditEnabled(false);
     setCreditLimit("");
     setAdvanceOption(false);
-    setError("");
+    setModalError("");
+    setModalOpen(true);
+  };
+
+  // ── Open edit modal (for already APPROVED / REJECTED customers) ─
+  const openEditModal = (customer: Customer) => {
+    setActiveCustomer(customer);
+    setModalMode("edit");
+    setFormStatus(customer.status === "REJECTED" ? "REJECTED" : "APPROVED");
+    setCreditEnabled(customer.creditEnabled ?? false);
+    setCreditLimit(customer.creditLimit?.toString() ?? "0");
+    setAdvanceOption(customer.advanceOption ?? false);
+    setModalError("");
+    setModalOpen(true);
+  };
+
+  const closeModal = () => {
+    setModalOpen(false);
+    setActiveCustomer(null);
+  };
+
+  // ── Validate ────────────────────────────────────────────────────
+  const validate = () => {
+    if (formStatus === "APPROVED" && creditEnabled) {
+      if (!creditLimit || Number(creditLimit) <= 0) {
+        setModalError("Credit limit must be greater than 0 when credit is enabled.");
+        return false;
+      }
+    }
+    return true;
+  };
+
+  // ── Save ────────────────────────────────────────────────────────
+  const handleSave = async () => {
+    if (!activeCustomer || !validate()) return;
+    setSaving(true);
+    setModalError("");
+
+    try {
+      if (modalMode === "approve") {
+        // Fresh approval for PENDING customer
+        await api.post(`/admin/customers/${activeCustomer.id}/approve`, {
+          creditEnabled,
+          creditLimit: creditEnabled ? Number(creditLimit) : 0,
+          advanceOption,
+        });
+        setCustomers((prev) =>
+          prev.map((c) =>
+            c.id === activeCustomer.id
+              ? { ...c, status: "APPROVED", creditEnabled, creditLimit: creditEnabled ? Number(creditLimit) : 0, advanceOption }
+              : c
+          )
+        );
+      } else {
+        // Edit mode: change status + payment config via /update
+        await api.post(`/admin/customers/${activeCustomer.id}/update`, {
+          status: formStatus,
+          creditEnabled: formStatus === "APPROVED" ? creditEnabled : false,
+          creditLimit: formStatus === "APPROVED" && creditEnabled ? Number(creditLimit) : 0,
+          advanceOption: formStatus === "APPROVED" ? advanceOption : false,
+        });
+        setCustomers((prev) =>
+          prev.map((c) =>
+            c.id === activeCustomer.id
+              ? {
+                  ...c,
+                  status: formStatus,
+                  creditEnabled: formStatus === "APPROVED" ? creditEnabled : false,
+                  creditLimit: formStatus === "APPROVED" && creditEnabled ? Number(creditLimit) : 0,
+                  advanceOption: formStatus === "APPROVED" ? advanceOption : false,
+                }
+              : c
+          )
+        );
+      }
+      closeModal();
+    } catch {
+      setModalError("Failed to save changes. Please try again.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // ── Quick reject from card (pending only) ───────────────────────
+  const handleQuickReject = async (customer: Customer) => {
+    if (!window.confirm(`Reject ${customer.fullName}?`)) return;
+    try {
+      await api.post(`/admin/customers/${customer.id}/reject`);
+      setCustomers((prev) =>
+        prev.map((c) => (c.id === customer.id ? { ...c, status: "REJECTED" } : c))
+      );
+    } catch {
+      alert("Failed to reject. Please try again.");
+    }
+  };
+
+  if (loading) {
+    return (
+      <Dashboard>
+        <div style={loadingWrap}>
+          <div style={spinner} />
+          <p style={{ color: "#64748b", marginTop: 12 }}>Loading customers...</p>
+        </div>
+      </Dashboard>
+    );
+  }
+
+  const counts = {
+    all: customers.length,
+    pending: customers.filter((c) => c.status === "PENDING").length,
+    approved: customers.filter((c) => c.status === "APPROVED").length,
+    rejected: customers.filter((c) => c.status === "REJECTED").length,
   };
 
   return (
     <Dashboard>
-      <div style={{ padding: "20px" }}>
-        <h2>Customer Requests</h2>
+      <div style={page}>
 
-        {/* Filters */}
-        <div style={filterContainer}>
-          <input
-            type="text"
-            placeholder="Search by name"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            style={inputStyle}
-          />
-
-          <input
-            type="date"
-            value={selectedDate}
-            onChange={(e) => setSelectedDate(e.target.value)}
-            style={inputStyle}
-          />
-
-          <select
-            value={selectedType}
-            onChange={(e) => setSelectedType(e.target.value)}
-            style={inputStyle}
-          >
-            <option value="">All Types</option>
-            <option value="Whole Seller">Whole Seller</option>
-            <option value="Semi Whole Seller">Semi Whole Seller</option>
-            <option value="Retailer">Retailer</option>
-          </select>
-
-          <select
-            value={selectedStatus}
-            onChange={(e) => setSelectedStatus(e.target.value)}
-            style={inputStyle}
-          >
-            <option value="">All Status</option>
-            <option value="Pending">Pending</option>
-            <option value="Approved">Approved</option>
-            <option value="Rejected">Rejected</option>
-          </select>
+        {/* ── Page Header ── */}
+        <div style={pageHeader}>
+          <div>
+            <h2 style={pageTitle}>Customer Requests</h2>
+            <p style={pageSubtitle}>Manage customer approvals and payment configuration</p>
+          </div>
+          <button style={refreshBtn} onClick={fetchCustomers}>↻ Refresh</button>
         </div>
 
-        {/* Cards */}
-        <div style={cardContainer}>
-          {filteredCustomers.map((cust) => (
-            <div key={cust.id} style={cardStyle}>
-              <h3>{cust.fullName}</h3>
-              <p>Email: {cust.email}</p>
-              <p>Phone: {cust.phone}</p>
-              <p>Type: {cust.customerType}</p>
-              <p>Address: {cust.deliveryAddress}</p>
-              <p>GST: {cust.gstNo}</p>
-              <p>Broker: {cust.brokerName} ({cust.brokerPhone})</p>
-              <p>Date: {cust.createdDate}</p>
-              <p>Status: <strong>{cust.status}</strong></p>
+        {pageError && <div style={errorBanner}>{pageError}</div>}
 
-              {/* Payment Details */}
-              {cust.status === "Approved" && (
-                <div style={paymentBox}>
-                  <p><strong>Credit Enabled:</strong> {cust.creditEnabled ? "Yes" : "No"}</p>
-                  {cust.creditEnabled && (
-                    <>
-                      <p><strong>Credit Limit:</strong> ₹{cust.creditLimit}</p>
-                      <p>
-                        <strong>30% Advance / 70% Credit:</strong>{" "}
-                        {cust.advanceOption ? "Enabled" : "Disabled"}
-                      </p>
-                    </>
-                  )}
-                </div>
-              )}
-
-              {cust.status === "Pending" && (
-                <div style={{ marginTop: "10px" }}>
-                  <button style={approveBtn} onClick={() => handleApproveClick(cust.id)}>
-                    Approve
-                  </button>
-
-                  <button style={rejectBtn} onClick={() => handleReject(cust.id)}>
-                    Reject
-                  </button>
-                </div>
-              )}
+        {/* ── Summary Chips ── */}
+        <div style={chipRow}>
+          {[
+            { label: "All", value: counts.all, color: "#6366f1" },
+            { label: "Pending", value: counts.pending, color: "#f59e0b" },
+            { label: "Approved", value: counts.approved, color: "#10b981" },
+            { label: "Rejected", value: counts.rejected, color: "#ef4444" },
+          ].map((chip) => (
+            <div key={chip.label} style={summaryChip(chip.color)}>
+              <span style={chipNum(chip.color)}>{chip.value}</span>
+              <span style={chipLabel}>{chip.label}</span>
             </div>
           ))}
         </div>
 
-        {/* Modal */}
-        {showModal && (
-          <div style={modalOverlay}>
-            <div style={modalStyle}>
-              <h3>Payment Configuration</h3>
+        {/* ── Filters ── */}
+        <div style={filterRow}>
+          <input
+            placeholder="🔍 Search by name..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            style={filterInput}
+          />
+          <input
+            type="date"
+            value={selectedDate}
+            onChange={(e) => setSelectedDate(e.target.value)}
+            style={filterInput}
+          />
+          <select value={selectedType} onChange={(e) => setSelectedType(e.target.value)} style={filterInput}>
+            <option value="">All Types</option>
+            <option value="Wholesaler">Wholesaler</option>
+            <option value="Semi_Wholesaler">Semi Wholesaler</option>
+            <option value="Retailer">Retailer</option>
+          </select>
+          <select value={selectedStatus} onChange={(e) => setSelectedStatus(e.target.value)} style={filterInput}>
+            <option value="">All Status</option>
+            <option value="PENDING">Pending</option>
+            <option value="APPROVED">Approved</option>
+            <option value="REJECTED">Rejected</option>
+          </select>
+          {(search || selectedType || selectedDate || selectedStatus) && (
+            <button style={clearBtn}
+              onClick={() => { setSearch(""); setSelectedType(""); setSelectedDate(""); setSelectedStatus(""); }}>
+              ✕ Clear
+            </button>
+          )}
+        </div>
 
-              <label>
-                <input
-                  type="checkbox"
-                  checked={creditEnabled}
-                  onChange={() => setCreditEnabled(!creditEnabled)}
-                />
-                Enable Credit Buy
-              </label>
+        {/* ── Cards ── */}
+        {filtered.length === 0 ? (
+          <div style={emptyState}>
+            <div style={{ fontSize: 48 }}>📭</div>
+            <p style={{ color: "#94a3b8", marginTop: 8 }}>No customers found.</p>
+          </div>
+        ) : (
+          <div style={cardGrid}>
+            {filtered.map((cust) => (
+              <div key={cust.id} style={card}>
 
-              {creditEnabled && (
+                {/* Card top: name + status badge */}
+                <div style={cardTop}>
+                  <div style={avatar}>{cust.fullName.charAt(0).toUpperCase()}</div>
+                  <div style={{ flex: 1 }}>
+                    <div style={cardName}>{cust.fullName}</div>
+                    <div style={cardType}>{cust.customerType?.replace("_", " ")}</div>
+                  </div>
+                  <span style={statusBadgeStyle(cust.status)}>{cust.status}</span>
+                </div>
+
+                <div style={divider} />
+
+                {/* Details */}
+                <div style={detailGrid}>
+                  <Detail label="📧" value={cust.email} />
+                  <Detail label="📱" value={cust.phone} />
+                  <Detail label="📍" value={cust.deliveryAddress} />
+                  {cust.gstNo && <Detail label="🏢 GST" value={cust.gstNo} />}
+                  {cust.brokerName && <Detail label="🤝 Broker" value={`${cust.brokerName} ${cust.brokerPhone ? `(${cust.brokerPhone})` : ""}`} />}
+                  <Detail label="📅" value={cust.createdAt?.split("T")[0]} />
+                </div>
+
+                {/* Payment info (approved only) */}
+                {cust.status === "APPROVED" && (
+                  <div style={paymentInfo}>
+                    <div style={paymentRow}>
+                      <span style={payLabel}>Credit</span>
+                      <span style={payVal(cust.creditEnabled ? "#10b981" : "#94a3b8")}>
+                        {cust.creditEnabled ? "✓ Enabled" : "✗ Disabled"}
+                      </span>
+                    </div>
+                    {cust.creditEnabled && (
+                      <>
+                        <div style={paymentRow}>
+                          <span style={payLabel}>Limit</span>
+                          <span style={payVal("#2563eb")}>₹{cust.creditLimit?.toLocaleString()}</span>
+                        </div>
+                        <div style={paymentRow}>
+                          <span style={payLabel}>30% Advance</span>
+                          <span style={payVal(cust.advanceOption ? "#10b981" : "#94a3b8")}>
+                            {cust.advanceOption ? "✓ Enabled" : "✗ Disabled"}
+                          </span>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                )}
+
+                {/* Action Buttons */}
+                <div style={cardActions}>
+                  {cust.status === "PENDING" && (
+                    <>
+                      <button style={btnApprove} onClick={() => openApproveModal(cust)}>
+                        ✓ Approve
+                      </button>
+                      <button style={btnReject} onClick={() => handleQuickReject(cust)}>
+                        ✗ Reject
+                      </button>
+                    </>
+                  )}
+                  {(cust.status === "APPROVED" || cust.status === "REJECTED") && (
+                    <button style={btnEdit} onClick={() => openEditModal(cust)}>
+                      ✎ Edit
+                    </button>
+                  )}
+                </div>
+
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* ══════════════════════════════════════════════
+            MODAL — Approve (new) or Edit (existing)
+        ══════════════════════════════════════════════ */}
+        {modalOpen && activeCustomer && (
+          <div style={overlay} onClick={closeModal}>
+            <div style={modal} onClick={(e) => e.stopPropagation()}>
+
+              {/* Modal Header */}
+              <div style={modalHeader}>
+                <div>
+                  <div style={modalTitle}>
+                    {modalMode === "approve" ? "Approve Customer" : "Edit Customer"}
+                  </div>
+                  <div style={modalSubtitle}>{activeCustomer.fullName}</div>
+                </div>
+                <button style={closeBtn} onClick={closeModal}>✕</button>
+              </div>
+
+              {/* Status Toggle (edit mode only — change APPROVED ↔ REJECTED) */}
+              {modalMode === "edit" && (
+                <div style={section}>
+                  <div style={sectionLabel}>Account Status</div>
+                  <div style={toggleRow}>
+                    {(["APPROVED", "REJECTED"] as const).map((s) => (
+                      <button
+                        key={s}
+                        style={statusToggleBtn(formStatus === s, s)}
+                        onClick={() => {
+                          setFormStatus(s);
+                          setModalError("");
+                          // clear credit fields when switching to rejected
+                          if (s === "REJECTED") {
+                            setCreditEnabled(false);
+                            setCreditLimit("0");
+                            setAdvanceOption(false);
+                          }
+                        }}
+                      >
+                        {s === "APPROVED" ? "✓ Approved" : "✗ Rejected"}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Payment Config (only when status is APPROVED) */}
+              {formStatus === "APPROVED" && (
                 <>
-                  <input
-                    type="number"
-                    placeholder="Enter Credit Limit"
-                    value={creditLimit}
-                    onChange={(e) => setCreditLimit(e.target.value)}
-                    style={{ marginTop: "10px", width: "100%", padding: "6px" }}
-                  />
-                  {error && <p style={{ color: "red" }}>{error}</p>}
+                  {/* Credit Enable Toggle */}
+                  <div style={section}>
+                    <div style={sectionLabel}>Credit Settings</div>
+                    <label style={checkRow}>
+                      <div
+                        style={toggle(creditEnabled)}
+                        onClick={() => {
+                          setCreditEnabled(!creditEnabled);
+                          if (creditEnabled) { setCreditLimit("0"); setAdvanceOption(false); }
+                          setModalError("");
+                        }}
+                      >
+                        <div style={toggleThumb(creditEnabled)} />
+                      </div>
+                      <span style={checkLabel}>Enable Credit Buy</span>
+                    </label>
+                  </div>
+
+                  {/* Credit Limit (only when credit enabled) */}
+                  {creditEnabled && (
+                    <div style={section}>
+                      <div style={sectionLabel}>Credit Limit (₹)</div>
+
+                      {/* Quick preset buttons */}
+                      <div style={presetRow}>
+                        {[50000, 100000, 250000, 500000, 1000000].map((amt) => (
+                          <button
+                            key={amt}
+                            style={presetBtn(Number(creditLimit) === amt)}
+                            onClick={() => setCreditLimit(amt.toString())}
+                          >
+                            ₹{amt >= 100000 ? `${amt / 100000}L` : `${amt / 1000}K`}
+                          </button>
+                        ))}
+                      </div>
+
+                      {/* Manual input with +/- controls */}
+                      <div style={amountRow}>
+                        <button
+                          style={amtBtn}
+                          onClick={() => setCreditLimit((prev) => Math.max(0, Number(prev) - 10000).toString())}
+                        >
+                          −
+                        </button>
+                        <div style={amountInputWrap}>
+                          <span style={rupeeSign}>₹</span>
+                          <input
+                            type="number"
+                            value={creditLimit}
+                            onChange={(e) => setCreditLimit(e.target.value)}
+                            style={amountInput}
+                            min={0}
+                            step={10000}
+                          />
+                        </div>
+                        <button
+                          style={amtBtn}
+                          onClick={() => setCreditLimit((prev) => (Number(prev) + 10000).toString())}
+                        >
+                          +
+                        </button>
+                      </div>
+
+                      {modalError && <p style={errText}>{modalError}</p>}
+
+                      {/* Advance Option */}
+                      <div style={{ marginTop: 16 }}>
+                        <label style={checkRow}>
+                          <div
+                            style={toggle(advanceOption)}
+                            onClick={() => setAdvanceOption(!advanceOption)}
+                          >
+                            <div style={toggleThumb(advanceOption)} />
+                          </div>
+                          <div>
+                            <span style={checkLabel}>30% Advance + 70% Credit</span>
+                            <div style={checkDesc}>Customer pays 30% upfront, rest on credit</div>
+                          </div>
+                        </label>
+                      </div>
+                    </div>
+                  )}
                 </>
               )}
 
-              <div style={{ marginTop: "10px" }}>
-                <label>
-                  <input
-                    type="checkbox"
-                    checked={advanceOption}
-                    onChange={() => setAdvanceOption(!advanceOption)}
-                  />
-                  Enable 30% Advance & 70% Credit
-                </label>
-              </div>
+              {/* Non-credit modal error */}
+              {modalError && !creditEnabled && <p style={{ ...errText, marginTop: 0, marginBottom: 12 }}>{modalError}</p>}
 
-              <div style={{ marginTop: "15px", textAlign: "right" }}>
-                <button onClick={() => setShowModal(false)}>Cancel</button>
-                <button style={approveBtn} onClick={handleSaveApproval}>
-                  Save & Approve
+              {/* Modal Footer */}
+              <div style={modalFooter}>
+                <button style={cancelBtn} onClick={closeModal} disabled={saving}>
+                  Cancel
+                </button>
+                <button style={saveBtn(formStatus)} onClick={handleSave} disabled={saving}>
+                  {saving
+                    ? "Saving..."
+                    : modalMode === "approve"
+                    ? "✓ Approve & Save"
+                    : "✓ Save Changes"}
                 </button>
               </div>
+
             </div>
           </div>
         )}
+
       </div>
     </Dashboard>
   );
 };
 
-/* Styles */
+/* ── Small helper component ── */
+const Detail = ({ label, value }: { label: string; value: string }) => (
+  <div style={{ display: "flex", gap: 6, alignItems: "flex-start", marginBottom: 4 }}>
+    <span style={{ fontSize: 12, minWidth: 16 }}>{label}</span>
+    <span style={{ fontSize: 12, color: "#374151", wordBreak: "break-all" }}>{value || "—"}</span>
+  </div>
+);
 
-const filterContainer: React.CSSProperties = {
-  display: "flex",
-  gap: "10px",
-  flexWrap: "wrap",
-  marginBottom: "20px",
+/* ══════════════════════════════════════════════
+   STYLES
+══════════════════════════════════════════════ */
+
+const page: React.CSSProperties = { padding: 24, minHeight: "100vh", background: "#f8fafc" };
+
+const pageHeader: React.CSSProperties = {
+  display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 20,
+};
+const pageTitle: React.CSSProperties = { margin: 0, fontSize: 22, fontWeight: 700, color: "#0f172a" };
+const pageSubtitle: React.CSSProperties = { margin: "4px 0 0", fontSize: 13, color: "#64748b" };
+const refreshBtn: React.CSSProperties = {
+  padding: "8px 16px", background: "#fff", border: "1px solid #e2e8f0",
+  borderRadius: 8, cursor: "pointer", fontSize: 13, color: "#475569", fontWeight: 600,
 };
 
-const inputStyle: React.CSSProperties = {
-  padding: "6px",
-  minWidth: "160px",
+const errorBanner: React.CSSProperties = {
+  background: "#fee2e2", color: "#dc2626", padding: "10px 14px",
+  borderRadius: 8, marginBottom: 16, fontSize: 13,
 };
 
-const cardContainer: React.CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))",
-  gap: "20px",
+const chipRow: React.CSSProperties = { display: "flex", gap: 12, marginBottom: 20, flexWrap: "wrap" };
+const summaryChip = (color: string): React.CSSProperties => ({
+  display: "flex", alignItems: "center", gap: 8, background: "#fff",
+  border: `1px solid ${color}22`, borderLeft: `3px solid ${color}`,
+  borderRadius: 8, padding: "10px 16px",
+  boxShadow: "0 1px 3px rgba(0,0,0,0.06)",
+});
+const chipNum = (color: string): React.CSSProperties => ({
+  fontSize: 20, fontWeight: 800, color,
+});
+const chipLabel: React.CSSProperties = { fontSize: 12, color: "#64748b", fontWeight: 600, textTransform: "uppercase" as const, letterSpacing: "0.5px" };
+
+const filterRow: React.CSSProperties = { display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 20, alignItems: "center" };
+const filterInput: React.CSSProperties = {
+  padding: "8px 12px", border: "1px solid #e2e8f0", borderRadius: 8,
+  fontSize: 13, minWidth: 150, background: "#fff", color: "#374151",
+};
+const clearBtn: React.CSSProperties = {
+  padding: "8px 14px", background: "#fef2f2", border: "1px solid #fecaca",
+  borderRadius: 8, cursor: "pointer", fontSize: 13, color: "#dc2626", fontWeight: 600,
 };
 
-const cardStyle: React.CSSProperties = {
-  background: "#fff",
-  padding: "15px",
-  borderRadius: "8px",
-  boxShadow: "0 2px 8px rgba(0,0,0,0.1)",
+const cardGrid: React.CSSProperties = {
+  display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))", gap: 16,
+};
+const card: React.CSSProperties = {
+  background: "#fff", borderRadius: 12, padding: 16,
+  border: "1px solid #e2e8f0", boxShadow: "0 2px 8px rgba(0,0,0,0.06)",
+};
+const cardTop: React.CSSProperties = { display: "flex", alignItems: "center", gap: 12, marginBottom: 12 };
+const avatar: React.CSSProperties = {
+  width: 40, height: 40, borderRadius: "50%", background: "#e0e7ff",
+  color: "#4f46e5", display: "flex", alignItems: "center", justifyContent: "center",
+  fontSize: 16, fontWeight: 800, flexShrink: 0,
+};
+const cardName: React.CSSProperties = { fontSize: 14, fontWeight: 700, color: "#0f172a" };
+const cardType: React.CSSProperties = { fontSize: 11, color: "#64748b", marginTop: 2 };
+const divider: React.CSSProperties = { height: 1, background: "#f1f5f9", margin: "8px 0 10px" };
+const detailGrid: React.CSSProperties = { marginBottom: 10 };
+
+const statusBadgeStyle = (status: string): React.CSSProperties => {
+  const map: Record<string, React.CSSProperties> = {
+    PENDING: { background: "#fef9c3", color: "#b45309", border: "1px solid #fde68a" },
+    APPROVED: { background: "#dcfce7", color: "#15803d", border: "1px solid #bbf7d0" },
+    REJECTED: { background: "#fee2e2", color: "#b91c1c", border: "1px solid #fecaca" },
+  };
+  return {
+    padding: "3px 10px", borderRadius: 20, fontSize: 11, fontWeight: 700,
+    whiteSpace: "nowrap", ...(map[status] ?? {}),
+  };
 };
 
-const paymentBox: React.CSSProperties = {
-  background: "#f1f5f9",
-  padding: "8px",
-  borderRadius: "6px",
-  marginTop: "8px",
+const paymentInfo: React.CSSProperties = {
+  background: "#f8fafc", borderRadius: 8, padding: "10px 12px",
+  border: "1px solid #e2e8f0", marginBottom: 12,
+};
+const paymentRow: React.CSSProperties = { display: "flex", justifyContent: "space-between", marginBottom: 4 };
+const payLabel: React.CSSProperties = { fontSize: 12, color: "#64748b" };
+const payVal = (color: string): React.CSSProperties => ({ fontSize: 12, fontWeight: 700, color });
+
+const cardActions: React.CSSProperties = { display: "flex", gap: 8, marginTop: 4 };
+const btnApprove: React.CSSProperties = {
+  flex: 1, padding: "8px", background: "#10b981", color: "#fff",
+  border: "none", borderRadius: 8, cursor: "pointer", fontWeight: 700, fontSize: 13,
+};
+const btnReject: React.CSSProperties = {
+  flex: 1, padding: "8px", background: "#ef4444", color: "#fff",
+  border: "none", borderRadius: 8, cursor: "pointer", fontWeight: 700, fontSize: 13,
+};
+const btnEdit: React.CSSProperties = {
+  flex: 1, padding: "8px", background: "#f1f5f9", color: "#475569",
+  border: "1px solid #e2e8f0", borderRadius: 8, cursor: "pointer", fontWeight: 700, fontSize: 13,
 };
 
-const approveBtn: React.CSSProperties = {
-  marginLeft: "10px",
-  padding: "6px 12px",
-  backgroundColor: "green",
-  color: "white",
-  border: "none",
+/* Modal */
+const overlay: React.CSSProperties = {
+  position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)",
+  display: "flex", justifyContent: "center", alignItems: "center", zIndex: 1000,
+};
+const modal: React.CSSProperties = {
+  background: "#fff", borderRadius: 14, width: 440, maxWidth: "95vw",
+  maxHeight: "90vh", overflowY: "auto", boxShadow: "0 20px 60px rgba(0,0,0,0.2)",
+};
+const modalHeader: React.CSSProperties = {
+  display: "flex", justifyContent: "space-between", alignItems: "flex-start",
+  padding: "20px 20px 14px", borderBottom: "1px solid #f1f5f9",
+};
+const modalTitle: React.CSSProperties = { fontSize: 16, fontWeight: 700, color: "#0f172a" };
+const modalSubtitle: React.CSSProperties = { fontSize: 13, color: "#64748b", marginTop: 2 };
+const closeBtn: React.CSSProperties = {
+  background: "none", border: "none", fontSize: 18, cursor: "pointer",
+  color: "#94a3b8", lineHeight: 1, padding: 4,
+};
+const section: React.CSSProperties = { padding: "14px 20px", borderBottom: "1px solid #f1f5f9" };
+const sectionLabel: React.CSSProperties = { fontSize: 11, fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.8px", marginBottom: 10 };
+
+const toggleRow: React.CSSProperties = { display: "flex", gap: 8 };
+const statusToggleBtn = (active: boolean, status: string): React.CSSProperties => {
+  const colors = status === "APPROVED"
+    ? { bg: "#dcfce7", activeBg: "#10b981", color: "#15803d", activeColor: "#fff", border: "#bbf7d0" }
+    : { bg: "#fee2e2", activeBg: "#ef4444", color: "#b91c1c", activeColor: "#fff", border: "#fecaca" };
+  return {
+    flex: 1, padding: "10px 0", borderRadius: 8, cursor: "pointer", fontWeight: 700, fontSize: 13,
+    background: active ? colors.activeBg : colors.bg,
+    color: active ? colors.activeColor : colors.color,
+    border: `1px solid ${colors.border}`,
+    transition: "all 0.15s",
+  };
 };
 
-const rejectBtn: React.CSSProperties = {
-  marginLeft: "10px",
-  padding: "6px 12px",
-  backgroundColor: "red",
-  color: "white",
-  border: "none",
+/* iOS-style toggle */
+const toggle = (on: boolean): React.CSSProperties => ({
+  width: 44, height: 24, borderRadius: 12, cursor: "pointer", flexShrink: 0,
+  background: on ? "#10b981" : "#e2e8f0", position: "relative", transition: "background 0.2s",
+});
+const toggleThumb = (on: boolean): React.CSSProperties => ({
+  position: "absolute", top: 2, left: on ? 22 : 2,
+  width: 20, height: 20, borderRadius: "50%", background: "#fff",
+  boxShadow: "0 1px 4px rgba(0,0,0,0.2)", transition: "left 0.2s",
+});
+
+const checkRow: React.CSSProperties = { display: "flex", alignItems: "center", gap: 12, cursor: "pointer" };
+const checkLabel: React.CSSProperties = { fontSize: 14, fontWeight: 600, color: "#1e293b" };
+const checkDesc: React.CSSProperties = { fontSize: 12, color: "#64748b", marginTop: 2 };
+
+const presetRow: React.CSSProperties = { display: "flex", gap: 6, marginBottom: 12, flexWrap: "wrap" };
+const presetBtn = (active: boolean): React.CSSProperties => ({
+  padding: "5px 12px", borderRadius: 20, fontSize: 12, cursor: "pointer", fontWeight: 600,
+  background: active ? "#2563eb" : "#f1f5f9",
+  color: active ? "#fff" : "#475569",
+  border: active ? "1px solid #2563eb" : "1px solid #e2e8f0",
+});
+
+const amountRow: React.CSSProperties = { display: "flex", alignItems: "center", gap: 10 };
+const amtBtn: React.CSSProperties = {
+  width: 36, height: 36, borderRadius: 8, border: "1px solid #e2e8f0",
+  background: "#f8fafc", cursor: "pointer", fontSize: 20, fontWeight: 700,
+  color: "#374151", display: "flex", alignItems: "center", justifyContent: "center",
+};
+const amountInputWrap: React.CSSProperties = {
+  flex: 1, display: "flex", alignItems: "center", border: "1.5px solid #e2e8f0",
+  borderRadius: 8, overflow: "hidden", background: "#fff",
+};
+const rupeeSign: React.CSSProperties = {
+  padding: "0 10px", fontSize: 15, color: "#64748b", fontWeight: 600,
+  borderRight: "1px solid #e2e8f0", background: "#f8fafc",
+};
+const amountInput: React.CSSProperties = {
+  flex: 1, padding: "9px 10px", border: "none", outline: "none",
+  fontSize: 15, fontWeight: 700, color: "#0f172a",
 };
 
-const modalOverlay: React.CSSProperties = {
-  position: "fixed",
-  top: 0,
-  left: 0,
-  width: "100vw",
-  height: "100vh",
-  background: "rgba(0,0,0,0.4)",
-  display: "flex",
-  justifyContent: "center",
-  alignItems: "center",
+const errText: React.CSSProperties = { color: "#dc2626", fontSize: 12, marginTop: 8, marginBottom: 0 };
+
+const modalFooter: React.CSSProperties = {
+  padding: "16px 20px", display: "flex", gap: 10, justifyContent: "flex-end",
+};
+const cancelBtn: React.CSSProperties = {
+  padding: "10px 20px", background: "#f1f5f9", color: "#475569",
+  border: "1px solid #e2e8f0", borderRadius: 8, cursor: "pointer", fontWeight: 600, fontSize: 13,
+};
+const saveBtn = (status: string): React.CSSProperties => ({
+  padding: "10px 20px", color: "#fff", border: "none", borderRadius: 8,
+  cursor: "pointer", fontWeight: 700, fontSize: 13,
+  background: status === "APPROVED" ? "#10b981" : "#ef4444",
+});
+
+const loadingWrap: React.CSSProperties = { display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: 300 };
+const spinner: React.CSSProperties = {
+  width: 36, height: 36, border: "3px solid #e2e8f0",
+  borderTop: "3px solid #6366f1", borderRadius: "50%",
+  animation: "spin 0.8s linear infinite",
 };
 
-const modalStyle: React.CSSProperties = {
-  background: "#fff",
-  padding: "20px",
-  borderRadius: "8px",
-  width: "350px",
+const emptyState: React.CSSProperties = {
+  display: "flex", flexDirection: "column", alignItems: "center",
+  justifyContent: "center", padding: 60, color: "#94a3b8",
 };
 
 export default CustomerRequests;

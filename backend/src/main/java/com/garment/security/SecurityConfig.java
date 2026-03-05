@@ -34,10 +34,20 @@ public class SecurityConfig {
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
         http
-            .csrf(csrf -> csrf.disable()) // POST from Postman without CSRF token
-            .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS)) // ✅ important for JWT
+            .csrf(csrf -> csrf.disable())
+            .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .authorizeHttpRequests(auth -> auth
+
+                // ── Existing web admin auth ──────────────────────────
                 .requestMatchers("/api/auth/**").permitAll()
+
+                // ── NEW: Mobile app customer auth ────────────────────
+                .requestMatchers("/api/customer/auth/**").permitAll()
+
+                // ── Admin customer management (open for now) ─────────
+                .requestMatchers("/api/admin/customers/**").permitAll()
+
+                // ── All your existing permitted endpoints (unchanged) ─
                 .requestMatchers("/api/sizes/**").permitAll()
                 .requestMatchers("/api/party/**").permitAll()
                 .requestMatchers("/api/artgroup/**").permitAll()
@@ -55,7 +65,6 @@ public class SecurityConfig {
                 .requestMatchers("/api/material-groups/**").permitAll()
                 .requestMatchers("/api/employees/**").permitAll()
                 .requestMatchers("/api/materials/**").permitAll()
-                .requestMatchers("/api/process/**").permitAll()
                 .requestMatchers("/api/ranges/**").permitAll()
                 .requestMatchers("/api/transports/**").permitAll()
                 .requestMatchers("/api/purchase-orders/**").permitAll()
@@ -87,6 +96,18 @@ public class SecurityConfig {
                 .requestMatchers("/api/payment/payment-mode/**").permitAll()
                 .requestMatchers("/api/other-dispatch-challan/**").permitAll()
                 .requestMatchers("/api/order-settles/**").permitAll()
+
+                // ── ADD THESE 2 lines inside your SecurityConfig.java filterChain() ─────────
+// Place them with the other .requestMatchers lines
+
+// Public products (mobile app)
+.requestMatchers("/api/products/**").permitAll()
+
+// Admin products (web dashboard) — open for now, lock with ADMIN role later
+.requestMatchers("/api/admin/products/**").permitAll()
+.requestMatchers("/api/admin/images/**").permitAll()
+
+
                 .anyRequest().authenticated()
             )
             .userDetailsService(customUserDetailsService)
