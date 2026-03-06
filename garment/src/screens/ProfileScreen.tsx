@@ -1,492 +1,194 @@
 import React, { useContext } from 'react';
 import {
-  View,
-  Text,
-  StyleSheet,
-  TouchableOpacity,
-  Alert,
-  ScrollView,
-  StatusBar
+  View, Text, StyleSheet, TouchableOpacity,
+  Alert, ScrollView, StatusBar,
 } from 'react-native';
 import { AppContext } from '../context/AppContext';
 
 export default function ProfileScreen({ navigation }: any) {
   const {
-    user,
-    logout,
-    creditLimit,
-    usedCredit,
-    duePayments,
-    availableCredit,
-    creditApproved
+    user, logout,
+    creditLimit, usedCredit, duePayments, availableCredit, creditApproved,
   } = useContext(AppContext);
 
-  if (!user) {
-    return (
-      <View style={styles.container}>
-        <View style={styles.emptyState}>
-          <Text style={styles.emptyEmoji}>👤</Text>
-          <Text style={styles.emptyText}>No user logged in</Text>
-        </View>
-      </View>
-    );
-  }
-
   const handleLogout = () => {
-    Alert.alert(
-      '🚪 Logout',
-      'Are you sure you want to logout?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Yes, Logout',
-          onPress: () => {
-            logout();
-            navigation.replace('Login');
-          },
-          style: 'destructive'
-        }
-      ]
-    );
+    Alert.alert('🚪 Logout', 'Are you sure you want to logout?', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Logout',
+        style: 'destructive',
+        onPress: async () => { await logout(); },
+      },
+    ]);
   };
 
-  return (
-    <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
-      <StatusBar backgroundColor="white" barStyle="dark-content" />
+  if (!user) return (
+    <View style={s.center}>
+      <Text style={{ fontSize: 48 }}>👤</Text>
+      <Text style={s.emptyTxt}>Not logged in</Text>
+    </View>
+  );
 
-      {/* Header */}
-      <View style={styles.header}>
-        <Text style={styles.headerTitle}>👤 My Profile</Text>
-        <Text style={styles.headerSubtitle}>Account details and settings</Text>
+  return (
+    <ScrollView style={s.container} showsVerticalScrollIndicator={false}>
+      <StatusBar backgroundColor="#fff" barStyle="dark-content" />
+
+      <View style={s.header}>
+        <Text style={s.headerTitle}>My Profile</Text>
+        <Text style={s.headerSub}>Account details & credit info</Text>
       </View>
 
-      {/* Profile Card */}
-      <View style={styles.profileCard}>
-        <View style={styles.profileHeader}>
-          <Text style={styles.profileEmoji}>🏢</Text>
-          <View style={styles.profileInfo}>
-            <Text style={styles.companyName}>{user.name}</Text>
-            <Text style={styles.role}>{user.role.charAt(0).toUpperCase() + user.role.slice(1)}</Text>
+      {/* Profile card */}
+      <View style={s.card}>
+        <View style={s.avatarRow}>
+          <View style={s.avatar}>
+            <Text style={s.avatarLetter}>{user.name?.charAt(0).toUpperCase()}</Text>
           </View>
-        </View>
-
-        <View style={styles.profileDivider} />
-
-        <View style={styles.profileDetails}>
-          <View style={styles.detailRow}>
-            <Text style={styles.detailLabel}>📱 Phone</Text>
-            <Text style={styles.detailValue}>+91 {user.phone}</Text>
-          </View>
-          <View style={styles.detailRow}>
-            <Text style={styles.detailLabel}>📍 Status</Text>
-            <View style={[styles.statusBadge, user.accountApproved ? styles.statusApproved : styles.statusPending]}>
-              <Text style={[styles.statusText, user.accountApproved ? styles.statusTextApproved : styles.statusTextPending]}>
+          <View style={{ flex: 1 }}>
+            <Text style={s.userName}>{user.name}</Text>
+            <Text style={s.userType}>{user.type?.replace('_', ' ')}</Text>
+            <View style={[s.badge, user.accountApproved ? s.badgeGreen : s.badgeYellow]}>
+              <Text style={[s.badgeTxt, user.accountApproved ? s.badgeTxtGreen : s.badgeTxtYellow]}>
                 {user.accountApproved ? '✅ Approved' : '⏳ Pending'}
               </Text>
             </View>
           </View>
         </View>
-      </View>
-
-      {/* Credit Status Section */}
-      <Text style={styles.sectionTitle}>💰 Credit Status</Text>
-
-      <View style={[styles.creditStatusCard, !creditApproved && styles.creditDisabled]}>
-        <View style={styles.creditStatusHeader}>
-          <Text style={styles.creditStatusEmoji}>💳</Text>
-          <View style={styles.creditStatusContent}>
-            <Text style={styles.creditStatusTitle}>
-              {creditApproved ? 'Credit Approved ✅' : 'Credit Pending ⏳'}
-            </Text>
-            <Text style={styles.creditStatusDesc}>
-              {creditApproved ? 'Your account can use credit' : 'Awaiting admin approval'}
-            </Text>
+        <View style={s.divider} />
+        {[
+          ['📱 Phone', `+91 ${user.phone}`],
+          ['📧 Email', user.email],
+        ].map(([lbl, val]) => (
+          <View key={lbl} style={s.detailRow}>
+            <Text style={s.detailLbl}>{lbl}</Text>
+            <Text style={s.detailVal}>{val}</Text>
           </View>
+        ))}
+      </View>
+
+      {/* Credit status */}
+      <Text style={s.secTitle}>💳 Credit Status</Text>
+      <View style={[s.creditCard, !creditApproved && s.creditCardOff]}>
+        <Text style={[s.creditCardTitle, !creditApproved && s.creditCardTitleOff]}>
+          {creditApproved ? '✅ Credit Approved' : '❌ Credit Not Enabled'}
+        </Text>
+        <Text style={[s.creditCardSub, !creditApproved && s.creditCardSubOff]}>
+          {creditApproved ? 'You can place orders on credit' : 'Contact admin to enable credit'}
+        </Text>
+      </View>
+
+      {/* Credit grid */}
+      <View style={s.grid}>
+        {[
+          { lbl: 'Credit Limit', val: `₹${creditLimit.toLocaleString()}`,                                             color: '#1D4ED8' },
+          { lbl: 'Used',         val: `₹${usedCredit.toLocaleString('en-IN', { maximumFractionDigits: 0 })}`,         color: '#DC2626' },
+          { lbl: 'Due',          val: `₹${duePayments.toLocaleString()}`,                                             color: '#D97706' },
+          { lbl: 'Available',    val: `₹${availableCredit.toLocaleString('en-IN', { maximumFractionDigits: 0 })}`,    color: '#059669' },
+        ].map(({ lbl, val, color }) => (
+          <View key={lbl} style={s.gridCard}>
+            <Text style={s.gridLbl}>{lbl}</Text>
+            <Text style={[s.gridVal, { color }]}>{val}</Text>
+          </View>
+        ))}
+      </View>
+
+      {/* Credit summary */}
+      <View style={s.card}>
+        <Text style={s.summaryTitle}>📊 Credit Summary</Text>
+        {[
+          { lbl: 'Total Limit',  val: `₹${creditLimit.toLocaleString()}`,                                           color: '#111827' },
+          { lbl: 'Used Credit',  val: `-₹${usedCredit.toLocaleString('en-IN', { maximumFractionDigits: 0 })}`,      color: '#DC2626' },
+          { lbl: 'Due Payments', val: `-₹${duePayments.toLocaleString()}`,                                          color: '#D97706' },
+        ].map(({ lbl, val, color }) => (
+          <View key={lbl} style={s.sRow}>
+            <Text style={s.sLbl}>{lbl}</Text>
+            <Text style={[s.sVal, { color }]}>{val}</Text>
+          </View>
+        ))}
+        <View style={s.divider} />
+        <View style={s.sRow}>
+          <Text style={[s.sLbl, { fontWeight: '700', color: '#111827' }]}>Available</Text>
+          <Text style={[s.sVal, { color: '#059669', fontSize: 16 }]}>
+            ₹{availableCredit.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
+          </Text>
         </View>
       </View>
 
-      {/* Credit Metrics */}
-      <View style={styles.metricsGrid}>
-        <View style={styles.metricCard}>
-          <Text style={styles.metricLabel}>Limit</Text>
-          <Text style={styles.metricValue}>₹{creditLimit}</Text>
-        </View>
-        <View style={styles.metricCard}>
-          <Text style={styles.metricLabel}>Used</Text>
-          <Text style={[styles.metricValue, { color: '#DC2626' }]}>₹{usedCredit}</Text>
-        </View>
-        <View style={styles.metricCard}>
-          <Text style={styles.metricLabel}>Due</Text>
-          <Text style={[styles.metricValue, { color: '#F59E0B' }]}>₹{duePayments}</Text>
-        </View>
-        <View style={styles.metricCard}>
-          <Text style={styles.metricLabel}>Available</Text>
-          <Text style={[styles.metricValue, { color: '#10B981' }]}>₹{availableCredit}</Text>
-        </View>
-      </View>
+      {/* Quick Actions */}
+      <Text style={s.secTitle}>⚙️ Quick Actions</Text>
+      {[
+        { emoji: '💳', title: 'Credit Details',  sub: 'View credit usage & limits',  screen: 'CreditCheck' },
+        { emoji: '📦', title: 'Order History',   sub: 'View all your past orders',   screen: 'OrderHistory' },
+        { emoji: '💰', title: 'Payments',        sub: 'View pending payments',       screen: 'PaymentScreen' },
+        { emoji: '⏳', title: 'Pending Orders',  sub: 'Orders awaiting confirmation', screen: 'PendingOrders' },
+        { emoji: '✅', title: 'Accepted Orders', sub: 'Confirmed & processing',      screen: 'AcceptedOrders' },
+      ].map(({ emoji, title, sub, screen }) => (
+        <TouchableOpacity
+          key={screen}
+          style={s.actionRow}
+          onPress={() => navigation.navigate(screen)}
+        >
+          <Text style={s.actionEmoji}>{emoji}</Text>
+          <View style={{ flex: 1 }}>
+            <Text style={s.actionTitle}>{title}</Text>
+            <Text style={s.actionSub}>{sub}</Text>
+          </View>
+          <Text style={s.actionArrow}>›</Text>
+        </TouchableOpacity>
+      ))}
 
-      {/* Credit Summary */}
-      <View style={styles.summaryCard}>
-        <Text style={styles.summaryTitle}>📊 Credit Summary</Text>
-        <View style={styles.summaryRow}>
-          <Text style={styles.summaryLabel}>Total Credit Limit</Text>
-          <Text style={styles.summaryValue}>₹{creditLimit}</Text>
-        </View>
-        <View style={styles.summaryDivider} />
-        <View style={styles.summaryRow}>
-          <Text style={styles.summaryLabel}>Used Credit</Text>
-          <Text style={[styles.summaryValue, { color: '#DC2626' }]}>-₹{usedCredit}</Text>
-        </View>
-        <View style={styles.summaryRow}>
-          <Text style={styles.summaryLabel}>Due Payments</Text>
-          <Text style={[styles.summaryValue, { color: '#F59E0B' }]}>-₹{duePayments}</Text>
-        </View>
-        <View style={styles.summaryDivider} />
-        <View style={styles.summaryRowTotal}>
-          <Text style={styles.summaryLabelTotal}>Available Credit</Text>
-          <Text style={[styles.summaryValueTotal, { color: '#10B981' }]}>₹{availableCredit}</Text>
-        </View>
-      </View>
-
-      {/* Action Buttons */}
-      <Text style={styles.sectionTitle}>⚙️ Actions</Text>
-
-      <TouchableOpacity
-        style={styles.actionButton}
-        onPress={() => navigation.navigate('CreditCheck')}
-      >
-        <Text style={styles.actionButtonEmoji}>💰</Text>
-        <View style={styles.actionButtonContent}>
-          <Text style={styles.actionButtonTitle}>Credit Details</Text>
-          <Text style={styles.actionButtonDesc}>View detailed credit information</Text>
-        </View>
-        <Text style={styles.actionButtonArrow}>→</Text>
+      <TouchableOpacity style={s.logoutBtn} onPress={handleLogout}>
+        <Text style={s.logoutTxt}>🚪  Logout</Text>
       </TouchableOpacity>
 
-      <TouchableOpacity
-        style={styles.actionButton}
-        onPress={() => navigation.navigate('OrderHistory')}
-      >
-        <Text style={styles.actionButtonEmoji}>📦</Text>
-        <View style={styles.actionButtonContent}>
-          <Text style={styles.actionButtonTitle}>Order History</Text>
-          <Text style={styles.actionButtonDesc}>View all your orders</Text>
-        </View>
-        <Text style={styles.actionButtonArrow}>→</Text>
-      </TouchableOpacity>
-
-      {/* Logout Button */}
-      <TouchableOpacity
-        style={styles.logoutButton}
-        onPress={handleLogout}
-      >
-        <Text style={styles.logoutIcon}>🚪</Text>
-        <Text style={styles.logoutText}>Logout</Text>
-      </TouchableOpacity>
-
-      <View style={{ height: 20 }} />
+      <View style={{ height: 30 }} />
     </ScrollView>
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#F3F4F6',
-  },
-  emptyState: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingVertical: 60,
-  },
-  emptyEmoji: {
-    fontSize: 64,
-    marginBottom: 16,
-  },
-  emptyText: {
-    fontSize: 16,
-    color: '#6B7280',
-    fontWeight: '600',
-  },
-  header: {
-    backgroundColor: 'white',
-    paddingHorizontal: 16,
-    paddingTop: 12,
-    paddingBottom: 14,
-    borderBottomWidth: 1,
-    borderBottomColor: '#E5E7EB',
-  },
-  headerTitle: {
-    fontSize: 24,
-    fontWeight: '700',
-    color: '#1E3A8A',
-  },
-  headerSubtitle: {
-    fontSize: 14,
-    color: '#6B7280',
-    marginTop: 4,
-  },
-  profileCard: {
-    backgroundColor: 'white',
-    marginHorizontal: 12,
-    marginVertical: 12,
-    borderRadius: 12,
-    padding: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 8,
-    elevation: 2,
-  },
-  profileHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  profileEmoji: {
-    fontSize: 40,
-    marginRight: 12,
-  },
-  profileInfo: {
-    flex: 1,
-  },
-  companyName: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#1F2937',
-    marginBottom: 2,
-  },
-  role: {
-    fontSize: 13,
-    color: '#6B7280',
-    fontWeight: '500',
-  },
-  profileDivider: {
-    height: 1,
-    backgroundColor: '#E5E7EB',
-    marginVertical: 12,
-  },
-  profileDetails: {
-    gap: 10,
-  },
-  detailRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 6,
-  },
-  detailLabel: {
-    fontSize: 13,
-    color: '#6B7280',
-    fontWeight: '500',
-    flex: 1,
-  },
-  detailValue: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#1F2937',
-  },
-  statusBadge: {
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 6,
-  },
-  statusApproved: {
-    backgroundColor: '#D1FAE5',
-  },
-  statusPending: {
-    backgroundColor: '#FEF3C7',
-  },
-  statusText: {
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  statusTextApproved: {
-    color: '#065F46',
-  },
-  statusTextPending: {
-    color: '#92400E',
-  },
-  sectionTitle: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#1F2937',
-    paddingHorizontal: 16,
-    paddingTop: 14,
-    paddingBottom: 8,
-  },
-  creditStatusCard: {
-    backgroundColor: '#DBEAFE',
-    marginHorizontal: 12,
-    marginVertical: 8,
-    borderRadius: 12,
-    padding: 12,
-    borderLeftWidth: 4,
-    borderLeftColor: '#0369A1',
-  },
-  creditDisabled: {
-    backgroundColor: '#FEE2E2',
-    borderLeftColor: '#DC2626',
-  },
-  creditStatusHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  creditStatusEmoji: {
-    fontSize: 28,
-    marginRight: 12,
-  },
-  creditStatusContent: {
-    flex: 1,
-  },
-  creditStatusTitle: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: '#0369A1',
-    marginBottom: 2,
-  },
-  creditStatusDesc: {
-    fontSize: 12,
-    color: '#0369A1',
-  },
-  metricsGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    paddingHorizontal: 8,
-    marginVertical: 8,
-  },
-  metricCard: {
-    width: '48%',
-    backgroundColor: 'white',
-    marginHorizontal: 6,
-    marginVertical: 6,
-    borderRadius: 12,
-    padding: 12,
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 8,
-    elevation: 2,
-  },
-  metricLabel: {
-    fontSize: 12,
-    color: '#6B7280',
-    fontWeight: '500',
-    marginBottom: 4,
-  },
-  metricValue: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#1E3A8A',
-  },
-  summaryCard: {
-    backgroundColor: 'white',
-    marginHorizontal: 12,
-    marginVertical: 8,
-    borderRadius: 12,
-    padding: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 8,
-    elevation: 2,
-  },
-  summaryTitle: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#1F2937',
-    marginBottom: 12,
-  },
-  summaryRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingVertical: 8,
-  },
-  summaryRowTotal: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingVertical: 10,
-  },
-  summaryLabel: {
-    fontSize: 13,
-    color: '#6B7280',
-    fontWeight: '500',
-  },
-  summaryLabelTotal: {
-    fontSize: 14,
-    color: '#1F2937',
-    fontWeight: '700',
-  },
-  summaryValue: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#1F2937',
-  },
-  summaryValueTotal: {
-    fontSize: 16,
-    fontWeight: '700',
-  },
-  summaryDivider: {
-    height: 1,
-    backgroundColor: '#E5E7EB',
-    marginVertical: 8,
-  },
-  actionButton: {
-    backgroundColor: 'white',
-    marginHorizontal: 12,
-    marginVertical: 6,
-    borderRadius: 12,
-    padding: 12,
-    flexDirection: 'row',
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 8,
-    elevation: 2,
-  },
-  actionButtonEmoji: {
-    fontSize: 28,
-    marginRight: 12,
-  },
-  actionButtonContent: {
-    flex: 1,
-  },
-  actionButtonTitle: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: '#1F2937',
-    marginBottom: 2,
-  },
-  actionButtonDesc: {
-    fontSize: 12,
-    color: '#6B7280',
-  },
-  actionButtonArrow: {
-    fontSize: 16,
-    color: '#9CA3AF',
-    fontWeight: '600',
-  },
-  logoutButton: {
-    backgroundColor: '#FEE2E2',
-    marginHorizontal: 12,
-    marginVertical: 16,
-    borderRadius: 12,
-    paddingVertical: 12,
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 2,
-    borderColor: '#DC2626',
-  },
-  logoutIcon: {
-    fontSize: 20,
-    marginRight: 8,
-  },
-  logoutText: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: '#DC2626',
-  },
+const s = StyleSheet.create({
+  container: { flex: 1, backgroundColor: '#F8FAFC' },
+  center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  emptyTxt: { fontSize: 16, color: '#6B7280', marginTop: 12 },
+  header: { backgroundColor: '#fff', padding: 16, borderBottomWidth: 1, borderBottomColor: '#E5E7EB' },
+  headerTitle: { fontSize: 22, fontWeight: '800', color: '#111827' },
+  headerSub: { fontSize: 13, color: '#6B7280', marginTop: 3 },
+  card: { backgroundColor: '#fff', margin: 12, borderRadius: 14, padding: 16, borderWidth: 1, borderColor: '#E5E7EB', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.06, shadowRadius: 6, elevation: 2 },
+  avatarRow: { flexDirection: 'row', alignItems: 'center', gap: 14 },
+  avatar: { width: 56, height: 56, borderRadius: 28, backgroundColor: '#DBEAFE', justifyContent: 'center', alignItems: 'center' },
+  avatarLetter: { fontSize: 24, fontWeight: '800', color: '#1D4ED8' },
+  userName: { fontSize: 17, fontWeight: '800', color: '#111827' },
+  userType: { fontSize: 13, color: '#6B7280', marginTop: 2 },
+  badge: { alignSelf: 'flex-start', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6, marginTop: 5 },
+  badgeGreen: { backgroundColor: '#D1FAE5' },
+  badgeYellow: { backgroundColor: '#FEF3C7' },
+  badgeTxt: { fontSize: 11, fontWeight: '700' },
+  badgeTxtGreen: { color: '#065F46' },
+  badgeTxtYellow: { color: '#92400E' },
+  divider: { height: 1, backgroundColor: '#F3F4F6', marginVertical: 12 },
+  detailRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 6 },
+  detailLbl: { fontSize: 13, color: '#6B7280' },
+  detailVal: { fontSize: 13, fontWeight: '600', color: '#111827' },
+  secTitle: { fontSize: 15, fontWeight: '700', color: '#111827', paddingHorizontal: 16, paddingTop: 16, paddingBottom: 8 },
+  creditCard: { marginHorizontal: 12, backgroundColor: '#EFF6FF', borderRadius: 12, padding: 14, borderLeftWidth: 4, borderLeftColor: '#2563EB' },
+  creditCardOff: { backgroundColor: '#FEF2F2', borderLeftColor: '#DC2626' },
+  creditCardTitle: { fontSize: 14, fontWeight: '700', color: '#1D4ED8', marginBottom: 4 },
+  creditCardTitleOff: { color: '#DC2626' },
+  creditCardSub: { fontSize: 12, color: '#3B82F6' },
+  creditCardSubOff: { color: '#EF4444' },
+  grid: { flexDirection: 'row', flexWrap: 'wrap', paddingHorizontal: 8, marginVertical: 4 },
+  gridCard: { width: '46%', margin: 6, backgroundColor: '#fff', borderRadius: 12, padding: 14, alignItems: 'center', borderWidth: 1, borderColor: '#E5E7EB', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.06, shadowRadius: 4, elevation: 2 },
+  gridLbl: { fontSize: 11, color: '#6B7280', fontWeight: '600', marginBottom: 6 },
+  gridVal: { fontSize: 17, fontWeight: '800' },
+  summaryTitle: { fontSize: 15, fontWeight: '700', color: '#111827', marginBottom: 12 },
+  sRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 8 },
+  sLbl: { fontSize: 13, color: '#6B7280' },
+  sVal: { fontSize: 13, fontWeight: '700' },
+  actionRow: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff', marginHorizontal: 12, marginBottom: 8, padding: 14, borderRadius: 12, borderWidth: 1, borderColor: '#E5E7EB' },
+  actionEmoji: { fontSize: 26, marginRight: 12 },
+  actionTitle: { fontSize: 14, fontWeight: '700', color: '#111827' },
+  actionSub: { fontSize: 12, color: '#6B7280', marginTop: 2 },
+  actionArrow: { fontSize: 22, color: '#CBD5E1' },
+  logoutBtn: { marginHorizontal: 12, marginTop: 8, backgroundColor: '#FEF2F2', borderRadius: 12, padding: 16, alignItems: 'center', borderWidth: 1.5, borderColor: '#FECACA' },
+  logoutTxt: { color: '#DC2626', fontSize: 15, fontWeight: '800' },
 });

@@ -1,253 +1,174 @@
 import React, { useContext, useState } from 'react';
 import {
-  View,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  StyleSheet,
-  ActivityIndicator,
-  Alert,
-  KeyboardAvoidingView,
-  Platform,
+  View, Text, TextInput, TouchableOpacity, StyleSheet,
+  ActivityIndicator, Alert, KeyboardAvoidingView, Platform, ScrollView,
 } from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
-import { demoUsers } from '../data/demoUsers';
 import { AppContext } from '../context/AppContext';
+import { authApi } from '../api/api';
+
 export default function LoginScreen({ navigation }: any) {
-  const [phone, setPhone] = useState('');
+  const { login } = useContext(AppContext);
+  const [phone, setPhone]       = useState('');
   const [password, setPassword] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
-  const [errors, setErrors] = useState<any>({});
-  const [loading, setLoading] = useState(false);
-const { login } = useContext(AppContext);
+  const [showPass, setShowPass] = useState(false);
+  const [errors, setErrors]     = useState<Record<string, string>>({});
+  const [loading, setLoading]   = useState(false);
+
   const validate = () => {
-    let valid = true;
-    let newErrors: any = {};
-
-    if (!/^[0-9]{10}$/.test(phone)) {
-      newErrors.phone = "Enter valid 10 digit phone number";
-      valid = false;
-    }
-
-    if (password.length < 6) {
-      newErrors.password = "Password must be at least 6 characters";
-      valid = false;
-    }
-
-    setErrors(newErrors);
-    return valid;
+    const e: Record<string, string> = {};
+    if (!/^[0-9]{10}$/.test(phone)) e.phone = 'Enter a valid 10-digit phone number';
+    if (password.length < 6)        e.password = 'Password must be at least 6 characters';
+    setErrors(e);
+    return Object.keys(e).length === 0;
   };
 
- const handleLogin = () => {
-
-  const cleanPhone = phone.replace('+91', '');
-
-  const foundUser = demoUsers.find(
-    user =>
-      user.phone === cleanPhone &&
-      user.password === password
-  );
-
-  if (!foundUser) {
-    Alert.alert("Invalid Credentials");
-    return;
-  }
-
-  if (!foundUser.accountApproved) {
-    Alert.alert("Account Not Approved");
-    return;
-  }
-
-  login(foundUser);
-  navigation.replace("ProductList");
-};
+  const handleLogin = async () => {
+    if (!validate()) return;
+    setLoading(true);
+    try {
+      const res = await authApi.login(phone, password);
+      const d = res.data;
+      await login({
+        id: d.id, name: d.fullName, phone: d.phone, email: d.email,
+        type: d.customerType, token: d.token,
+        creditEnabled: d.creditEnabled, creditLimit: d.creditLimit,
+        advanceOption: d.advanceOption, accountApproved: true,
+      });
+      navigation.replace('Dashboard');
+    } catch (err: any) {
+      const code = err?.response?.data?.code;
+      const msg  = err?.response?.data?.error;
+      if (code === 'ACCOUNT_PENDING') {
+        Alert.alert('⏳ Account Pending', 'Your account is under review.\nPlease try again after 30 minutes.');
+      } else if (code === 'ACCOUNT_REJECTED') {
+        Alert.alert('❌ Account Rejected', 'Your account was rejected. Please contact support.');
+      } else {
+        Alert.alert('Login Failed', msg ?? 'Invalid phone number or password.');
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
 
   return (
-    <LinearGradient
-      colors={['#4f4fd8', '#b6492b', '#112e5e']}
-      start={{ x: 0, y: 0 }}
-      end={{ x: 1, y: 1 }}
-      style={styles.container}
-    >
+    <LinearGradient colors={['#1e3a8a', '#2563eb', '#1e40af']}
+      start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={s.bg}>
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         style={{ flex: 1 }}
       >
-        <View style={styles.header}>
-          <Text style={styles.headerEmoji}>👕</Text>
-          <Text style={styles.title}>Shriuday Garments</Text>
-          <Text style={styles.subtitle}>Welcome Back</Text>
-        </View>
+        <ScrollView contentContainerStyle={s.scroll} keyboardShouldPersistTaps="handled">
 
-      <View style={styles.formCard}>
-        <Text style={styles.label}>Phone Number</Text>
-        <View style={styles.phoneContainer}>
-          <Text style={styles.prefix}>+91</Text>
-          <TextInput
-            style={styles.phoneInput}
-            keyboardType="number-pad"
-            maxLength={10}
-            value={phone}
-            onChangeText={setPhone}
-            placeholder="Enter 10 digit number"
-            placeholderTextColor="#9CA3AF"
-          />
-        </View>
-        {errors.phone && <Text style={styles.error}>{errors.phone}</Text>}
+          {/* Logo */}
+          <View style={s.hero}>
+            <View style={s.circle}>
+              <Text style={s.emoji}>👕</Text>
+            </View>
+            <Text style={s.brand}>Shriuday Garments</Text>
+            <Text style={s.tagline}>Welcome back</Text>
+          </View>
 
-        <Text style={styles.label}>Password</Text>
-        <View style={styles.passwordContainer}>
-          <TextInput
-            style={{ flex: 1, color: '#1F2937' }}
-            secureTextEntry={!showPassword}
-            value={password}
-            onChangeText={setPassword}
-            placeholder="Enter password"
-            placeholderTextColor="#9CA3AF"
-          />
-          <TouchableOpacity onPress={() => setShowPassword(!showPassword)}>
-            <Text style={styles.toggle}>
-              {showPassword ? "Hide" : "Show"}
-            </Text>
-          </TouchableOpacity>
-        </View>
-        {errors.password && <Text style={styles.error}>{errors.password}</Text>}
+          {/* Card */}
+          <View style={s.card}>
+            <Text style={s.cardTitle}>Login to your account</Text>
 
-        <LinearGradient
-          colors={['#2563EB', '#1E40AF']}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-          style={styles.button}
-        >
-          <TouchableOpacity onPress={handleLogin} style={styles.buttonContent}>
-            {loading ? (
-              <ActivityIndicator color="white" />
-            ) : (
-              <Text style={styles.buttonText}>Login</Text>
-            )}
-          </TouchableOpacity>
-        </LinearGradient>
-      </View>
+            {/* Phone */}
+            <Text style={s.label}>Phone Number</Text>
+            <View style={[s.row, errors.phone ? s.rowErr : null]}>
+              <Text style={s.prefix}>🇮🇳 +91</Text>
+              <TextInput
+                style={s.input}
+                keyboardType="number-pad"
+                maxLength={10}
+                value={phone}
+                onChangeText={t => { setPhone(t); setErrors(e => ({ ...e, phone: '' })); }}
+                placeholder="10-digit number"
+                placeholderTextColor="#9CA3AF"
+                returnKeyType="next"
+              />
+            </View>
+            {errors.phone ? <Text style={s.err}>{errors.phone}</Text> : null}
 
-      <View style={styles.footerContainer}>
-        <Text style={styles.footerText}>Don't have an account? </Text>
-        <TouchableOpacity onPress={() => navigation.navigate('Signup')}>
-          <Text style={styles.link}>Create Account</Text>
-        </TouchableOpacity>
-      </View>
+            {/* Password */}
+            <Text style={s.label}>Password</Text>
+            <View style={[s.row, errors.password ? s.rowErr : null]}>
+              <Text style={s.icon}>🔒</Text>
+              <TextInput
+                style={s.input}
+                secureTextEntry={!showPass}
+                value={password}
+                onChangeText={t => { setPassword(t); setErrors(e => ({ ...e, password: '' })); }}
+                placeholder="Enter password"
+                placeholderTextColor="#9CA3AF"
+                returnKeyType="done"
+                onSubmitEditing={handleLogin}
+                autoCapitalize="none"
+              />
+              <TouchableOpacity onPress={() => setShowPass(!showPass)}>
+                <Text style={s.toggle}>{showPass ? 'Hide' : 'Show'}</Text>
+              </TouchableOpacity>
+            </View>
+            {errors.password ? <Text style={s.err}>{errors.password}</Text> : null}
+
+            {/* Button */}
+            <TouchableOpacity onPress={handleLogin} disabled={loading} style={{ marginTop: 22 }}>
+              <LinearGradient colors={['#10b981', '#059669']} style={s.btn}>
+                {loading
+                  ? <ActivityIndicator color="#fff" />
+                  : <Text style={s.btnTxt}>Login →</Text>}
+              </LinearGradient>
+            </TouchableOpacity>
+          </View>
+
+          {/* Footer */}
+          <View style={s.footer}>
+            <Text style={s.footerTxt}>Don't have an account?  </Text>
+            <TouchableOpacity onPress={() => navigation.navigate('Signup')}>
+              <Text style={s.footerLink}>Create Account</Text>
+            </TouchableOpacity>
+          </View>
+
+        </ScrollView>
       </KeyboardAvoidingView>
     </LinearGradient>
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    justifyContent: 'flex-start',
-    paddingTop: 120,
+const s = StyleSheet.create({
+  bg: { flex: 1 },
+  scroll: { flexGrow: 1, justifyContent: 'center', padding: 20 },
+  hero: { alignItems: 'center', marginBottom: 32 },
+  circle: {
+    width: 84, height: 84, borderRadius: 42,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    justifyContent: 'center', alignItems: 'center',
+    borderWidth: 2, borderColor: 'rgba(255,255,255,0.35)', marginBottom: 14,
   },
-  header: {
-    alignItems: 'center',
-    marginBottom: 40,
+  emoji: { fontSize: 42 },
+  brand: { fontSize: 26, fontWeight: '800', color: '#fff' },
+  tagline: { fontSize: 14, color: 'rgba(255,255,255,0.7)', marginTop: 6 },
+  card: {
+    backgroundColor: '#fff', borderRadius: 20, padding: 24,
+    shadowColor: '#000', shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.2, shadowRadius: 16, elevation: 8,
   },
-  headerEmoji: {
-    fontSize: 48,
-    marginBottom: 12,
+  cardTitle: { fontSize: 17, fontWeight: '700', color: '#1f2937', marginBottom: 20 },
+  label: { fontSize: 11, fontWeight: '700', color: '#374151', marginBottom: 6, marginTop: 14, textTransform: 'uppercase', letterSpacing: 0.5 },
+  row: {
+    flexDirection: 'row', alignItems: 'center',
+    borderWidth: 1.5, borderColor: '#e5e7eb', borderRadius: 10,
+    paddingHorizontal: 12, backgroundColor: '#f9fafb',
   },
-  title: {
-    fontSize: 26,
-    fontWeight: '700',
-    color: '#FFFFFF',
-  },
-  subtitle: {
-    fontSize: 14,
-    color: '#E0E7FF',
-    marginTop: 6,
-  },
-  formCard: {
-    marginHorizontal: 20,
-    backgroundColor: 'rgba(255, 255, 255, 0.12)',
-    borderRadius: 16,
-    padding: 24,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.15,
-    shadowRadius: 12,
-    elevation: 8,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.25)',
-  },
-  label: {
-    marginBottom: 8,
-    fontWeight: '600',
-    color: '#FFFFFF',
-    fontSize: 14,
-  },
-
-  phoneContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderWidth: 1.5,
-    borderColor: 'rgba(255, 255, 255, 0.3)',
-    borderRadius: 10,
-    marginBottom: 16,
-    backgroundColor: 'rgba(255, 255, 255, 0.1)'
-  },
-  prefix: {
-    paddingHorizontal: 12,
-    fontWeight: '600',
-    color: '#E0E7FF',
-  },
-  phoneInput: { flex: 1, padding: 12, color: '#FFFFFF' },
-
-  passwordContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderWidth: 1.5,
-    borderColor: 'rgba(255, 255, 255, 0.3)',
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    marginBottom: 16,
-    backgroundColor: 'rgba(255, 255, 255, 0.1)'
-  },
-
-  toggle: { color: '#E0E7FF', fontWeight: '600', fontSize: 12 },
-
-  button: {
-    borderRadius: 10,
-    marginTop: 8,
-    shadowColor: '#1E40AF',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.4,
-    shadowRadius: 8,
-    elevation: 6,
-    overflow: 'hidden',
-  },
-  buttonContent: {
-    padding: 14,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  buttonText: {
-    color: 'white',
-    textAlign: 'center',
-    fontWeight: '700',
-    fontSize: 16,
-  },
-  footerContainer: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginTop: 24,
-  },
-  footerText: {
-    color: '#E0E7FF',
-    fontSize: 14,
-  },
-  link: {
-    color: '#FFFFFF',
-    fontWeight: '600',
-    fontSize: 14,
-  },
-  error: { color: '#FCA5A5', marginBottom: 10, fontSize: 12, fontWeight: '500' }
+  rowErr: { borderColor: '#ef4444' },
+  prefix: { fontSize: 13, color: '#374151', fontWeight: '600', marginRight: 8 },
+  icon: { fontSize: 15, marginRight: 8 },
+  input: { flex: 1, paddingVertical: 13, fontSize: 14, color: '#111827' },
+  toggle: { color: '#2563eb', fontWeight: '700', fontSize: 12 },
+  err: { color: '#ef4444', fontSize: 11, marginTop: 4, fontWeight: '500' },
+  btn: { borderRadius: 12, paddingVertical: 15, alignItems: 'center' },
+  btnTxt: { color: '#fff', fontSize: 16, fontWeight: '800' },
+  footer: { flexDirection: 'row', justifyContent: 'center', marginTop: 28 },
+  footerTxt: { color: 'rgba(255,255,255,0.8)', fontSize: 14 },
+  footerLink: { color: '#fff', fontWeight: '800', fontSize: 14 },
 });

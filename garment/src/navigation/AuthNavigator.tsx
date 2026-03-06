@@ -15,13 +15,13 @@ export default function AuthNavigator() {
         component={SplashScreen}
         options={{ headerShown: false }}
       />
-      <Stack.Screen 
-        name="Login" 
+      <Stack.Screen
+        name="Login"
         component={LoginScreen}
         options={{ headerShown: false }}
       />
-      <Stack.Screen 
-        name="Signup" 
+      <Stack.Screen
+        name="Signup"
         component={SignupScreen}
         options={{ headerShown: false }}
       />
