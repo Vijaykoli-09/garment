@@ -11,10 +11,10 @@ import {
 import { AppContext } from '../context/AppContext';
 
 export default function CartScreen({ navigation }: any) {
-  const { cart, removeFromCart, totalAmount, updateQuantity } = useContext(AppContext);
+  const { cart, removeFromCart, cartTotal, cartTotalWithGst, updateCartItem } = useContext(AppContext);
 
-  const gstAmount = (totalAmount * 0.18);
-  const grandTotal = totalAmount + gstAmount;
+  const gstAmount = cartTotalWithGst - cartTotal;
+  const grandTotal = cartTotalWithGst;
 
   const handleCheckout = () => {
     if (cart.length === 0) {
@@ -44,7 +44,7 @@ export default function CartScreen({ navigation }: any) {
 
           <FlatList
             data={cart}
-            keyExtractor={(item) => item.id}
+            keyExtractor={(item) => `${item.productId}-${item.selectedSize}`}
             renderItem={({ item }) => (
               <View style={styles.card}>
                 <View style={styles.cardHeader}>
@@ -54,40 +54,43 @@ export default function CartScreen({ navigation }: any) {
                   <View style={styles.cardInfo}>
                     <Text style={styles.name}>{item.name}</Text>
                     <Text style={styles.size}>Size: {item.selectedSize}</Text>
-                    <Text style={styles.price}>₹{item.price} per unit</Text>
+                    <Text style={styles.price}>₹{item.pricePerBox?.toFixed(2) ?? '0.00'}/box  ·  ₹{item.pricePerPc?.toFixed(2) ?? '0.00'}/pc</Text>
                   </View>
                 </View>
 
                 <View style={styles.qtySection}>
-                  <Text style={styles.label}>Quantity</Text>
+                  <Text style={styles.label}>Quantity (Boxes)</Text>
                   <View style={styles.qtyControl}>
                     <TouchableOpacity
                       style={styles.qtyBtn}
                       onPress={() => {
-                        if (item.quantity > 1) {
-                          updateQuantity(item.id, item.quantity - 1);
+                        if (item.boxes > 1) {
+                          updateCartItem(item.productId, item.selectedSize, item.boxes - 1);
                         }
                       }}
                     >
                       <Text style={styles.qtyBtnText}>−</Text>
                     </TouchableOpacity>
-                    <Text style={styles.qtyValue}>{item.quantity}</Text>
+                    <Text style={styles.qtyValue}>{item.boxes} box{item.boxes > 1 ? 'es' : ''}</Text>
                     <TouchableOpacity
                       style={styles.qtyBtn}
-                      onPress={() => updateQuantity(item.id, item.quantity + 1)}
+                      onPress={() => updateCartItem(item.productId, item.selectedSize, item.boxes + 1)}
                     >
                       <Text style={styles.qtyBtnText}>+</Text>
                     </TouchableOpacity>
                   </View>
+                  <Text style={{ fontSize: 12, color: '#6B7280', marginTop: 6 }}>
+                    {item.boxes} box{item.boxes > 1 ? 'es' : ''} × {item.pcsPerBox} pcs = {item.quantity} pcs total
+                  </Text>
                 </View>
 
                 <View style={styles.totalRow}>
                   <Text style={styles.totalLabel}>Item Total</Text>
-                  <Text style={styles.totalPrice}>₹{(item.quantity * item.price).toFixed(2)}</Text>
+                  <Text style={styles.totalPrice}>₹{(item.pricePerBox * item.boxes).toFixed(2)}</Text>
                 </View>
 
                 <TouchableOpacity
-                  onPress={() => removeFromCart(item.id)}
+                  onPress={() => removeFromCart(item.productId, item.selectedSize)}
                   style={styles.removeBtn}
                 >
                   <Text style={styles.removeBtnText}>🗑️ Remove</Text>
@@ -100,7 +103,7 @@ export default function CartScreen({ navigation }: any) {
                 <View style={styles.summaryBox}>
                   <View style={styles.summaryRow}>
                     <Text style={styles.summaryLabel}>Subtotal</Text>
-                    <Text style={styles.summaryValue}>₹{totalAmount.toFixed(2)}</Text>
+                    <Text style={styles.summaryValue}>₹{cartTotal.toFixed(2)}</Text>
                   </View>
                   <View style={styles.summaryRow}>
                     <Text style={styles.summaryLabel}>GST (18%)</Text>

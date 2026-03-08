@@ -7,10 +7,7 @@ import com.garment.repository.ProductRepository;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collections;
-import java.util.List;
+import java.util.*;
 import java.util.stream.Collectors;
 
 @Service
@@ -24,134 +21,76 @@ public class ProductService {
         this.cloudinaryService = cloudinaryService;
     }
 
-    // ────────────────────────────────────────────────────────────────
-    // CREATE
-    // ────────────────────────────────────────────────────────────────
     public ProductResponse createProduct(ProductRequest req) {
-        validateRequest(req);
-        Product product = new Product();
-        mapRequestToEntity(req, product);
-        product.setCreatedAt(LocalDateTime.now());
-        product.setActive(true);
-        return ProductResponse.from(repo.save(product));
+        Product p = new Product();
+        mapToEntity(req, p);
+        p.setCreatedAt(LocalDateTime.now());
+        p.setActive(true);
+        return ProductResponse.from(repo.save(p));
     }
 
-    // ────────────────────────────────────────────────────────────────
-    // UPDATE
-    // Detects removed images → deletes them from Cloudinary
-    // ────────────────────────────────────────────────────────────────
     public ProductResponse updateProduct(Long id, ProductRequest req) {
-        validateRequest(req);
-
-        Product product = repo.findById(id)
-                .orElseThrow(() -> new RuntimeException("Product not found with id: " + id));
-
-        // Find images removed by admin during edit
-        List<String> oldImages = parseImages(product.getImages());
+        Product p = repo.findById(id)
+                .orElseThrow(() -> new RuntimeException("Product not found: " + id));
+        List<String> oldImages = parseList(p.getImages());
         List<String> newImages = req.getImages() != null ? req.getImages() : Collections.emptyList();
-
-        List<String> removedImages = oldImages.stream()
-                .filter(url -> !newImages.contains(url))
-                .collect(Collectors.toList());
-
-        // Delete removed images from Cloudinary
-        if (!removedImages.isEmpty()) {
-            System.out.println("[ProductService] Removing " + removedImages.size()
-                    + " image(s) from Cloudinary for product: " + product.getName());
-            removedImages.forEach(cloudinaryService::deleteImage);
-        }
-
-        mapRequestToEntity(req, product);
-        product.setUpdatedAt(LocalDateTime.now());
-        return ProductResponse.from(repo.save(product));
+        oldImages.stream().filter(url -> !newImages.contains(url))
+                .forEach(cloudinaryService::deleteImage);
+        mapToEntity(req, p);
+        p.setUpdatedAt(LocalDateTime.now());
+        return ProductResponse.from(repo.save(p));
     }
 
-    // ────────────────────────────────────────────────────────────────
-    // DELETE — Hard delete from DB + all images deleted from Cloudinary
-    // ────────────────────────────────────────────────────────────────
     public void deleteProduct(Long id) {
-        Product product = repo.findById(id)
-                .orElseThrow(() -> new RuntimeException("Product not found with id: " + id));
-
-        // Delete ALL images from Cloudinary first
-        List<String> images = parseImages(product.getImages());
-        if (!images.isEmpty()) {
-            System.out.println("[ProductService] Deleting " + images.size()
-                    + " image(s) from Cloudinary for product: " + product.getName());
-            images.forEach(cloudinaryService::deleteImage);
-        }
-
-        // Hard delete from DB — gone permanently
+        Product p = repo.findById(id)
+                .orElseThrow(() -> new RuntimeException("Product not found: " + id));
+        parseList(p.getImages()).forEach(cloudinaryService::deleteImage);
         repo.deleteById(id);
-        System.out.println("[ProductService] Deleted product id: " + id);
     }
 
-    // ────────────────────────────────────────────────────────────────
-    // GET ALL — Admin
-    // ────────────────────────────────────────────────────────────────
     public List<ProductResponse> getAllProductsAdmin() {
-        return repo.findAllByOrderByCreatedAtDesc()
-                .stream()
-                .map(ProductResponse::from)
-                .collect(Collectors.toList());
+        return repo.findAllByOrderByCreatedAtDesc().stream()
+                .map(ProductResponse::from).collect(Collectors.toList());
     }
 
-    // ────────────────────────────────────────────────────────────────
-    // GET ALL — Mobile App (active only + optional search)
-    // ────────────────────────────────────────────────────────────────
     public List<ProductResponse> getActiveProducts(String search) {
-        List<Product> products;
-        if (search != null && !search.isBlank()) {
-            products = repo.findByActiveTrueAndNameContainingIgnoreCaseOrderByCreatedAtDesc(search.trim());
-        } else {
-            products = repo.findByActiveTrueOrderByCreatedAtDesc();
-        }
-        return products.stream()
-                .map(ProductResponse::from)
-                .collect(Collectors.toList());
+        List<Product> list = (search != null && !search.isBlank())
+                ? repo.findByActiveTrueAndNameContainingIgnoreCaseOrderByCreatedAtDesc(search.trim())
+                : repo.findByActiveTrueOrderByCreatedAtDesc();
+        return list.stream().map(ProductResponse::from).collect(Collectors.toList());
     }
 
-    // ────────────────────────────────────────────────────────────────
-    // GET ONE
-    // ────────────────────────────────────────────────────────────────
     public ProductResponse getProductById(Long id) {
-        Product product = repo.findById(id)
-                .orElseThrow(() -> new RuntimeException("Product not found with id: " + id));
-        return ProductResponse.from(product);
+        return ProductResponse.from(repo.findById(id)
+                .orElseThrow(() -> new RuntimeException("Product not found: " + id)));
     }
 
-    // ────────────────────────────────────────────────────────────────
-    // HELPERS
-    // ────────────────────────────────────────────────────────────────
-    private List<String> parseImages(String imagesStr) {
-        if (imagesStr == null || imagesStr.isBlank()) return new ArrayList<>();
-        return Arrays.stream(imagesStr.split(","))
-                .map(String::trim)
-                .filter(s -> !s.isBlank())
-                .collect(Collectors.toList());
+    private void mapToEntity(ProductRequest req, Product p) {
+        p.setName(req.getName().trim());
+        p.setDescription(req.getDescription() != null ? req.getDescription().trim() : "");
+        p.setBoxQuantity(req.getBoxQuantity() != null ? req.getBoxQuantity() : 12);
+        p.setSizes(req.getSizes()  != null ? String.join(",", req.getSizes())  : "");
+        p.setImages(req.getImages() != null ? String.join(",", req.getImages()) : "");
+
+        if (req.getPricing() != null) {
+            p.setPriceWholeSeller(    orZero(req.getPricing().getWholeSeller()));
+            p.setPriceSemiWholeSeller(orZero(req.getPricing().getSemiWholeSeller()));
+            p.setPriceRetailer(       orZero(req.getPricing().getRetailer()));
+        }
+
+        if (req.getMinBox() != null) {
+            p.setMinBoxWholeSeller(    orDefault(req.getMinBox().getWholeSeller(), 10));
+            p.setMinBoxSemiWholeSeller(orDefault(req.getMinBox().getSemiWholeSeller(), 8));
+            p.setMinBoxRetailer(       orDefault(req.getMinBox().getRetailer(), 5));
+        }
     }
 
-    private void validateRequest(ProductRequest req) {
-        if (req.getName() == null || req.getName().isBlank())
-            throw new RuntimeException("Product name is required.");
-        if (req.getBoxQuantity() == null || req.getBoxQuantity() <= 0)
-            throw new RuntimeException("Box quantity must be greater than 0.");
-        if (req.getPricing() == null)
-            throw new RuntimeException("Pricing is required.");
-        if (req.getPricing().getWholeSeller() == null || req.getPricing().getWholeSeller() < 0 ||
-            req.getPricing().getSemiWholeSeller() == null || req.getPricing().getSemiWholeSeller() < 0 ||
-            req.getPricing().getRetailer() == null || req.getPricing().getRetailer() < 0)
-            throw new RuntimeException("All pricing values must be 0 or greater.");
-    }
+    private double orZero(Double v)              { return v != null ? v : 0.0; }
+    private int    orDefault(Integer v, int def) { return (v != null && v > 0) ? v : def; }
 
-    private void mapRequestToEntity(ProductRequest req, Product product) {
-        product.setName(req.getName().trim());
-        product.setDescription(req.getDescription() != null ? req.getDescription().trim() : "");
-        product.setBoxQuantity(req.getBoxQuantity());
-        product.setSizes(req.getSizes() != null ? String.join(",", req.getSizes()) : "");
-        product.setImages(req.getImages() != null ? String.join(",", req.getImages()) : "");
-        product.setPriceWholeSeller(req.getPricing().getWholeSeller());
-        product.setPriceSemiWholeSeller(req.getPricing().getSemiWholeSeller());
-        product.setPriceRetailer(req.getPricing().getRetailer());
+    private List<String> parseList(String csv) {
+        if (csv == null || csv.isBlank()) return new ArrayList<>();
+        return Arrays.stream(csv.split(",")).map(String::trim)
+                .filter(s -> !s.isBlank()).collect(Collectors.toList());
     }
 }

@@ -16,17 +16,16 @@ const { width } = Dimensions.get('window');
 export default function DashboardScreen({ navigation }: any) {
   const { user, totalItems, availableCredit, duePayments } = useContext(AppContext);
 
-  const handleBuyProducts = () => {
-    navigation.navigate('ProductList');
-  };
+  // "Semi_Wholesaler" → "Semi Wholesaler"
+  const typeLabel = user?.type?.replace(/_/g, ' ') ?? '';
 
-  const handleStatements = () => {
-    navigation.navigate('OrderHistory');
-  };
+  const typeBadgeColor =
+    user?.type === 'Wholesaler'      ? '#7C3AED' :
+    user?.type === 'Semi_Wholesaler' ? '#2563EB' :
+                                       '#059669';
 
-  const handlePayments = () => {
-    navigation.navigate('PaymentScreen');
-  };
+  // First letter of name for avatar
+  const avatarLetter = (user?.name ?? 'U').charAt(0).toUpperCase();
 
   return (
     <LinearGradient
@@ -36,107 +35,107 @@ export default function DashboardScreen({ navigation }: any) {
       style={styles.container}
     >
       <StatusBar backgroundColor="#4f4fd8" barStyle="light-content" />
-      <ScrollView
-        style={styles.scrollView}
-        showsVerticalScrollIndicator={false}
-      >
-        {/* Header */}
-        <View style={styles.headerGradient}>
-          <View style={styles.headerContent}>
-            <Text style={styles.greeting}>Welcome back,</Text>
-            <Text style={styles.userName}>{user?.name ?? 'User'}</Text>
-            <Text style={styles.userType}>{user?.type ?? ''}</Text>
-          </View>
+      <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
+
+        {/* ── Header ─────────────────────────────────────────── */}
+        <View style={styles.headerCard}>
+
+          {/* Profile icon — top right */}
+          <TouchableOpacity
+            style={styles.profileBtn}
+            onPress={() => navigation.navigate('Profile')}
+            activeOpacity={0.8}
+          >
+            <View style={[styles.avatarCircle, { backgroundColor: typeBadgeColor }]}>
+              <Text style={styles.avatarLetter}>{avatarLetter}</Text>
+            </View>
+          </TouchableOpacity>
+
+          {/* Welcome text */}
+          <Text style={styles.greeting}>Welcome back,</Text>
+          <Text style={styles.userName} numberOfLines={1}>
+            {user?.name ?? 'User'}
+          </Text>
+          {typeLabel ? (
+            <View style={[styles.typeBadge, { backgroundColor: typeBadgeColor }]}>
+              <Text style={styles.typeBadgeText}>{typeLabel}</Text>
+            </View>
+          ) : null}
         </View>
 
-        {/* Stats Row */}
+        {/* ── Stats Row ───────────────────────────────────────── */}
         <View style={styles.statsContainer}>
           <View style={styles.statCard}>
             <Text style={styles.statIcon}>📦</Text>
             <Text style={styles.statValue}>{totalItems ?? 0}</Text>
-            <Text style={styles.statLabel}>Total Items</Text>
+            <Text style={styles.statLabel}>Cart Items</Text>
           </View>
           <View style={styles.statCard}>
             <Text style={styles.statIcon}>💰</Text>
-            <Text style={styles.statValue}>{availableCredit ?? 0}</Text>
+            <Text style={styles.statValue}>
+              ₹{Number(availableCredit ?? 0).toLocaleString('en-IN')}
+            </Text>
             <Text style={styles.statLabel}>Available Credit</Text>
           </View>
           <View style={styles.statCard}>
             <Text style={styles.statIcon}>🔔</Text>
-            <Text style={styles.statValue}>{duePayments ?? 0}</Text>
+            <Text style={[styles.statValue, (duePayments ?? 0) > 0 && { color: '#DC2626' }]}>
+              ₹{Number(duePayments ?? 0).toLocaleString('en-IN')}
+            </Text>
             <Text style={styles.statLabel}>Due Payments</Text>
           </View>
         </View>
 
-        {/* Main Action Cards */}
+        {/* ── Action Cards ────────────────────────────────────── */}
         <View style={styles.cardsContainer}>
-          {/* Buy Product Card */}
-          <TouchableOpacity
-            style={[styles.cardLarge, styles.buyProductCard]}
-            onPress={handleBuyProducts}
-            activeOpacity={0.85}
-          >
-            <View style={styles.cardGradient}>
+
+          <TouchableOpacity style={[styles.cardLarge, styles.buyProductCard]}
+            onPress={() => navigation.navigate('ProductList')} activeOpacity={0.85}>
+            <View style={styles.cardInner}>
               <Text style={styles.cardIcon}>🛍️</Text>
               <Text style={styles.cardTitle}>Buy Products</Text>
               <Text style={styles.cardDesc}>Browse & purchase garments</Text>
-              <View style={styles.cardArrow}>
-                <Text style={styles.arrowText}>→</Text>
-              </View>
+              <Text style={styles.arrowText}>→</Text>
             </View>
           </TouchableOpacity>
 
-          {/* Statements Card */}
-          <TouchableOpacity
-            style={[styles.cardLarge, styles.statementsCard]}
-            onPress={handleStatements}
-            activeOpacity={0.85}
-          >
-            <View style={styles.cardGradient}>
+          <TouchableOpacity style={[styles.cardLarge, styles.statementsCard]}
+            onPress={() => navigation.navigate('OrderHistory')} activeOpacity={0.85}>
+            <View style={styles.cardInner}>
               <Text style={styles.cardIcon}>📊</Text>
               <Text style={styles.cardTitle}>Statements</Text>
               <Text style={styles.cardDesc}>View order history & details</Text>
-              <View style={styles.cardArrow}>
-                <Text style={styles.arrowText}>→</Text>
-              </View>
+              <Text style={styles.arrowText}>→</Text>
             </View>
           </TouchableOpacity>
 
-          {/* Payments Card */}
-          <TouchableOpacity
-            style={[styles.cardLarge, styles.paymentsCard]}
-            onPress={handlePayments}
-            activeOpacity={0.85}
-          >
-            <View style={styles.cardGradient}>
+          <TouchableOpacity style={[styles.cardLarge, styles.paymentsCard]}
+            onPress={() => navigation.navigate('PaymentScreen')} activeOpacity={0.85}>
+            <View style={styles.cardInner}>
               <Text style={styles.cardIcon}>💳</Text>
               <Text style={styles.cardTitle}>Payments</Text>
               <Text style={styles.cardDesc}>Check credit & payment records</Text>
-              <View style={styles.cardArrow}>
-                <Text style={styles.arrowText}>→</Text>
-              </View>
+              <Text style={styles.arrowText}>→</Text>
             </View>
           </TouchableOpacity>
-        </View>
 
-        <View style={styles.spacer} />
+        </View>
+        <View style={{ height: 20 }} />
       </ScrollView>
     </LinearGradient>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
-  scrollView: {
-    flex: 1,
-  },
-  headerGradient: {
+  container:   { flex: 1 },
+  scrollView:  { flex: 1 },
+
+  // ── Header ──────────────────────────────────────────────────────
+  headerCard: {
     backgroundColor: '#FFFFFF',
-    paddingHorizontal: 16,
+    paddingHorizontal: 20,
     paddingTop: 20,
-    paddingBottom: 32,
+    paddingBottom: 28,
     borderBottomLeftRadius: 24,
     borderBottomRightRadius: 24,
     shadowColor: '#000',
@@ -147,25 +146,56 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#E2E8F0',
   },
-  headerContent: {
-    paddingTop: 10,
+  profileBtn: {
+    position: 'absolute',
+    top: 18,
+    right: 18,
+    zIndex: 10,
+  },
+  avatarCircle: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 4,
+    elevation: 4,
+  },
+  avatarLetter: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: '#FFFFFF',
   },
   greeting: {
     fontSize: 14,
     color: '#64748B',
     marginBottom: 4,
+    marginTop: 10,
   },
   userName: {
     fontSize: 28,
-    fontWeight: '700',
+    fontWeight: '800',
     color: '#0F172A',
-    marginBottom: 4,
+    marginBottom: 10,
+    paddingRight: 52,   // don't overlap the avatar button
   },
-  userType: {
-    fontSize: 13,
-    color: '#2563EB',
-    fontWeight: '500',
+  typeBadge: {
+    alignSelf: 'flex-start',
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    borderRadius: 20,
   },
+  typeBadgeText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#FFFFFF',
+    letterSpacing: 0.3,
+  },
+
+  // ── Stats ────────────────────────────────────────────────────────
   statsContainer: {
     flexDirection: 'row',
     paddingHorizontal: 12,
@@ -187,25 +217,12 @@ const styles = StyleSheet.create({
     shadowRadius: 12,
     elevation: 3,
   },
-  statIcon: {
-    fontSize: 24,
-    marginBottom: 8,
-  },
-  statValue: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#0F172A',
-    marginBottom: 4,
-  },
-  statLabel: {
-    fontSize: 11,
-    color: '#64748B',
-    textAlign: 'center',
-  },
-  cardsContainer: {
-    paddingHorizontal: 16,
-    marginBottom: 32,
-  },
+  statIcon:  { fontSize: 24, marginBottom: 6 },
+  statValue: { fontSize: 13, fontWeight: '700', color: '#0F172A', marginBottom: 4, textAlign: 'center' },
+  statLabel: { fontSize: 10, color: '#64748B', textAlign: 'center' },
+
+  // ── Cards ────────────────────────────────────────────────────────
+  cardsContainer:  { paddingHorizontal: 16, marginBottom: 32 },
   cardLarge: {
     marginBottom: 16,
     borderRadius: 20,
@@ -216,43 +233,16 @@ const styles = StyleSheet.create({
     shadowRadius: 16,
     elevation: 6,
   },
-  buyProductCard: {
-    backgroundColor: '#EF4444',
-  },
-  statementsCard: {
-    backgroundColor: '#3B82F6',
-  },
-  paymentsCard: {
-    backgroundColor: '#10B981',
-  },
-  cardGradient: {
+  buyProductCard: { backgroundColor: '#EF4444' },
+  statementsCard: { backgroundColor: '#3B82F6' },
+  paymentsCard:   { backgroundColor: '#10B981' },
+  cardInner: {
     padding: 20,
     minHeight: 140,
     justifyContent: 'space-between',
   },
-  cardIcon: {
-    fontSize: 40,
-    marginBottom: 8,
-  },
-  cardTitle: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: '#FFFFFF',
-    marginBottom: 4,
-  },
-  cardDesc: {
-    fontSize: 13,
-    color: 'rgba(255, 255, 255, 0.9)',
-  },
-  cardArrow: {
-    marginTop: 8,
-    opacity: 0.9,
-  },
-  arrowText: {
-    fontSize: 20,
-    color: '#FFFFFF',
-  },
-  spacer: {
-    height: 20,
-  },
+  cardIcon:  { fontSize: 40, marginBottom: 8 },
+  cardTitle: { fontSize: 20, fontWeight: '700', color: '#FFFFFF', marginBottom: 4 },
+  cardDesc:  { fontSize: 13, color: 'rgba(255,255,255,0.9)' },
+  arrowText: { fontSize: 20, color: '#FFFFFF', marginTop: 8, opacity: 0.9 },
 });

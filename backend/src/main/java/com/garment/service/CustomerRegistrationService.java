@@ -157,6 +157,29 @@ public class CustomerRegistrationService {
         return repo.save(customer);
     }
 
+    // ────────────────────────────────────────────────────────────────
+    // PROFILE — returns fresh credit settings for the logged-in customer
+    // Called by the app on launch to pick up admin changes after login.
+    // ────────────────────────────────────────────────────────────────
+    public CustomerLoginResponse getProfile(String phone) {
+        CustomerRegistration customer = repo.findByPhone(phone)
+                .orElseThrow(() -> new RuntimeException("Customer not found."));
+
+        // Re-use the same response shape as login — app merges creditEnabled,
+        // creditLimit, advanceOption into the cached user object.
+        return new CustomerLoginResponse(
+                null,  // no new token needed
+                customer.getId(),
+                customer.getFullName(),
+                customer.getPhone(),
+                customer.getEmail(),
+                customer.getCustomerType().name(),
+                Boolean.TRUE.equals(customer.getCreditEnabled()),
+                customer.getCreditLimit() != null ? customer.getCreditLimit() : 0.0,
+                Boolean.TRUE.equals(customer.getAdvanceOption())
+        );
+    }
+
     public CustomerRegistration updateCustomer(Long id, UpdateCustomerRequest req) {
 
     CustomerRegistration customer = repo.findById(id)

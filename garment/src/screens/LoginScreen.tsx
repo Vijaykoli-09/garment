@@ -30,8 +30,8 @@ export default function LoginScreen({ navigation }: any) {
       const res = await authApi.login(phone, password);
       const d = res.data;
       await login({
-        id: d.id, name: d.fullName, phone: d.phone, email: d.email,
-        type: d.customerType, token: d.token,
+        id: d.id, name: d.name, phone: d.phone, email: d.email,
+        type: d.type, token: d.token,
         creditEnabled: d.creditEnabled, creditLimit: d.creditLimit,
         advanceOption: d.advanceOption, accountApproved: true,
       });

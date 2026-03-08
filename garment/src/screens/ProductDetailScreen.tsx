@@ -1,52 +1,70 @@
-import React, { useCallback, useContext, useState } from 'react';
+import React, { useState, useContext, useCallback } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity, ScrollView,
-  Alert, StatusBar, Image, Dimensions, Modal,
+  Alert, StatusBar, Modal, Dimensions, Image,
 } from 'react-native';
 import { AppContext } from '../context/AppContext';
 
 const { width } = Dimensions.get('window');
 const GST = 0.18;
 
+// ── Helpers: pick value for the logged-in user type ──────────────────
+function getMyPrice(pricing: any, type?: string): number {
+  if (type === 'Wholesaler')      return pricing?.wholeSeller     ?? 0;
+  if (type === 'Semi_Wholesaler') return pricing?.semiWholeSeller ?? 0;
+  return pricing?.retailer ?? 0;
+}
+
+function getMyMinBox(minBox: any, type?: string): number {
+  if (type === 'Wholesaler')      return minBox?.wholeSeller     ?? 10;
+  if (type === 'Semi_Wholesaler') return minBox?.semiWholeSeller ?? 8;
+  return minBox?.retailer ?? 5;
+}
+
+// ════════════════════════════════════════════════════════════════════
 export default function ProductDetailScreen({ route, navigation }: any) {
   const { product } = route.params;
-  const { addToCart, remainingCredit, user } = useContext(AppContext);
+  const { addToCart, remainingCredit, creditApproved, user } = useContext(AppContext);
+
+  // Per-user values from backend
+  const pricePerBox = getMyPrice(product.pricing, user?.type);
+  const minBoxes    = getMyMinBox(product.minBox,  user?.type);
+  const pcsPerBox   = product.boxQuantity ?? 12;
 
   const [selectedSize, setSelectedSize] = useState<string>(product.sizes?.[0] ?? '');
-  const [boxes, setBoxes]               = useState(1);
+  const [boxes, setBoxes]               = useState(minBoxes);    // start at minimum
   const [activeImg, setActiveImg]       = useState(0);
   const [fullScreen, setFullScreen]     = useState(false);
 
-  const getPrice = useCallback(() => {
-    if (user?.type === 'Wholesaler')      return product.pricing.wholeSeller;
-    if (user?.type === 'Semi_Wholesaler') return product.pricing.semiWholeSeller;
-    return product.pricing.retailer;
-  }, [user, product]);
-
-  const pricePerPc = getPrice();
-  const pcsPerBox  = product.boxQuantity ?? 12;
+  // ── Calculations — price is per BOX ─────────────────────────────
   const totalPcs   = boxes * pcsPerBox;
-  const subtotal   = pricePerPc * totalPcs;
+  const subtotal   = pricePerBox * boxes;
   const gstAmt     = subtotal * GST;
   const total      = subtotal + gstAmt;
-  const canAfford  = !user?.creditEnabled || total <= remainingCredit;
+  const pricePerPc = pcsPerBox > 0 ? (pricePerBox / pcsPerBox) : 0;
 
-  const handleAddToCart = () => {
+  const canAfford  = !creditApproved || total <= remainingCredit;
+  const typeLabel  = user?.type?.replace('_', ' ') ?? 'Retailer';
+
+  const decrement = () => { if (boxes > minBoxes) setBoxes(b => b - 1); };
+  const increment = () => setBoxes(b => b + 1);
+
+  const handleAddToCart = useCallback(() => {
     if (!canAfford) {
       Alert.alert('⚠️ Insufficient Credit',
-        `This order (₹${total.toFixed(0)}) exceeds your available credit (₹${remainingCredit.toFixed(0)}).`);
+        `Order total ₹${total.toFixed(0)} exceeds your available credit ₹${remainingCredit.toFixed(0)}.`);
       return;
     }
-    addToCart({ ...product, selectedSize }, totalPcs, pricePerPc);
+    addToCart({ ...product, selectedSize }, boxes, pcsPerBox, pricePerBox);
     Alert.alert(
       '✅ Added to Cart',
-      `${product.name} (${selectedSize}) — ${totalPcs} pcs added!`,
+      `${product.name} (${selectedSize})\n${boxes} box${boxes > 1 ? 'es' : ''} · ${totalPcs} pcs`,
       [
         { text: 'Continue Shopping', style: 'cancel' },
         { text: 'View Cart →', onPress: () => navigation.navigate('Cart') },
       ]
     );
-  };
+  }, [canAfford, total, boxes, totalPcs, selectedSize]);
 
   return (
     <>
@@ -62,7 +80,7 @@ export default function ProductDetailScreen({ route, navigation }: any) {
           {product.images?.length > 0
             ? <Image source={{ uri: product.images[activeImg] }}
                 style={{ width, height: width }} resizeMode="contain" />
-            : <Text style={{ fontSize: 80 }}>👕</Text>
+            : <Text style={{ fontSize: 80, color: '#fff' }}>👕</Text>
           }
         </View>
       </Modal>
@@ -73,7 +91,7 @@ export default function ProductDetailScreen({ route, navigation }: any) {
         <TouchableOpacity onPress={() => product.images?.length > 0 && setFullScreen(true)}>
           {product.images?.length > 0
             ? <Image source={{ uri: product.images[activeImg] }} style={s.mainImg} resizeMode="cover" />
-            : <View style={s.imgPlaceholder}><Text style={{ fontSize: 70 }}>👕</Text></View>
+            : <View style={s.imgPh}><Text style={{ fontSize: 80 }}>👕</Text></View>
           }
           {product.images?.length > 0 && (
             <View style={s.zoomHint}><Text style={s.zoomTxt}>🔍 Tap to enlarge</Text></View>
@@ -93,29 +111,28 @@ export default function ProductDetailScreen({ route, navigation }: any) {
         )}
 
         <View style={s.content}>
+
+          {/* Name & description */}
           <Text style={s.name}>{product.name}</Text>
           <Text style={s.desc}>{product.description}</Text>
 
-          {/* My price tier */}
-          <View style={s.tierChip}>
-            <Text style={s.tierTxt}>
-              {user?.type?.replace('_', ' ')} price:{' '}
-              <Text style={{ fontWeight: '800' }}>₹{pricePerPc}/pc</Text>
-            </Text>
-          </View>
-
-          {/* All 3 tier prices */}
-          <View style={s.allPrices}>
-            {[
-              { lbl: 'Wholesaler',    val: product.pricing.wholeSeller,     me: user?.type === 'Wholesaler' },
-              { lbl: 'Semi Wholesale', val: product.pricing.semiWholeSeller, me: user?.type === 'Semi_Wholesaler' },
-              { lbl: 'Retailer',      val: product.pricing.retailer,        me: !user?.type || user.type === 'Retailer' },
-            ].map(({ lbl, val, me }) => (
-              <View key={lbl} style={[s.pc, me && s.pcActive]}>
-                <Text style={[s.pcLbl, me && s.pcLblActive]}>{lbl}</Text>
-                <Text style={[s.pcVal, me && s.pcValActive]}>₹{val}</Text>
-              </View>
-            ))}
+          {/* ── YOUR PRICE — only this customer type's price shown ── */}
+          <View style={s.myPriceCard}>
+            <View style={s.myPriceLeft}>
+              <Text style={s.myPriceTier}>Your Price  ({typeLabel})</Text>
+              <Text style={s.myPriceBox}>
+                ₹{pricePerBox.toLocaleString()}
+                <Text style={s.myPriceUnit}> / box</Text>
+              </Text>
+              <Text style={s.myPricePc}>
+                ₹{pricePerPc.toFixed(2)} per piece  ·  {pcsPerBox} pcs per box
+              </Text>
+            </View>
+            <View style={s.myPriceRight}>
+              <Text style={s.myMinLabel}>Min Order</Text>
+              <Text style={s.myMinNum}>{minBoxes}</Text>
+              <Text style={s.myMinUnit}>boxes</Text>
+            </View>
           </View>
 
           {/* Size selector */}
@@ -131,17 +148,20 @@ export default function ProductDetailScreen({ route, navigation }: any) {
                   </TouchableOpacity>
                 ))}
               </View>
+              <View style={s.boxInfoBadge}>
+                <Text style={s.boxInfoTxt}>📦 1 box = {pcsPerBox} pcs</Text>
+              </View>
             </View>
           )}
 
-          {/* Box qty */}
+          {/* Box quantity selector */}
           <View style={s.section}>
             <Text style={s.secTitle}>Number of Boxes</Text>
             <View style={s.qtyRow}>
               <TouchableOpacity
-                style={[s.qtyBtn, boxes <= 1 && s.qtyBtnOff]}
-                onPress={() => boxes > 1 && setBoxes(b => b - 1)}
-                disabled={boxes <= 1}
+                style={[s.qtyBtn, boxes <= minBoxes && s.qtyBtnOff]}
+                onPress={decrement}
+                disabled={boxes <= minBoxes}
               >
                 <Text style={s.qtyBtnTxt}>−</Text>
               </TouchableOpacity>
@@ -149,10 +169,20 @@ export default function ProductDetailScreen({ route, navigation }: any) {
                 <Text style={s.qtyNum}>{boxes}</Text>
                 <Text style={s.qtyLbl}>boxes</Text>
               </View>
-              <TouchableOpacity style={s.qtyBtn} onPress={() => setBoxes(b => b + 1)}>
+              <TouchableOpacity style={s.qtyBtn} onPress={increment}>
                 <Text style={s.qtyBtnTxt}>+</Text>
               </TouchableOpacity>
             </View>
+
+            {/* Min order hint */}
+            <View style={s.minHint}>
+              <Text style={s.minHintTxt}>
+                ⚡ Minimum order: <Text style={{ fontWeight: '800' }}>{minBoxes} boxes</Text>
+                {'  '}({minBoxes * pcsPerBox} pcs)
+              </Text>
+            </View>
+
+            {/* Pcs summary */}
             <View style={s.pcsSummary}>
               <Text style={s.pcsTxt}>{boxes} box{boxes > 1 ? 'es' : ''} × {pcsPerBox} pcs</Text>
               <Text style={s.pcsTotal}>{totalPcs} pcs total</Text>
@@ -162,12 +192,14 @@ export default function ProductDetailScreen({ route, navigation }: any) {
           {/* Price breakdown */}
           <View style={s.section}>
             <Text style={s.secTitle}>Price Breakdown</Text>
-            {[
-              ['Price per pc', `₹${pricePerPc}`],
-              ['Total pieces', `${totalPcs} pcs`],
-              ['Subtotal',     `₹${subtotal.toLocaleString()}`],
-              ['GST (18%)',    `₹${gstAmt.toFixed(2)}`],
-            ].map(([lbl, val]) => (
+            {([
+              ['Price per box',   `₹${pricePerBox.toLocaleString()}`],
+              ['Price per piece', `₹${pricePerPc.toFixed(2)}`],
+              ['Boxes ordered',   `${boxes} boxes`],
+              ['Total pieces',    `${totalPcs} pcs`],
+              ['Subtotal',        `₹${subtotal.toLocaleString()}`],
+              ['GST (18%)',       `₹${gstAmt.toFixed(2)}`],
+            ] as [string, string][]).map(([lbl, val]) => (
               <View key={lbl} style={s.bRow}>
                 <Text style={s.bLbl}>{lbl}</Text>
                 <Text style={s.bVal}>{val}</Text>
@@ -182,35 +214,39 @@ export default function ProductDetailScreen({ route, navigation }: any) {
           </View>
 
           {/* Credit status */}
-          {user?.creditEnabled && (
+          {creditApproved && (
             <View style={[s.creditBox, !canAfford && s.creditBoxRed]}>
               <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-                <Text style={[s.creditLbl, !canAfford && { color: '#DC2626' }]}>
-                  Available Credit
-                </Text>
+                <Text style={[s.creditLbl, !canAfford && { color: '#DC2626' }]}>Available Credit</Text>
                 <Text style={[s.creditAmt, !canAfford && { color: '#DC2626' }]}>
                   ₹{remainingCredit.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
                 </Text>
               </View>
               {!canAfford && (
-                <Text style={s.creditWarn}>⚠️ Order amount exceeds available credit</Text>
+                <Text style={s.creditWarn}>⚠️ Order amount exceeds your available credit</Text>
               )}
             </View>
           )}
-        </View>
 
+        </View>
         <View style={{ height: 100 }} />
       </ScrollView>
 
-      {/* Sticky Add to Cart */}
+      {/* Sticky bottom bar */}
       <View style={s.sticky}>
+        <View style={s.stickyLeft}>
+          <Text style={s.stickyTotal}>
+            ₹{total.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
+          </Text>
+          <Text style={s.stickyPcs}>{boxes} boxes · {totalPcs} pcs</Text>
+        </View>
         <TouchableOpacity
           style={[s.cartBtn, !canAfford && s.cartBtnOff]}
           onPress={handleAddToCart}
           disabled={!canAfford}
         >
           <Text style={s.cartBtnTxt}>
-            {canAfford ? `🛒  Add ${totalPcs} pcs to Cart` : '⚠️  Insufficient Credit'}
+            {canAfford ? '🛒  Add to Cart' : '⚠️  Insufficient Credit'}
           </Text>
         </TouchableOpacity>
       </View>
@@ -218,59 +254,81 @@ export default function ProductDetailScreen({ route, navigation }: any) {
   );
 }
 
+// ════════════════════════════════════════════════════════════════════
 const s = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F8FAFC' },
-  mainImg: { width, height: 280 },
-  imgPlaceholder: { width, height: 280, backgroundColor: '#F3F4F6', justifyContent: 'center', alignItems: 'center' },
-  zoomHint: { position: 'absolute', bottom: 12, right: 12, backgroundColor: 'rgba(0,0,0,0.45)', borderRadius: 20, paddingHorizontal: 10, paddingVertical: 5 },
-  zoomTxt: { color: '#fff', fontSize: 11 },
-  thumbRow: { flexDirection: 'row', gap: 8, padding: 12, backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#E5E7EB' },
-  thumb: { width: 58, height: 58, borderRadius: 8, borderWidth: 2.5 },
-  content: { padding: 16 },
-  name: { fontSize: 22, fontWeight: '800', color: '#111827', marginBottom: 6 },
-  desc: { fontSize: 14, color: '#6B7280', lineHeight: 20, marginBottom: 12 },
-  tierChip: { backgroundColor: '#EFF6FF', borderRadius: 8, padding: 10, marginBottom: 12, borderWidth: 1, borderColor: '#BFDBFE' },
-  tierTxt: { fontSize: 13, color: '#1D4ED8' },
-  allPrices: { flexDirection: 'row', gap: 8, marginBottom: 16 },
-  pc: { flex: 1, backgroundColor: '#F9FAFB', borderRadius: 10, padding: 10, borderWidth: 1.5, borderColor: '#E5E7EB', alignItems: 'center' },
-  pcActive: { backgroundColor: '#EFF6FF', borderColor: '#2563EB' },
-  pcLbl: { fontSize: 10, color: '#9CA3AF', fontWeight: '600', marginBottom: 4, textAlign: 'center' },
-  pcLblActive: { color: '#1D4ED8' },
-  pcVal: { fontSize: 14, fontWeight: '800', color: '#374151' },
-  pcValActive: { color: '#2563EB' },
-  section: { backgroundColor: '#fff', borderRadius: 12, padding: 14, marginBottom: 12, borderWidth: 1, borderColor: '#E5E7EB' },
-  secTitle: { fontSize: 14, fontWeight: '700', color: '#111827', marginBottom: 12 },
-  sizes: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  sizeChip: { paddingHorizontal: 16, paddingVertical: 10, borderRadius: 10, borderWidth: 1.5, borderColor: '#CBD5E1', backgroundColor: '#F9FAFB' },
+  container:      { flex: 1, backgroundColor: '#F8FAFC' },
+  mainImg:        { width, height: 280 },
+  imgPh:          { width, height: 280, backgroundColor: '#F3F4F6', justifyContent: 'center', alignItems: 'center' },
+  zoomHint:       { position: 'absolute', bottom: 12, right: 12, backgroundColor: 'rgba(0,0,0,0.45)', borderRadius: 20, paddingHorizontal: 10, paddingVertical: 5 },
+  zoomTxt:        { color: '#fff', fontSize: 11 },
+  thumbRow:       { flexDirection: 'row', gap: 8, padding: 12, backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#E5E7EB' },
+  thumb:          { width: 58, height: 58, borderRadius: 8, borderWidth: 2.5 },
+  content:        { padding: 16 },
+  name:           { fontSize: 22, fontWeight: '800', color: '#111827', marginBottom: 6 },
+  desc:           { fontSize: 14, color: '#6B7280', lineHeight: 20, marginBottom: 14 },
+
+  // MY PRICE CARD — prominent dark blue
+  myPriceCard:    {
+    flexDirection: 'row', backgroundColor: '#1e3a8a', borderRadius: 14,
+    padding: 16, marginBottom: 16, alignItems: 'center',
+    shadowColor: '#1e3a8a', shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.35, shadowRadius: 10, elevation: 6,
+  },
+  myPriceLeft:    { flex: 1 },
+  myPriceTier:    { fontSize: 11, fontWeight: '700', color: 'rgba(255,255,255,0.65)', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 4 },
+  myPriceBox:     { fontSize: 30, fontWeight: '900', color: '#fff' },
+  myPriceUnit:    { fontSize: 15, fontWeight: '400', color: 'rgba(255,255,255,0.65)' },
+  myPricePc:      { fontSize: 12, color: 'rgba(255,255,255,0.55)', marginTop: 4 },
+  myPriceRight:   { alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.15)', borderRadius: 10, padding: 12, minWidth: 72 },
+  myMinLabel:     { fontSize: 9, color: 'rgba(255,255,255,0.6)', fontWeight: '700', textTransform: 'uppercase', marginBottom: 2 },
+  myMinNum:       { fontSize: 30, fontWeight: '900', color: '#fff' },
+  myMinUnit:      { fontSize: 11, color: 'rgba(255,255,255,0.6)' },
+
+  section:        { backgroundColor: '#fff', borderRadius: 12, padding: 14, marginBottom: 12, borderWidth: 1, borderColor: '#E5E7EB' },
+  secTitle:       { fontSize: 14, fontWeight: '700', color: '#111827', marginBottom: 12 },
+  sizes:          { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  sizeChip:       { paddingHorizontal: 16, paddingVertical: 10, borderRadius: 10, borderWidth: 1.5, borderColor: '#CBD5E1', backgroundColor: '#F9FAFB' },
   sizeChipActive: { backgroundColor: '#2563EB', borderColor: '#2563EB' },
-  sizeTxt: { fontSize: 13, fontWeight: '600', color: '#374151' },
-  sizeTxtActive: { color: '#fff' },
-  qtyRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#F9FAFB', padding: 12, borderRadius: 10, borderWidth: 1, borderColor: '#E5E7EB' },
-  qtyBtn: { width: 44, height: 44, backgroundColor: '#2563EB', borderRadius: 10, justifyContent: 'center', alignItems: 'center' },
-  qtyBtnOff: { backgroundColor: '#CBD5E1' },
-  qtyBtnTxt: { color: '#fff', fontSize: 22, fontWeight: '700' },
-  qtyMid: { alignItems: 'center' },
-  qtyNum: { fontSize: 28, fontWeight: '800', color: '#111827' },
-  qtyLbl: { fontSize: 12, color: '#6B7280' },
-  pcsSummary: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 10, backgroundColor: '#F0FDF4', borderRadius: 8, padding: 10, borderWidth: 1, borderColor: '#BBF7D0' },
-  pcsTxt: { fontSize: 13, color: '#374151' },
-  pcsTotal: { fontSize: 14, fontWeight: '800', color: '#059669' },
-  bRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: '#F3F4F6' },
-  bLbl: { fontSize: 13, color: '#6B7280' },
-  bVal: { fontSize: 13, fontWeight: '600', color: '#374151' },
-  totalRow: { flexDirection: 'row', justifyContent: 'space-between', paddingTop: 12 },
-  totalLbl: { fontSize: 15, fontWeight: '700', color: '#111827' },
-  totalVal: { fontSize: 18, fontWeight: '800', color: '#2563EB' },
-  creditBox: { backgroundColor: '#EFF6FF', borderRadius: 10, padding: 12, marginBottom: 12, borderWidth: 1, borderColor: '#BFDBFE' },
-  creditBoxRed: { backgroundColor: '#FEF2F2', borderColor: '#FECACA' },
-  creditLbl: { fontSize: 13, color: '#1D4ED8', fontWeight: '600' },
-  creditAmt: { fontSize: 16, fontWeight: '800', color: '#2563EB' },
-  creditWarn: { fontSize: 12, color: '#DC2626', fontWeight: '600', marginTop: 6 },
-  sticky: { position: 'absolute', bottom: 0, left: 0, right: 0, backgroundColor: '#fff', padding: 16, borderTopWidth: 1, borderTopColor: '#E5E7EB', shadowColor: '#000', shadowOffset: { width: 0, height: -3 }, shadowOpacity: 0.1, shadowRadius: 6, elevation: 8 },
-  cartBtn: { backgroundColor: '#2563EB', borderRadius: 12, paddingVertical: 16, alignItems: 'center' },
-  cartBtnOff: { backgroundColor: '#CBD5E1' },
-  cartBtnTxt: { color: '#fff', fontSize: 16, fontWeight: '800' },
-  fsOverlay: { flex: 1, backgroundColor: '#000', justifyContent: 'center', alignItems: 'center' },
-  fsClose: { position: 'absolute', top: 44, right: 20, zIndex: 10, backgroundColor: 'rgba(255,255,255,0.2)', width: 44, height: 44, borderRadius: 22, justifyContent: 'center', alignItems: 'center' },
-  fsCloseTxt: { color: '#fff', fontSize: 20, fontWeight: '700' },
+  sizeTxt:        { fontSize: 13, fontWeight: '600', color: '#374151' },
+  sizeTxtActive:  { color: '#fff' },
+  boxInfoBadge:   { marginTop: 10, backgroundColor: '#EFF6FF', borderRadius: 8, padding: 8, borderWidth: 1, borderColor: '#BFDBFE' },
+  boxInfoTxt:     { fontSize: 12, color: '#2563EB', fontWeight: '600' },
+
+  qtyRow:         { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#F9FAFB', padding: 12, borderRadius: 10, borderWidth: 1, borderColor: '#E5E7EB' },
+  qtyBtn:         { width: 46, height: 46, backgroundColor: '#2563EB', borderRadius: 10, justifyContent: 'center', alignItems: 'center' },
+  qtyBtnOff:      { backgroundColor: '#CBD5E1' },
+  qtyBtnTxt:      { color: '#fff', fontSize: 24, fontWeight: '700', lineHeight: 28 },
+  qtyMid:         { alignItems: 'center' },
+  qtyNum:         { fontSize: 30, fontWeight: '800', color: '#111827' },
+  qtyLbl:         { fontSize: 12, color: '#6B7280' },
+  minHint:        { marginTop: 8, backgroundColor: '#FFF7ED', borderRadius: 8, padding: 8, borderWidth: 1, borderColor: '#FED7AA' },
+  minHintTxt:     { fontSize: 12, color: '#92400E' },
+  pcsSummary:     { flexDirection: 'row', justifyContent: 'space-between', marginTop: 8, backgroundColor: '#F0FDF4', borderRadius: 8, padding: 10, borderWidth: 1, borderColor: '#BBF7D0' },
+  pcsTxt:         { fontSize: 13, color: '#374151' },
+  pcsTotal:       { fontSize: 14, fontWeight: '800', color: '#059669' },
+
+  bRow:           { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: '#F3F4F6' },
+  bLbl:           { fontSize: 13, color: '#6B7280' },
+  bVal:           { fontSize: 13, fontWeight: '600', color: '#374151' },
+  totalRow:       { flexDirection: 'row', justifyContent: 'space-between', paddingTop: 12 },
+  totalLbl:       { fontSize: 15, fontWeight: '700', color: '#111827' },
+  totalVal:       { fontSize: 20, fontWeight: '800', color: '#2563EB' },
+
+  creditBox:      { backgroundColor: '#EFF6FF', borderRadius: 10, padding: 12, marginBottom: 12, borderWidth: 1, borderColor: '#BFDBFE' },
+  creditBoxRed:   { backgroundColor: '#FEF2F2', borderColor: '#FECACA' },
+  creditLbl:      { fontSize: 13, color: '#1D4ED8', fontWeight: '600' },
+  creditAmt:      { fontSize: 16, fontWeight: '800', color: '#2563EB' },
+  creditWarn:     { fontSize: 12, color: '#DC2626', fontWeight: '600', marginTop: 6 },
+
+  sticky:         { position: 'absolute', bottom: 0, left: 0, right: 0, backgroundColor: '#fff', paddingHorizontal: 16, paddingVertical: 12, flexDirection: 'row', alignItems: 'center', gap: 12, borderTopWidth: 1, borderTopColor: '#E5E7EB', shadowColor: '#000', shadowOffset: { width: 0, height: -3 }, shadowOpacity: 0.1, shadowRadius: 6, elevation: 8 },
+  stickyLeft:     { flex: 1 },
+  stickyTotal:    { fontSize: 20, fontWeight: '800', color: '#111827' },
+  stickyPcs:      { fontSize: 12, color: '#6B7280', marginTop: 1 },
+  cartBtn:        { backgroundColor: '#2563EB', borderRadius: 12, paddingVertical: 14, paddingHorizontal: 22, alignItems: 'center' },
+  cartBtnOff:     { backgroundColor: '#CBD5E1' },
+  cartBtnTxt:     { color: '#fff', fontSize: 14, fontWeight: '800' },
+
+  fsOverlay:      { flex: 1, backgroundColor: '#000', justifyContent: 'center', alignItems: 'center' },
+  fsClose:        { position: 'absolute', top: 44, right: 20, zIndex: 10, backgroundColor: 'rgba(255,255,255,0.2)', width: 44, height: 44, borderRadius: 22, justifyContent: 'center', alignItems: 'center' },
+  fsCloseTxt:     { color: '#fff', fontSize: 20, fontWeight: '700' },
 });

@@ -66,4 +66,17 @@ public class CustomerAuthController {
             ));
         }
     }
+
+    // ── Profile (called silently on app launch to refresh credit settings) ──
+    // Returns fresh creditEnabled / creditLimit / advanceOption from DB.
+    // This lets the app pick up admin changes without requiring re-login.
+    @GetMapping("/profile")
+    public ResponseEntity<?> getProfile(java.security.Principal principal) {
+        try {
+            CustomerLoginResponse profile = service.getProfile(principal.getName());
+            return ResponseEntity.ok(profile);
+        } catch (RuntimeException e) {
+            return ResponseEntity.status(404).body(Map.of("error", e.getMessage()));
+        }
+    }
 }

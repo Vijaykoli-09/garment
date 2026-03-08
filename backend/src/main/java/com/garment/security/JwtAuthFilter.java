@@ -5,6 +5,7 @@ import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.core.userdetails.UserDetails;
@@ -20,17 +21,39 @@ public class JwtAuthFilter extends OncePerRequestFilter {
     @Autowired
     private JwtUtil jwtUtil;
 
+    // ── BUG FIX: Inject BOTH UserDetailsService beans ──────────────────────────
+    //
+    // ROOT CAUSE OF 403:
+    // The mobile JWT subject = phone number (set in CustomerAuthController login).
+    // The old filter used the web admin UserDetailsService which does findByEmail().
+    // Phone not found by email → UsernameNotFoundException → caught silently →
+    // no authentication set on SecurityContext → Spring rejects with 403.
+    //
+    // FIX: Mobile paths (/api/orders/**, /api/customer/**) use CustomerUserDetailsService
+    // which does findByPhone(). Web admin paths use the original UserDetailsService.
+    //
     @Autowired
-    private UserDetailsService userDetailsService;
+    @Qualifier("customUserDetailsService")   // web admin — loads by email/username
+    private UserDetailsService webUserDetailsService;
 
-    /** Skip JWT checks for auth endpoints and CORS preflight */
+    @Autowired
+    private CustomerUserDetailsService customerUserDetailsService;  // mobile — loads by phone
+
+    /**
+     * Skip JWT filter entirely for:
+     * - Web admin auth endpoints
+     * - Mobile customer auth endpoints (login/signup — no token exists yet)
+     * - CORS preflight (OPTIONS)
+     */
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
-        String path = request.getServletPath();
-        boolean skip = path.startsWith("/api/auth/") || "OPTIONS".equalsIgnoreCase(request.getMethod());
-        // DEBUG (optional): uncomment if you want to see it in logs
-        // System.out.println("[JwtAuthFilter] shouldNotFilter path=" + path + " -> " + skip);
-        return skip;
+        String path   = request.getServletPath();
+        String method = request.getMethod();
+        return path.startsWith("/api/auth/")
+            || path.equals("/api/customer/auth/login")    // no token at login
+            || path.equals("/api/customer/auth/signup")   // no token at signup
+            || "OPTIONS".equalsIgnoreCase(method);
+        // NOTE: /api/customer/auth/profile is NOT skipped — it requires JWT
     }
 
     @Override
@@ -41,37 +64,44 @@ public class JwtAuthFilter extends OncePerRequestFilter {
 
         final String authHeader = request.getHeader("Authorization");
 
-        // If there is no Bearer token, continue the chain unauthenticated
+        // No Bearer token → continue unauthenticated (public endpoints will pass, protected will 403)
         if (authHeader == null || !authHeader.startsWith("Bearer ")) {
             filterChain.doFilter(request, response);
             return;
         }
 
-        String jwt = authHeader.substring(7).trim();
-        String email;
+        String jwt     = authHeader.substring(7).trim();
+        String subject; // phone (mobile) or email (web admin)
 
         try {
-            email = jwtUtil.extractEmail(jwt);
+            subject = jwtUtil.extractEmail(jwt); // method name is misleading — returns the subject (phone or email)
         } catch (Exception e) {
-            // Invalid token -> proceed without authentication
             filterChain.doFilter(request, response);
             return;
         }
 
-        // Only authenticate if no one is already authenticated
-        if (email != null && SecurityContextHolder.getContext().getAuthentication() == null) {
-            try {
-                UserDetails userDetails = userDetailsService.loadUserByUsername(email);
+        if (subject != null && SecurityContextHolder.getContext().getAuthentication() == null) {
+            String path     = request.getServletPath();
+            boolean isMobile = path.startsWith("/api/orders/")
+                             || path.startsWith("/api/customer/");
 
-                // Validate token against the username/subject
+            try {
+                // ── BUG FIX: choose the right service based on the request path ──
+                // Mobile paths: JWT subject = phone → use CustomerUserDetailsService
+                // Web admin paths: JWT subject = email → use webUserDetailsService
+                UserDetails userDetails = isMobile
+                        ? customerUserDetailsService.loadUserByUsername(subject)
+                        : webUserDetailsService.loadUserByUsername(subject);
+
                 if (jwtUtil.validateToken(jwt, userDetails.getUsername())) {
                     UsernamePasswordAuthenticationToken authToken =
                             new UsernamePasswordAuthenticationToken(
                                     userDetails, null, userDetails.getAuthorities());
                     SecurityContextHolder.getContext().setAuthentication(authToken);
                 }
-            } catch (Exception ignored) {
-                // user not found or other issue -> leave context unauthenticated
+            } catch (Exception e) {
+                // user not found or token invalid → leave unauthenticated
+                // Spring Security will return 401/403 for protected endpoints
             }
         }
 

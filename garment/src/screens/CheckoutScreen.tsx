@@ -10,8 +10,9 @@ import {
 import { AppContext } from '../context/AppContext';
 
 export default function CheckoutScreen({ navigation }: any) {
-  const { cart, totalAmount, gstAmount, grandTotal } =
-    useContext(AppContext);
+  const { cart, cartTotal, cartTotalWithGst } = useContext(AppContext);
+  const gstAmount = cartTotalWithGst - cartTotal;
+  const grandTotal = cartTotalWithGst;
 
   return (
     <View style={styles.container}>
@@ -24,7 +25,7 @@ export default function CheckoutScreen({ navigation }: any) {
 
       <FlatList
         data={cart}
-        keyExtractor={(item) => item.id + item.selectedSize}
+        keyExtractor={(item) => `${item.productId}-${item.selectedSize}`}
         renderItem={({ item }) => (
           <View style={styles.productCard}>
             <View style={styles.productHeader}>
@@ -38,8 +39,8 @@ export default function CheckoutScreen({ navigation }: any) {
               </View>
             </View>
             <View style={styles.priceRow}>
-              <Text style={styles.priceLabel}>₹{item.price} × {item.quantity}</Text>
-              <Text style={styles.priceValue}>₹{(item.price * item.quantity).toFixed(2)}</Text>
+              <Text style={styles.priceLabel}>₹{item.pricePerPc} × {item.quantity}</Text>
+              <Text style={styles.priceValue}>₹{(item.pricePerPc * item.quantity).toFixed(2)}</Text>
             </View>
           </View>
         )}
@@ -49,7 +50,7 @@ export default function CheckoutScreen({ navigation }: any) {
             <View style={styles.summaryBox}>
               <View style={styles.summaryRow}>
                 <Text style={styles.summaryLabel}>Subtotal</Text>
-                <Text style={styles.summaryValue}>₹{totalAmount.toFixed(2)}</Text>
+                <Text style={styles.summaryValue}>₹{cartTotal.toFixed(2)}</Text>
               </View>
               <View style={styles.summaryRow}>
                 <Text style={styles.summaryLabel}>GST (18%)</Text>

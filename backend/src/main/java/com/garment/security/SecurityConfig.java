@@ -16,8 +16,9 @@ public class SecurityConfig {
     private final JwtAuthFilter jwtAuthFilter;
     private final CustomUserDetailsService customUserDetailsService;
 
-    public SecurityConfig(JwtAuthFilter jwtAuthFilter, CustomUserDetailsService customUserDetailsService) {
-        this.jwtAuthFilter = jwtAuthFilter;
+    public SecurityConfig(JwtAuthFilter jwtAuthFilter,
+                          CustomUserDetailsService customUserDetailsService) {
+        this.jwtAuthFilter            = jwtAuthFilter;
         this.customUserDetailsService = customUserDetailsService;
     }
 
@@ -38,16 +39,22 @@ public class SecurityConfig {
             .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .authorizeHttpRequests(auth -> auth
 
-                // ── Existing web admin auth ──────────────────────────
+                // ── Web admin auth ────────────────────────────────────
                 .requestMatchers("/api/auth/**").permitAll()
 
-                // ── NEW: Mobile app customer auth ────────────────────
-                .requestMatchers("/api/customer/auth/**").permitAll()
+                // ── Mobile customer auth ─────────────────────────────
+                // login and signup are public (no token yet)
+                .requestMatchers("/api/customer/auth/login").permitAll()
+                .requestMatchers("/api/customer/auth/signup").permitAll()
+                // profile requires a valid JWT — used to refresh credit settings
+                .requestMatchers("/api/customer/auth/profile").authenticated()
 
-                // ── Admin customer management (open for now) ─────────
+                // ── Admin & product endpoints (open) ──────────────────
                 .requestMatchers("/api/admin/customers/**").permitAll()
+                .requestMatchers("/api/admin/products/**").permitAll()
+                .requestMatchers("/api/admin/images/**").permitAll()
 
-                // ── All your existing permitted endpoints (unchanged) ─
+                // ── All existing permitted endpoints ──────────────────
                 .requestMatchers("/api/sizes/**").permitAll()
                 .requestMatchers("/api/party/**").permitAll()
                 .requestMatchers("/api/artgroup/**").permitAll()
@@ -97,20 +104,13 @@ public class SecurityConfig {
                 .requestMatchers("/api/other-dispatch-challan/**").permitAll()
                 .requestMatchers("/api/order-settles/**").permitAll()
 
-                // ── ADD THESE 2 lines inside your SecurityConfig.java filterChain() ─────────
-// Place them with the other .requestMatchers lines
-
-// Public products (mobile app)
-.requestMatchers("/api/products/**").permitAll()
-
-// Admin products (web dashboard) — open for now, lock with ADMIN role later
-.requestMatchers("/api/admin/products/**").permitAll()
-.requestMatchers("/api/admin/images/**").permitAll()
-
+                // ── Mobile orders — JWT required ───────────────────────
+                // JwtAuthFilter uses CustomerUserDetailsService (by phone) for this path
+                .requestMatchers("/api/orders/**").authenticated()
 
                 .anyRequest().authenticated()
             )
-            .userDetailsService(customUserDetailsService)
+            .userDetailsService(customUserDetailsService)  // web admin default
             .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class);
 
         return http.build();

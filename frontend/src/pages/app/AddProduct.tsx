@@ -2,608 +2,360 @@ import React, { useEffect, useRef, useState } from "react";
 import Dashboard from "../Dashboard";
 import api from "../../api/axiosInstance";
 
-interface Pricing {
-  wholeSeller: number;
-  semiWholeSeller: number;
-  retailer: number;
-}
-
+interface Pricing { wholeSeller: number; semiWholeSeller: number; retailer: number; }
+interface MinBox  { wholeSeller: number; semiWholeSeller: number; retailer: number; }
 interface Product {
-  id: number;
-  name: string;
-  images: string[];
-  description: string;
-  sizes: string[];
-  boxQuantity: number;
-  pricing: Pricing;
+  id: number; name: string; description: string;
+  images: string[]; sizes: string[]; boxQuantity: number;
+  pricing: Pricing; minBox: MinBox; active: boolean;
 }
 
-const emptyForm: Omit<Product, "id"> = {
-  name: "",
-  images: [],
-  description: "",
-  sizes: [],
-  boxQuantity: 12,
+const EMPTY: Omit<Product, "id" | "active"> = {
+  name: "", description: "", images: [], sizes: [], boxQuantity: 12,
   pricing: { wholeSeller: 0, semiWholeSeller: 0, retailer: 0 },
+  minBox:  { wholeSeller: 10, semiWholeSeller: 8, retailer: 5 },
 };
 
-const AddProduct = () => {
-  const [products, setProducts] = useState<Product[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [pageError, setPageError] = useState("");
+const TIERS = [
+  { key: "wholeSeller",     label: "Whole Seller",   color: "#6366f1", bg: "#eef2ff", minDefault: 10 },
+  { key: "semiWholeSeller", label: "Semi Wholesale",  color: "#0ea5e9", bg: "#f0f9ff", minDefault: 8  },
+  { key: "retailer",        label: "Retailer",        color: "#10b981", bg: "#f0fdf4", minDefault: 5  },
+] as const;
 
-  const [formData, setFormData] = useState<Omit<Product, "id">>(emptyForm);
-  const [showModal, setShowModal] = useState(false);
+export default function AddProduct() {
+  const [products, setProducts]   = useState<Product[]>([]);
+  const [loading, setLoading]     = useState(true);
+  const [saving, setSaving]       = useState(false);
+  const [formData, setFormData]   = useState<Omit<Product, "id" | "active">>(EMPTY);
   const [editingId, setEditingId] = useState<number | null>(null);
-  const [newSize, setNewSize] = useState("");
-  const [activeImgMap, setActiveImgMap] = useState<Record<number, number>>({});
-  const [showPreview, setShowPreview] = useState(false);
+  const [showModal, setShowModal] = useState(false);
   const [formError, setFormError] = useState("");
+  const [pageError, setPageError] = useState("");
+  const [newSize, setNewSize]     = useState("");
+  const [uploading, setUploading] = useState(false);
+  const [uploadLog, setUploadLog] = useState<string[]>([]);
+  const [activeImg, setActiveImg] = useState<Record<number, number>>({});
+  const fileRef = useRef<HTMLInputElement>(null);
 
-  // Image upload state
-  const [uploadingImages, setUploadingImages] = useState(false);
-  const [uploadProgress, setUploadProgress] = useState<string[]>([]);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  useEffect(() => { load(); }, []);
 
-  useEffect(() => { fetchProducts(); }, []);
-
-  const fetchProducts = async () => {
+  const load = async () => {
     setLoading(true);
-    try {
-      const res = await api.get("/admin/products");
-      setProducts(res.data);
-    } catch {
-      setPageError("Failed to load products. Please refresh.");
-    } finally {
-      setLoading(false);
-    }
+    try { const r = await api.get("/admin/products"); setProducts(r.data); }
+    catch { setPageError("Failed to load products."); }
+    finally { setLoading(false); }
   };
 
-  // ── Upload images to Cloudinary ─────────────────────────────────
-  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (!e.target.files || e.target.files.length === 0) return;
-
-    const files = Array.from(e.target.files);
-
-    if (files.some(f => !f.type.startsWith("image/"))) {
-      setFormError("Only image files are allowed."); return;
-    }
-    if (files.some(f => f.size > 10 * 1024 * 1024)) {
-      setFormError("Each image must be less than 10 MB."); return;
-    }
-    if (formData.images.length + files.length > 10) {
-      setFormError("Maximum 10 images per product."); return;
-    }
-
-    setUploadingImages(true);
-    setFormError("");
-    setUploadProgress(files.map(f => `⏳ Uploading ${f.name}...`));
-
-    const uploadedUrls: string[] = [];
-
+  const handleFiles = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files ?? []);
+    if (!files.length) return;
+    if (formData.images.length + files.length > 10) { setFormError("Max 10 images."); return; }
+    if (files.some(f => f.size > 10 * 1024 * 1024))  { setFormError("Max 10 MB per image."); return; }
+    setUploading(true);
+    setUploadLog(files.map(f => `⏳ ${f.name}`));
+    const urls: string[] = [];
     for (let i = 0; i < files.length; i++) {
-      const file = files[i];
+      const fd = new FormData();
+      fd.append("file", files[i]);
       try {
-        const payload = new FormData();
-        payload.append("file", file);
-
-        const res = await api.post("/admin/images/upload", payload, {
-          headers: { "Content-Type": "multipart/form-data" },
-        });
-
-        uploadedUrls.push(res.data.url);
-        setUploadProgress(prev =>
-          prev.map((p, idx) => idx === i ? `✅ ${file.name} uploaded` : p)
-        );
-      } catch (err: any) {
-        const msg = err?.response?.data?.error ?? "Upload failed";
-        setUploadProgress(prev =>
-          prev.map((p, idx) => idx === i ? `❌ ${file.name}: ${msg}` : p)
-        );
+        const r = await api.post("/admin/images/upload", fd, { headers: { "Content-Type": "multipart/form-data" } });
+        urls.push(r.data.url);
+        setUploadLog(l => l.map((x, j) => j === i ? `✅ ${files[i].name}` : x));
+      } catch {
+        setUploadLog(l => l.map((x, j) => j === i ? `❌ ${files[i].name} — failed` : x));
       }
     }
-
-    if (uploadedUrls.length > 0) {
-      setFormData(prev => ({ ...prev, images: [...prev.images, ...uploadedUrls] }));
-    }
-
-    setUploadingImages(false);
-    setTimeout(() => setUploadProgress([]), 3000);
-    if (fileInputRef.current) fileInputRef.current.value = "";
+    if (urls.length) setFormData(f => ({ ...f, images: [...f.images, ...urls] }));
+    setUploading(false);
+    setTimeout(() => setUploadLog([]), 3000);
+    if (fileRef.current) fileRef.current.value = "";
   };
 
-  // ── Remove single image (deletes from Cloudinary too) ───────────
-  const removeImage = async (index: number) => {
-    const url = formData.images[index];
-    setFormData(prev => ({ ...prev, images: prev.images.filter((_, i) => i !== index) }));
-    try {
-      await api.delete("/admin/images/delete", { data: { url } });
-    } catch {
-      // silent — already removed from form
-    }
+  const removeImg = async (idx: number) => {
+    const url = formData.images[idx];
+    setFormData(f => ({ ...f, images: f.images.filter((_, i) => i !== idx) }));
+    try { await api.delete("/admin/images/delete", { data: { url } }); } catch {}
   };
 
-  // ── Open Add modal ──────────────────────────────────────────────
-  const handleAddNew = () => {
-    setEditingId(null);
-    setFormData(emptyForm);
-    setFormError("");
-    setUploadProgress([]);
-    setShowPreview(false);
-    setShowModal(true);
+  const openAdd = () => {
+    setEditingId(null); setFormData(EMPTY); setFormError(""); setUploadLog([]); setShowModal(true);
   };
-
-  // ── Open Edit modal ─────────────────────────────────────────────
-  const handleEdit = (product: Product) => {
-    setEditingId(product.id);
+  const openEdit = (p: Product) => {
+    setEditingId(p.id);
     setFormData({
-      name: product.name,
-      description: product.description,
-      sizes: product.sizes,
-      boxQuantity: product.boxQuantity,
-      images: product.images,
-      pricing: product.pricing,
+      name: p.name, description: p.description, images: p.images,
+      sizes: p.sizes, boxQuantity: p.boxQuantity,
+      pricing: { ...p.pricing },
+      minBox: p.minBox ? { ...p.minBox } : { wholeSeller: 10, semiWholeSeller: 8, retailer: 5 },
     });
-    setFormError("");
-    setUploadProgress([]);
-    setShowPreview(false);
-    setShowModal(true);
+    setFormError(""); setUploadLog([]); setShowModal(true);
   };
 
-  // ── Save ────────────────────────────────────────────────────────
+  const validate = () => {
+    if (!formData.name.trim())    return "Product name is required.";
+    if (formData.boxQuantity < 1) return "Pieces per box must be at least 1.";
+    if (uploading)                return "Please wait for images to finish uploading.";
+    for (const t of TIERS) {
+      if ((formData.pricing as any)[t.key] < 0) return `${t.label} price cannot be negative.`;
+      if ((formData.minBox as any)[t.key] < 1)  return `${t.label} min boxes must be at least 1.`;
+    }
+    return "";
+  };
+
   const handleSave = async () => {
-    if (!formData.name.trim()) { setFormError("Product name is required."); return; }
-    if (formData.boxQuantity <= 0) { setFormError("Box quantity must be greater than 0."); return; }
-    if (uploadingImages) { setFormError("Please wait for images to finish uploading."); return; }
-
-    setSaving(true);
-    setFormError("");
-
+    const err = validate();
+    if (err) { setFormError(err); return; }
+    setSaving(true); setFormError("");
     try {
       if (editingId !== null) {
-        const res = await api.put(`/admin/products/${editingId}`, {
-          name: formData.name,
-          description: formData.description,
-          boxQuantity: formData.boxQuantity,
-          sizes: formData.sizes,
-          images: formData.images,
-          pricing: formData.pricing,
-        });
-        setProducts(prev => prev.map(p => p.id === editingId ? res.data : p));
+        const r = await api.put(`/admin/products/${editingId}`, formData);
+        setProducts(ps => ps.map(p => p.id === editingId ? r.data : p));
       } else {
-        const res = await api.post("/admin/products", {
-          name: formData.name,
-          description: formData.description,
-          boxQuantity: formData.boxQuantity,
-          sizes: formData.sizes,
-          images: formData.images,
-          pricing: formData.pricing,
-        });
-        setProducts(prev => [res.data, ...prev]);
+        const r = await api.post("/admin/products", formData);
+        setProducts(ps => [r.data, ...ps]);
       }
       setShowModal(false);
-    } catch (err: any) {
-      setFormError(err?.response?.data?.error ?? "Failed to save. Please try again.");
-    } finally {
-      setSaving(false);
-    }
+    } catch (e: any) {
+      setFormError(e?.response?.data?.error ?? "Failed to save product.");
+    } finally { setSaving(false); }
   };
 
-  // ── Delete product (hard delete — removes from DB + Cloudinary) ──
-  const handleDelete = async (product: Product) => {
-    if (!window.confirm(
-      `Delete "${product.name}"?\n\nThis will permanently delete the product and all its images from Cloudinary. This cannot be undone.`
-    )) return;
-
-    try {
-      await api.delete(`/admin/products/${product.id}`);
-      // Remove from local state immediately
-      setProducts(prev => prev.filter(p => p.id !== product.id));
-    } catch {
-      alert("Failed to delete product. Please try again.");
-    }
+  const handleDelete = async (p: Product) => {
+    if (!window.confirm(`Delete "${p.name}"?\n\nThis is permanent and removes all images.`)) return;
+    try { await api.delete(`/admin/products/${p.id}`); setProducts(ps => ps.filter(x => x.id !== p.id)); }
+    catch { alert("Delete failed."); }
   };
 
-  // ── Sizes ───────────────────────────────────────────────────────
+  const setPricing = (key: string, val: number) =>
+    setFormData(f => ({ ...f, pricing: { ...f.pricing, [key]: val } }));
+  const setMinBox = (key: string, val: number) =>
+    setFormData(f => ({ ...f, minBox: { ...f.minBox, [key]: val } }));
+
   const addSize = () => {
     const s = newSize.trim().toUpperCase();
     if (!s || formData.sizes.includes(s)) return;
-    setFormData({ ...formData, sizes: [...formData.sizes, s] });
-    setNewSize("");
+    setFormData(f => ({ ...f, sizes: [...f.sizes, s] })); setNewSize("");
   };
-  const removeSize = (size: string) =>
-    setFormData({ ...formData, sizes: formData.sizes.filter(s => s !== size) });
+  const removeSize = (s: string) => setFormData(f => ({ ...f, sizes: f.sizes.filter(x => x !== s) }));
 
-  const setActiveImg = (productId: number, index: number) =>
-    setActiveImgMap(prev => ({ ...prev, [productId]: index }));
-
-  if (loading) {
-    return (
-      <Dashboard>
-        <div style={loadingWrap}>
-          <div style={spinnerStyle} />
-          <p style={{ color: "#64748b", marginTop: 12 }}>Loading products...</p>
-        </div>
-      </Dashboard>
-    );
-  }
+  if (loading) return (
+    <Dashboard>
+      <div style={{ display:"flex", justifyContent:"center", alignItems:"center", height:300 }}>
+        <div style={s.spinner} /><span style={{ color:"#64748b", marginLeft:12 }}>Loading...</span>
+      </div>
+    </Dashboard>
+  );
 
   return (
     <Dashboard>
-      <div style={page}>
+      <div style={s.page}>
 
-        {/* ── Header ── */}
-        <div style={pageHeader}>
+        {/* Header */}
+        <div style={s.pageHeader}>
           <div>
-            <h2 style={pageTitle}>Products</h2>
-            <p style={pageSubtitle}>{products.length} product{products.length !== 1 ? "s" : ""}</p>
+            <h2 style={s.pageTitle}>Products</h2>
+            <p style={s.pageSub}>{products.length} product{products.length !== 1 ? "s" : ""}</p>
           </div>
-          <button style={primaryBtn} onClick={handleAddNew}>+ Add Product</button>
+          <button style={s.primaryBtn} onClick={openAdd}>+ Add Product</button>
         </div>
 
-        {pageError && <div style={errorBanner}>{pageError}</div>}
+        {pageError && <div style={s.errBanner}>{pageError}</div>}
 
-        {/* ── Products Grid ── */}
-        {products.length === 0 ? (
-          <div style={emptyState}>
-            <div style={{ fontSize: 48 }}>📦</div>
-            <p style={{ color: "#94a3b8", marginTop: 8 }}>No products yet. Add your first product!</p>
-          </div>
-        ) : (
-          <div style={grid}>
-            {products.map(product => {
-              const activeIndex = activeImgMap[product.id] ?? 0;
-              return (
-                <div key={product.id} style={card}>
-
-                  {/* Main image */}
-                  {product.images.length > 0 ? (
-                    <img
-                      src={product.images[activeIndex]}
-                      style={mainImage}
-                      alt={product.name}
-                    />
-                  ) : (
-                    <div style={imagePlaceholder}>👕</div>
-                  )}
-
-                  {/* Thumbnails — clickable */}
-                  {product.images.length > 1 && (
-                    <div style={thumbRow}>
-                      {product.images.map((img, i) => (
-                        <img
-                          key={i}
-                          src={img}
-                          alt=""
-                          style={{
-                            ...thumb,
-                            border: i === activeIndex
-                              ? "2px solid #2563eb"
-                              : "2px solid transparent",
-                            cursor: "pointer",
-                          }}
-                          onClick={() => setActiveImg(product.id, i)}
-                        />
-                      ))}
-                    </div>
-                  )}
-
-                  <h3 style={cardName}>{product.name}</h3>
-                  <p style={cardDesc}>{product.description}</p>
-                  <p style={cardMeta}>
-                    <strong>Sizes:</strong> {product.sizes.join(", ") || "—"}
-                  </p>
-                  <p style={cardMeta}>
-                    <strong>Box Qty:</strong> {product.boxQuantity} pcs
-                  </p>
-
-                  {/* Pricing */}
-                  <div style={priceBox}>
-                    {[
-                      ["Whole Seller", product.pricing.wholeSeller],
-                      ["Semi Whole Seller", product.pricing.semiWholeSeller],
-                      ["Retailer", product.pricing.retailer],
-                    ].map(([label, val]) => (
-                      <div key={label as string} style={priceRow}>
-                        <span style={priceLabel}>{label}</span>
-                        <span style={priceVal}>₹{val}</span>
-                      </div>
-                    ))}
-                  </div>
-
-                  {/* Actions */}
-                  <div style={cardActions}>
-                    <button style={editBtn} onClick={() => handleEdit(product)}>
-                      ✎ Edit
-                    </button>
-                    <button style={deleteBtn} onClick={() => handleDelete(product)}>
-                      🗑 Delete
-                    </button>
-                  </div>
-
-                </div>
-              );
-            })}
-          </div>
-        )}
-
-        {/* ══════════════════════════════════════════════
-            MODAL — Add / Edit
-        ══════════════════════════════════════════════ */}
-        {showModal && (
-          <div style={overlay} onClick={() => !uploadingImages && setShowModal(false)}>
-            <div style={modal} onClick={e => e.stopPropagation()}>
-
-              {showPreview ? (
-                /* ── Preview ── */
-                <>
-                  <div style={modalHeader}>
-                    <span style={modalTitleStyle}>Preview</span>
-                    <button style={closeBtn} onClick={() => setShowModal(false)}>✕</button>
-                  </div>
-
-                  <div style={{ ...card, boxShadow: "none", border: "1px solid #e2e8f0" }}>
-                    {formData.images[0]
-                      ? <img src={formData.images[0]} style={mainImage} alt="" />
-                      : <div style={imagePlaceholder}>👕</div>
+        {/* Grid */}
+        {products.length === 0
+          ? <div style={s.empty}><div style={{ fontSize:52 }}>📦</div><p style={{ color:"#94a3b8" }}>No products yet.</p></div>
+          : (
+            <div style={s.grid}>
+              {products.map(p => {
+                const ai = activeImg[p.id] ?? 0;
+                return (
+                  <div key={p.id} style={s.card}>
+                    {p.images.length > 0
+                      ? <img src={p.images[ai]} style={s.mainImg} alt={p.name} />
+                      : <div style={s.imgPh}>👕</div>
                     }
-                    {formData.images.length > 1 && (
-                      <div style={thumbRow}>
-                        {formData.images.map((img, i) => (
-                          <img key={i} src={img} style={thumb} alt="" />
+                    {p.images.length > 1 && (
+                      <div style={s.thumbRow}>
+                        {p.images.map((img, i) => (
+                          <img key={i} src={img} alt=""
+                            onClick={() => setActiveImg(m => ({ ...m, [p.id]: i }))}
+                            style={{ ...s.thumb, outline: i === ai ? "2px solid #2563eb" : "none", cursor:"pointer" }} />
                         ))}
                       </div>
                     )}
-                    <h3 style={cardName}>{formData.name || "—"}</h3>
-                    <p style={cardDesc}>{formData.description || "—"}</p>
-                    <p style={cardMeta}><strong>Sizes:</strong> {formData.sizes.join(", ") || "—"}</p>
-                    <p style={cardMeta}><strong>Box Qty:</strong> {formData.boxQuantity} pcs</p>
-                    <div style={priceBox}>
-                      {[
-                        ["Whole Seller", formData.pricing.wholeSeller],
-                        ["Semi Whole Seller", formData.pricing.semiWholeSeller],
-                        ["Retailer", formData.pricing.retailer],
-                      ].map(([label, val]) => (
-                        <div key={label as string} style={priceRow}>
-                          <span style={priceLabel}>{label}</span>
-                          <span style={priceVal}>₹{val}</span>
+                    <h3 style={s.cardName}>{p.name}</h3>
+                    <p  style={s.cardDesc}>{p.description}</p>
+                    <p  style={s.cardMeta}><b>Sizes:</b> {p.sizes.join(", ") || "—"} &nbsp;|&nbsp; <b>Pcs/Box:</b> {p.boxQuantity}</p>
+
+                    {/* Tier table */}
+                    <div style={s.tierTable}>
+                      <div style={s.tierHead}>
+                        <span>Customer Type</span><span>Price/Box</span><span>Min Boxes</span>
+                      </div>
+                      {TIERS.map(t => (
+                        <div key={t.key} style={{ ...s.tierRow, background: t.bg }}>
+                          <span style={{ ...s.tierLabel, color: t.color }}>{t.label}</span>
+                          <span style={s.tierPrice}>₹{(p.pricing as any)[t.key]}</span>
+                          <span style={s.tierMin}>{(p.minBox as any)?.[t.key] ?? t.minDefault} boxes</span>
                         </div>
                       ))}
                     </div>
-                  </div>
 
-                  <div style={modalFooter}>
-                    <button style={cancelBtn} onClick={() => setShowPreview(false)}>
-                      ← Back to Edit
-                    </button>
-                    <button style={primaryBtn} onClick={handleSave} disabled={saving}>
-                      {saving ? "Saving..." : editingId ? "Update" : "Save"}
-                    </button>
-                  </div>
-                </>
-              ) : (
-                /* ── Form ── */
-                <>
-                  <div style={modalHeader}>
-                    <span style={modalTitleStyle}>
-                      {editingId ? "Edit Product" : "Add Product"}
-                    </span>
-                    <button
-                      style={closeBtn}
-                      onClick={() => !uploadingImages && setShowModal(false)}
-                    >✕</button>
-                  </div>
-
-                  {formError && (
-                    <div style={{ ...errorBanner, marginBottom: 12 }}>{formError}</div>
-                  )}
-
-                  {/* Name */}
-                  <label style={fieldLabel}>Product Name *</label>
-                  <input
-                    style={input}
-                    placeholder="e.g. White Premium T-Shirt"
-                    value={formData.name}
-                    onChange={e => setFormData({ ...formData, name: e.target.value })}
-                  />
-
-                  {/* Description */}
-                  <label style={fieldLabel}>Description</label>
-                  <textarea
-                    style={{ ...input, height: 70, resize: "vertical" }}
-                    placeholder="Describe the product..."
-                    value={formData.description}
-                    onChange={e => setFormData({ ...formData, description: e.target.value })}
-                  />
-
-                  {/* Box Quantity */}
-                  <label style={fieldLabel}>Pieces per Box *</label>
-                  <input
-                    type="number"
-                    style={input}
-                    placeholder="12"
-                    min={1}
-                    value={formData.boxQuantity}
-                    onChange={e => setFormData({ ...formData, boxQuantity: Number(e.target.value) })}
-                  />
-
-                  {/* ── Image Upload ── */}
-                  <label style={fieldLabel}>
-                    Product Images
-                    <span style={{ fontSize: 10, color: "#94a3b8", marginLeft: 6, textTransform: "none" }}>
-                      (max 10 images · 10 MB each · JPG / PNG / WEBP)
-                    </span>
-                  </label>
-
-                  {/* Drop zone */}
-                  <div
-                    style={{
-                      ...uploadZone,
-                      borderColor: uploadingImages ? "#2563eb" : "#cbd5e1",
-                      cursor: uploadingImages ? "not-allowed" : "pointer",
-                    }}
-                    onClick={() => !uploadingImages && fileInputRef.current?.click()}
-                  >
-                    <input
-                      ref={fileInputRef}
-                      type="file"
-                      multiple
-                      accept="image/*"
-                      style={{ display: "none" }}
-                      onChange={handleImageUpload}
-                    />
-                    {uploadingImages ? (
-                      <div style={{ textAlign: "center" }}>
-                        <div style={uploadSpinner} />
-                        <p style={{ margin: "8px 0 0", fontSize: 13, color: "#2563eb", fontWeight: 600 }}>
-                          Uploading to Cloudinary...
-                        </p>
-                      </div>
-                    ) : (
-                      <div style={{ textAlign: "center" }}>
-                        <div style={{ fontSize: 30 }}>📁</div>
-                        <p style={{ margin: "6px 0 0", fontSize: 13, color: "#64748b" }}>
-                          Click to select images
-                        </p>
-                        <p style={{ margin: "2px 0 0", fontSize: 11, color: "#94a3b8" }}>
-                          {formData.images.length} / 10 uploaded
-                        </p>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Upload progress */}
-                  {uploadProgress.length > 0 && (
-                    <div style={progressBox}>
-                      {uploadProgress.map((msg, i) => (
-                        <div key={i} style={{ fontSize: 12, marginBottom: 2 }}>{msg}</div>
-                      ))}
+                    <div style={s.cardActions}>
+                      <button style={s.editBtn}   onClick={() => openEdit(p)}>✎ Edit</button>
+                      <button style={s.deleteBtn} onClick={() => handleDelete(p)}>🗑 Delete</button>
                     </div>
-                  )}
-
-                  {/* Uploaded images preview with remove button */}
-                  {formData.images.length > 0 && (
-                    <>
-                      <div style={thumbRow}>
-                        {formData.images.map((img, i) => (
-                          <div key={i} style={{ position: "relative" }}>
-                            <img
-                              src={img}
-                              style={{ ...thumb, width: 70, height: 70 }}
-                              alt=""
-                            />
-                            {/* Number badge */}
-                            <div style={orderBadge}>{i + 1}</div>
-                            {/* Remove button — deletes from Cloudinary */}
-                            <button
-                              style={removeImgBtn}
-                              onClick={() => removeImage(i)}
-                              title="Remove image"
-                            >✕</button>
-                          </div>
-                        ))}
-                      </div>
-                      <p style={{ fontSize: 11, color: "#94a3b8", marginTop: 4 }}>
-                        First image is the main photo. Clicking ✕ removes it from Cloudinary permanently.
-                      </p>
-                    </>
-                  )}
-
-                  {/* Sizes */}
-                  <label style={{ ...fieldLabel, marginTop: 14 }}>Available Sizes</label>
-
-                  {/* Quick size toggle buttons */}
-                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 8 }}>
-                    {["S", "M", "L", "XL", "XXL", "3XL"].map(s => (
-                      <button
-                        key={s}
-                        style={quickSizeBtn(formData.sizes.includes(s))}
-                        onClick={() => {
-                          if (formData.sizes.includes(s)) removeSize(s);
-                          else setFormData({ ...formData, sizes: [...formData.sizes, s] });
-                        }}
-                      >{s}</button>
-                    ))}
                   </div>
+                );
+              })}
+            </div>
+          )
+        }
 
-                  {/* Custom size input */}
-                  <div style={{ display: "flex", gap: 8 }}>
-                    <input
-                      style={{ ...input, flex: 1, marginTop: 0 }}
-                      placeholder="Custom size e.g. 38, 40..."
-                      value={newSize}
-                      onChange={e => setNewSize(e.target.value)}
-                      onKeyDown={e => e.key === "Enter" && addSize()}
-                    />
-                    <button style={addBtn} onClick={addSize}>Add</button>
-                  </div>
+        {/* ══ MODAL ══ */}
+        {showModal && (
+          <div style={s.overlay} onClick={() => !uploading && setShowModal(false)}>
+            <div style={s.modal} onClick={e => e.stopPropagation()}>
 
-                  {/* Selected sizes as chips */}
-                  {formData.sizes.length > 0 && (
-                    <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 8 }}>
-                      {formData.sizes.map(s => (
-                        <span key={s} style={sizeChip}>
-                          {s}
-                          <span style={sizeChipX} onClick={() => removeSize(s)}>×</span>
-                        </span>
-                      ))}
+              <div style={s.mHead}>
+                <span style={s.mTitle}>{editingId ? "Edit Product" : "Add Product"}</span>
+                <button style={s.closeBtn} onClick={() => !uploading && setShowModal(false)}>✕</button>
+              </div>
+
+              {formError && <div style={{ ...s.errBanner, marginBottom:14 }}>{formError}</div>}
+
+              {/* Name */}
+              <label style={s.label}>Product Name *</label>
+              <input style={s.input} value={formData.name} placeholder="e.g. White Premium T-Shirt"
+                onChange={e => setFormData(f => ({ ...f, name: e.target.value }))} />
+
+              {/* Description */}
+              <label style={s.label}>Description</label>
+              <textarea style={{ ...s.input, height:64, resize:"vertical" }}
+                value={formData.description} placeholder="Describe the product..."
+                onChange={e => setFormData(f => ({ ...f, description: e.target.value }))} />
+
+              {/* Pcs per box */}
+              <label style={s.label}>Pieces per Box *</label>
+              <input type="number" style={s.input} min={1} value={formData.boxQuantity}
+                onChange={e => setFormData(f => ({ ...f, boxQuantity: Number(e.target.value) }))} />
+              <p style={s.hint}>e.g. 12 means 1 box contains 12 pieces</p>
+
+              {/* Images */}
+              <label style={s.label}>
+                Images <span style={{ fontWeight:400, color:"#94a3b8", textTransform:"none", marginLeft:6 }}>(max 10 · 10 MB each)</span>
+              </label>
+              <div style={{ ...s.uploadZone, cursor: uploading ? "not-allowed" : "pointer" }}
+                onClick={() => !uploading && fileRef.current?.click()}>
+                <input ref={fileRef} type="file" multiple accept="image/*" style={{ display:"none" }} onChange={handleFiles} />
+                {uploading
+                  ? <div style={{ textAlign:"center" }}><div style={s.spinner} /><p style={{ fontSize:12, color:"#2563eb", marginTop:6 }}>Uploading...</p></div>
+                  : <div style={{ textAlign:"center" }}>
+                      <div style={{ fontSize:26 }}>📁</div>
+                      <p style={{ fontSize:12, color:"#64748b", margin:"4px 0 0" }}>Click to select images</p>
+                      <p style={{ fontSize:11, color:"#94a3b8", margin:"2px 0 0" }}>{formData.images.length}/10 uploaded</p>
                     </div>
-                  )}
-
-                  {/* Pricing */}
-                  <label style={{ ...fieldLabel, marginTop: 14 }}>
-                    Pricing by Customer Type (₹) *
-                  </label>
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
-                    {[
-                      { label: "Whole Seller", key: "wholeSeller" },
-                      { label: "Semi Whole", key: "semiWholeSeller" },
-                      { label: "Retailer", key: "retailer" },
-                    ].map(({ label, key }) => (
-                      <div key={key}>
-                        <label style={subLabel}>{label}</label>
-                        <input
-                          type="number"
-                          style={input}
-                          placeholder="0"
-                          min={0}
-                          value={(formData.pricing as any)[key]}
-                          onChange={e => setFormData({
-                            ...formData,
-                            pricing: { ...formData.pricing, [key]: Number(e.target.value) },
-                          })}
-                        />
-                      </div>
-                    ))}
-                  </div>
-
-                  {/* Footer buttons */}
-                  <div style={modalFooter}>
-                    <button
-                      style={cancelBtn}
-                      onClick={() => !uploadingImages && setShowModal(false)}
-                      disabled={saving || uploadingImages}
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      style={secondaryBtn}
-                      onClick={() => setShowPreview(true)}
-                      disabled={uploadingImages}
-                    >
-                      Preview
-                    </button>
-                    <button
-                      style={primaryBtn}
-                      onClick={handleSave}
-                      disabled={saving || uploadingImages}
-                    >
-                      {saving ? "Saving..." : editingId ? "Update" : "Save"}
-                    </button>
-                  </div>
-                </>
+                }
+              </div>
+              {uploadLog.length > 0 && (
+                <div style={s.logBox}>{uploadLog.map((l, i) => <div key={i} style={{ fontSize:12 }}>{l}</div>)}</div>
               )}
+              {formData.images.length > 0 && (
+                <div style={{ ...s.thumbRow, marginTop:8 }}>
+                  {formData.images.map((img, i) => (
+                    <div key={i} style={{ position:"relative" }}>
+                      <img src={img} style={{ ...s.thumb, width:66, height:66 }} alt="" />
+                      <button style={s.removeBtn} onClick={() => removeImg(i)}>✕</button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Sizes */}
+              <label style={{ ...s.label, marginTop:16 }}>Sizes</label>
+              <div style={{ display:"flex", gap:6, flexWrap:"wrap", marginBottom:8 }}>
+                {["S","M","L","XL","XXL","3XL"].map(sz => {
+                  const sel = formData.sizes.includes(sz);
+                  return (
+                    <button key={sz} onClick={() => sel ? removeSize(sz) : setFormData(f => ({ ...f, sizes: [...f.sizes, sz] }))}
+                      style={{ padding:"4px 12px", borderRadius:20, cursor:"pointer", fontWeight:600, fontSize:12,
+                        background: sel ? "#4f46e5" : "#f1f5f9", color: sel ? "#fff" : "#475569",
+                        border: sel ? "1px solid #4f46e5" : "1px solid #e2e8f0" }}>
+                      {sz}
+                    </button>
+                  );
+                })}
+              </div>
+              <div style={{ display:"flex", gap:8 }}>
+                <input style={{ ...s.input, flex:1, marginTop:0 }} value={newSize}
+                  placeholder="Custom size e.g. 38, 40..." onChange={e => setNewSize(e.target.value)}
+                  onKeyDown={e => e.key === "Enter" && addSize()} />
+                <button style={s.addBtn} onClick={addSize}>Add</button>
+              </div>
+              <div style={{ display:"flex", gap:6, flexWrap:"wrap", marginTop:8 }}>
+                {formData.sizes.map(sz => (
+                  <span key={sz} style={s.sizeChip}>
+                    {sz}<span style={{ cursor:"pointer", marginLeft:4, fontWeight:800 }} onClick={() => removeSize(sz)}>×</span>
+                  </span>
+                ))}
+              </div>
+
+              {/* ══ PRICING PER BOX ══ */}
+              <div style={s.sectionBox}>
+                <p style={s.sectionTitle}>💰 Price per Box</p>
+                <p style={s.sectionHint}>
+                  Set the price for 1 full box ({formData.boxQuantity} pcs).
+                  Each customer type sees <strong>only their own price</strong> in the app.
+                </p>
+                <div style={s.tierGrid}>
+                  {TIERS.map(t => (
+                    <div key={t.key} style={{ ...s.tierCard, borderTop:`3px solid ${t.color}` }}>
+                      <label style={{ ...s.subLabel, color: t.color }}>{t.label}</label>
+                      <div style={s.rupeeRow}>
+                        <span style={s.rupee}>₹</span>
+                        <input type="number" style={s.numInput} min={0} placeholder="0"
+                          value={(formData.pricing as any)[t.key]}
+                          onChange={e => setPricing(t.key, Number(e.target.value))} />
+                      </div>
+                      <span style={s.perHint}>
+                        per box · ₹{formData.boxQuantity > 0
+                          ? ((formData.pricing as any)[t.key] / formData.boxQuantity).toFixed(2)
+                          : "0.00"} per pc
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* ══ MIN BOX ORDER ══ */}
+              <div style={s.sectionBox}>
+                <p style={s.sectionTitle}>📦 Minimum Box Order</p>
+                <p style={s.sectionHint}>
+                  Customer cannot order below this quantity. The − button is disabled at the minimum.
+                </p>
+                <div style={s.tierGrid}>
+                  {TIERS.map(t => (
+                    <div key={t.key} style={{ ...s.tierCard, borderTop:`3px solid ${t.color}` }}>
+                      <label style={{ ...s.subLabel, color: t.color }}>{t.label}</label>
+                      <input type="number" style={{ ...s.numInput, paddingLeft:10, border:"1px solid #e2e8f0", borderRadius:6, height:36 }}
+                        min={1} placeholder={String(t.minDefault)}
+                        value={(formData.minBox as any)[t.key]}
+                        onChange={e => setMinBox(t.key, Number(e.target.value))} />
+                      <span style={s.perHint}>
+                        min · {(formData.minBox as any)[t.key] * formData.boxQuantity} pcs minimum
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div style={s.mFoot}>
+                <button style={s.cancelBtn} onClick={() => !uploading && setShowModal(false)} disabled={saving || uploading}>Cancel</button>
+                <button style={s.primaryBtn} onClick={handleSave} disabled={saving || uploading}>
+                  {saving ? "Saving..." : editingId ? "Update Product" : "Save Product"}
+                </button>
+              </div>
+
             </div>
           </div>
         )}
@@ -611,66 +363,58 @@ const AddProduct = () => {
       </div>
     </Dashboard>
   );
+}
+
+const s: Record<string, React.CSSProperties> = {
+  page:        { padding:24, minHeight:"100vh", background:"#f8fafc" },
+  pageHeader:  { display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:20 },
+  pageTitle:   { margin:0, fontSize:22, fontWeight:700, color:"#0f172a" },
+  pageSub:     { margin:"4px 0 0", fontSize:13, color:"#64748b" },
+  errBanner:   { background:"#fee2e2", color:"#dc2626", padding:"10px 14px", borderRadius:8, fontSize:13 },
+  empty:       { display:"flex", flexDirection:"column", alignItems:"center", padding:60, color:"#94a3b8" },
+  spinner:     { width:32, height:32, border:"3px solid #e2e8f0", borderTopColor:"#2563eb", borderRadius:"50%" },
+  grid:        { display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(300px, 1fr))", gap:20 },
+  card:        { background:"#fff", borderRadius:14, padding:16, border:"1px solid #e2e8f0", boxShadow:"0 2px 8px rgba(0,0,0,0.07)" },
+  mainImg:     { width:"100%", height:200, objectFit:"cover", borderRadius:10, marginBottom:8 },
+  imgPh:       { width:"100%", height:200, background:"#f1f5f9", borderRadius:10, display:"flex", alignItems:"center", justifyContent:"center", fontSize:52, marginBottom:8 },
+  thumbRow:    { display:"flex", gap:6, flexWrap:"wrap", marginTop:6 },
+  thumb:       { width:48, height:48, objectFit:"cover", borderRadius:6 },
+  cardName:    { margin:"8px 0 4px", fontSize:15, fontWeight:700, color:"#0f172a" },
+  cardDesc:    { margin:"0 0 6px", fontSize:12, color:"#64748b" },
+  cardMeta:    { margin:"2px 0 8px", fontSize:12, color:"#374151" },
+  cardActions: { display:"flex", gap:8, marginTop:12 },
+  tierTable:   { borderRadius:8, overflow:"hidden", border:"1px solid #e2e8f0", fontSize:12 },
+  tierHead:    { display:"grid", gridTemplateColumns:"1fr 1fr 1fr", background:"#f8fafc", padding:"7px 10px", fontWeight:700, color:"#475569", borderBottom:"1px solid #e2e8f0" },
+  tierRow:     { display:"grid", gridTemplateColumns:"1fr 1fr 1fr", padding:"8px 10px", borderBottom:"1px solid #f1f5f9" },
+  tierLabel:   { fontWeight:700 },
+  tierPrice:   { fontWeight:700, color:"#0f172a" },
+  tierMin:     { color:"#64748b" },
+  overlay:     { position:"fixed", inset:0, background:"rgba(0,0,0,0.5)", display:"flex", justifyContent:"center", alignItems:"center", zIndex:1000 },
+  modal:       { background:"#fff", padding:24, borderRadius:16, width:540, maxHeight:"92vh", overflowY:"auto", boxShadow:"0 24px 64px rgba(0,0,0,0.22)" },
+  mHead:       { display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:16, paddingBottom:12, borderBottom:"1px solid #f1f5f9" },
+  mTitle:      { fontSize:16, fontWeight:700, color:"#0f172a" },
+  mFoot:       { display:"flex", gap:8, justifyContent:"flex-end", marginTop:20, paddingTop:12, borderTop:"1px solid #f1f5f9" },
+  closeBtn:    { background:"none", border:"none", fontSize:18, cursor:"pointer", color:"#94a3b8", padding:4 },
+  label:       { display:"block", fontSize:11, fontWeight:700, color:"#475569", textTransform:"uppercase", letterSpacing:"0.5px", marginTop:14, marginBottom:4 },
+  subLabel:    { display:"block", fontSize:11, fontWeight:700, textTransform:"uppercase", letterSpacing:"0.4px", marginBottom:8 },
+  input:       { width:"100%", padding:"9px 10px", border:"1px solid #e2e8f0", borderRadius:8, marginTop:4, fontSize:13, color:"#0f172a", boxSizing:"border-box", outline:"none" },
+  hint:        { fontSize:11, color:"#94a3b8", margin:"3px 0 0" },
+  sectionBox:  { marginTop:18, border:"1px solid #e2e8f0", borderRadius:12, padding:16, background:"#fafafa" },
+  sectionTitle:{ fontSize:14, fontWeight:700, color:"#0f172a", margin:"0 0 4px" },
+  sectionHint: { fontSize:11, color:"#64748b", margin:"0 0 14px" },
+  tierGrid:    { display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:10 },
+  tierCard:    { background:"#fff", border:"1px solid #e2e8f0", borderRadius:10, padding:"12px 10px", display:"flex", flexDirection:"column", gap:6 },
+  rupeeRow:    { display:"flex", alignItems:"center", border:"1px solid #e2e8f0", borderRadius:6, overflow:"hidden" },
+  rupee:       { padding:"7px 8px", background:"#f1f5f9", fontWeight:700, fontSize:13, color:"#475569", borderRight:"1px solid #e2e8f0" },
+  numInput:    { flex:1, padding:"7px 8px", border:"none", outline:"none", fontSize:14, fontWeight:700, color:"#0f172a" },
+  perHint:     { fontSize:10, color:"#94a3b8" },
+  uploadZone:  { border:"2px dashed #cbd5e1", borderRadius:10, padding:"18px 12px", marginTop:6, background:"#f8fafc", display:"flex", justifyContent:"center", alignItems:"center", minHeight:78 },
+  logBox:      { background:"#f8fafc", border:"1px solid #e2e8f0", borderRadius:8, padding:"8px 12px", marginTop:8 },
+  removeBtn:   { position:"absolute", top:-6, right:-6, width:18, height:18, background:"#ef4444", color:"#fff", border:"none", borderRadius:"50%", cursor:"pointer", fontSize:10, display:"flex", alignItems:"center", justifyContent:"center" },
+  sizeChip:    { padding:"3px 10px", background:"#e0e7ff", color:"#4f46e5", borderRadius:20, fontSize:12, fontWeight:600, display:"flex", alignItems:"center" },
+  primaryBtn:  { padding:"9px 18px", background:"#2563eb", color:"#fff", border:"none", borderRadius:8, cursor:"pointer", fontWeight:700, fontSize:13 },
+  cancelBtn:   { padding:"9px 16px", background:"#fff", color:"#64748b", border:"1px solid #e2e8f0", borderRadius:8, cursor:"pointer", fontWeight:600, fontSize:13 },
+  editBtn:     { flex:1, padding:"7px", background:"#10b981", color:"#fff", border:"none", borderRadius:8, cursor:"pointer", fontWeight:700, fontSize:13 },
+  deleteBtn:   { flex:1, padding:"7px", background:"#ef4444", color:"#fff", border:"none", borderRadius:8, cursor:"pointer", fontWeight:700, fontSize:13 },
+  addBtn:      { padding:"9px 14px", background:"#e0e7ff", color:"#4f46e5", border:"none", borderRadius:8, cursor:"pointer", fontWeight:700, fontSize:13, whiteSpace:"nowrap" },
 };
-
-/* ════════════════════════════════
-   STYLES
-════════════════════════════════ */
-const page: React.CSSProperties = { padding: 24, minHeight: "100vh", background: "#f8fafc" };
-const pageHeader: React.CSSProperties = { display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 20 };
-const pageTitle: React.CSSProperties = { margin: 0, fontSize: 22, fontWeight: 700, color: "#0f172a" };
-const pageSubtitle: React.CSSProperties = { margin: "4px 0 0", fontSize: 13, color: "#64748b" };
-const errorBanner: React.CSSProperties = { background: "#fee2e2", color: "#dc2626", padding: "10px 14px", borderRadius: 8, fontSize: 13 };
-const emptyState: React.CSSProperties = { display: "flex", flexDirection: "column", alignItems: "center", padding: 60 };
-const loadingWrap: React.CSSProperties = { display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: 300 };
-const spinnerStyle: React.CSSProperties = { width: 36, height: 36, border: "3px solid #e2e8f0", borderTop: "3px solid #2563eb", borderRadius: "50%" };
-
-const grid: React.CSSProperties = { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 20 };
-const card: React.CSSProperties = { background: "#fff", padding: 16, borderRadius: 12, boxShadow: "0 2px 8px rgba(0,0,0,0.08)", border: "1px solid #e2e8f0" };
-const mainImage: React.CSSProperties = { width: "100%", height: 200, objectFit: "cover", borderRadius: 8, marginBottom: 8 };
-const imagePlaceholder: React.CSSProperties = { width: "100%", height: 200, background: "#f1f5f9", borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 48, marginBottom: 8 };
-const thumbRow: React.CSSProperties = { display: "flex", gap: 6, marginTop: 8, flexWrap: "wrap" };
-const thumb: React.CSSProperties = { width: 50, height: 50, objectFit: "cover", borderRadius: 6 };
-const cardName: React.CSSProperties = { margin: "8px 0 4px", fontSize: 15, fontWeight: 700, color: "#0f172a" };
-const cardDesc: React.CSSProperties = { margin: "0 0 6px", fontSize: 12, color: "#64748b" };
-const cardMeta: React.CSSProperties = { margin: "2px 0", fontSize: 12, color: "#374151" };
-const priceBox: React.CSSProperties = { background: "#f8fafc", padding: "10px 12px", borderRadius: 8, marginTop: 8, border: "1px solid #e2e8f0" };
-const priceRow: React.CSSProperties = { display: "flex", justifyContent: "space-between", marginBottom: 4 };
-const priceLabel: React.CSSProperties = { fontSize: 12, color: "#64748b" };
-const priceVal: React.CSSProperties = { fontSize: 12, fontWeight: 700, color: "#0f172a" };
-const cardActions: React.CSSProperties = { display: "flex", gap: 8, marginTop: 12 };
-const editBtn: React.CSSProperties = { flex: 1, padding: "7px", background: "#10b981", color: "#fff", border: "none", borderRadius: 8, cursor: "pointer", fontWeight: 700, fontSize: 13 };
-const deleteBtn: React.CSSProperties = { flex: 1, padding: "7px", background: "#ef4444", color: "#fff", border: "none", borderRadius: 8, cursor: "pointer", fontWeight: 700, fontSize: 13 };
-
-const overlay: React.CSSProperties = { position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", justifyContent: "center", alignItems: "center", zIndex: 1000 };
-const modal: React.CSSProperties = { background: "#fff", padding: 20, borderRadius: 14, width: 480, maxHeight: "92vh", overflowY: "auto", boxShadow: "0 20px 60px rgba(0,0,0,0.25)" };
-const modalHeader: React.CSSProperties = { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, paddingBottom: 12, borderBottom: "1px solid #f1f5f9" };
-const modalTitleStyle: React.CSSProperties = { fontSize: 16, fontWeight: 700, color: "#0f172a" };
-const modalFooter: React.CSSProperties = { display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 20, paddingTop: 12, borderTop: "1px solid #f1f5f9" };
-const closeBtn: React.CSSProperties = { background: "none", border: "none", fontSize: 18, cursor: "pointer", color: "#94a3b8" };
-
-const input: React.CSSProperties = { width: "100%", padding: "8px 10px", border: "1px solid #e2e8f0", borderRadius: 8, marginTop: 6, fontSize: 13, color: "#0f172a", boxSizing: "border-box" };
-const fieldLabel: React.CSSProperties = { display: "block", fontSize: 11, fontWeight: 700, color: "#475569", textTransform: "uppercase", letterSpacing: "0.5px", marginTop: 14 };
-const subLabel: React.CSSProperties = { display: "block", fontSize: 11, fontWeight: 600, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.4px", marginBottom: 2 };
-
-const uploadZone: React.CSSProperties = { border: "2px dashed #cbd5e1", borderRadius: 10, padding: "20px 16px", marginTop: 8, background: "#f8fafc", display: "flex", justifyContent: "center", alignItems: "center", minHeight: 80, transition: "border-color 0.2s" };
-const uploadSpinner: React.CSSProperties = { width: 28, height: 28, border: "3px solid #e2e8f0", borderTop: "3px solid #2563eb", borderRadius: "50%", margin: "0 auto" };
-const progressBox: React.CSSProperties = { background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 8, padding: "10px 12px", marginTop: 8 };
-const orderBadge: React.CSSProperties = { position: "absolute", top: -4, left: -4, width: 18, height: 18, background: "#2563eb", color: "#fff", borderRadius: "50%", fontSize: 10, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center" };
-const removeImgBtn: React.CSSProperties = { position: "absolute", top: -6, right: -6, width: 20, height: 20, background: "#ef4444", color: "#fff", border: "none", borderRadius: "50%", cursor: "pointer", fontSize: 10, display: "flex", alignItems: "center", justifyContent: "center" };
-
-const sizeChip: React.CSSProperties = { padding: "3px 10px", background: "#e0e7ff", color: "#4f46e5", borderRadius: 20, fontSize: 12, fontWeight: 600, display: "flex", alignItems: "center", gap: 4 };
-const sizeChipX: React.CSSProperties = { cursor: "pointer", color: "#6366f1", fontWeight: 800, fontSize: 14 };
-const quickSizeBtn = (selected: boolean): React.CSSProperties => ({
-  padding: "4px 12px", borderRadius: 20, fontSize: 12, cursor: "pointer", fontWeight: 600,
-  background: selected ? "#4f46e5" : "#f1f5f9",
-  color: selected ? "#fff" : "#475569",
-  border: selected ? "1px solid #4f46e5" : "1px solid #e2e8f0",
-});
-
-const primaryBtn: React.CSSProperties = { padding: "8px 18px", background: "#2563eb", color: "#fff", border: "none", borderRadius: 8, cursor: "pointer", fontWeight: 700, fontSize: 13 };
-const secondaryBtn: React.CSSProperties = { padding: "8px 18px", background: "#f1f5f9", color: "#475569", border: "1px solid #e2e8f0", borderRadius: 8, cursor: "pointer", fontWeight: 600, fontSize: 13 };
-const cancelBtn: React.CSSProperties = { padding: "8px 16px", background: "#fff", color: "#64748b", border: "1px solid #e2e8f0", borderRadius: 8, cursor: "pointer", fontWeight: 600, fontSize: 13 };
-const addBtn: React.CSSProperties = { padding: "8px 14px", background: "#e0e7ff", color: "#4f46e5", border: "none", borderRadius: 8, cursor: "pointer", fontWeight: 700, fontSize: 13, whiteSpace: "nowrap" };
-
-export default AddProduct;

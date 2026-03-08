@@ -26,15 +26,18 @@ export default function ProductListScreen({ navigation }: any) {
     return p.retailer;
   }, [user]);
 
-  const fetchProducts = useCallback(async (q = '') => {
-    setError('');
-    try {
-      const res = await productApi.getAll(q || undefined);
-      setProducts(res.data);
-    } catch {
-      setError('Failed to load products. Pull down to retry.');
-    }
-  }, []);
+const fetchProducts = useCallback(async (q = '') => {
+  setError('');
+  try {
+    const res = await productApi.getAll(q || undefined);
+    setProducts(res.data);
+  } catch (e: any) {
+    const status = e?.response?.status;
+    const msg = e?.response?.data || e?.message;
+    console.log('❌ Product fetch error:', status, msg);
+    setError(`Error ${status}: ${JSON.stringify(msg)}`);  // show on screen too
+  }
+}, []);
 
   useEffect(() => {
     (async () => { setLoading(true); await fetchProducts(); setLoading(false); })();
@@ -125,7 +128,7 @@ export default function ProductListScreen({ navigation }: any) {
                   <Text style={s.name} numberOfLines={2}>{item.name}</Text>
                   <Text style={s.desc} numberOfLines={1}>{item.description}</Text>
                   <View style={s.priceRow}>
-                    <Text style={s.price}>₹{price}<Text style={s.perPc}>/pc</Text></Text>
+                    <Text style={s.price}>₹{price}<Text style={s.perPc}>/box</Text></Text>
                     <View style={s.moq}>
                       <Text style={s.moqTxt}>Box:{item.boxQuantity}pc</Text>
                     </View>
