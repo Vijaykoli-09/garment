@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import api from "../../api/axiosInstance";
 import Swal from "sweetalert2";
 import Dashboard from "../Dashboard";
@@ -67,22 +67,22 @@ const PaymentModeCreation: React.FC = () => {
     };
   };
 
-  const loadAllPaymentModes = async () => {
-    try {
-      const res = await api.get("/payment/payment-mode");
-      const raw = Array.isArray(res.data) ? res.data : [];
-      const mapped = raw.map(mapFromServer);
-      setAllPaymentModes(mapped);
-      setFilteredPaymentModes(mapped);
-    } catch (err) {
-      console.error("Failed to load payment mode:", err);
-      Swal.fire("Error", "Failed to load payment modes.", "error");
-    }
-  };
+  const loadAllPaymentModes = useCallback(async () => {
+  try {
+    const res = await api.get("/payment/payment-mode");
+    const raw = Array.isArray(res.data) ? res.data : [];
+    const mapped = raw.map(mapFromServer);
+    setAllPaymentModes(mapped);
+    setFilteredPaymentModes(mapped);
+  } catch (err) {
+    console.error("Failed to load payment mode:", err);
+    Swal.fire("Error", "Failed to load payment modes.", "error");
+  }
+}, []); // Empty dependency array since it doesn't depend on any props or state
 
-  useEffect(() => {
-    loadAllPaymentModes();
-  }, []);
+useEffect(() => {
+  loadAllPaymentModes();
+}, [loadAllPaymentModes]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value, type } = e.target;
