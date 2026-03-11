@@ -16,6 +16,8 @@ public class SaleOrderPendencyRowDTO {
     private String artNo;
     private String artName;
 
+    private String shade;         // NEW: shade name or code
+
     private String size;          // base size (e.g. "M", "L", "XL")
 
     private Integer opening;

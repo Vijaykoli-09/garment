@@ -1,135 +1,109 @@
+// src/main/java/com/garment/serviceImpl/PaymentReciptServiceImpl.java
 package com.garment.serviceImpl;
-
-import java.util.List;
-import java.util.Locale;
-import java.util.Objects;
-import java.util.stream.Collectors;
-import java.util.stream.Stream;
-
-import org.springframework.http.HttpStatus;
-import org.springframework.stereotype.Service;
-import org.springframework.web.server.ResponseStatusException;
 
 import com.garment.DTO.PaymentReciptDTO;
 import com.garment.model.PaymentRecipt;
 import com.garment.repository.PaymentReciptRepository;
 import com.garment.service.PaymentReciptService;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.util.Collections;
+import java.util.List;
+import java.util.stream.Collectors;
 
 @Service
+@Transactional
 public class PaymentReciptServiceImpl implements PaymentReciptService {
 
-    private final PaymentReciptRepository repo;
+    private final PaymentReciptRepository repository;
 
-    public PaymentReciptServiceImpl(PaymentReciptRepository repo) {
-        this.repo = repo;
+    public PaymentReciptServiceImpl(PaymentReciptRepository repository) {
+        this.repository = repository;
     }
 
     @Override
     public PaymentReciptDTO create(PaymentReciptDTO dto) {
         PaymentRecipt entity = new PaymentRecipt();
-        applyDtoToEntity(dto, entity);
-        PaymentRecipt saved = repo.save(entity);
+        updateEntityFromDto(dto, entity);
+        PaymentRecipt saved = repository.save(entity);
         return toDto(saved);
     }
 
     @Override
+    @Transactional(readOnly = true)
     public List<PaymentReciptDTO> getAll() {
-        return repo.findAll()
+        return repository.findAll()
                 .stream()
                 .map(this::toDto)
                 .collect(Collectors.toList());
     }
 
     @Override
+    @Transactional(readOnly = true)
     public PaymentReciptDTO getById(Long id) {
-        PaymentRecipt entity = repo.findById(id)
-                .orElseThrow(() -> new ResponseStatusException(
-                        HttpStatus.NOT_FOUND, "PaymentRecipt not found: " + id
-                ));
+        PaymentRecipt entity = repository.findById(id)
+                .orElseThrow(() -> new IllegalArgumentException("Receipt not found: " + id));
         return toDto(entity);
     }
 
     @Override
     public PaymentReciptDTO update(Long id, PaymentReciptDTO dto) {
-        PaymentRecipt entity = repo.findById(id)
-                .orElseThrow(() -> new ResponseStatusException(
-                        HttpStatus.NOT_FOUND, "PaymentRecipt not found: " + id
-                ));
-
-        applyDtoToEntity(dto, entity);
-        PaymentRecipt updated = repo.save(entity);
-        return toDto(updated);
+        PaymentRecipt entity = repository.findById(id)
+                .orElseThrow(() -> new IllegalArgumentException("Receipt not found: " + id));
+        updateEntityFromDto(dto, entity);
+        PaymentRecipt saved = repository.save(entity);
+        return toDto(saved);
     }
 
     @Override
     public void delete(Long id) {
-        PaymentRecipt entity = repo.findById(id)
-                .orElseThrow(() -> new ResponseStatusException(
-                        HttpStatus.NOT_FOUND, "PaymentRecipt not found: " + id
-                ));
-        repo.delete(entity);
+        repository.deleteById(id);
     }
 
-    /**
-     * Repository is SIMPLE (JpaRepository only), so we compute distinct names from findAll().
-     * type expected values: "Party" / "Employee"
-     */
     @Override
+    @Transactional(readOnly = true)
     public List<String> getNamesByType(String type) {
-        if (type == null || type.trim().isEmpty()) return List.of();
-
-        String t = type.trim().toLowerCase(Locale.ROOT);
-
-        return repo.findAll()
-                .stream()
-                .filter(r -> r.getPaymentTo() != null)
-                .filter(r -> r.getPaymentTo().trim().toLowerCase(Locale.ROOT).equals(t))
-                .flatMap(r -> {
-                    if ("party".equals(t)) {
-                        return Stream.of(r.getPartyName());
-                    }
-                    if ("employee".equals(t)) {
-                        return Stream.of(r.getEmployeeName());
-                    }
-                    return Stream.empty();
-                })
-                .filter(Objects::nonNull)
-                .map(String::trim)
-                .filter(s -> !s.isEmpty())
-                .distinct()
-                .sorted(String.CASE_INSENSITIVE_ORDER)
-                .collect(Collectors.toList());
+        if ("Employee".equalsIgnoreCase(type)) {
+            return repository.findDistinctEmployeeNamesByPaymentTo("Employee");
+        } else if ("Party".equalsIgnoreCase(type)) {
+            return repository.findDistinctPartyNamesByPaymentTo("Party");
+        }
+        return Collections.emptyList();
     }
 
-    // ---------- mapping helpers ----------
-    private PaymentReciptDTO toDto(PaymentRecipt p) {
+    // ================== Mapping helpers ==================
+
+    private PaymentReciptDTO toDto(PaymentRecipt e) {
         PaymentReciptDTO dto = new PaymentReciptDTO();
-        dto.setId(p.getId());
-        dto.setEntryType(p.getEntryType());
-        dto.setPaymentTo(p.getPaymentTo());
-        dto.setPaymentDate(p.getPaymentDate());
-        dto.setDate(p.getToDate());
-        dto.setProcessName(p.getProcessName());
-        dto.setPartyName(p.getPartyName());
-        dto.setEmployeeName(p.getEmployeeName());
-        dto.setPaymentThrough(p.getPaymentThrough());
-        dto.setAmount(p.getAmount());
-        dto.setBalance(p.getBalance());
-        dto.setRemarks(p.getRemarks());
+        dto.setId(e.getId());
+        dto.setEntryType(e.getEntryType());
+        dto.setReceiptTo(e.getPaymentTo());
+        dto.setReceiptDate(e.getPaymentDate());
+        dto.setDate(e.getToDate());
+        dto.setProcessName(e.getProcessName());
+        dto.setPartyName(e.getPartyName());
+        dto.setEmployeeName(e.getEmployeeName());
+        dto.setPaymentThrough(e.getPaymentThrough());
+        dto.setAmount(e.getAmount());
+        dto.setBalance(e.getBalance());
+        dto.setRemarks(e.getRemarks());
+        // agentName is not stored in entity -> dto.setAgentName(null);
         return dto;
     }
 
-    private void applyDtoToEntity(PaymentReciptDTO dto, PaymentRecipt entity) {
-        entity.setEntryType(dto.getEntryType());
-        entity.setPaymentTo(dto.getPaymentTo());
-        entity.setPaymentDate(dto.getPaymentDate());
-        entity.setToDate(dto.getDate());
-        entity.setProcessName(dto.getProcessName());
-        entity.setPartyName(dto.getPartyName());
-        entity.setEmployeeName(dto.getEmployeeName());
-        entity.setPaymentThrough(dto.getPaymentThrough());
-        entity.setAmount(dto.getAmount());
-        entity.setBalance(dto.getBalance());
-        entity.setRemarks(dto.getRemarks());
+    private void updateEntityFromDto(PaymentReciptDTO dto, PaymentRecipt e) {
+        e.setEntryType(dto.getEntryType());
+        e.setPaymentTo(dto.getReceiptTo());
+        e.setPaymentDate(dto.getReceiptDate());
+        e.setToDate(dto.getDate());
+        e.setProcessName(dto.getProcessName());
+        e.setPartyName(dto.getPartyName());
+        e.setEmployeeName(dto.getEmployeeName());
+        e.setPaymentThrough(dto.getPaymentThrough());
+        e.setAmount(dto.getAmount());
+        e.setBalance(dto.getBalance());
+        e.setRemarks(dto.getRemarks());
+        // agentName is not mapped; add field + column if you want to store it
     }
 }

@@ -1,7 +1,7 @@
 "use client"
 
 import type React from "react"
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import { useNavigate } from "react-router-dom"
 import Dashboard from "../Dashboard"
 import Swal from "sweetalert2"
@@ -72,6 +72,12 @@ const ProductionReceipt: React.FC = () => {
   const [artList, setArtList] = useState<ArtDetail[]>([])
   const [cuttingEntries, setCuttingEntries] = useState<CuttingEntry[]>([])
 
+  // NEW: Cutting Lot No search bar (filter table rows)
+  const [cuttingLotSearchText, setCuttingLotSearchText] = useState("")
+
+  // NEW: Prevent double-click save
+  const [isSaving, setIsSaving] = useState(false)
+
   useEffect(() => {
     loadEmployees()
     loadProcesses()
@@ -138,7 +144,6 @@ const ProductionReceipt: React.FC = () => {
     try {
       const res = await api.get("/production-receipt")
       const data = Array.isArray(res.data) ? res.data : []
-      console.log("[v0] Loaded saved records:", data)
       setSavedRecords(data)
       return data
     } catch (err: any) {
@@ -147,125 +152,99 @@ const ProductionReceipt: React.FC = () => {
     }
   }
 
-  // const getConsumedPcs = useCallback(
-  //   (cardNo: string, artNo: string, shade: string): number => {
-  //     let consumed = 0
-  //     savedRecords.forEach((record) => {
-  //       ;(record.rows || []).forEach((row: any) => {
-  //         if (row.cardNo === cardNo && row.artNo === artNo && row.shade === shade) {
-  //           consumed += Number.parseFloat(row.pcs) || 0
-  //         }
-  //       })
-  //     })
-  //     return consumed
-  //   },
-  //   [savedRecords],
-  // )
-
+  /**
+   * IMPORTANT CHANGES IN handleProcessSelect:
+   * 1) Rows generation order = Cutting Entries order (stable)
+   * 2) Once a cutting lot is saved for SAME process (even 1 pcs), it will NOT show again
+   */
   const handleProcessSelect = async (selectedProcess: any) => {
     setProcessName(selectedProcess.processName)
     setShowProcessModal(false)
+    setCuttingLotSearchText("") // reset search on new process select
 
     const latestRecords = await loadSavedRecords()
-    console.log("[v0] Latest records for process selection:", latestRecords)
 
-    const artsWithProcess = artList.filter((art) =>
-      art.processes?.some((p) => p.processName === selectedProcess.processName),
-    )
+    // Helper maps (fast lookup)
+    const artByArtNo = new Map<string, ArtDetail>()
+    artList.forEach((a) => artByArtNo.set((a.artNo || "").toString().trim(), a))
 
-    if (artsWithProcess.length === 0) {
-      Swal.fire("Info", "No arts found for this process", "info")
-      return
-    }
+    const currentProcess = (selectedProcess.processName || "").toString().trim()
 
     const newRows: ProductionRow[] = []
     let rowId = Date.now()
 
-    artsWithProcess.forEach((art) => {
-      const processDetail = art.processes.find((p) => p.processName === selectedProcess.processName)
-      const processRate = processDetail?.rate || ""
+    // ORDER: cuttingEntries -> lotRows (same order as saved in cutting)
+    for (const entry of cuttingEntries) {
+      for (const lotRow of entry.lotRows || []) {
+        const lotArtNo = (lotRow.artNo || "").toString().trim()
+        const lotNo = (lotRow.cutLotNo || "").toString().trim()
 
-      // const _sizes = art.sizes || []
+        const art = artByArtNo.get(lotArtNo)
+        if (!art) continue
 
-      const cuttingForArt: any[] = []
-      cuttingEntries.forEach((entry) => {
-        entry.lotRows?.forEach((lotRow) => {
-          if (lotRow.artNo === art.artNo) {
-            cuttingForArt.push({
-              cutLotNo: lotRow.cutLotNo,
-              pcs: lotRow.pcs,
-            })
-          }
-        })
-      })
+        const processDetail = (art.processes || []).find(
+          (p) => (p.processName || "").toString().trim() === currentProcess,
+        )
+        if (!processDetail) continue // art doesn't belong to this process
 
-      if (cuttingForArt.length > 0) {
-        cuttingForArt.forEach((cutting) => {
-          const originalPcs = Number.parseFloat(cutting.pcs) || 0
-          let consumedPcs = 0
-          
-          // Calculate consumed pieces from all saved records for THIS PROCESS ONLY
-          latestRecords.forEach((record) => {
-            // Only count consumption from the same process
-            const recordProcess = (record.processName || "").toString().trim()
-            const currentProcess = selectedProcess.processName.toString().trim()
-            
-            if (recordProcess === currentProcess) {
-              ;(record.rows || []).forEach((row: any) => {
-                const rowCardNo = (row.cardNo || "").toString().trim()
-                const rowArtNo = (row.artNo || "").toString().trim()
-                const cutLotNo = cutting.cutLotNo.toString().trim()
-                const artNoTrimmed = art.artNo.toString().trim()
-                
-                // Only count consumed pieces for this cutting lot, art, and process
-                if (rowCardNo === cutLotNo && rowArtNo === artNoTrimmed) {
-                  const rowPcs = Number.parseFloat(row.pcs) || 0
-                  consumedPcs += rowPcs
-                  console.log(
-                    `[v0] Found match for process ${currentProcess}: Card=${rowCardNo}, Art=${rowArtNo}, Pcs=${rowPcs} (total consumed: ${consumedPcs})`,
-                  )
-                }
-              })
+        const processRate = processDetail.rate || ""
+
+        const originalPcs = Number.parseFloat(lotRow.pcs) || 0
+
+        // Consumption for THIS process + THIS cardNo + THIS artNo
+        let consumedPcs = 0
+        latestRecords.forEach((record) => {
+          const recordProcess = (record.processName || "").toString().trim()
+          if (recordProcess !== currentProcess) return
+
+          ;(record.rows || []).forEach((r: any) => {
+            const rowCardNo = (r.cardNo || "").toString().trim()
+            const rowArtNo = (r.artNo || "").toString().trim()
+            if (rowCardNo === lotNo && rowArtNo === lotArtNo) {
+              consumedPcs += Number.parseFloat(r.pcs) || 0
             }
           })
-          const remainingPcs = Math.max(0, originalPcs - consumedPcs)
-          console.log(`[v0] Process: ${selectedProcess.processName}, Card: ${cutting.cutLotNo}, Art: ${art.artNo} - Original: ${originalPcs}, Consumed: ${consumedPcs}, Remaining: ${remainingPcs}`)
+        })
 
-          if (remainingPcs > 0) {
-            newRows.push({
-              id: rowId++,
-              cardNo: cutting.cutLotNo,
-              artNo: art.artNo,
-              shade: "", // Manual entry - leave blank
-              pcs: remainingPcs.toString(),
-              originalPcs: cutting.pcs,
-              weightage: "",
-              rate: processRate,
-              amount: (remainingPcs * (Number.parseFloat(processRate) || 0)).toFixed(2),
-              remarks: "",
-              isSelected: false,
-            })
-          }
+        // NEW RULE (as requested): once saved even once, don't show again
+        if (consumedPcs > 0) {
+          continue
+        }
+
+        const remainingPcs = Math.max(0, originalPcs - consumedPcs)
+        if (remainingPcs <= 0) continue
+
+        newRows.push({
+          id: rowId++,
+          cardNo: lotNo,
+          artNo: lotArtNo,
+          shade: "", // manual
+          pcs: remainingPcs.toString(),
+          originalPcs: (lotRow.pcs || "").toString(),
+          weightage: "",
+          rate: processRate,
+          amount: (remainingPcs * (Number.parseFloat(processRate) || 0)).toFixed(2),
+          remarks: "",
+          isSelected: false,
         })
       }
-    })
+    }
 
-    console.log("[v0] Final rows to display:", newRows)
     setRows(newRows)
 
     if (newRows.length > 0) {
       Swal.fire({
         icon: "success",
         title: "Rows Generated",
-        text: `${newRows.length} rows created with remaining pieces for process: ${selectedProcess.processName}`,
+        text: `${newRows.length} rows created for process: ${selectedProcess.processName}`,
         timer: 2000,
         showConfirmButton: false,
       })
     } else {
       Swal.fire({
         icon: "info",
-        title: "No Remaining Pieces",
-        text: "All cutting entries for this process have been fully consumed.",
+        title: "No Rows",
+        text: "No cutting lots available (already saved or not found for this process).",
         timer: 2000,
         showConfirmButton: false,
       })
@@ -292,35 +271,31 @@ const ProductionReceipt: React.FC = () => {
   }, [])
 
   useEffect(() => {
-    if (rows.length === 0) {
-      addRow()
-    }
+    if (rows.length === 0) addRow()
   }, [addRow, rows.length])
 
   const handleChange = (id: number, field: keyof ProductionRow, value: string) => {
     const updatedRows = rows.map((r) => {
-      if (r.id === id) {
-        const updatedRow = { ...r, [field]: value }
+      if (r.id !== id) return r
 
-        if (field === "pcs") {
-          updatedRow.isSelected = true
-        }
+      const updatedRow = { ...r, [field]: value }
 
-        if (field === "pcs" || field === "rate") {
-          const pcs = Number.parseFloat(field === "pcs" ? value : updatedRow.pcs) || 0
-          const rate = Number.parseFloat(field === "rate" ? value : updatedRow.rate) || 0
-          updatedRow.amount = (pcs * rate).toFixed(2)
-        }
+      if (field === "pcs") updatedRow.isSelected = true
 
-        return updatedRow
+      if (field === "pcs" || field === "rate") {
+        const pcs = Number.parseFloat(field === "pcs" ? value : updatedRow.pcs) || 0
+        const rate = Number.parseFloat(field === "rate" ? value : updatedRow.rate) || 0
+        updatedRow.amount = (pcs * rate).toFixed(2)
       }
-      return r
+
+      return updatedRow
     })
+
     setRows(updatedRows)
   }
 
   const handleRowSelection = (id: number, selected: boolean) => {
-    setRows(rows.map((r) => (r.id === id ? { ...r, isSelected: selected } : r)))
+    setRows((prev) => prev.map((r) => (r.id === id ? { ...r, isSelected: selected } : r)))
   }
 
   const openEmployeeModal = () => {
@@ -345,15 +320,20 @@ const ProductionReceipt: React.FC = () => {
   const filteredEmployeesForModal = employeeList.filter((e) => {
     const employeeProcess = e.process?.processName || e.processName || ""
     const matchesProcess = employeeProcess.toLowerCase() === processName.toLowerCase()
-    const matchesSearch = (e.name || e.employeeName || "").toLowerCase().includes(employeeSearchText.toLowerCase())
+    const matchesSearch = (e.name || e.employeeName || "")
+      .toLowerCase()
+      .includes(employeeSearchText.toLowerCase())
     return matchesProcess && matchesSearch
   })
 
   const filteredProcesses = processList.filter((p) =>
-    p.processName.toLowerCase().includes(processSearchText.toLowerCase()),
+    (p.processName || "").toLowerCase().includes(processSearchText.toLowerCase()),
   )
 
   const handleSave = async () => {
+    // NEW: prevent double click / duplicate save
+    if (isSaving) return
+
     const selectedRows = rows.filter((r) => r.isSelected)
 
     if (selectedRows.length === 0) {
@@ -364,6 +344,22 @@ const ProductionReceipt: React.FC = () => {
     if (!dated || !employeeName || !processName) {
       Swal.fire("Error", "Please fill all required fields (Date, Employee, Process)!", "error")
       return
+    }
+
+    // validate pcs should not exceed originalPcs (where originalPcs exists)
+    for (const r of selectedRows) {
+      if (r.originalPcs !== "") {
+        const orig = Number.parseFloat(r.originalPcs) || 0
+        const pcs = Number.parseFloat(r.pcs) || 0
+        if (pcs > orig) {
+          Swal.fire(
+            "Error",
+            `Pcs cannot be greater than Original Pcs.\nCutting Lot: ${r.cardNo} | Art: ${r.artNo}\nOriginal: ${orig}, Entered: ${pcs}`,
+            "error",
+          )
+          return
+        }
+      }
     }
 
     const autoVoucherNo = `PR-${Date.now()}`
@@ -387,9 +383,7 @@ const ProductionReceipt: React.FC = () => {
       })),
     }
 
-    console.log("[v0] Saving production receipt for employee:", employeeName, "Process:", processName)
-    console.log("[v0] Payload:", payload)
-
+    setIsSaving(true)
     try {
       if (editingId) {
         await api.put(`/production-receipt/${editingId}`, payload)
@@ -401,21 +395,25 @@ const ProductionReceipt: React.FC = () => {
       }
 
       await loadSavedRecords()
-      setRows(rows.filter((r) => !r.isSelected))
 
+      // remove selected rows from current UI
+      setRows((prev) => prev.filter((r) => !r.isSelected))
+
+      // regenerate rows for same process to hide saved cuttings immediately
       if (processName) {
         const selectedProcess = processList.find((p) => p.processName === processName)
-        if (selectedProcess) {
-          await handleProcessSelect(selectedProcess)
-        }
+        if (selectedProcess) await handleProcessSelect(selectedProcess)
       }
     } catch (err: any) {
       console.error("Save Error:", err)
       Swal.fire("Error", err.response?.data?.message || "Failed to save record", "error")
+    } finally {
+      setIsSaving(false)
     }
   }
 
   const resetForm = () => {
+    if (isSaving) return
     setRows([])
     addRow()
     setVoucherNo("")
@@ -424,12 +422,12 @@ const ProductionReceipt: React.FC = () => {
     setProcessName("")
     setRandomEntry(false)
     setEditingId(null)
+    setCuttingLotSearchText("")
   }
 
   const openList = async () => {
     try {
-      const data = await loadSavedRecords()
-      console.log("[v0] Opening list with data:", data)
+      await loadSavedRecords()
       setShowList(true)
     } catch (err) {
       console.error("Load List Error:", err)
@@ -464,6 +462,7 @@ const ProductionReceipt: React.FC = () => {
       }))
       setRows(mapped)
       setShowList(false)
+      setCuttingLotSearchText("")
     } catch (err) {
       console.error("Edit Error:", err)
       Swal.fire("Error", "Failed to load record", "error")
@@ -480,23 +479,21 @@ const ProductionReceipt: React.FC = () => {
       confirmButtonColor: "#d33",
     })
 
-    if (result.isConfirmed) {
-      try {
-        await api.delete(`/production-receipt/${id}`)
-        setProductionReceiptList((prev) => prev.filter((x) => x.id !== id))
-        await loadSavedRecords()
-        Swal.fire("Deleted!", "Record deleted successfully", "success")
+    if (!result.isConfirmed) return
 
-        if (processName) {
-          const selectedProcess = processList.find((p) => p.processName === processName)
-          if (selectedProcess) {
-            await handleProcessSelect(selectedProcess)
-          }
-        }
-      } catch (err) {
-        console.error("Delete Error:", err)
-        Swal.fire("Error", "Delete failed", "error")
+    try {
+      await api.delete(`/production-receipt/${id}`)
+      setProductionReceiptList((prev) => prev.filter((x) => x.id !== id))
+      await loadSavedRecords()
+      Swal.fire("Deleted!", "Record deleted successfully", "success")
+
+      if (processName) {
+        const selectedProcess = processList.find((p) => p.processName === processName)
+        if (selectedProcess) await handleProcessSelect(selectedProcess)
       }
+    } catch (err) {
+      console.error("Delete Error:", err)
+      Swal.fire("Error", "Delete failed", "error")
     }
   }
 
@@ -576,14 +573,22 @@ const ProductionReceipt: React.FC = () => {
         if (!searchText) return true
         if ((x.employeeName || "").toLowerCase().includes(s)) return true
         const artNos = (x.rows || []).map((r: any) => r.artNo || "").join(" ").toLowerCase()
-        if (artNos.includes(s)) return true
-        return false
+        return artNos.includes(s)
       })
     : []
 
   const totalPcs = rows.reduce((sum, r) => sum + (Number.parseFloat(r.pcs) || 0), 0)
-  const selectedPcs = rows.filter((r) => r.isSelected).reduce((sum, r) => sum + (Number.parseFloat(r.pcs) || 0), 0)
+  const selectedPcs = rows
+    .filter((r) => r.isSelected)
+    .reduce((sum, r) => sum + (Number.parseFloat(r.pcs) || 0), 0)
   const selectedCount = rows.filter((r) => r.isSelected).length
+
+  // filtered rows for table display by Cutting Lot No
+  const displayedRows = useMemo(() => {
+    const s = cuttingLotSearchText.trim().toLowerCase()
+    if (!s) return rows
+    return rows.filter((r) => (r.cardNo || "").toLowerCase().includes(s))
+  }, [rows, cuttingLotSearchText])
 
   return (
     <Dashboard>
@@ -601,6 +606,7 @@ const ProductionReceipt: React.FC = () => {
                 className="p-2 border rounded w-full"
               />
             </div>
+
             <div>
               <label className="block font-semibold">Process</label>
               <input
@@ -612,6 +618,7 @@ const ProductionReceipt: React.FC = () => {
                 placeholder="Click to select process"
               />
             </div>
+
             <div>
               <label className="block font-semibold">Employee</label>
               <input
@@ -623,6 +630,7 @@ const ProductionReceipt: React.FC = () => {
                 placeholder="Click to select employee"
               />
             </div>
+
             <div className="flex items-center mt-6">
               <input
                 type="checkbox"
@@ -631,6 +639,25 @@ const ProductionReceipt: React.FC = () => {
                 className="mr-2"
               />
               <label className="font-semibold">Random Entry</label>
+            </div>
+          </div>
+
+          {/* Cutting Lot No Search Bar */}
+          <div className="gap-4 grid grid-cols-4 mb-3">
+            <div>
+              <label className="block font-semibold">Search Cutting Lot No</label>
+              <input
+                type="text"
+                value={cuttingLotSearchText}
+                onChange={(e) => setCuttingLotSearchText(e.target.value)}
+                className="p-2 border rounded w-full"
+                placeholder="Type Cutting Lot No..."
+              />
+            </div>
+            <div className="col-span-3 flex items-end text-sm text-gray-600">
+              <span>
+                Showing <b>{displayedRows.length}</b> of <b>{rows.length}</b> rows
+              </span>
             </div>
           </div>
 
@@ -649,8 +676,9 @@ const ProductionReceipt: React.FC = () => {
                   <th className="p-2 border min-w-[60px]">Select</th>
                 </tr>
               </thead>
+
               <tbody>
-                {rows.map((row) => (
+                {displayedRows.map((row) => (
                   <tr key={row.id}>
                     <td className="p-1 border">
                       <input
@@ -662,6 +690,7 @@ const ProductionReceipt: React.FC = () => {
                         disabled={row.originalPcs !== ""}
                       />
                     </td>
+
                     <td className="p-1 border">
                       <input
                         type="text"
@@ -671,6 +700,7 @@ const ProductionReceipt: React.FC = () => {
                         disabled={row.originalPcs !== ""}
                       />
                     </td>
+
                     <td className="p-1 border">
                       <input
                         type="text"
@@ -680,6 +710,7 @@ const ProductionReceipt: React.FC = () => {
                         placeholder="Enter shade"
                       />
                     </td>
+
                     <td className="p-1 border">
                       <input
                         type="text"
@@ -688,6 +719,7 @@ const ProductionReceipt: React.FC = () => {
                         className="p-1 border rounded w-full text-center"
                       />
                     </td>
+
                     <td className="p-1 border">
                       <input
                         type="text"
@@ -697,6 +729,7 @@ const ProductionReceipt: React.FC = () => {
                         placeholder="Weightage"
                       />
                     </td>
+
                     <td className="p-1 border">
                       <input
                         type="text"
@@ -706,6 +739,7 @@ const ProductionReceipt: React.FC = () => {
                         placeholder="Rate"
                       />
                     </td>
+
                     <td className="p-1 border">
                       <input
                         type="text"
@@ -714,6 +748,7 @@ const ProductionReceipt: React.FC = () => {
                         className="bg-gray-50 p-1 border rounded w-full text-center"
                       />
                     </td>
+
                     <td className="p-1 border">
                       <input
                         type="text"
@@ -722,6 +757,7 @@ const ProductionReceipt: React.FC = () => {
                         className="p-1 border rounded w-full"
                       />
                     </td>
+
                     <td className="p-1 border text-center">
                       <input
                         type="checkbox"
@@ -749,42 +785,60 @@ const ProductionReceipt: React.FC = () => {
 
           <div className="flex justify-between mt-4">
             <div>
-              <button onClick={addRow} className="bg-blue-500 hover:bg-blue-600 mr-2 px-4 py-2 rounded text-white">
+              <button
+                onClick={addRow}
+                disabled={isSaving}
+                className={`bg-blue-500 hover:bg-blue-600 mr-2 px-4 py-2 rounded text-white ${
+                  isSaving ? "opacity-60 cursor-not-allowed" : ""
+                }`}
+              >
                 Add
               </button>
+
               <button
                 onClick={handleSave}
-                className="bg-green-500 hover:bg-green-600 mr-2 px-4 py-2 rounded text-white"
+                disabled={isSaving}
+                className={`bg-green-500 hover:bg-green-600 mr-2 px-4 py-2 rounded text-white ${
+                  isSaving ? "opacity-60 cursor-not-allowed" : ""
+                }`}
               >
-                {editingId ? "Update" : "Save"}
+                {isSaving ? "Saving..." : editingId ? "Update" : "Save"}
               </button>
+
               <button
                 onClick={resetForm}
-                className="bg-orange-500 hover:bg-orange-600 mr-2 px-4 py-2 rounded text-white"
+                disabled={isSaving}
+                className={`bg-orange-500 hover:bg-orange-600 mr-2 px-4 py-2 rounded text-white ${
+                  isSaving ? "opacity-60 cursor-not-allowed" : ""
+                }`}
               >
                 Cancel
               </button>
+
               <button
                 onClick={openList}
                 className="bg-yellow-500 hover:bg-yellow-600 mr-2 px-4 py-2 rounded text-white"
               >
                 List
               </button>
+
               <button
                 onClick={() => {
-                  if (editingId) {
-                    handleDelete(editingId)
-                  } else {
-                    Swal.fire("Info", "No record selected to delete", "info")
-                  }
+                  if (editingId) handleDelete(editingId)
+                  else Swal.fire("Info", "No record selected to delete", "info")
                 }}
                 className="bg-red-500 hover:bg-red-600 mr-2 px-4 py-2 rounded text-white"
               >
                 Delete
               </button>
-              <button onClick={handlePrint} className="bg-gray-600 hover:bg-gray-700 mr-2 px-4 py-2 rounded text-white">
+
+              <button
+                onClick={handlePrint}
+                className="bg-gray-600 hover:bg-gray-700 mr-2 px-4 py-2 rounded text-white"
+              >
                 Print
               </button>
+
               <button
                 onClick={() => navigate(-1)}
                 className="bg-gray-400 hover:bg-gray-500 mr-2 px-4 py-2 rounded text-white"
@@ -800,9 +854,8 @@ const ProductionReceipt: React.FC = () => {
       {showEmployeeModal && (
         <div className="z-50 fixed inset-0 flex justify-center items-center bg-black bg-opacity-50">
           <div className="bg-white shadow-lg p-5 rounded-lg w-full max-w-2xl">
-            <h3 className="mb-4 font-bold text-xl text-center">
-              Select Employee for {processName}
-            </h3>
+            <h3 className="mb-4 font-bold text-xl text-center">Select Employee for {processName}</h3>
+
             <input
               type="text"
               placeholder="Search employee name..."
@@ -810,6 +863,7 @@ const ProductionReceipt: React.FC = () => {
               onChange={(e) => setEmployeeSearchText(e.target.value)}
               className="mb-3 p-2 border rounded w-full"
             />
+
             <div className="max-h-96 overflow-auto">
               <table className="border w-full text-sm">
                 <thead className="bg-gray-200">
@@ -820,6 +874,7 @@ const ProductionReceipt: React.FC = () => {
                     <th className="p-2 border">Action</th>
                   </tr>
                 </thead>
+
                 <tbody>
                   {filteredEmployeesForModal.length === 0 ? (
                     <tr>
@@ -847,6 +902,7 @@ const ProductionReceipt: React.FC = () => {
                 </tbody>
               </table>
             </div>
+
             <div className="flex justify-center mt-4">
               <button
                 onClick={() => setShowEmployeeModal(false)}
@@ -864,6 +920,7 @@ const ProductionReceipt: React.FC = () => {
         <div className="z-50 fixed inset-0 flex justify-center items-center bg-black bg-opacity-50">
           <div className="bg-white shadow-lg p-5 rounded-lg w-full max-w-2xl">
             <h3 className="mb-4 font-bold text-xl text-center">Select Process</h3>
+
             <input
               type="text"
               placeholder="Search process name..."
@@ -871,6 +928,7 @@ const ProductionReceipt: React.FC = () => {
               onChange={(e) => setProcessSearchText(e.target.value)}
               className="mb-3 p-2 border rounded w-full"
             />
+
             <div className="max-h-96 overflow-auto">
               <table className="border w-full text-sm">
                 <thead className="bg-gray-200">
@@ -880,6 +938,7 @@ const ProductionReceipt: React.FC = () => {
                     <th className="p-2 border">Action</th>
                   </tr>
                 </thead>
+
                 <tbody>
                   {filteredProcesses.map((p) => (
                     <tr key={p.serialNo}>
@@ -898,6 +957,7 @@ const ProductionReceipt: React.FC = () => {
                 </tbody>
               </table>
             </div>
+
             <div className="flex justify-center mt-4">
               <button
                 onClick={() => setShowProcessModal(false)}
@@ -936,6 +996,7 @@ const ProductionReceipt: React.FC = () => {
                     <th className="p-2 border">Actions</th>
                   </tr>
                 </thead>
+
                 <tbody>
                   {filteredList.length === 0 ? (
                     <tr>
@@ -949,20 +1010,19 @@ const ProductionReceipt: React.FC = () => {
                         (sum: number, r: any) => sum + (Number.parseFloat(r.pcs) || 0),
                         0,
                       )
-                      
-                      // Get unique art numbers from rows
+
                       const artNoSet: string[] = []
-;(d.rows || []).forEach((r: any) => {
-  if (r.artNo && !artNoSet.includes(r.artNo)) {
-    artNoSet.push(r.artNo)
-  }
-})
-const artNos = artNoSet.join(", ")
+                      ;(d.rows || []).forEach((r: any) => {
+                        if (r.artNo && !artNoSet.includes(r.artNo)) artNoSet.push(r.artNo)
+                      })
+                      const artNos = artNoSet.join(", ")
 
                       return (
                         <tr key={d.id}>
                           <td className="p-2 border text-center">{i + 1}</td>
-                          <td className="p-2 border">{d.dated ? new Date(d.dated).toLocaleDateString() : "-"}</td>
+                          <td className="p-2 border">
+                            {d.dated ? new Date(d.dated).toLocaleDateString() : "-"}
+                          </td>
                           <td className="p-2 border">{artNos || "-"}</td>
                           <td className="p-2 border">{d.employeeName}</td>
                           <td className="p-2 border">{d.processName}</td>
@@ -990,7 +1050,10 @@ const artNos = artNoSet.join(", ")
             </div>
 
             <div className="flex justify-center mt-5">
-              <button onClick={() => setShowList(false)} className="bg-gray-300 hover:bg-gray-400 px-5 py-2 rounded">
+              <button
+                onClick={() => setShowList(false)}
+                className="bg-gray-300 hover:bg-gray-400 px-5 py-2 rounded"
+              >
                 Close
               </button>
             </div>
@@ -1001,4 +1064,4 @@ const artNos = artNoSet.join(", ")
   )
 }
 
-export default ProductionReceipt;
+export default ProductionReceipt

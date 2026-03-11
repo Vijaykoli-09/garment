@@ -1,13 +1,10 @@
+// src/main/java/com/garment/model/PaymentRecipt.java
 package com.garment.model;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
 
-import jakarta.persistence.Column;
-import jakarta.persistence.Entity;
-import jakarta.persistence.GeneratedValue;
-import jakarta.persistence.GenerationType;
-import jakarta.persistence.Id;
-import jakarta.persistence.Table;
+import jakarta.persistence.*;
 
 @Entity
 @Table(name = "payments")
@@ -20,14 +17,14 @@ public class PaymentRecipt {
     @Column(name="entry_type", length = 50)
     private String entryType;
 
-    // store exactly like frontend: "Party", "Employee", "Other"
+    // "Party", "Employee", "Other"
     @Column(name="payment_to", length = 20)
     private String paymentTo;
 
     @Column(name="payment_date")
     private LocalDate paymentDate;
 
-    // frontend sends field name "date" (we store it as to_date column)
+    // frontend "date" -> stored as to_date
     @Column(name="to_date")
     private LocalDate toDate;
 
@@ -44,12 +41,12 @@ public class PaymentRecipt {
     @Column(name="payment_through", length = 255)
     private String paymentThrough;
 
-    // keeping as String to avoid JSON parsing issues ("", "0", "1000")
-    @Column(name="amount", length = 50)
-    private String amount;
+    // NUMERIC in DB -> BigDecimal here
+    @Column(name="amount", precision = 18, scale = 2)
+    private BigDecimal amount;
 
-    @Column(name="balance", length = 50)
-    private String balance;
+    @Column(name="balance", precision = 18, scale = 2)
+    private BigDecimal balance;
 
     @Column(name="remarks", length = 500)
     private String remarks;
@@ -65,8 +62,8 @@ public class PaymentRecipt {
     public String getPartyName() { return partyName; }
     public String getEmployeeName() { return employeeName; }
     public String getPaymentThrough() { return paymentThrough; }
-    public String getAmount() { return amount; }
-    public String getBalance() { return balance; }
+    public BigDecimal getAmount() { return amount; }
+    public BigDecimal getBalance() { return balance; }
     public String getRemarks() { return remarks; }
 
     public void setId(Long id) { this.id = id; }
@@ -78,7 +75,7 @@ public class PaymentRecipt {
     public void setPartyName(String partyName) { this.partyName = partyName; }
     public void setEmployeeName(String employeeName) { this.employeeName = employeeName; }
     public void setPaymentThrough(String paymentThrough) { this.paymentThrough = paymentThrough; }
-    public void setAmount(String amount) { this.amount = amount; }
-    public void setBalance(String balance) { this.balance = balance; }
+    public void setAmount(BigDecimal amount) { this.amount = amount; }
+    public void setBalance(BigDecimal balance) { this.balance = balance; }
     public void setRemarks(String remarks) { this.remarks = remarks; }
 }

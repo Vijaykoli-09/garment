@@ -8,6 +8,10 @@ import java.util.stream.Collectors;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.garment.DTO.OrderSettleDTO;
+import com.garment.DTO.OrderSettleRowDTO;
+import com.garment.DTO.OrderSettleSizeDetailDTO;
+import com.garment.DTO.PendencyFulfillRequestDTO;
 import com.garment.DTO.SaleOrderDTO;
 import com.garment.DTO.SaleOrderPendencyRowDTO;
 import com.garment.DTO.SaleOrderRowDTO;
@@ -21,6 +25,7 @@ import com.garment.repository.PartyRepository;
 import com.garment.repository.SaleOrderRepository;
 import com.garment.repository.ShadeRepository;
 import com.garment.repository.SizeRepository;
+import com.garment.service.OrderSettleService;
 import com.garment.service.SaleOrderService;
 
 import lombok.RequiredArgsConstructor;
@@ -34,6 +39,7 @@ public class SaleOrderServiceImpl implements SaleOrderService {
     private final ShadeRepository shadeRepo;
     private final SizeRepository sizeRepo;
     private final PartyRepository partyRepo;
+    private final OrderSettleService orderSettleService; // USE EXISTING SERVICE
 
     /* ---------- Helpers ---------- */
 
@@ -227,13 +233,7 @@ public class SaleOrderServiceImpl implements SaleOrderService {
         repo.deleteById(id);
     }
 
-    /* ---------- PENDENCY (Art + Size Wise) ----------
-       - Uses SaleOrder rows only (opening = 0, dispatch = 0 for now)
-       - Receipt in BOX:
-           peti > 0  => peti * qty
-           peti == 0 => qty (legacy behaviour)
-       - Size key may be "M__GENTS", we map this to base "M" for filters and output.
-    ------------------------------------------------ */
+    /* ---------- PENDENCY (Art + Size + Shade Wise) ---------- */
 
     @Override
     @Transactional(readOnly = true)
@@ -243,12 +243,12 @@ public class SaleOrderServiceImpl implements SaleOrderService {
             List<String> destinationsUpper,
             List<Long> partyIds,
             List<String> artNosLower,
-            List<String> sizeNamesUpper
+            List<String> sizeNamesUpper,
+            List<String> shadeNamesUpper
     ) {
-        // Get sale orders in given date range
         List<SaleOrder> soRecv = repo.findByDatedBetween(from, to);
 
-        // Resolve station for parties
+        // party -> station
         Set<Long> partyIdSet = new HashSet<>();
         soRecv.forEach(so -> { if (so.getPartyId()!=null) partyIdSet.add(so.getPartyId()); });
 
@@ -259,11 +259,11 @@ public class SaleOrderServiceImpl implements SaleOrderService {
             });
         }
 
-        // Filters
-        final Set<String> destFilter  = new HashSet<>(destinationsUpper == null ? List.of() : destinationsUpper);
-        final Set<Long>   partyFilter = new HashSet<>(partyIds == null ? List.of() : partyIds);
-        final Set<String> artFilter   = new HashSet<>(artNosLower == null ? List.of() : artNosLower);
-        final Set<String> sizeFilter  = new HashSet<>(sizeNamesUpper == null ? List.of() : sizeNamesUpper);
+        final Set<String> destFilter   = new HashSet<>(destinationsUpper == null ? List.of() : destinationsUpper);
+        final Set<Long>   partyFilter  = new HashSet<>(partyIds == null ? List.of() : partyIds);
+        final Set<String> artFilter    = new HashSet<>(artNosLower == null ? List.of() : artNosLower);
+        final Set<String> sizeFilter   = new HashSet<>(sizeNamesUpper == null ? List.of() : sizeNamesUpper);
+        final Set<String> shadeFilter  = new HashSet<>(shadeNamesUpper == null ? List.of() : shadeNamesUpper);
 
         class Agg {
             int opening = 0;
@@ -275,6 +275,7 @@ public class SaleOrderServiceImpl implements SaleOrderService {
             String pname;
             String artNo;
             String artName;
+            String shade;
             String size;
         }
 
@@ -293,15 +294,11 @@ public class SaleOrderServiceImpl implements SaleOrderService {
                     consumer.accept(a);
                 };
 
-        // Aggregate
         for (SaleOrder so : soRecv) {
             Long pid = so.getPartyId();
             String station = pid != null ? up.apply(partyStation.get(pid)) : "";
 
-            // Destination filter
             if (!destFilter.isEmpty() && (station.isEmpty() || !destFilter.contains(station))) continue;
-
-            // Party filter
             if (!partyFilter.isEmpty() && (pid == null || !partyFilter.contains(pid))) continue;
 
             String partyName = Optional.ofNullable(so.getPartyName()).orElse("");
@@ -309,22 +306,31 @@ public class SaleOrderServiceImpl implements SaleOrderService {
             for (SaleOrderRow row : Optional.ofNullable(so.getRows()).orElse(List.of())) {
                 String artNo = Optional.ofNullable(row.getArtNo()).orElse("");
                 String artNoLower = low.apply(artNo);
-
-                // Art filter
                 if (!artFilter.isEmpty() && !artFilter.contains(artNoLower)) continue;
 
                 String artName = Optional.ofNullable(row.getDescription()).orElse(artNo);
+
+                // Shade
+                String shadeName = null;
+                if (row.getShadeName() != null && !row.getShadeName().isBlank()) {
+                    shadeName = row.getShadeName().trim();
+                } else if (row.getShade() != null) {
+                    shadeName = Optional.ofNullable(row.getShade().getShadeName())
+                            .orElse(row.getShade().getShadeCode());
+                }
+                String shadeUpper = up.apply(shadeName);
+                if (!shadeFilter.isEmpty()) {
+                    if (shadeUpper.isEmpty() || !shadeFilter.contains(shadeUpper)) continue;
+                }
 
                 Integer rawPeti = row.getPeti();
                 int effectivePeti = (rawPeti == null ? 1 : rawPeti);
 
                 for (SaleOrderSizeDetail sd : Optional.ofNullable(row.getSizeDetails()).orElse(List.of())) {
                     String rawSize = Optional.ofNullable(sd.getSizeName()).orElse("");
-                    // stored size can be "M__GENTS" => base "M"
                     String[] parts = rawSize.split("__", 2);
                     String baseSize = up.apply(parts[0]);
 
-                    // Size filter
                     if (!sizeFilter.isEmpty() && !sizeFilter.contains(baseSize)) continue;
 
                     int box = Optional.ofNullable(sd.getQty()).orElse(0);
@@ -337,13 +343,14 @@ public class SaleOrderServiceImpl implements SaleOrderService {
                     }
                     if (rec == 0) continue;
 
-                    String key = station + "|" + String.valueOf(pid) + "|" + artNoLower + "|" + baseSize;
+                    String key = station + "|" + String.valueOf(pid) + "|" + artNoLower + "|" + shadeUpper + "|" + baseSize;
                     put.accept(key, a -> {
                         a.dest    = station;
                         a.pid     = pid;
                         a.pname   = partyName;
                         a.artNo   = artNo;
                         a.artName = artName;
+                        a.shade   = shadeUpper;
                         a.size    = baseSize;
 
                         a.receipt += rec;
@@ -353,7 +360,6 @@ public class SaleOrderServiceImpl implements SaleOrderService {
             }
         }
 
-        // Build DTOs
         return map.values().stream()
                 .map(a -> new SaleOrderPendencyRowDTO(
                         a.dest,
@@ -361,6 +367,7 @@ public class SaleOrderServiceImpl implements SaleOrderService {
                         a.pname,
                         a.artNo,
                         a.artName,
+                        a.shade,
                         a.size,
                         a.opening,
                         a.receipt,
@@ -372,8 +379,75 @@ public class SaleOrderServiceImpl implements SaleOrderService {
                                 .comparing(SaleOrderPendencyRowDTO::getDestination, Comparator.nullsLast(String::compareTo))
                                 .thenComparing(SaleOrderPendencyRowDTO::getPartyName, Comparator.nullsLast(String::compareTo))
                                 .thenComparing(SaleOrderPendencyRowDTO::getArtNo, Comparator.nullsLast(String::compareTo))
+                                .thenComparing(SaleOrderPendencyRowDTO::getShade, Comparator.nullsLast(String::compareTo))
                                 .thenComparing(SaleOrderPendencyRowDTO::getSize, Comparator.nullsLast(String::compareTo))
                 )
                 .collect(Collectors.toList());
+    }
+
+    /* ---------- Fulfill Pendency ---------- */
+
+    @Override
+    @Transactional
+    public void fulfillPendency(PendencyFulfillRequestDTO req) {
+        if (req == null || req.getRows() == null || req.getRows().isEmpty()) return;
+
+        Map<Long, List<SaleOrderPendencyRowDTO>> byParty =
+                req.getRows().stream()
+                        .filter(r -> r.getPending() != null && r.getPending() != 0)
+                        .filter(r -> r.getPartyId() != null)
+                        .collect(Collectors.groupingBy(SaleOrderPendencyRowDTO::getPartyId));
+
+        for (Map.Entry<Long, List<SaleOrderPendencyRowDTO>> e : byParty.entrySet()) {
+            Long partyId = e.getKey();
+            List<SaleOrderPendencyRowDTO> rows = e.getValue();
+            if (partyId == null || rows.isEmpty()) continue;
+
+            OrderSettleDTO osDto = new OrderSettleDTO();
+            osDto.setPartyId(partyId);
+            osDto.setPartyName(rows.get(0).getPartyName());
+            osDto.setDated(LocalDate.now());
+            osDto.setRemarks1("Auto fulfill from Sale Order Pendency");
+
+            List<OrderSettleRowDTO> rowDtos = new ArrayList<>();
+
+            Map<String, List<SaleOrderPendencyRowDTO>> byArtShade =
+                    rows.stream().collect(Collectors.groupingBy(r ->
+                            (r.getArtNo() == null ? "" : r.getArtNo().trim().toUpperCase()) +
+                                    "|" + (r.getShade() == null ? "" : r.getShade().trim().toUpperCase())
+                    ));
+
+            for (Map.Entry<String, List<SaleOrderPendencyRowDTO>> es : byArtShade.entrySet()) {
+                List<SaleOrderPendencyRowDTO> artShadeRows = es.getValue();
+                if (artShadeRows.isEmpty()) continue;
+
+                OrderSettleRowDTO rd = new OrderSettleRowDTO();
+                rd.setArtNo(artShadeRows.get(0).getArtNo());
+                rd.setShade(artShadeRows.get(0).getShade());
+                rd.setDescription(artShadeRows.get(0).getArtName());
+
+                List<OrderSettleSizeDetailDTO> sdDtos = new ArrayList<>();
+
+                for (SaleOrderPendencyRowDTO r : artShadeRows) {
+                    int pending = Optional.ofNullable(r.getPending()).orElse(0);
+                    if (pending == 0) continue;
+
+                    OrderSettleSizeDetailDTO sd = new OrderSettleSizeDetailDTO();
+                    sd.setSizeName(r.getSize());
+                    sd.setSettleBox(pending);
+                    sdDtos.add(sd);
+                }
+
+                if (!sdDtos.isEmpty()) {
+                    rd.setSizeDetails(sdDtos);
+                    rowDtos.add(rd);
+                }
+            }
+
+            if (rowDtos.isEmpty()) continue;
+
+            osDto.setRows(rowDtos);
+            orderSettleService.create(osDto);
+        }
     }
 }

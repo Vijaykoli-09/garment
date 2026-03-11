@@ -31,11 +31,11 @@ const routes = {
   // IMPORTANT:
   // Most backends use POST /payment (same as list GET /payment).
   // If your backend is actually POST /payment/create, change `create` back to "/payment/create".
-  create: "/payment/payment",
-  list: "/payment/payment",
-  get: (id: number) => `/payment/payment/${id}`,
-  update: (id: number) => `/payment/payment/${id}`,
-  delete: (id: number) => `/payment/payment/${id}`,
+  create: "/payment/create",
+  list: "/payment",
+  get: (id: number) => `/payment/${id}`,
+  update: (id: number) => `/payment/${id}`,
+  delete: (id: number) => `/payment/${id}`,
   names: (type: PaymentToType) => `/payment/names/${type}`,
   employees: "/employees",
   processes: "/process/list",

@@ -21,7 +21,7 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 
 @RestController
-@RequestMapping("/api/payment/payment")
+@RequestMapping("/api/payment")
 @CrossOrigin(origins = "http://localhost:3000")
 @RequiredArgsConstructor
 public class PaymentMethodController {
