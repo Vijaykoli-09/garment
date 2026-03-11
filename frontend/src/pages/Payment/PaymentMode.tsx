@@ -1,4 +1,9 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 import api from "../../api/axiosInstance";
 import Swal from "sweetalert2";
 import Dashboard from "../Dashboard";
@@ -13,6 +18,21 @@ interface PaymentModeFormData {
   openingBalanceType: OpeningBalanceType; // radio
 }
 
+// Helpers outside component => stable, no hook dependencies
+const pick = <T,>(obj: any, keys: string[], fallback: T): T => {
+  for (const k of keys) {
+    const v = obj?.[k];
+    if (v !== undefined && v !== null) return v as T;
+  }
+  return fallback;
+};
+
+const normalizeOpeningType = (x: any): OpeningBalanceType => {
+  const v = String(x ?? "").trim().toUpperCase();
+  if (v === "DR" || v === "DEBIT" || v === "D") return "DR";
+  return "CR";
+};
+
 const PaymentModeCreation: React.FC = () => {
   const initialFormData: PaymentModeFormData = {
     bankNameOrUpiId: "",
@@ -21,30 +41,18 @@ const PaymentModeCreation: React.FC = () => {
     openingBalanceType: "CR",
   };
 
-  const [formData, setFormData] = useState<PaymentModeFormData>(initialFormData);
-  const [allPaymentModes, setAllPaymentModes] = useState<PaymentModeFormData[]>(
-    [],
-  );
+  const [formData, setFormData] =
+    useState<PaymentModeFormData>(initialFormData);
+  const [allPaymentModes, setAllPaymentModes] = useState<
+    PaymentModeFormData[]
+  >([]);
   const [filteredPaymentModes, setFilteredPaymentModes] = useState<
     PaymentModeFormData[]
   >([]);
   const [showList, setShowList] = useState(false);
 
-  const pick = <T,>(obj: any, keys: string[], fallback: T): T => {
-    for (const k of keys) {
-      const v = obj?.[k];
-      if (v !== undefined && v !== null) return v as T;
-    }
-    return fallback;
-  };
-
-  const normalizeOpeningType = (x: any): OpeningBalanceType => {
-    const v = String(x ?? "").trim().toUpperCase();
-    if (v === "DR" || v === "DEBIT" || v === "D") return "DR";
-    return "CR";
-  };
-
-  const mapFromServer = (pm: any): PaymentModeFormData => {
+  // mapFromServer depends only on stable helpers above
+  const mapFromServer = useCallback((pm: any): PaymentModeFormData => {
     const openingBal = pick<any>(
       pm,
       ["openingBalance", "opening_balance", "openingBalanceAmount", "balance"],
@@ -65,24 +73,26 @@ const PaymentModeCreation: React.FC = () => {
         openingBal === "" ? "" : openingBal === 0 ? "0" : String(openingBal),
       openingBalanceType: normalizeOpeningType(openingType),
     };
-  };
+  }, []);
 
+  // useCallback with correct dependency on mapFromServer
   const loadAllPaymentModes = useCallback(async () => {
-  try {
-    const res = await api.get("/payment/payment-mode");
-    const raw = Array.isArray(res.data) ? res.data : [];
-    const mapped = raw.map(mapFromServer);
-    setAllPaymentModes(mapped);
-    setFilteredPaymentModes(mapped);
-  } catch (err) {
-    console.error("Failed to load payment mode:", err);
-    Swal.fire("Error", "Failed to load payment modes.", "error");
-  }
-}, []); // Empty dependency array since it doesn't depend on any props or state
+    try {
+      const res = await api.get("/payment/payment-mode");
+      const raw = Array.isArray(res.data) ? res.data : [];
+      const mapped = raw.map(mapFromServer);
+      setAllPaymentModes(mapped);
+      setFilteredPaymentModes(mapped);
+    } catch (err) {
+      console.error("Failed to load payment mode:", err);
+      Swal.fire("Error", "Failed to load payment modes.", "error");
+    }
+  }, [mapFromServer]);
 
-useEffect(() => {
-  loadAllPaymentModes();
-}, [loadAllPaymentModes]);
+  // useEffect depends on loadAllPaymentModes
+  useEffect(() => {
+    loadAllPaymentModes();
+  }, [loadAllPaymentModes]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value, type } = e.target;
@@ -126,7 +136,7 @@ useEffect(() => {
         await api.post("/payment/payment-mode", payload);
         Swal.fire("Added!", "Payment mode saved successfully", "success");
       }
-      loadAllPaymentModes();
+      await loadAllPaymentModes();
       handleAddNew();
     } catch (err: any) {
       console.error("Save Error:", err.response || err);
@@ -147,7 +157,7 @@ useEffect(() => {
     try {
       await api.delete(`/payment/payment-mode/${id}`);
       Swal.fire("Deleted!", "Payment mode deleted successfully", "success");
-      loadAllPaymentModes();
+      await loadAllPaymentModes();
       handleAddNew();
     } catch (err) {
       console.error(err);
@@ -168,7 +178,12 @@ useEffect(() => {
       const b = (p.accountNo || "").toLowerCase();
       const c = (p.openingBalance || "").toLowerCase();
       const d = (p.openingBalanceType || "").toLowerCase();
-      return a.includes(term) || b.includes(term) || c.includes(term) || d.includes(term);
+      return (
+        a.includes(term) ||
+        b.includes(term) ||
+        c.includes(term) ||
+        d.includes(term)
+      );
     });
 
     setFilteredPaymentModes(filtered);
@@ -256,7 +271,14 @@ useEffect(() => {
             />
 
             <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
-              <label style={{ display: "flex", alignItems: "center", gap: 4, cursor: "pointer" }}>
+              <label
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 4,
+                  cursor: "pointer",
+                }}
+              >
                 <input
                   type="radio"
                   name="openingBalanceType"
@@ -267,7 +289,14 @@ useEffect(() => {
                 Cr
               </label>
 
-              <label style={{ display: "flex", alignItems: "center", gap: 4, cursor: "pointer" }}>
+              <label
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 4,
+                  cursor: "pointer",
+                }}
+              >
                 <input
                   type="radio"
                   name="openingBalanceType"
@@ -362,7 +391,13 @@ useEffect(() => {
                   border: "1px solid #eee",
                 }}
               >
-                <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                <table
+                  style={{
+                    width: "100%",
+                    borderCollapse: "collapse",
+                    fontSize: 14,
+                  }}
+                >
                   <thead>
                     <tr style={{ background: "#f0f0f0" }}>
                       <th style={{ border: "1px solid #ccc", padding: "8px" }}>
@@ -386,19 +421,46 @@ useEffect(() => {
                   <tbody>
                     {filteredPaymentModes.map((p) => (
                       <tr key={p.id}>
-                        <td style={{ border: "1px solid #ccc", padding: "8px" }}>
+                        <td
+                          style={{
+                            border: "1px solid #ccc",
+                            padding: "8px",
+                          }}
+                        >
                           {p.bankNameOrUpiId}
                         </td>
-                        <td style={{ border: "1px solid #ccc", padding: "8px" }}>
+                        <td
+                          style={{
+                            border: "1px solid #ccc",
+                            padding: "8px",
+                          }}
+                        >
                           {p.accountNo}
                         </td>
-                        <td style={{ border: "1px solid #ccc", padding: "8px", textAlign: "right" }}>
+                        <td
+                          style={{
+                            border: "1px solid #ccc",
+                            padding: "8px",
+                            textAlign: "right",
+                          }}
+                        >
                           {p.openingBalance === "" ? "-" : p.openingBalance}
                         </td>
-                        <td style={{ border: "1px solid #ccc", padding: "8px", textAlign: "center" }}>
+                        <td
+                          style={{
+                            border: "1px solid #ccc",
+                            padding: "8px",
+                            textAlign: "center",
+                          }}
+                        >
                           {p.openingBalanceType || "-"}
                         </td>
-                        <td style={{ border: "1px solid #ccc", padding: "8px" }}>
+                        <td
+                          style={{
+                            border: "1px solid #ccc",
+                            padding: "8px",
+                          }}
+                        >
                           <button
                             type="button"
                             style={{
@@ -429,7 +491,10 @@ useEffect(() => {
 
                     {filteredPaymentModes.length === 0 && (
                       <tr>
-                        <td colSpan={5} style={{ textAlign: "center", padding: 10 }}>
+                        <td
+                          colSpan={5}
+                          style={{ textAlign: "center", padding: 10 }}
+                        >
                           No matching payment modes found.
                         </td>
                       </tr>
