@@ -5,7 +5,7 @@ import lombok.Data;
 @Data
 public class PaymentMethodDTO {
 
-    private String entryType;
+    // private String entryType;
     private String paymentTo;         // Party or Employee
     private String paymentDate;
     private String serialNo;

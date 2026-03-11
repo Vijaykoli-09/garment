@@ -1,5 +1,15 @@
 package com.garment.serviceImpl;
 
+import java.math.BigDecimal;
+import java.util.List;
+import java.util.Objects;
+
+import org.springframework.data.domain.Sort;
+import org.springframework.http.HttpStatus;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.server.ResponseStatusException;
+
 import com.garment.model.Employee;
 import com.garment.model.Party;
 import com.garment.model.Payment;
@@ -9,15 +19,6 @@ import com.garment.repository.PaymentMethodRepository;
 import com.garment.service.PaymentMethodService;
 
 import lombok.RequiredArgsConstructor;
-import org.springframework.data.domain.Sort;
-import org.springframework.http.HttpStatus;
-import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
-import org.springframework.web.server.ResponseStatusException;
-
-import java.math.BigDecimal;
-import java.util.List;
-import java.util.Objects;
 
 @Service
 @RequiredArgsConstructor
@@ -52,7 +53,7 @@ public class PaymentMethodServiceImpl implements PaymentMethodService {
     public Payment update(Long id, Payment payload) {
         Payment existing = get(id);
 
-        existing.setEntryType(payload.getEntryType());
+        // existing.setEntryType(payload.getEntryType());
         existing.setPaymentTo(payload.getPaymentTo());
         existing.setDate(payload.getDate());
         existing.setProcessName(payload.getProcessName());

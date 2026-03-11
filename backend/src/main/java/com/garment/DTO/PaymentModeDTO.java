@@ -1,5 +1,7 @@
 package com.garment.DTO;
 
+import com.garment.model.PaymentMode;
+
 import jakarta.validation.constraints.NotBlank;
 
 public class PaymentModeDTO {
@@ -12,30 +14,23 @@ public class PaymentModeDTO {
     @NotBlank(message = "Account number is required")
     private String accountNo;
 
-    public PaymentModeDTO() {
-    }
+    
+    private Double openingBalance;
 
-    public Long getId() {
-        return id;
-    }
+    
+    private PaymentMode.OpeningBalanceType openingBalanceType;
 
-    public String getBankNameOrUpiId() {
-        return bankNameOrUpiId;
-    }
+    public PaymentModeDTO() {}
 
-    public String getAccountNo() {
-        return accountNo;
-    }
+    public Long getId() { return id; }
+    public String getBankNameOrUpiId() { return bankNameOrUpiId; }
+    public String getAccountNo() { return accountNo; }
+    public Double getOpeningBalance() { return openingBalance; }
+    public PaymentMode.OpeningBalanceType getOpeningBalanceType() { return openingBalanceType; }
 
-    public void setId(Long id) {
-        this.id = id;
-    }
-
-    public void setBankNameOrUpiId(String bankNameOrUpiId) {
-        this.bankNameOrUpiId = bankNameOrUpiId;
-    }
-
-    public void setAccountNo(String accountNo) {
-        this.accountNo = accountNo;
-    }
+    public void setId(Long id) { this.id = id; }
+    public void setBankNameOrUpiId(String bankNameOrUpiId) { this.bankNameOrUpiId = bankNameOrUpiId; }
+    public void setAccountNo(String accountNo) { this.accountNo = accountNo; }
+    public void setOpeningBalance(Double openingBalance) { this.openingBalance = openingBalance; }
+    public void setOpeningBalanceType(PaymentMode.OpeningBalanceType openingBalanceType) { this.openingBalanceType = openingBalanceType; }
 }

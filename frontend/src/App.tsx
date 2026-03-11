@@ -42,10 +42,10 @@ import FinishingInHouseStock from "./pages/Knitting/Finishing/FinishingInHouseSt
 
 //🧑‍🏫 Reports imports start
 import ArtReport from "./pages/Reports/ArtStockReport";
-import SalaryReport from "./pages/Reports/SalaryReport";
 import DispatchReport from "./pages/Reports/DispatchReport";
 import JobWorkReport from "./pages/Reports/JobWorkReport";
 import DyeingAmountStatement from "./pages/Knitting/Dyeing/DyeingAmountStatement";
+import SalaryReport from "./pages/Reports/SalaryReport";
 //🧑‍🏫 Reports imports end
 
 import FabricationCreation from "./pages/Master/FabricationCreation";
@@ -67,8 +67,8 @@ import PurchasePendingOrders from "./pages/Knitting/PurchasePendingOrders";
 import PackingChallan from "./pages/Knitting/PackingChallan";
 import CuttingModule from "./pages/Cutting/CuttingModule";
 import ProductionReceipt from "./pages/Production/ProductionReceipt";
-import PaymentMethod from "./pages/Payment/PaymentMethod";
-import PaymentRecipt from "./pages/Payment/PaymentRecipt";
+import PaymentMethod from "./pages/Payment/Payment";
+import PaymentRecipt from "./pages/Payment/Recipt";
 import OutwardChallan from "./pages/Cutting/OutwardChallan";
 import InwardChallan from "./pages/Cutting/InwardChallan";
 import LocationCreation from "./pages/Master/LocationCreation";
@@ -83,6 +83,7 @@ import RateList from "./pages/Reports/RateList";
 import PaymentMode from "./pages/Payment/PaymentMode";
 import OtherDispatchChallan from "./pages/Knitting/OtherDispatchChallan";
 import AccountStatement from "./pages/Reports/AccountStatement";
+
 
 function App() {
   return (
@@ -169,14 +170,14 @@ function App() {
 
         {/* Production & Payment */}
         <Route path="/production/receipt" element={<ProductionReceipt />} />
-        <Route path="/payment/payment-method" element={<PaymentMethod />} />
-        <Route path="/payment/payment-recipt" element={<PaymentRecipt />} />
+        <Route path="/payment/payment" element={<PaymentMethod />} />
+        <Route path="/payment/recipt" element={<PaymentRecipt />} />
         <Route path="/payment/payment-mode" element={<PaymentMode />} />
 
         {/* Reports (nested) */}
         <Route path="reports">
           <Route path="art-report" element={<ArtReport />} />
-          <Route path="salary-report" element={<SalaryReport />} />
+          <Route path="salary-report" element={<SalaryReport/>}/>
           <Route path="dispatch-report" element={<DispatchReport />} />
           <Route path="job-work-report" element={<JobWorkReport />} />
           <Route path="rate-list-report" element={<RateList />} />

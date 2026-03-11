@@ -1,9 +1,10 @@
-// src/components/DispatchReport.tsx (adjust path as needed)
+// src/components/DispatchReport.tsx
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
 import Dashboard from "../Dashboard";
 import api from "../../api/axiosInstance";
+import { useNavigate } from "react-router-dom";
 
 type RecordItem = {
   serial: number; // challan serial or running number
@@ -34,21 +35,51 @@ const unique = (arr: string[]) =>
     a.localeCompare(b, undefined, { sensitivity: "base" })
   );
 
-const toComparable = (s: string) => new Date(s).getTime();
+// Safer ISO parsing (avoids timezone date shift)
+const parseISODateParts = (iso: string) => {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec((iso || "").trim());
+  if (!m) return null;
+  const y = Number(m[1]);
+  const mo = Number(m[2]);
+  const d = Number(m[3]);
+  if (!y || !mo || !d) return null;
+  return { y, mo, d };
+};
 
-const formatForHeader = (iso: string) => {
+const toComparable = (s: string) => {
+  const p = parseISODateParts(s);
+  if (p) return Date.UTC(p.y, p.mo - 1, p.d);
+  return new Date(s).getTime();
+};
+
+const formatDateDMY = (iso: string) => {
+  const p = parseISODateParts(iso);
+  if (p) {
+    const dd = String(p.d).padStart(2, "0");
+    const mm = String(p.mo).padStart(2, "0");
+    return `${dd}-${mm}-${p.y}`;
+  }
   try {
     const d = new Date(iso);
+    if (isNaN(d.getTime())) return iso;
     const dd = String(d.getDate()).padStart(2, "0");
     const mm = String(d.getMonth() + 1).padStart(2, "0");
     const yyyy = d.getFullYear();
-    return `${dd}/${mm}/${yyyy}`;
+    return `${dd}-${mm}-${yyyy}`;
   } catch {
     return iso;
   }
 };
 
+const filterOptions = (options: string[], query: string) => {
+  const q = query.trim().toLowerCase();
+  if (!q) return options;
+  return options.filter((v) => v.toLowerCase().includes(q));
+};
+
 const DispatchReport: React.FC = () => {
+  const navigate = useNavigate();
+
   const [records, setRecords] = useState<RecordItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -68,6 +99,14 @@ const DispatchReport: React.FC = () => {
   const [selectedShades, setSelectedShades] = useState<Set<string>>(new Set());
   const [selectedSizes, setSelectedSizes] = useState<Set<string>>(new Set());
   const [selectedAgents, setSelectedAgents] = useState<Set<string>>(new Set());
+
+  // Search states (for all filters)
+  const [partySearch, setPartySearch] = useState<string>("");
+  const [artNameSearch, setArtNameSearch] = useState<string>("");
+  const [artNoSearch, setArtNoSearch] = useState<string>("");
+  const [shadeSearch, setShadeSearch] = useState<string>("");
+  const [sizeSearch, setSizeSearch] = useState<string>("");
+  const [agentSearch, setAgentSearch] = useState<string>("");
 
   const [showModal, setShowModal] = useState(false);
   const [fullScreen, setFullScreen] = useState(false);
@@ -93,11 +132,11 @@ const DispatchReport: React.FC = () => {
           const challanNo = ch.challanNo || "";
           const brokerName = ch.brokerName || "";
           const partyName = ch.partyName || "";
-          const agent = brokerName; // adjust if you have a separate agent field
+          const agent = brokerName;
 
           const totalAmt = Number(ch.totalAmt ?? 0);
           const taxPercent = Number(ch.taxPercent ?? 0);
-          const taxAmt = Number(ch.tax ?? 0); // in your form, "tax" is amount
+          const taxAmt = Number(ch.tax ?? 0);
           const cartage = Number(ch.cartage ?? 0);
           const discount = Number(ch.discount ?? 0);
           const netAmt = Number(ch.netAmt ?? 0);
@@ -105,7 +144,6 @@ const DispatchReport: React.FC = () => {
           const rows = Array.isArray(ch.rows) ? ch.rows : [];
 
           if (!rows.length) {
-            // challan without rows – still show header-level record
             items.push({
               serial,
               dated,
@@ -174,14 +212,16 @@ const DispatchReport: React.FC = () => {
         if (!fromDate || !toDate) {
           const validDates = items
             .map((i) => i.dated)
-            .filter((d) => d && !isNaN(new Date(d).getTime()));
+            .filter((d) => d && !isNaN(toComparable(d)));
 
           if (validDates.length) {
-            const timestamps = validDates.map((d) => new Date(d).getTime());
+            const timestamps = validDates.map((d) => toComparable(d));
             const minTs = Math.min(...timestamps);
             const maxTs = Math.max(...timestamps);
+
             const fromIso = new Date(minTs).toISOString().slice(0, 10);
             const toIso = new Date(maxTs).toISOString().slice(0, 10);
+
             setFromDate(fromIso);
             setToDate(toIso);
           } else {
@@ -214,8 +254,33 @@ const DispatchReport: React.FC = () => {
     };
   }, [records]);
 
-  // --- Helpers to manage Set-based filters ---
+  // --- Filtered options by search ---
+  const partyOptionsFiltered = useMemo(
+    () => filterOptions(parties, partySearch),
+    [parties, partySearch]
+  );
+  const artNameOptionsFiltered = useMemo(
+    () => filterOptions(artNames, artNameSearch),
+    [artNames, artNameSearch]
+  );
+  const artNoOptionsFiltered = useMemo(
+    () => filterOptions(artNos, artNoSearch),
+    [artNos, artNoSearch]
+  );
+  const shadeOptionsFiltered = useMemo(
+    () => filterOptions(shades, shadeSearch),
+    [shades, shadeSearch]
+  );
+  const sizeOptionsFiltered = useMemo(
+    () => filterOptions(sizes, sizeSearch),
+    [sizes, sizeSearch]
+  );
+  const agentOptionsFiltered = useMemo(
+    () => filterOptions(agents, agentSearch),
+    [agents, agentSearch]
+  );
 
+  // --- Helpers to manage Set-based filters ---
   function toggleInSet(
     setState: React.Dispatch<React.SetStateAction<Set<string>>>,
     value: string
@@ -236,13 +301,35 @@ const DispatchReport: React.FC = () => {
     setState(() => (selectAll ? new Set(values) : new Set()));
   }
 
-  // --- Filter records by date and selected filters ---
+  function addSome(
+    setState: React.Dispatch<React.SetStateAction<Set<string>>>,
+    values: string[]
+  ) {
+    setState((prev) => {
+      const copy = new Set(prev);
+      values.forEach((v) => copy.add(v));
+      return copy;
+    });
+  }
 
+  function removeSome(
+    setState: React.Dispatch<React.SetStateAction<Set<string>>>,
+    values: string[]
+  ) {
+    setState((prev) => {
+      const copy = new Set(prev);
+      values.forEach((v) => copy.delete(v));
+      return copy;
+    });
+  }
+
+  // --- Filter records by date and selected filters ---
   const filtered = useMemo(() => {
     if (!records.length) return [];
 
     const from = toComparable(fromDate || "1970-01-01");
-    const to = toComparable(toDate || "2999-12-31") + 24 * 60 * 60 * 1000 - 1;
+    const to =
+      toComparable(toDate || "2999-12-31") + 24 * 60 * 60 * 1000 - 1;
 
     return records.filter((r) => {
       const d = toComparable(r.dated);
@@ -290,23 +377,48 @@ const DispatchReport: React.FC = () => {
     return data;
   }, [filtered]);
 
-  // --- Totals ---
+  /**
+   * Build unique challan rows for Bill Details
+   * (prevents repeated challan totals from showing multiple times)
+   */
+  const billDetailsRows = useMemo(() => {
+    const map = new Map<string, RecordItem>();
+    for (const r of sorted) {
+      const key = `${r.dated}||${r.challanNo}||${r.partyName}||${r.brokerName}`;
+      if (!map.has(key)) map.set(key, r);
+    }
+    const rows = Array.from(map.values());
+    rows.sort((a, b) => {
+      const da = toComparable(a.dated);
+      const db = toComparable(b.dated);
+      if (da !== db) return da - db;
+      return (a.challanNo || "").localeCompare(b.challanNo || "");
+    });
+    return rows;
+  }, [sorted]);
 
-  const totals = useMemo(() => {
+  // --- Totals: line-level (Packing List) ---
+  const lineTotals = useMemo(() => {
     return {
       rows: sorted.length,
       pcs: sorted.reduce((s, r) => s + r.pcs, 0),
       amt: sorted.reduce((s, r) => s + r.amt, 0),
-      totalAmt: sorted.reduce((s, r) => s + r.totalAmt, 0),
-      taxAmt: sorted.reduce((s, r) => s + r.taxAmt, 0),
-      cartage: sorted.reduce((s, r) => s + r.cartage, 0),
-      discount: sorted.reduce((s, r) => s + r.discount, 0),
-      netAmt: sorted.reduce((s, r) => s + r.netAmt, 0),
     };
   }, [sorted]);
 
-  // --- UI state & handlers ---
+  // --- Totals: challan-level (Bill Details) ---
+  const billTotals = useMemo(() => {
+    return {
+      rows: billDetailsRows.length,
+      totalAmt: billDetailsRows.reduce((s, r) => s + r.totalAmt, 0),
+      taxAmt: billDetailsRows.reduce((s, r) => s + r.taxAmt, 0),
+      cartage: billDetailsRows.reduce((s, r) => s + r.cartage, 0),
+      discount: billDetailsRows.reduce((s, r) => s + r.discount, 0),
+      netAmt: billDetailsRows.reduce((s, r) => s + r.netAmt, 0),
+    };
+  }, [billDetailsRows]);
 
+  // --- UI state & handlers ---
   function openModal() {
     setShowModal(true);
   }
@@ -318,33 +430,53 @@ const DispatchReport: React.FC = () => {
     setSelectedShades(new Set());
     setSelectedSizes(new Set());
     setSelectedAgents(new Set());
+
+    setPartySearch("");
+    setArtNameSearch("");
+    setArtNoSearch("");
+    setShadeSearch("");
+    setSizeSearch("");
+    setAgentSearch("");
+
     setShowModal(false);
   }
 
   const showFullColumns = reportType === "Bill Details";
   const showPackingColumns = reportType === "Packing List";
 
+  // Base columns:
+  // - Bill Details: only "Dated"
+  // - Packing List: "#", "Dated"
+  const baseCols = showPackingColumns ? 2 : 1;
+
+  // Bill Details columns (excluding Dated): 8
+  // Packing List columns (excluding #, Dated): 9
+  const tableColSpan =
+    baseCols + (showFullColumns ? 8 : 0) + (showPackingColumns ? 9 : 0);
+
+  const displayRowsCount = showFullColumns ? billTotals.rows : lineTotals.rows;
+
   // --- Print (hidden iframe) ---
-
   function handlePrint() {
-    if (typeof window === "undefined" || typeof document === "undefined") {
-      return;
-    }
+    if (typeof window === "undefined" || typeof document === "undefined") return;
 
-    if (!sorted.length) {
+    const printData = showFullColumns ? billDetailsRows : sorted;
+
+    if (!printData.length) {
       alert("No records to print for the selected filters.");
       return;
     }
 
     try {
-      const totalRows = totals.rows;
-      const totalPcs = totals.pcs;
-      const totalAmt = totals.amt;
-      const totalTotalAmt = totals.totalAmt;
-      const totalTaxAmt = totals.taxAmt;
-      const totalCartage = totals.cartage;
-      const totalDiscount = totals.discount;
-      const totalNetAmt = totals.netAmt;
+      const headerSummary = showFullColumns
+        ? `<strong>Rows:</strong> ${billTotals.rows}
+           &nbsp; | &nbsp;
+           <strong>Net Amt:</strong> ${billTotals.netAmt}`
+        : `<strong>Rows:</strong> ${lineTotals.rows}
+           &nbsp; | &nbsp;
+           <strong>PCS:</strong> ${lineTotals.pcs}
+           &nbsp; | &nbsp;
+           <strong>Amt:</strong> ${lineTotals.amt}`;
 
       const html = `<!doctype html>
 <html>
@@ -360,31 +492,27 @@ const DispatchReport: React.FC = () => {
     th { background: #eee; }
     .text-right { text-align: right; }
     .totals { margin-top: 12px; font-weight: bold; font-size: 12px; }
-    @media print {
-      button { display: none; }
-    }
+    @media print { button { display: none; } }
   </style>
 </head>
 <body>
   <h2>Dispatch Report</h2>
   <div class="info">
     <div><strong>Report Type:</strong> ${reportType}</div>
-    <div><strong>From:</strong> ${formatForHeader(
-      fromDate || ""
-    )} &nbsp; <strong>To:</strong> ${formatForHeader(toDate || "")}</div>
+    <div><strong>From:</strong> ${formatDateDMY(fromDate || "")} &nbsp; <strong>To:</strong> ${formatDateDMY(toDate || "")}</div>
     <div style="margin-top:4px;">
-      <strong>Rows:</strong> ${totalRows}
-      &nbsp; | &nbsp;
-      <strong>PCS:</strong> ${totalPcs}
-      &nbsp; | &nbsp;
-      <strong>Net Amt:</strong> ${totalNetAmt}
+      ${headerSummary}
     </div>
   </div>
 
   <table>
     <thead>
       <tr>
-        <th>#</th>
+        ${
+          showPackingColumns
+            ? `<th>#</th>`
+            : ``
+        }
         <th>Dated</th>
         ${
           showPackingColumns
@@ -408,8 +536,7 @@ const DispatchReport: React.FC = () => {
         <th>Broker Name</th>
         <th>Party Name</th>
         <th class="text-right">Total Amt</th>
-        <th class="text-right">Tax(%)</th>
-        <th class="text-right">Tax Amt</th>
+        <th class="text-right">Tax</th>
         <th class="text-right">Cartage</th>
         <th class="text-right">Discount</th>
         <th class="text-right">Net Amt</th>
@@ -419,14 +546,16 @@ const DispatchReport: React.FC = () => {
       </tr>
     </thead>
     <tbody>
-      ${sorted
+      ${printData
         .map((r) => {
-          const datedStr = r.dated
-            ? new Date(r.dated).toLocaleDateString()
-            : "";
+          const datedStr = formatDateDMY(r.dated);
           return `
       <tr>
-        <td>${r.serial}</td>
+        ${
+          showPackingColumns
+            ? `<td>${r.serial}</td>`
+            : ``
+        }
         <td>${datedStr}</td>
         ${
           showPackingColumns
@@ -450,7 +579,6 @@ const DispatchReport: React.FC = () => {
         <td>${r.brokerName}</td>
         <td>${r.partyName}</td>
         <td class="text-right">${r.totalAmt}</td>
-        <td class="text-right">${r.taxPercent}</td>
         <td class="text-right">${r.taxAmt}</td>
         <td class="text-right">${r.cartage}</td>
         <td class="text-right">${r.discount}</td>
@@ -469,27 +597,22 @@ const DispatchReport: React.FC = () => {
     ${
       showFullColumns
         ? `
-    <div>Total Amt: ${totalTotalAmt}</div>
-    <div>Tax Amt: ${totalTaxAmt}</div>
-    <div>Cartage: ${totalCartage}</div>
-    <div>Discount: ${totalDiscount}</div>
-    <div>Net Amt: ${totalNetAmt}</div>
+    <div>Total Amt: ${billTotals.totalAmt}</div>
+    <div>Tax: ${billTotals.taxAmt}</div>
+    <div>Cartage: ${billTotals.cartage}</div>
+    <div>Discount: ${billTotals.discount}</div>
+    <div>Net Amt: ${billTotals.netAmt}</div>
     `
         : `
-    <div>PCS: ${totalPcs}</div>
-    <div>Amt: ${totalAmt}</div>
+    <div>PCS: ${lineTotals.pcs}</div>
+    <div>Amt: ${lineTotals.amt}</div>
     `
     }
   </div>
 
   <script>
     window.onload = function () {
-      try {
-        window.focus();
-        window.print();
-      } catch (e) {
-        console.error('Print error', e);
-      }
+      try { window.focus(); window.print(); } catch (e) { console.error('Print error', e); }
       setTimeout(function () {
         try {
           if (window.frameElement && window.frameElement.parentNode) {
@@ -529,6 +652,41 @@ const DispatchReport: React.FC = () => {
       alert("Failed to generate print preview. See console for details.");
     }
   }
+
+  // Helpers for "Select All / Unselect" with search-aware behavior
+  const handleSelectAll = (
+    searchValue: string,
+    allValues: string[],
+    filteredValues: string[],
+    setState: React.Dispatch<React.SetStateAction<Set<string>>>
+  ) => {
+    if (searchValue.trim()) addSome(setState, filteredValues);
+    else setAll(setState, allValues, true);
+  };
+
+  const handleUnselect = (
+    searchValue: string,
+    allValues: string[],
+    filteredValues: string[],
+    setState: React.Dispatch<React.SetStateAction<Set<string>>>
+  ) => {
+    if (searchValue.trim()) removeSome(setState, filteredValues);
+    else setAll(setState, allValues, false);
+  };
+
+  // Data to render in modal table depending on report type
+  const modalTableData = showFullColumns ? billDetailsRows : sorted;
+
+  // Header summary text depending on report type
+  const modalSummary = showFullColumns ? (
+    <>
+      {displayRowsCount} rows | Net Amount: {billTotals.netAmt}
+    </>
+  ) : (
+    <>
+      {displayRowsCount} rows | PCS {lineTotals.pcs} | Amt: {lineTotals.amt}
+    </>
+  );
 
   return (
     <Dashboard>
@@ -589,20 +747,51 @@ const DispatchReport: React.FC = () => {
                 <div className="text-xs">
                   <button
                     className="mr-2 underline"
-                    onClick={() => setAll(setSelectedParties, parties, true)}
+                    onClick={() =>
+                      handleSelectAll(
+                        partySearch,
+                        parties,
+                        partyOptionsFiltered,
+                        setSelectedParties
+                      )
+                    }
+                    disabled={!parties.length}
                   >
                     Select All
                   </button>
                   <button
                     className="underline"
-                    onClick={() => setAll(setSelectedParties, parties, false)}
+                    onClick={() =>
+                      handleUnselect(
+                        partySearch,
+                        parties,
+                        partyOptionsFiltered,
+                        setSelectedParties
+                      )
+                    }
+                    disabled={!parties.length}
                   >
                     Unselect
                   </button>
                 </div>
               </div>
+
+              <div className="mb-2">
+                <input
+                  type="text"
+                  value={partySearch}
+                  onChange={(e) => setPartySearch(e.target.value)}
+                  placeholder="Search party..."
+                  className="p-2 border rounded w-full text-sm"
+                />
+                <div className="mt-1 text-[11px] text-gray-600">
+                  Showing <strong>{partyOptionsFiltered.length}</strong> of{" "}
+                  <strong>{parties.length}</strong>
+                </div>
+              </div>
+
               <div className="h-44 overflow-auto">
-                {parties.map((p) => (
+                {partyOptionsFiltered.map((p) => (
                   <label key={p} className="block text-sm">
                     <input
                       type="checkbox"
@@ -612,6 +801,13 @@ const DispatchReport: React.FC = () => {
                     <span className="ml-2">{p}</span>
                   </label>
                 ))}
+
+                {!!parties.length && !partyOptionsFiltered.length && (
+                  <div className="text-xs text-gray-500">
+                    No parties match “{partySearch}”
+                  </div>
+                )}
+
                 {!parties.length && (
                   <div className="text-xs text-gray-500">
                     No parties (data not loaded or empty)
@@ -627,20 +823,51 @@ const DispatchReport: React.FC = () => {
                 <div className="text-xs">
                   <button
                     className="mr-2 underline"
-                    onClick={() => setAll(setSelectedArtNames, artNames, true)}
+                    onClick={() =>
+                      handleSelectAll(
+                        artNameSearch,
+                        artNames,
+                        artNameOptionsFiltered,
+                        setSelectedArtNames
+                      )
+                    }
+                    disabled={!artNames.length}
                   >
                     Select All
                   </button>
                   <button
                     className="underline"
-                    onClick={() => setAll(setSelectedArtNames, artNames, false)}
+                    onClick={() =>
+                      handleUnselect(
+                        artNameSearch,
+                        artNames,
+                        artNameOptionsFiltered,
+                        setSelectedArtNames
+                      )
+                    }
+                    disabled={!artNames.length}
                   >
                     Unselect
                   </button>
                 </div>
               </div>
+
+              <div className="mb-2">
+                <input
+                  type="text"
+                  value={artNameSearch}
+                  onChange={(e) => setArtNameSearch(e.target.value)}
+                  placeholder="Search art name..."
+                  className="p-2 border rounded w-full text-sm"
+                />
+                <div className="mt-1 text-[11px] text-gray-600">
+                  Showing <strong>{artNameOptionsFiltered.length}</strong> of{" "}
+                  <strong>{artNames.length}</strong>
+                </div>
+              </div>
+
               <div className="h-44 overflow-auto">
-                {artNames.map((a) => (
+                {artNameOptionsFiltered.map((a) => (
                   <label key={a} className="block text-sm">
                     <input
                       type="checkbox"
@@ -650,6 +877,13 @@ const DispatchReport: React.FC = () => {
                     <span className="ml-2">{a}</span>
                   </label>
                 ))}
+
+                {!!artNames.length && !artNameOptionsFiltered.length && (
+                  <div className="text-xs text-gray-500">
+                    No art names match “{artNameSearch}”
+                  </div>
+                )}
+
                 {!artNames.length && (
                   <div className="text-xs text-gray-500">
                     No art names (data not loaded or empty)
@@ -665,20 +899,51 @@ const DispatchReport: React.FC = () => {
                 <div className="text-xs">
                   <button
                     className="mr-2 underline"
-                    onClick={() => setAll(setSelectedArtNos, artNos, true)}
+                    onClick={() =>
+                      handleSelectAll(
+                        artNoSearch,
+                        artNos,
+                        artNoOptionsFiltered,
+                        setSelectedArtNos
+                      )
+                    }
+                    disabled={!artNos.length}
                   >
                     Select All
                   </button>
                   <button
                     className="underline"
-                    onClick={() => setAll(setSelectedArtNos, artNos, false)}
+                    onClick={() =>
+                      handleUnselect(
+                        artNoSearch,
+                        artNos,
+                        artNoOptionsFiltered,
+                        setSelectedArtNos
+                      )
+                    }
+                    disabled={!artNos.length}
                   >
                     Unselect
                   </button>
                 </div>
               </div>
+
+              <div className="mb-2">
+                <input
+                  type="text"
+                  value={artNoSearch}
+                  onChange={(e) => setArtNoSearch(e.target.value)}
+                  placeholder="Search art no..."
+                  className="p-2 border rounded w-full text-sm"
+                />
+                <div className="mt-1 text-[11px] text-gray-600">
+                  Showing <strong>{artNoOptionsFiltered.length}</strong> of{" "}
+                  <strong>{artNos.length}</strong>
+                </div>
+              </div>
+
               <div className="h-44 overflow-auto">
-                {artNos.map((a) => (
+                {artNoOptionsFiltered.map((a) => (
                   <label key={a} className="block text-sm">
                     <input
                       type="checkbox"
@@ -688,6 +953,13 @@ const DispatchReport: React.FC = () => {
                     <span className="ml-2">{a}</span>
                   </label>
                 ))}
+
+                {!!artNos.length && !artNoOptionsFiltered.length && (
+                  <div className="text-xs text-gray-500">
+                    No art numbers match “{artNoSearch}”
+                  </div>
+                )}
+
                 {!artNos.length && (
                   <div className="text-xs text-gray-500">
                     No art numbers (data not loaded or empty)
@@ -706,20 +978,51 @@ const DispatchReport: React.FC = () => {
                 <div className="text-xs">
                   <button
                     className="mr-2 underline"
-                    onClick={() => setAll(setSelectedShades, shades, true)}
+                    onClick={() =>
+                      handleSelectAll(
+                        shadeSearch,
+                        shades,
+                        shadeOptionsFiltered,
+                        setSelectedShades
+                      )
+                    }
+                    disabled={!shades.length}
                   >
                     Select All
                   </button>
                   <button
                     className="underline"
-                    onClick={() => setAll(setSelectedShades, shades, false)}
+                    onClick={() =>
+                      handleUnselect(
+                        shadeSearch,
+                        shades,
+                        shadeOptionsFiltered,
+                        setSelectedShades
+                      )
+                    }
+                    disabled={!shades.length}
                   >
                     Unselect
                   </button>
                 </div>
               </div>
+
+              <div className="mb-2">
+                <input
+                  type="text"
+                  value={shadeSearch}
+                  onChange={(e) => setShadeSearch(e.target.value)}
+                  placeholder="Search shade..."
+                  className="p-2 border rounded w-full text-sm"
+                />
+                <div className="mt-1 text-[11px] text-gray-600">
+                  Showing <strong>{shadeOptionsFiltered.length}</strong> of{" "}
+                  <strong>{shades.length}</strong>
+                </div>
+              </div>
+
               <div className="h-36 overflow-auto">
-                {shades.map((s) => (
+                {shadeOptionsFiltered.map((s) => (
                   <label key={s} className="block text-sm">
                     <input
                       type="checkbox"
@@ -729,6 +1032,13 @@ const DispatchReport: React.FC = () => {
                     <span className="ml-2">{s}</span>
                   </label>
                 ))}
+
+                {!!shades.length && !shadeOptionsFiltered.length && (
+                  <div className="text-xs text-gray-500">
+                    No shades match “{shadeSearch}”
+                  </div>
+                )}
+
                 {!shades.length && (
                   <div className="text-xs text-gray-500">
                     No shades (data not loaded or empty)
@@ -744,20 +1054,51 @@ const DispatchReport: React.FC = () => {
                 <div className="text-xs">
                   <button
                     className="mr-2 underline"
-                    onClick={() => setAll(setSelectedSizes, sizes, true)}
+                    onClick={() =>
+                      handleSelectAll(
+                        sizeSearch,
+                        sizes,
+                        sizeOptionsFiltered,
+                        setSelectedSizes
+                      )
+                    }
+                    disabled={!sizes.length}
                   >
                     Select All
                   </button>
                   <button
                     className="underline"
-                    onClick={() => setAll(setSelectedSizes, sizes, false)}
+                    onClick={() =>
+                      handleUnselect(
+                        sizeSearch,
+                        sizes,
+                        sizeOptionsFiltered,
+                        setSelectedSizes
+                      )
+                    }
+                    disabled={!sizes.length}
                   >
                     Unselect
                   </button>
                 </div>
               </div>
+
+              <div className="mb-2">
+                <input
+                  type="text"
+                  value={sizeSearch}
+                  onChange={(e) => setSizeSearch(e.target.value)}
+                  placeholder="Search size..."
+                  className="p-2 border rounded w-full text-sm"
+                />
+                <div className="mt-1 text-[11px] text-gray-600">
+                  Showing <strong>{sizeOptionsFiltered.length}</strong> of{" "}
+                  <strong>{sizes.length}</strong>
+                </div>
+              </div>
+
               <div className="h-36 overflow-auto">
-                {sizes.map((s) => (
+                {sizeOptionsFiltered.map((s) => (
                   <label key={s} className="block text-sm">
                     <input
                       type="checkbox"
@@ -767,6 +1108,13 @@ const DispatchReport: React.FC = () => {
                     <span className="ml-2">{s}</span>
                   </label>
                 ))}
+
+                {!!sizes.length && !sizeOptionsFiltered.length && (
+                  <div className="text-xs text-gray-500">
+                    No sizes match “{sizeSearch}”
+                  </div>
+                )}
+
                 {!sizes.length && (
                   <div className="text-xs text-gray-500">
                     No sizes (data not loaded or empty)
@@ -775,27 +1123,58 @@ const DispatchReport: React.FC = () => {
               </div>
             </div>
 
-            {/* Agent (using brokerName) */}
+            {/* Agent */}
             <div className="border p-2 rounded">
               <div className="flex justify-between items-center mb-1">
                 <strong>Select Agent</strong>
                 <div className="text-xs">
                   <button
                     className="mr-2 underline"
-                    onClick={() => setAll(setSelectedAgents, agents, true)}
+                    onClick={() =>
+                      handleSelectAll(
+                        agentSearch,
+                        agents,
+                        agentOptionsFiltered,
+                        setSelectedAgents
+                      )
+                    }
+                    disabled={!agents.length}
                   >
                     Select All
                   </button>
                   <button
                     className="underline"
-                    onClick={() => setAll(setSelectedAgents, agents, false)}
+                    onClick={() =>
+                      handleUnselect(
+                        agentSearch,
+                        agents,
+                        agentOptionsFiltered,
+                        setSelectedAgents
+                      )
+                    }
+                    disabled={!agents.length}
                   >
                     Unselect
                   </button>
                 </div>
               </div>
+
+              <div className="mb-2">
+                <input
+                  type="text"
+                  value={agentSearch}
+                  onChange={(e) => setAgentSearch(e.target.value)}
+                  placeholder="Search agent..."
+                  className="p-2 border rounded w-full text-sm"
+                />
+                <div className="mt-1 text-[11px] text-gray-600">
+                  Showing <strong>{agentOptionsFiltered.length}</strong> of{" "}
+                  <strong>{agents.length}</strong>
+                </div>
+              </div>
+
               <div className="h-36 overflow-auto">
-                {agents.map((a) => (
+                {agentOptionsFiltered.map((a) => (
                   <label key={a} className="block text-sm">
                     <input
                       type="checkbox"
@@ -805,6 +1184,13 @@ const DispatchReport: React.FC = () => {
                     <span className="ml-2">{a}</span>
                   </label>
                 ))}
+
+                {!!agents.length && !agentOptionsFiltered.length && (
+                  <div className="text-xs text-gray-500">
+                    No agents match “{agentSearch}”
+                  </div>
+                )}
+
                 {!agents.length && (
                   <div className="text-xs text-gray-500">
                     No agents (data not loaded or empty)
@@ -812,6 +1198,9 @@ const DispatchReport: React.FC = () => {
                 )}
               </div>
             </div>
+
+            {/* Empty cell to keep 4-column grid alignment */}
+            <div className="hidden lg:block" />
           </div>
 
           {/* Actions */}
@@ -823,14 +1212,32 @@ const DispatchReport: React.FC = () => {
             >
               Show
             </button>
+
             <button className="px-4 py-2 border rounded" onClick={resetFilters}>
               Reset
             </button>
 
+            {/* NEW: Exit button */}
+            <button
+              className="px-4 py-2 border rounded"
+              onClick={() => navigate(-1)}
+            >
+              Exit
+            </button>
+
             <div className="ml-auto text-sm text-gray-600">
-              Rows: <strong>{totals.rows}</strong> | PCS:{" "}
-              <strong>{totals.pcs}</strong> | Net:{" "}
-              <strong>{totals.netAmt}</strong>
+              {showFullColumns ? (
+                <>
+                  Rows: <strong>{billTotals.rows}</strong> | Net:{" "}
+                  <strong>{billTotals.netAmt}</strong>
+                </>
+              ) : (
+                <>
+                  Rows: <strong>{lineTotals.rows}</strong> | PCS:{" "}
+                  <strong>{lineTotals.pcs}</strong> | Amt:{" "}
+                  <strong>{lineTotals.amt}</strong>
+                </>
+              )}
             </div>
           </div>
 
@@ -854,12 +1261,11 @@ const DispatchReport: React.FC = () => {
                   <div>
                     <div className="text-sm text-gray-700">
                       <strong>Report Type:</strong> {reportType} &nbsp; | &nbsp;{" "}
-                      <strong>From:</strong> {formatForHeader(fromDate)} &nbsp;
-                      | &nbsp; <strong>To:</strong> {formatForHeader(toDate)}
+                      <strong>From:</strong> {formatDateDMY(fromDate)} &nbsp;|{" "}
+                      &nbsp; <strong>To:</strong> {formatDateDMY(toDate)}
                     </div>
                     <div className="text-xs text-gray-600 mt-1">
-                      {totals.rows} rows | PCS {totals.pcs} | Net Amount:{" "}
-                      {totals.netAmt}
+                      {modalSummary}
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
@@ -892,13 +1298,16 @@ const DispatchReport: React.FC = () => {
                     <table className="text-sm border-collapse w-full table-auto">
                       <thead className="bg-gray-50 sticky top-0">
                         <tr>
-                          <th className="px-2 py-1 border">#</th>
+                          {/* Packing List keeps #, Bill Details hides # */}
+                          {showPackingColumns && (
+                            <th className="px-2 py-1 border">#</th>
+                          )}
+
                           <th className="px-2 py-1 border">Dated</th>
 
                           {showPackingColumns && (
                             <th className="px-2 py-1 border">Challan No</th>
                           )}
-                          {/* Lot No column intentionally removed */}
                           {showPackingColumns && (
                             <th className="px-2 py-1 border">Art No</th>
                           )}
@@ -941,14 +1350,7 @@ const DispatchReport: React.FC = () => {
                             </th>
                           )}
                           {showFullColumns && (
-                            <th className="px-2 py-1 border text-right">
-                              Tax(%)
-                            </th>
-                          )}
-                          {showFullColumns && (
-                            <th className="px-2 py-1 border text-right">
-                              Tax Amt
-                            </th>
+                            <th className="px-2 py-1 border text-right">Tax</th>
                           )}
                           {showFullColumns && (
                             <th className="px-2 py-1 border text-right">
@@ -969,22 +1371,28 @@ const DispatchReport: React.FC = () => {
                       </thead>
 
                       <tbody>
-                        {sorted.map((r, idx) => (
+                        {modalTableData.map((r, idx) => (
                           <tr
-                            key={`${r.challanNo}-${idx}-${r.artNo}-${r.size}`}
-                            className={
-                              idx % 2 === 0 ? "bg-white" : "bg-gray-50"
+                            key={
+                              showFullColumns
+                                ? `${r.dated}-${r.challanNo}-${idx}`
+                                : `${r.challanNo}-${idx}-${r.artNo}-${r.size}`
                             }
+                            className={idx % 2 === 0 ? "bg-white" : "bg-gray-50"}
                           >
-                            <td className="px-2 py-1 border">{r.serial}</td>
-                            <td className="px-2 py-1 border">{r.dated}</td>
+                            {showPackingColumns && (
+                              <td className="px-2 py-1 border">{r.serial}</td>
+                            )}
+
+                            <td className="px-2 py-1 border">
+                              {formatDateDMY(r.dated)}
+                            </td>
 
                             {showPackingColumns && (
                               <>
                                 <td className="px-2 py-1 border">
                                   {r.challanNo}
                                 </td>
-                                {/* Lot No omitted */}
                                 <td className="px-2 py-1 border">{r.artNo}</td>
                                 <td className="px-2 py-1 border">
                                   {r.artName}
@@ -1021,9 +1429,6 @@ const DispatchReport: React.FC = () => {
                                   {r.totalAmt}
                                 </td>
                                 <td className="px-2 py-1 border text-right">
-                                  {r.taxPercent}
-                                </td>
-                                <td className="px-2 py-1 border text-right">
                                   {r.taxAmt}
                                 </td>
                                 <td className="px-2 py-1 border text-right">
@@ -1042,12 +1447,7 @@ const DispatchReport: React.FC = () => {
 
                         {/* Totals row */}
                         <tr>
-                          <td
-                            colSpan={
-                              showFullColumns ? 12 : showPackingColumns ? 12 : 2
-                            }
-                            className="p-0"
-                          >
+                          <td colSpan={tableColSpan} className="p-0">
                             <div className="w-full bg-blue-700 text-white text-sm font-semibold">
                               <div className="flex items-center justify-between px-2 py-1">
                                 <div>Totals</div>
@@ -1056,31 +1456,30 @@ const DispatchReport: React.FC = () => {
                                     <>
                                       <div>
                                         Total Amt:{" "}
-                                        <strong>{totals.totalAmt}</strong>
+                                        <strong>{billTotals.totalAmt}</strong>
                                       </div>
                                       <div>
-                                        Tax Amt:{" "}
-                                        <strong>{totals.taxAmt}</strong>
+                                        Tax: <strong>{billTotals.taxAmt}</strong>
                                       </div>
                                       <div>
                                         Cartage:{" "}
-                                        <strong>{totals.cartage}</strong>
+                                        <strong>{billTotals.cartage}</strong>
                                       </div>
                                       <div>
                                         Discount:{" "}
-                                        <strong>{totals.discount}</strong>
+                                        <strong>{billTotals.discount}</strong>
                                       </div>
                                       <div>
-                                        Net: <strong>{totals.netAmt}</strong>
+                                        Net: <strong>{billTotals.netAmt}</strong>
                                       </div>
                                     </>
                                   ) : (
                                     <>
                                       <div>
-                                        PCS: <strong>{totals.pcs}</strong>
+                                        PCS: <strong>{lineTotals.pcs}</strong>
                                       </div>
                                       <div>
-                                        Amt: <strong>{totals.amt}</strong>
+                                        Amt: <strong>{lineTotals.amt}</strong>
                                       </div>
                                     </>
                                   )}
@@ -1090,12 +1489,10 @@ const DispatchReport: React.FC = () => {
                           </td>
                         </tr>
 
-                        {!sorted.length && (
+                        {!modalTableData.length && (
                           <tr>
                             <td
-                              colSpan={
-                                showFullColumns || showPackingColumns ? 12 : 2
-                              }
+                              colSpan={tableColSpan}
                               className="border p-3 text-center text-gray-500"
                             >
                               No records for the selected filters / dates

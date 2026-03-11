@@ -27,11 +27,11 @@ const PaymentNavigator: React.FC<PaymentNavigatorProps> = ({ onNavigate }) => {
                 flexDirection: "column",
             }}
         >
-            <button style={sidebarSubItemStyle} onClick={() => onNavigate?.("/payment/payment-method")}>
-                Payment Method
+            <button style={sidebarSubItemStyle} onClick={() => onNavigate?.("/payment/payment")}>
+                Payment
             </button>
-            <button style={sidebarSubItemStyle} onClick={() => onNavigate?.("/payment/payment-recipt")}>
-                Payments Recipt
+            <button style={sidebarSubItemStyle} onClick={() => onNavigate?.("/payment/recipt")}>
+                Recipt
             </button>
             <button
                 style={sidebarSubItemStyle}
