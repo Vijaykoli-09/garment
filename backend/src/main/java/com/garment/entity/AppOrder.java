@@ -13,26 +13,22 @@ public class AppOrder {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    // ── Customer reference ──────────────────────────────────────
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "customer_id", nullable = false)
     private CustomerRegistration customer;
 
-    // ── Order items ─────────────────────────────────────────────
     @OneToMany(mappedBy = "order", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<AppOrderItem> items = new ArrayList<>();
 
-    // ── Amounts ─────────────────────────────────────────────────
     @Column(nullable = false)
-    private Double subtotal;           // before GST
+    private Double subtotal;
 
     @Column(nullable = false)
-    private Double gstAmount;          // 18% GST
+    private Double gstAmount;
 
     @Column(nullable = false)
-    private Double totalAmount;        // subtotal + GST
+    private Double totalAmount;
 
-    // ── Payment ─────────────────────────────────────────────────
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     private PaymentMethod paymentMethod;
@@ -41,43 +37,47 @@ public class AppOrder {
     @Column(nullable = false)
     private PaymentStatus paymentStatus = PaymentStatus.PENDING;
 
-    // Razorpay fields
-    private String razorpayOrderId;    // created before payment
-    private String razorpayPaymentId;  // filled after success
-    private String razorpaySignature;  // filled after success
+    private String razorpayOrderId;
+    private String razorpayPaymentId;
+    private String razorpaySignature;
 
-    // For advance+credit: how much was paid upfront
+    // For credit payment flow: the Razorpay order ID created when
+    // the customer pays their credit balance from Order History
+    private String creditRazorpayOrderId;
+
     private Double advanceAmount = 0.0;
     private Double creditAmount  = 0.0;
 
-    // ── Order status ─────────────────────────────────────────────
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     private OrderStatus orderStatus = OrderStatus.PENDING;
 
-    // ── Delivery ─────────────────────────────────────────────────
     private String deliveryAddress;
 
-    // ── Timestamps ───────────────────────────────────────────────
     @Column(nullable = false)
     private LocalDateTime createdAt = LocalDateTime.now();
 
     private LocalDateTime updatedAt;
 
-    // ── Enums ────────────────────────────────────────────────────
+    // Timestamp of when the credit amount was paid — nullable until paid
+    // nullable = true so existing rows are not broken on migration
+    @Column(nullable = true)
+    private LocalDateTime paidAt;
+
+    // ── Enums ────────────────────────────────────────────────────────
     public enum PaymentMethod {
         UPI, BANK_TRANSFER, DEBIT_CARD, CREDIT_CARD, CREDIT_ORDER, ADVANCE_CREDIT
     }
 
     public enum PaymentStatus {
-        PENDING, PAID, FAILED, REFUNDED
+        PENDING, PAID, FAILED, REFUNDED, PARTIALLY_PAID
     }
 
     public enum OrderStatus {
         PENDING, ACCEPTED, PROCESSING, SHIPPED, DELIVERED, CANCELLED
     }
 
-    // ── Getters & Setters ─────────────────────────────────────────
+    // ── Getters & Setters ─────────────────────────────────────────────
     public Long getId() { return id; }
 
     public CustomerRegistration getCustomer() { return customer; }
@@ -110,6 +110,9 @@ public class AppOrder {
     public String getRazorpaySignature() { return razorpaySignature; }
     public void setRazorpaySignature(String razorpaySignature) { this.razorpaySignature = razorpaySignature; }
 
+    public String getCreditRazorpayOrderId() { return creditRazorpayOrderId; }
+    public void setCreditRazorpayOrderId(String creditRazorpayOrderId) { this.creditRazorpayOrderId = creditRazorpayOrderId; }
+
     public Double getAdvanceAmount() { return advanceAmount; }
     public void setAdvanceAmount(Double advanceAmount) { this.advanceAmount = advanceAmount; }
 
@@ -127,4 +130,7 @@ public class AppOrder {
 
     public LocalDateTime getUpdatedAt() { return updatedAt; }
     public void setUpdatedAt(LocalDateTime updatedAt) { this.updatedAt = updatedAt; }
+
+    public LocalDateTime getPaidAt() { return paidAt; }
+    public void setPaidAt(LocalDateTime paidAt) { this.paidAt = paidAt; }
 }

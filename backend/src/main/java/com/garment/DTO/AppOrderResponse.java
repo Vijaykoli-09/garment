@@ -6,16 +6,11 @@ import com.garment.entity.AppOrderItem;
 import java.util.List;
 import java.util.stream.Collectors;
 
-/**
- * Safe DTO for returning order data to the mobile app.
- * Avoids JSON infinite loop from AppOrder → customer → AppOrder
- * and exposes no sensitive fields (password, signature, etc.)
- */
 public class AppOrderResponse {
 
     private Long   id;
     private String razorpayOrderId;
-    private String razorpayKeyId;   // only set on create, null on fetch
+    private String razorpayKeyId;
     private Double totalAmount;
     private Double subtotal;
     private Double gstAmount;
@@ -26,6 +21,7 @@ public class AppOrderResponse {
     private String paymentMethod;
     private String deliveryAddress;
     private String createdAt;
+    private String paidAt;            // ← new: ISO string, null until credit is paid
     private List<ItemDTO> items;
 
     public static class ItemDTO {
@@ -71,13 +67,13 @@ public class AppOrderResponse {
         r.paymentMethod   = o.getPaymentMethod().name();
         r.deliveryAddress = o.getDeliveryAddress();
         r.createdAt       = o.getCreatedAt() != null ? o.getCreatedAt().toString() : null;
+        r.paidAt          = o.getPaidAt()    != null ? o.getPaidAt().toString()    : null;
         r.items           = o.getItems().stream()
                               .map(ItemDTO::from)
                               .collect(Collectors.toList());
         return r;
     }
 
-    // No-arg constructor required by the static from() factory and Jackson
     public AppOrderResponse() {}
 
     // Constructor used by createRazorpayOrder and verifyPayment
@@ -107,5 +103,6 @@ public class AppOrderResponse {
     public String  getPaymentMethod()   { return paymentMethod; }
     public String  getDeliveryAddress() { return deliveryAddress; }
     public String  getCreatedAt()       { return createdAt; }
+    public String  getPaidAt()          { return paidAt; }
     public List<ItemDTO> getItems()     { return items; }
 }

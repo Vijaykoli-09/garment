@@ -3,10 +3,6 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // export const BASE_URL = 'https://garment-1-1v21.onrender.com/api';
 export const BASE_URL = 'http://192.168.31.42:8080/api';
-// Local dev:
-// export const BASE_URL = 'http://192.168.31.42:8080/api';
-// Android emulator: 'http://10.0.2.2:8080/api'
-// iOS simulator:    'http://localhost:8080/api'
 
 // ════════════════════════════════════════════════════════════════════
 // AXIOS INSTANCE
@@ -14,11 +10,6 @@ export const BASE_URL = 'http://192.168.31.42:8080/api';
 const api = axios.create({
   baseURL: BASE_URL,
   headers: { 'Content-Type': 'application/json' },
-  // BUG FIX 1 (Render cold start):
-  // Render.com free tier sleeps after 15 min inactivity.
-  // First request takes 30-50 seconds to wake the server.
-  // 15000ms timeout → times out → catch block → "Payment failed"
-  // FIX: raise timeout to 60 seconds for Render free tier.
   timeout: 60000,
 });
 
@@ -93,39 +84,35 @@ export const authApi = {
   login: (phone: string, password: string) =>
     api.post('/customer/auth/login', { phone, password }),
 
-  // Fetches the latest profile (creditEnabled, creditLimit, advanceOption)
-  // Called silently on app launch to pick up any admin changes made after login.
   getProfile: () =>
     api.get('/customer/auth/profile'),
 };
 
 // ════════════════════════════════════════════════════════════════════
 // PRODUCT API
-// BUG FIX 2: was '/admin/products' (admin endpoint, wrong for mobile)
-// FIX: use '/products' — the public customer-facing endpoint
 // ════════════════════════════════════════════════════════════════════
 export const productApi = {
   getAll: (search?: string) =>
-    api.get('/admin/products', { params: search ? { search } : {} }),  // ← was '/admin/products'
+    api.get('/admin/products', { params: search ? { search } : {} }),
 
   getById: (id: number) =>
     api.get(`/admin/products/${id}`),
 };
 
 // ════════════════════════════════════════════════════════════════════
-// ORDER API
+// ORDER API — types
 // ════════════════════════════════════════════════════════════════════
 export interface OrderItemPayload {
   productId:    number;
   productName:  string;
   selectedSize: string;
-  quantity:     number;   // total pcs
-  pricePerPc:   number;   // pricePerBox / pcsPerBox  (actual per-piece price)
+  quantity:     number;
+  pricePerPc:   number;
 }
 
 export interface CreateRazorpayOrderPayload {
-  items:           OrderItemPayload[];
-  paymentMethod:   string;
+  items:            OrderItemPayload[];
+  paymentMethod:    string;
   deliveryAddress?: string;
 }
 
@@ -146,7 +133,44 @@ export interface VerifyPaymentPayload {
   razorpaySignature: string;
 }
 
+// ── New: credit payment types ────────────────────────────────────────
+export interface CreditPaymentOrderResponse {
+  orderId:         number;
+  razorpayOrderId: string;
+  razorpayKeyId:   string;
+  creditAmount:    number;   // exact amount to charge via Razorpay
+}
+
+export interface VerifyCreditPaymentPayload {
+  orderId:           number;
+  razorpayOrderId:   string;
+  razorpayPaymentId: string;
+  razorpaySignature: string;
+}
+
+export interface VerifyCreditPaymentResponse {
+  order: {
+    id:             number;
+    totalAmount:    number;
+    subtotal:       number;
+    gstAmount:      number;
+    advanceAmount:  number;
+    creditAmount:   number;
+    orderStatus:    string;
+    paymentStatus:  string;
+    paymentMethod:  string;
+    deliveryAddress:string;
+    createdAt:      string;
+    paidAt:         string | null;
+    items:          any[];
+  };
+}
+
+// ════════════════════════════════════════════════════════════════════
+// ORDER API — methods
+// ════════════════════════════════════════════════════════════════════
 export const orderApi = {
+  // ── Existing ──────────────────────────────────────────────────────
   createRazorpayOrder: (data: CreateRazorpayOrderPayload) =>
     api.post<CreateRazorpayOrderResponse>('/orders/create-razorpay-order', data),
 
@@ -158,6 +182,16 @@ export const orderApi = {
 
   getOrderById: (id: number) =>
     api.get(`/orders/${id}`),
+
+  // ── New: pay the credit amount on an existing credit order ────────
+
+  // Step 1 — ask backend to create a Razorpay order for the credit amount
+  createCreditPaymentOrder: (orderId: number) =>
+    api.post<CreditPaymentOrderResponse>(`/orders/${orderId}/pay-credit`),
+
+  // Step 2 — verify Razorpay payment, backend marks order PAID + sets paidAt
+  verifyCreditPayment: (data: VerifyCreditPaymentPayload) =>
+    api.post<VerifyCreditPaymentResponse>('/orders/verify-credit-payment', data),
 };
 
 export default api;

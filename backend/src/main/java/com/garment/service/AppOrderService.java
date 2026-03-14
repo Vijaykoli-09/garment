@@ -4,6 +4,7 @@ import com.garment.DTO.AppOrderItemRequest;
 import com.garment.DTO.AppOrderResponse;
 import com.garment.DTO.AppRazorpayOrderRequest;
 import com.garment.DTO.AppVerifyPaymentRequest;
+import com.garment.DTO.AppVerifyCreditPaymentRequest;
 import com.garment.entity.CustomerRegistration;
 import com.garment.entity.AppOrder;
 import com.garment.entity.AppOrder.OrderStatus;
@@ -25,6 +26,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.util.HexFormat;
 import java.util.List;
+import java.util.Map;
 
 @Service
 public class AppOrderService {
@@ -50,18 +52,15 @@ public class AppOrderService {
     @Transactional
     public AppOrderResponse createRazorpayOrder(String customerPhone, AppRazorpayOrderRequest req) {
 
-        // 1. Load customer
         CustomerRegistration customer = customerRepo.findByPhone(customerPhone)
                 .orElseThrow(() -> new RuntimeException("Customer not found."));
 
-        // 2. Calculate totals
         double subtotal    = req.getItems().stream()
                 .mapToDouble(i -> i.getPricePerPc() * i.getQuantity())
                 .sum();
         double gstAmount   = subtotal * 0.18;
         double totalAmount = subtotal + gstAmount;
 
-        // 3. Parse and validate payment method
         PaymentMethod method = parsePaymentMethod(req.getPaymentMethod());
 
         if (method == PaymentMethod.CREDIT_ORDER || method == PaymentMethod.ADVANCE_CREDIT) {
@@ -69,8 +68,6 @@ public class AppOrderService {
                 throw new RuntimeException("Credit is not enabled for your account.");
             }
             double creditLimit  = customer.getCreditLimit() != null ? customer.getCreditLimit() : 0.0;
-            // CREDIT_ORDER: full amount from credit
-            // ADVANCE_CREDIT: only 70% from credit, 30% paid via Razorpay
             double creditNeeded = (method == PaymentMethod.CREDIT_ORDER)
                     ? totalAmount
                     : totalAmount * 0.70;
@@ -79,46 +76,20 @@ public class AppOrderService {
             }
         }
 
-        // 4. Create Razorpay order
-        //
-        // ╔═══════════════════════════════════════════════════════════════╗
-        // ║  BUG FIX 1 — ADVANCE_CREDIT amount mismatch                 ║
-        // ║                                                               ║
-        // ║  OLD (broken): always creates order for full totalAmount.    ║
-        // ║  For ADVANCE_CREDIT, mobile then passes 30% to checkout.    ║
-        // ║  Razorpay order_id is LOCKED to the amount it was created   ║
-        // ║  for. Passing a different amount = "payment failed".         ║
-        // ║                                                               ║
-        // ║  FIX: create Razorpay order for the EXACT amount that will  ║
-        // ║  be charged via Razorpay:                                    ║
-        // ║    • ADVANCE_CREDIT  → 30% of totalAmount                   ║
-        // ║    • All other methods → full totalAmount                    ║
-        // ╚═══════════════════════════════════════════════════════════════╝
-        //
-        // ╔═══════════════════════════════════════════════════════════════╗
-        // ║  BUG FIX 2 — int overflow for large orders                  ║
-        // ║                                                               ║
-        // ║  OLD: (int)(totalAmount * 100)                               ║
-        // ║  If order > ₹21,474 this overflows Java's int max value.    ║
-        // ║  FIX: (long) Math.round(amount * 100)                       ║
-        // ╚═══════════════════════════════════════════════════════════════╝
-
-        String razorpayOrderId = null;
-        boolean needsRazorpay  = (method != PaymentMethod.CREDIT_ORDER);
+        String  razorpayOrderId = null;
+        boolean needsRazorpay   = (method != PaymentMethod.CREDIT_ORDER);
 
         if (needsRazorpay) {
             double razorpayAmount = (method == PaymentMethod.ADVANCE_CREDIT)
-                    ? totalAmount * 0.30   // only the advance portion goes through Razorpay
-                    : totalAmount;         // full amount for UPI/card/bank
-
+                    ? totalAmount * 0.30
+                    : totalAmount;
             try {
-                RazorpayClient client = new RazorpayClient(razorpayKeyId, razorpayKeySecret);
-                JSONObject options    = new JSONObject();
-                options.put("amount",          (long) Math.round(razorpayAmount * 100)); // paise, no overflow
+                RazorpayClient client  = new RazorpayClient(razorpayKeyId, razorpayKeySecret);
+                JSONObject     options = new JSONObject();
+                options.put("amount",          (long) Math.round(razorpayAmount * 100));
                 options.put("currency",        "INR");
                 options.put("receipt",         "rcpt_" + System.currentTimeMillis());
-                options.put("payment_capture", 1); // auto-capture after payment success
-
+                options.put("payment_capture", 1);
                 com.razorpay.Order rzpOrder = client.orders.create(options);
                 razorpayOrderId = rzpOrder.get("id");
             } catch (RazorpayException e) {
@@ -126,7 +97,6 @@ public class AppOrderService {
             }
         }
 
-        // 5. Build and save Order entity
         AppOrder order = new AppOrder();
         order.setCustomer(customer);
         order.setSubtotal(subtotal);
@@ -148,7 +118,6 @@ public class AppOrderService {
             order.setCreditAmount(totalAmount);
         }
 
-        // 6. Attach items
         for (AppOrderItemRequest itemReq : req.getItems()) {
             AppOrderItem item = new AppOrderItem();
             item.setOrder(order);
@@ -163,7 +132,6 @@ public class AppOrderService {
 
         AppOrder saved = orderRepo.save(order);
 
-        // Always return full totalAmount to mobile — mobile uses data.totalAmount for display
         return new AppOrderResponse(
                 saved.getId(),
                 razorpayOrderId,
@@ -177,7 +145,7 @@ public class AppOrderService {
     }
 
     // ════════════════════════════════════════════════════════════════
-    // STEP 2 — Verify Razorpay HMAC-SHA256 signature
+    // STEP 2 — Verify Razorpay HMAC-SHA256 signature (original flow)
     // ════════════════════════════════════════════════════════════════
     @Transactional
     public AppOrderResponse verifyPayment(AppVerifyPaymentRequest req) {
@@ -186,9 +154,8 @@ public class AppOrderService {
                 .orElseThrow(() -> new RuntimeException(
                         "Order not found for Razorpay ID: " + req.getRazorpayOrderId()));
 
-        // Razorpay signature = HMAC-SHA256 of "razorpay_order_id|razorpay_payment_id"
-        String payload = req.getRazorpayOrderId() + "|" + req.getRazorpayPaymentId();
-        boolean valid  = verifySignature(payload, req.getRazorpaySignature(), razorpayKeySecret);
+        String  payload = req.getRazorpayOrderId() + "|" + req.getRazorpayPaymentId();
+        boolean valid   = verifySignature(payload, req.getRazorpaySignature(), razorpayKeySecret);
 
         if (!valid) {
             order.setPaymentStatus(PaymentStatus.FAILED);
@@ -200,6 +167,7 @@ public class AppOrderService {
         order.setRazorpaySignature(req.getRazorpaySignature());
         order.setPaymentStatus(PaymentStatus.PAID);
         order.setOrderStatus(OrderStatus.ACCEPTED);
+        order.setPaidAt(LocalDateTime.now());
         order.setUpdatedAt(LocalDateTime.now());
 
         AppOrder saved = orderRepo.save(order);
@@ -217,13 +185,108 @@ public class AppOrderService {
     }
 
     // ════════════════════════════════════════════════════════════════
+    // CREDIT PAYMENT — Step 1
+    // Customer pays their pending credit amount from Order History.
+    // Creates a NEW Razorpay order for just the credit amount.
+    // Returns: { orderId, razorpayOrderId, razorpayKeyId, creditAmount }
+    // ════════════════════════════════════════════════════════════════
+    @Transactional
+    public Map<String, Object> createCreditPaymentOrder(Long orderId, String customerPhone) {
+
+        AppOrder order = orderRepo.findById(orderId)
+                .orElseThrow(() -> new RuntimeException("Order not found: " + orderId));
+
+        // Security: ensure the order belongs to this customer
+        if (!order.getCustomer().getPhone().equals(customerPhone)) {
+            throw new RuntimeException("Access denied.");
+        }
+
+        // Guard: only allow on credit orders that are still unpaid
+        boolean isCreditOrder = order.getPaymentMethod() == PaymentMethod.CREDIT_ORDER
+                             || order.getPaymentMethod() == PaymentMethod.ADVANCE_CREDIT;
+        if (!isCreditOrder) {
+            throw new RuntimeException("This order is not a credit order.");
+        }
+        if (order.getPaymentStatus() == PaymentStatus.PAID) {
+            throw new RuntimeException("This order is already fully paid.");
+        }
+
+        // The amount to charge: full total for CREDIT_ORDER, 70% for ADVANCE_CREDIT
+        double creditAmount = order.getCreditAmount() != null && order.getCreditAmount() > 0
+                ? order.getCreditAmount()
+                : order.getTotalAmount();
+
+        // Create a Razorpay order for the credit amount
+        String creditRazorpayOrderId;
+        try {
+            RazorpayClient client  = new RazorpayClient(razorpayKeyId, razorpayKeySecret);
+            JSONObject     options = new JSONObject();
+            options.put("amount",          (long) Math.round(creditAmount * 100));
+            options.put("currency",        "INR");
+            options.put("receipt",         "credit_" + orderId + "_" + System.currentTimeMillis());
+            options.put("payment_capture", 1);
+            com.razorpay.Order rzpOrder = client.orders.create(options);
+            creditRazorpayOrderId = rzpOrder.get("id");
+        } catch (RazorpayException e) {
+            throw new RuntimeException("Failed to create Razorpay order: " + e.getMessage());
+        }
+
+        // Store the credit Razorpay order ID on the order so we can verify it later
+        order.setCreditRazorpayOrderId(creditRazorpayOrderId);
+        order.setUpdatedAt(LocalDateTime.now());
+        orderRepo.save(order);
+
+        return Map.of(
+                "orderId",         order.getId(),
+                "razorpayOrderId", creditRazorpayOrderId,
+                "razorpayKeyId",   razorpayKeyId,
+                "creditAmount",    creditAmount
+        );
+    }
+
+    // ════════════════════════════════════════════════════════════════
+    // CREDIT PAYMENT — Step 2
+    // Verifies the Razorpay signature for the credit payment,
+    // marks order PAID, sets paidAt, returns the full updated order.
+    // ════════════════════════════════════════════════════════════════
+    @Transactional
+    public Map<String, Object> verifyCreditPayment(AppVerifyCreditPaymentRequest req) {
+
+        AppOrder order = orderRepo.findById(req.getOrderId())
+                .orElseThrow(() -> new RuntimeException("Order not found: " + req.getOrderId()));
+
+        // Validate the Razorpay order ID matches what we stored
+        if (!req.getRazorpayOrderId().equals(order.getCreditRazorpayOrderId())) {
+            throw new RuntimeException("Razorpay order ID mismatch.");
+        }
+
+        // Verify HMAC-SHA256 signature
+        String  payload = req.getRazorpayOrderId() + "|" + req.getRazorpayPaymentId();
+        boolean valid   = verifySignature(payload, req.getRazorpaySignature(), razorpayKeySecret);
+
+        if (!valid) {
+            throw new RuntimeException("Credit payment verification failed. Invalid signature.");
+        }
+
+        // Mark order fully paid and record the timestamp
+        order.setPaymentStatus(PaymentStatus.PAID);
+        order.setPaidAt(LocalDateTime.now());
+        order.setUpdatedAt(LocalDateTime.now());
+        AppOrder saved = orderRepo.save(order);
+
+        // Return the full updated order so the frontend can update the card in-place
+        return Map.of("order", AppOrderResponse.from(saved));
+    }
+
+    // ════════════════════════════════════════════════════════════════
     // GET — Customer's own orders
     // ════════════════════════════════════════════════════════════════
     public List<AppOrderResponse> getMyOrders(String customerPhone) {
         CustomerRegistration customer = customerRepo.findByPhone(customerPhone)
                 .orElseThrow(() -> new RuntimeException("Customer not found."));
         return orderRepo.findByCustomerIdOrderByCreatedAtDesc(customer.getId())
-                .stream().map(AppOrderResponse::from).collect(java.util.stream.Collectors.toList());
+                .stream().map(AppOrderResponse::from)
+                .collect(java.util.stream.Collectors.toList());
     }
 
     // ════════════════════════════════════════════════════════════════
