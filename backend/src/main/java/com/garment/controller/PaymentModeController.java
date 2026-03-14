@@ -42,18 +42,13 @@ public class PaymentModeController {
     }
 
     @PostMapping
-    public ResponseEntity<PaymentModeDTO> createPaymentMode(
-            @Valid @RequestBody PaymentModeDTO dto
-    ) {
+    public ResponseEntity<PaymentModeDTO> createPaymentMode(@Valid @RequestBody PaymentModeDTO dto) {
         PaymentModeDTO created = paymentModeService.createPaymentMode(dto);
         return new ResponseEntity<>(created, HttpStatus.CREATED);
     }
 
     @PutMapping("/{id}")
-    public PaymentModeDTO updatePaymentMode(
-            @PathVariable Long id,
-            @Valid @RequestBody PaymentModeDTO dto
-    ) {
+    public PaymentModeDTO updatePaymentMode(@PathVariable Long id, @Valid @RequestBody PaymentModeDTO dto) {
         return paymentModeService.updatePaymentMode(id, dto);
     }
 

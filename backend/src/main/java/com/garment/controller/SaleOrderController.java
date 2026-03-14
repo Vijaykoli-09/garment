@@ -8,6 +8,7 @@ import java.util.stream.Collectors;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import com.garment.DTO.PendencyFulfillRequestDTO;
 import com.garment.DTO.SaleOrderDTO;
 import com.garment.DTO.SaleOrderPendencyRowDTO;
 import com.garment.DTO.SaleOrderSaveDTO;
@@ -53,7 +54,7 @@ public class SaleOrderController {
         svc.delete(id);
     }
 
-    // Sale Order Pendency API
+    // Pendency API
     @GetMapping("/pendency")
     public List<SaleOrderPendencyRowDTO> pendency(
             @RequestParam String fromDate,
@@ -61,17 +62,26 @@ public class SaleOrderController {
             @RequestParam(required = false) String destinations,
             @RequestParam(required = false) String partyIds,
             @RequestParam(required = false) String artNos,
-            @RequestParam(required = false) String sizes
+            @RequestParam(required = false) String sizes,
+            @RequestParam(required = false) String shades
     ) {
         LocalDate from = LocalDate.parse(fromDate);
         LocalDate to   = LocalDate.parse(toDate);
 
-        List<String> destList   = csvToList(destinations, true); // UPPER
+        List<String> destList   = csvToList(destinations, true);
         List<Long>   partyList  = csvToLongList(partyIds);
-        List<String> artNoList  = csvToList(artNos, false);      // lower
-        List<String> sizeList   = csvToList(sizes, true);        // UPPER
+        List<String> artNoList  = csvToList(artNos, false);
+        List<String> sizeList   = csvToList(sizes, true);
+        List<String> shadeList  = csvToList(shades, true);
 
-        return svc.pendency(from, to, destList, partyList, artNoList, sizeList);
+        return svc.pendency(from, to, destList, partyList, artNoList, sizeList, shadeList);
+    }
+
+    // Fulfill API
+    @PostMapping("/pendency/fulfill")
+    public ResponseEntity<Void> fulfillPendency(@RequestBody PendencyFulfillRequestDTO req) {
+        svc.fulfillPendency(req);
+        return ResponseEntity.ok().build();
     }
 
     private static List<String> csvToList(String csv, boolean upper) {

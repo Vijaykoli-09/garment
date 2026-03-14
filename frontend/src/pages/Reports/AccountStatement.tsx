@@ -1,11 +1,6 @@
 "use client";
 
-import React, {
-  useEffect,
-  useMemo,
-  useState,
-  useCallback, // ✅ added
-} from "react";
+import React, { useEffect, useMemo, useState, useCallback } from "react";
 import Dashboard from "../Dashboard";
 import api from "../../api/axiosInstance";
 
@@ -80,17 +75,15 @@ interface ReceiptDoc {
   receiptDate: string;
   date?: string;
   partyName: string;
-  brokerName?: string; // from agentName
+  brokerName?: string;
   amount: number;
 }
 
-// Broker + Parties for dropdown
 interface BrokerInfo {
   name: string;
   parties: string[];
 }
 
-// Base transaction row (without srNo/balance)
 type TxType =
   | "Opening"
   | "Dispatch"
@@ -101,24 +94,22 @@ type TxType =
   | "Payment"
   | "Receipt";
 
+// ✅ narration removed
 type BaseTransaction = {
   id: number;
   date: string;
   partyName: string;
-  orderNo?: string; // document no (challan / order / etc.)
-  narration: string;
+  orderNo?: string;
   debit: number;
   credit: number;
   type: TxType;
 };
 
-// Row with srNo + running balance
 type DisplayRow = BaseTransaction & {
   srNo: number;
   balance: number;
 };
 
-// Row with Days column (for UI / print)
 type DisplayRowWithDays = DisplayRow & {
   days: number;
 };
@@ -178,6 +169,8 @@ const typeLabel = (t: TxType): string => {
   }
 };
 
+const norm = (s: string) => (s || "").trim().toLowerCase();
+
 // ================= Component =================
 const AccountStatement: React.FC = () => {
   const [parties, setParties] = useState<Party[]>([]);
@@ -203,8 +196,12 @@ const AccountStatement: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
 
   // Filters (top)
-  const [brokerName, setBrokerName] = useState<string>("");
   const [brokerSearch, setBrokerSearch] = useState<string>("");
+
+  // ✅ NEW: broker + optional party selection
+  const [selectedBroker, setSelectedBroker] = useState<string>("");
+  const [selectedParty, setSelectedParty] = useState<string>("");
+
   const [fromDate, setFromDate] = useState<string>(getFirstOfMonthIso());
   const [toDate, setToDate] = useState<string>(getTodayIso());
   const [showOpening, setShowOpening] = useState<boolean>(true);
@@ -242,14 +239,8 @@ const AccountStatement: React.FC = () => {
             err?.response?.data
           );
 
-          if (required) {
-            throw err;
-          }
-
-          if (!status || status === 403 || status === 404) {
-            return [] as any;
-          }
-
+          if (required) throw err;
+          if (!status || status === 403 || status === 404) return [] as any;
           throw err;
         }
       };
@@ -266,52 +257,22 @@ const AccountStatement: React.FC = () => {
           payRaw,
           recRaw,
         ] = await Promise.all([
-          safeGet<Party[]>("/party/all", {
-            required: true,
-            label: "parties",
-          }),
-          safeGet<Agent[]>("/agent/list", {
-            required: false,
-            label: "agents",
-          }),
-          safeGet<any[]>("/dispatch-challan", {
-            required: false,
-            label: "dispatch challans",
-          }),
-          safeGet<any[]>("/other-dispatch-challan", {
-            required: false,
-            label: "other dispatch challans",
-          }),
-          safeGet<any[]>("/purchase-orders", {
-            required: false,
-            label: "purchase orders",
-          }),
-          safeGet<any[]>("/purchase-entry", {
-            required: false,
-            label: "purchase entries",
-          }),
-          safeGet<any[]>("/purchase-returns", {
-            required: false,
-            label: "purchase returns",
-          }),
-          safeGet<any[]>("/payment", {
-            required: false,
-            label: "payments",
-          }),
-          safeGet<any[]>("/receipt", {
-            required: false,
-            label: "receipts",
-          }),
+          safeGet<Party[]>("/party/all", { required: true, label: "parties" }),
+          safeGet<Agent[]>("/agent/list", { required: false, label: "agents" }),
+          safeGet<any[]>("/dispatch-challan", { required: false, label: "dispatch challans" }),
+          safeGet<any[]>("/other-dispatch-challan", { required: false, label: "other dispatch challans" }),
+          safeGet<any[]>("/purchase-orders", { required: false, label: "purchase orders" }),
+          safeGet<any[]>("/purchase-entry", { required: false, label: "purchase entries" }),
+          safeGet<any[]>("/purchase-returns", { required: false, label: "purchase returns" }),
+          safeGet<any[]>("/payment", { required: false, label: "payments" }),
+          safeGet<any[]>("/receipt", { required: false, label: "receipts" }),
         ]);
 
-        const partiesArr = Array.isArray(partyRaw) ? partyRaw : [];
-        const agentsArr = Array.isArray(agentRaw) ? agentRaw : [];
-        setParties(partiesArr);
-        setAgents(agentsArr);
+        setParties(Array.isArray(partyRaw) ? partyRaw : []);
+        setAgents(Array.isArray(agentRaw) ? agentRaw : []);
 
-        // ---------- Dispatch Challan ----------
-        const dcMapped: DispatchChallan[] = (Array.isArray(dcRaw) ? dcRaw : []).map(
-          (dc: any) => ({
+        setDispatchChallans(
+          (Array.isArray(dcRaw) ? dcRaw : []).map((dc: any) => ({
             id: dc.id,
             challanNo: String(dc.challanNo ?? ""),
             date: dc.date || dc.dated || "",
@@ -319,31 +280,24 @@ const AccountStatement: React.FC = () => {
             partyName: dc.partyName || "",
             brokerName: dc.brokerName || "",
             netAmt: dc.netAmt,
-          })
+          }))
         );
-        setDispatchChallans(dcMapped);
 
-        // ---------- Other Dispatch ----------
-        const odMapped: OtherDispatchChallan[] = (Array.isArray(odcRaw) ? odcRaw : []).map(
-          (od: any) => ({
+        setOtherDispatchChallans(
+          (Array.isArray(odcRaw) ? odcRaw : []).map((od: any) => ({
             id: od.id,
             challanNo: String(od.challanNo ?? ""),
             date: od.date || "",
             partyName: od.partyName || "",
             brokerName: od.brokerName || "",
             netAmt: od.netAmt,
-          })
+          }))
         );
-        setOtherDispatchChallans(odMapped);
 
-        // ---------- Purchase Orders ----------
-        const poMapped: PurchaseOrderDoc[] = (Array.isArray(poRaw) ? poRaw : []).map(
-          (po: any) => {
+        setPurchaseOrders(
+          (Array.isArray(poRaw) ? poRaw : []).map((po: any) => {
             const items: any[] = Array.isArray(po.items) ? po.items : [];
-            const amount = items.reduce(
-              (s, it) => s + (parseFloat(it.amount ?? 0) || 0),
-              0
-            );
+            const amount = items.reduce((s, it) => s + (parseFloat(it.amount ?? 0) || 0), 0);
             return {
               id: po.id,
               orderNo: String(po.orderNo ?? ""),
@@ -351,18 +305,13 @@ const AccountStatement: React.FC = () => {
               partyName: po.partyName || po.party?.partyName || "",
               amount,
             };
-          }
+          })
         );
-        setPurchaseOrders(poMapped);
 
-        // ---------- Purchase Entries ----------
-        const peMapped: PurchaseEntryDoc[] = (Array.isArray(peRaw) ? peRaw : []).map(
-          (e: any) => {
+        setPurchaseEntries(
+          (Array.isArray(peRaw) ? peRaw : []).map((e: any) => {
             const items: any[] = Array.isArray(e.items) ? e.items : [];
-            const amount = items.reduce(
-              (s, it) => s + (parseFloat(it.amount ?? 0) || 0),
-              0
-            );
+            const amount = items.reduce((s, it) => s + (parseFloat(it.amount ?? 0) || 0), 0);
             return {
               id: e.id,
               challanNo: String(e.challanNo ?? ""),
@@ -370,18 +319,13 @@ const AccountStatement: React.FC = () => {
               partyName: e.partyName || e.party?.partyName || "",
               amount,
             };
-          }
+          })
         );
-        setPurchaseEntries(peMapped);
 
-        // ---------- Purchase Returns ----------
-        const prMapped: PurchaseReturnDoc[] = (Array.isArray(prRaw) ? prRaw : []).map(
-          (r: any) => {
+        setPurchaseReturns(
+          (Array.isArray(prRaw) ? prRaw : []).map((r: any) => {
             const items: any[] = Array.isArray(r.items) ? r.items : [];
-            const amount = items.reduce(
-              (s, it) => s + (parseFloat(it.amount ?? 0) || 0),
-              0
-            );
+            const amount = items.reduce((s, it) => s + (parseFloat(it.amount ?? 0) || 0), 0);
             return {
               id: r.id,
               challanNo: String(r.challanNo ?? ""),
@@ -389,36 +333,33 @@ const AccountStatement: React.FC = () => {
               partyName: r.partyName || r.party?.partyName || "",
               amount,
             };
-          }
+          })
         );
-        setPurchaseReturns(prMapped);
 
-        // ---------- Payments ----------
-        const payMapped: PaymentDoc[] = (Array.isArray(payRaw) ? payRaw : [])
-          .map((p: any) => ({
-            id: p.id,
-            paymentDate: p.paymentDate || p.date || "",
-            date: p.date || "",
-            partyName: p.paymentTo === "Party" ? p.partyName || "" : "",
-            amount: parseFloat(p.amount ?? 0) || 0,
-          }))
-          .filter((p) => p.partyName); // sirf Party wale
+        setPayments(
+          (Array.isArray(payRaw) ? payRaw : [])
+            .map((p: any) => ({
+              id: p.id,
+              paymentDate: p.paymentDate || p.date || "",
+              date: p.date || "",
+              partyName: p.paymentTo === "Party" ? p.partyName || "" : "",
+              amount: parseFloat(p.amount ?? 0) || 0,
+            }))
+            .filter((p) => p.partyName)
+        );
 
-        setPayments(payMapped);
-
-        // ---------- Receipts ----------
-        const recMapped: ReceiptDoc[] = (Array.isArray(recRaw) ? recRaw : [])
-          .map((r: any) => ({
-            id: r.id,
-            receiptDate: r.receiptDate || r.date || "",
-            date: r.date || "",
-            partyName: r.receiptTo === "Party" ? r.partyName || "" : "",
-            brokerName: r.agentName || "",
-            amount: parseFloat(r.amount ?? 0) || 0,
-          }))
-          .filter((r) => r.partyName); // sirf Party wale
-
-        setReceipts(recMapped);
+        setReceipts(
+          (Array.isArray(recRaw) ? recRaw : [])
+            .map((r: any) => ({
+              id: r.id,
+              receiptDate: r.receiptDate || r.date || "",
+              date: r.date || "",
+              partyName: r.receiptTo === "Party" ? r.partyName || "" : "",
+              brokerName: r.agentName || "",
+              amount: parseFloat(r.amount ?? 0) || 0,
+            }))
+            .filter((r) => r.partyName)
+        );
       } catch (err: any) {
         console.error("Error loading masters:", err);
         setError(err?.message || "Failed to load data");
@@ -434,116 +375,72 @@ const AccountStatement: React.FC = () => {
   const partyByName = useMemo(() => {
     const m = new Map<string, Party>();
     parties.forEach((p) => {
-      const key = (p.partyName || "").trim().toLowerCase();
+      const key = norm(p.partyName);
       if (key) m.set(key, p);
     });
     return m;
   }, [parties]);
 
-  // ✅ useCallback so ESLint is satisfied and function is stable
   const getBrokerNameForDoc = useCallback(
     (doc: { brokerName?: string; partyName: string }): string => {
       const direct = (doc.brokerName || "").trim();
       if (direct) return direct;
-
-      const p =
-        partyByName.get((doc.partyName || "").trim().toLowerCase()) ||
-        undefined;
-      if (!p) return "";
-      return (p.agent?.agentName || "").trim();
+      const p = partyByName.get(norm(doc.partyName));
+      return (p?.agent?.agentName || "").trim();
     },
     [partyByName]
   );
 
-  // ---------- Broker list (dropdown with parties + search) ----------
+  // Payment -> CREDIT, Receipt -> DEBIT, Others -> DEBIT
+  const getDrCr = useCallback((source: TxType, amount: number) => {
+    const amt = toNum(amount);
+    if (source === "Payment") return { debit: 0, credit: amt };
+    if (source === "Receipt") return { debit: amt, credit: 0 };
+    if (source === "Opening") return { debit: 0, credit: 0 };
+    return { debit: amt, credit: 0 };
+  }, []);
+
+  // ---------- Broker list ----------
   const brokerInfos: BrokerInfo[] = useMemo(() => {
-    const map = new Map<
-      string,
-      { name: string; parties: Set<string> }
-    >();
+    const map = new Map<string, { name: string; parties: Set<string> }>();
 
     const addBrokerParty = (broker: string | undefined, party?: string) => {
       const name = (broker || "").trim();
       if (!name) return;
       const key = name.toLowerCase();
-
       const partyName = (party || "").trim();
-
-      if (!map.has(key)) {
-        map.set(key, { name, parties: new Set<string>() });
-      }
-      if (partyName) {
-        map.get(key)!.parties.add(partyName);
-      }
+      if (!map.has(key)) map.set(key, { name, parties: new Set<string>() });
+      if (partyName) map.get(key)!.parties.add(partyName);
     };
 
-    // 1) From Parties (master)
     parties.forEach((p) => {
       const code = p.agent?.serialNo;
       const masterAgentName = code
-        ? agents.find((a) => String(a.serialNo) === String(code))?.agentName ||
-          ""
+        ? agents.find((a) => String(a.serialNo) === String(code))?.agentName || ""
         : "";
       const broker = masterAgentName || p.agent?.agentName || "";
       addBrokerParty(broker, p.partyName);
     });
 
-    // 2) From Dispatch Challans
-    dispatchChallans.forEach((dc) => {
-      const bName = getBrokerNameForDoc(dc);
-      addBrokerParty(bName, dc.partyName);
-    });
+    dispatchChallans.forEach((dc) => addBrokerParty(getBrokerNameForDoc(dc), dc.partyName));
+    otherDispatchChallans.forEach((od) => addBrokerParty(getBrokerNameForDoc(od), od.partyName));
 
-    // 3) From Other Dispatch Challans
-    otherDispatchChallans.forEach((od) => {
-      const bName = getBrokerNameForDoc(od);
-      addBrokerParty(bName, od.partyName);
-    });
+    purchaseOrders.forEach((po) =>
+      addBrokerParty(getBrokerNameForDoc({ brokerName: "", partyName: po.partyName }), po.partyName)
+    );
+    purchaseEntries.forEach((pe) =>
+      addBrokerParty(getBrokerNameForDoc({ brokerName: "", partyName: pe.partyName }), pe.partyName)
+    );
+    purchaseReturns.forEach((pr) =>
+      addBrokerParty(getBrokerNameForDoc({ brokerName: "", partyName: pr.partyName }), pr.partyName)
+    );
 
-    // 4) From Purchase Orders
-    purchaseOrders.forEach((po) => {
-      const bName = getBrokerNameForDoc({
-        brokerName: "",
-        partyName: po.partyName,
-      });
-      addBrokerParty(bName, po.partyName);
-    });
-
-    // 5) From Purchase Entries
-    purchaseEntries.forEach((pe) => {
-      const bName = getBrokerNameForDoc({
-        brokerName: "",
-        partyName: pe.partyName,
-      });
-      addBrokerParty(bName, pe.partyName);
-    });
-
-    // 6) From Purchase Returns
-    purchaseReturns.forEach((pr) => {
-      const bName = getBrokerNameForDoc({
-        brokerName: "",
-        partyName: pr.partyName,
-      });
-      addBrokerParty(bName, pr.partyName);
-    });
-
-    // 7) From Payments (Party only)
-    payments.forEach((p) => {
-      const bName = getBrokerNameForDoc({
-        brokerName: "",
-        partyName: p.partyName,
-      });
-      addBrokerParty(bName, p.partyName);
-    });
-
-    // 8) From Receipts (Party + agentName)
-    receipts.forEach((r) => {
-      const bName = getBrokerNameForDoc({
-        brokerName: r.brokerName,
-        partyName: r.partyName,
-      });
-      addBrokerParty(bName, r.partyName);
-    });
+    payments.forEach((p) =>
+      addBrokerParty(getBrokerNameForDoc({ brokerName: "", partyName: p.partyName }), p.partyName)
+    );
+    receipts.forEach((r) =>
+      addBrokerParty(getBrokerNameForDoc({ brokerName: r.brokerName, partyName: r.partyName }), r.partyName)
+    );
 
     const arr: BrokerInfo[] = Array.from(map.values()).map((b) => ({
       name: b.name,
@@ -552,10 +449,7 @@ const AccountStatement: React.FC = () => {
       ),
     }));
 
-    arr.sort((a, b) =>
-      a.name.localeCompare(b.name, undefined, { sensitivity: "base" })
-    );
-
+    arr.sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
     return arr;
   }, [
     parties,
@@ -567,48 +461,89 @@ const AccountStatement: React.FC = () => {
     purchaseReturns,
     payments,
     receipts,
-    getBrokerNameForDoc, // ✅ added; fixes eslint warning
+    getBrokerNameForDoc,
   ]);
 
-  const filteredBrokerInfos = useMemo(() => {
-    const term = brokerSearch.trim().toLowerCase();
-    if (!term) return brokerInfos;
+  // ✅ NEW: Select options list (Broker mode vs Party mode)
+  type BrokerSelectOption = {
+    key: string;
+    value: string; // "broker|||party"
+    broker: string;
+    party: string; // optional
+    label: string;
+  };
 
-    return brokerInfos.filter((b) => {
-      const brokerMatch = b.name.toLowerCase().includes(term);
-      const partyMatch = b.parties.some((p) =>
-        p.toLowerCase().includes(term)
-      );
-      return brokerMatch || partyMatch;
+  const brokerSelectOptions: BrokerSelectOption[] = useMemo(() => {
+    const term = brokerSearch.trim().toLowerCase();
+
+    // No search => all brokers with party preview
+    if (!term) {
+      return brokerInfos.map((b) => {
+        const preview = b.parties.slice(0, 3);
+        const suffix = b.parties.length > 3 ? "..." : "";
+        const partiesLabel = preview.length ? ` - ${preview.join(", ")}${suffix}` : "";
+        return {
+          key: `B:${b.name}`,
+          broker: b.name,
+          party: "",
+          value: `${b.name}|||`,
+          label: `${b.name}${partiesLabel}`,
+        };
+      });
+    }
+
+    // Broker mode => term matches broker name
+    const brokerMatches = brokerInfos.filter((b) => b.name.toLowerCase().includes(term));
+    if (brokerMatches.length > 0) {
+      return brokerMatches.map((b) => {
+        const partiesLabel = b.parties.length ? ` - ${b.parties.join(", ")}` : "";
+        return {
+          key: `B:${b.name}`,
+          broker: b.name,
+          party: "",
+          value: `${b.name}|||`,
+          label: `${b.name}${partiesLabel}`,
+        };
+      });
+    }
+
+    // Party mode => term matches party name (create option per matching party)
+    const opts: BrokerSelectOption[] = [];
+    brokerInfos.forEach((b) => {
+      b.parties.forEach((p) => {
+        if (p.toLowerCase().includes(term)) {
+          opts.push({
+            key: `BP:${b.name}::${p}`,
+            broker: b.name,
+            party: p,
+            value: `${b.name}|||${p}`,
+            label: `${b.name} - ${p}`,
+          });
+        }
+      });
     });
+
+    opts.sort((a, z) => a.label.localeCompare(z.label, undefined, { sensitivity: "base" }));
+    return opts;
   }, [brokerInfos, brokerSearch]);
 
-  // ---------- Build broker-wise statement (FIFO by date) ----------
+  // ---------- Build statement ----------
   const handleShow = async () => {
-    if (!brokerName.trim()) {
+    if (!selectedBroker.trim()) {
       alert("Please select a Broker / Agent");
-      return;
-    }
-    if (
-      !dispatchChallans.length &&
-      !otherDispatchChallans.length &&
-      !purchaseOrders.length &&
-      !purchaseEntries.length &&
-      !purchaseReturns.length &&
-      !payments.length &&
-      !receipts.length
-    ) {
-      alert("No documents found");
       return;
     }
 
     setReportPreparing(true);
     setError(null);
     setTransactionFilter("all");
+
     try {
       const fromT = toTime(fromDate);
       const toT = toTime(toDate) + 24 * 60 * 60 * 1000 - 1;
-      const targetBroker = brokerName.trim().toLowerCase();
+
+      const targetBroker = norm(selectedBroker);
+      const targetParty = norm(selectedParty); // ✅ if set, filter by party also
 
       type DocSource =
         | "Dispatch"
@@ -630,108 +565,87 @@ const AccountStatement: React.FC = () => {
 
       const docs: Doc[] = [];
 
-      // Dispatch Challans
+      const partyOk = (p: string) => !targetParty || norm(p) === targetParty;
+
       dispatchChallans.forEach((dc) => {
         const bName = getBrokerNameForDoc(dc);
-        if (!bName) return;
-        if (bName.trim().toLowerCase() !== targetBroker) return;
+        if (norm(bName) !== targetBroker) return;
+        if (!partyOk(dc.partyName)) return;
 
-        const rawDate = dc.date || dc.dated || "";
         docs.push({
           source: "Dispatch",
           id: dc.id,
-          date: rawDate || fromDate,
+          date: (dc.date || dc.dated || "") || fromDate,
           number: dc.challanNo,
           partyName: dc.partyName || "",
           amount: toNum(dc.netAmt ?? 0),
         });
       });
 
-      // Other Dispatch Challans
       otherDispatchChallans.forEach((od) => {
         const bName = getBrokerNameForDoc(od);
-        if (!bName) return;
-        if (bName.trim().toLowerCase() !== targetBroker) return;
+        if (norm(bName) !== targetBroker) return;
+        if (!partyOk(od.partyName)) return;
 
-        const rawDate = od.date || "";
         docs.push({
           source: "OtherDispatch",
           id: od.id,
-          date: rawDate || fromDate,
+          date: (od.date || "") || fromDate,
           number: od.challanNo,
           partyName: od.partyName || "",
           amount: toNum(od.netAmt ?? 0),
         });
       });
 
-      // Purchase Orders
       purchaseOrders.forEach((po) => {
-        const bName = getBrokerNameForDoc({
-          brokerName: "",
-          partyName: po.partyName,
-        });
-        if (!bName) return;
-        if (bName.trim().toLowerCase() !== targetBroker) return;
+        const bName = getBrokerNameForDoc({ brokerName: "", partyName: po.partyName });
+        if (norm(bName) !== targetBroker) return;
+        if (!partyOk(po.partyName)) return;
 
-        const rawDate = po.date || "";
         docs.push({
           source: "PurchaseOrder",
           id: po.id,
-          date: rawDate || fromDate,
+          date: (po.date || "") || fromDate,
           number: po.orderNo,
           partyName: po.partyName || "",
           amount: po.amount,
         });
       });
 
-      // Purchase Entries
       purchaseEntries.forEach((pe) => {
-        const bName = getBrokerNameForDoc({
-          brokerName: "",
-          partyName: pe.partyName,
-        });
-        if (!bName) return;
-        if (bName.trim().toLowerCase() !== targetBroker) return;
+        const bName = getBrokerNameForDoc({ brokerName: "", partyName: pe.partyName });
+        if (norm(bName) !== targetBroker) return;
+        if (!partyOk(pe.partyName)) return;
 
-        const rawDate = pe.date || "";
         docs.push({
           source: "PurchaseEntry",
           id: pe.id,
-          date: rawDate || fromDate,
+          date: (pe.date || "") || fromDate,
           number: pe.challanNo,
           partyName: pe.partyName || "",
           amount: pe.amount,
         });
       });
 
-      // Purchase Returns
       purchaseReturns.forEach((pr) => {
-        const bName = getBrokerNameForDoc({
-          brokerName: "",
-          partyName: pr.partyName,
-        });
-        if (!bName) return;
-        if (bName.trim().toLowerCase() !== targetBroker) return;
+        const bName = getBrokerNameForDoc({ brokerName: "", partyName: pr.partyName });
+        if (norm(bName) !== targetBroker) return;
+        if (!partyOk(pr.partyName)) return;
 
-        const rawDate = pr.date || "";
         docs.push({
           source: "PurchaseReturn",
           id: pr.id,
-          date: rawDate || fromDate,
+          date: (pr.date || "") || fromDate,
           number: pr.challanNo,
           partyName: pr.partyName || "",
           amount: pr.amount,
         });
       });
 
-      // Payments (Party) -> Debit
       payments.forEach((p) => {
-        const bName = getBrokerNameForDoc({
-          brokerName: "",
-          partyName: p.partyName,
-        });
-        if (!bName) return;
-        if (bName.trim().toLowerCase() !== targetBroker) return;
+        const bName = getBrokerNameForDoc({ brokerName: "", partyName: p.partyName });
+        if (norm(bName) !== targetBroker) return;
+        if (!partyOk(p.partyName)) return;
 
         const rawDate = p.paymentDate || p.date || "";
         docs.push({
@@ -744,14 +658,10 @@ const AccountStatement: React.FC = () => {
         });
       });
 
-      // Receipts (Party + agentName) -> Credit
       receipts.forEach((r) => {
-        const bName = getBrokerNameForDoc({
-          brokerName: r.brokerName,
-          partyName: r.partyName,
-        });
-        if (!bName) return;
-        if (bName.trim().toLowerCase() !== targetBroker) return;
+        const bName = getBrokerNameForDoc({ brokerName: r.brokerName, partyName: r.partyName });
+        if (norm(bName) !== targetBroker) return;
+        if (!partyOk(r.partyName)) return;
 
         const rawDate = r.date || r.receiptDate || "";
         docs.push({
@@ -764,43 +674,31 @@ const AccountStatement: React.FC = () => {
         });
       });
 
-      if (!docs.length) {
-        setTransactions([]);
-        setShowModal(true);
-        return;
-      }
-
       const baseRows: BaseTransaction[] = [];
 
-      // ----- Opening (docs before fromDate) -----
-      let openingAmt = 0;
+      // Opening
+      let openingBal = 0;
       if (showOpening) {
         const openingDocs = docs.filter((d) => toTime(d.date) < fromT);
         for (const d of openingDocs) {
-          if (d.source === "Payment") {
-            openingAmt -= d.amount;
-          } else if (d.source === "Receipt") {
-            openingAmt += d.amount;
-          } else {
-            openingAmt += d.amount;
-          }
+          const { debit, credit } = getDrCr(d.source as TxType, d.amount);
+          openingBal += debit - credit;
         }
 
-        if (openingAmt !== 0) {
+        if (openingBal !== 0) {
           baseRows.push({
             id: -1,
             date: fromDate,
-            partyName: "",
+            partyName: "Opening Balance",
             orderNo: "",
-            narration: "Opening Balance",
-            debit: openingAmt > 0 ? openingAmt : 0,
-            credit: openingAmt < 0 ? Math.abs(openingAmt) : 0,
+            debit: openingBal > 0 ? openingBal : 0,
+            credit: openingBal < 0 ? Math.abs(openingBal) : 0,
             type: "Opening",
           });
         }
       }
 
-      // ----- Period Docs (FIFO: by date asc) -----
+      // Period docs
       const periodDocs = docs
         .filter((d) => {
           const tt = toTime(d.date);
@@ -809,64 +707,15 @@ const AccountStatement: React.FC = () => {
         .sort((a, b) => toTime(a.date) - toTime(b.date));
 
       for (const d of periodDocs) {
-        const pName = (d.partyName || "").trim();
-
-        let narration: string;
-        switch (d.source) {
-          case "OtherDispatch":
-            narration = `By ${
-              pName || "Other Dispatch"
-            } (Other Dispatch #${d.number})`;
-            break;
-          case "PurchaseOrder":
-            narration = `By ${
-              pName || "Purchase Order"
-            } (Purchase Order #${d.number})`;
-            break;
-          case "PurchaseEntry":
-            narration = `By ${
-              pName || "Purchase Entry"
-            } (Purchase Entry #${d.number})`;
-            break;
-          case "PurchaseReturn":
-            narration = `By ${
-              pName || "Purchase Return"
-            } (Purchase Return #${d.number})`;
-            break;
-          case "Payment":
-            narration = `By ${pName || "Payment"} (Payment)`;
-            break;
-          case "Receipt":
-            narration = `By ${pName || "Receipt"} (Receipt)`;
-            break;
-          case "Dispatch":
-          default:
-            narration = `By ${
-              pName || "Dispatch"
-            } (Dispatch Challan #${d.number})`;
-            break;
-        }
-
-        let debit = 0;
-        let credit = 0;
-
-        if (d.source === "Payment") {
-          debit = d.amount;
-        } else if (d.source === "Receipt") {
-          credit = d.amount;
-        } else {
-          credit = d.amount;
-        }
-
+        const { debit, credit } = getDrCr(d.source as TxType, d.amount);
         baseRows.push({
           id: d.id,
           date: d.date,
-          partyName: pName,
+          partyName: (d.partyName || "").trim(),
           orderNo: d.number,
-          narration,
           debit,
           credit,
-          type: d.source,
+          type: d.source as TxType,
         });
       }
 
@@ -880,32 +729,23 @@ const AccountStatement: React.FC = () => {
     }
   };
 
-  // ---------- Running Balance (FIFO) ----------
+  // ---------- Running Balance ----------
   const sortedRowsAll: DisplayRow[] = useMemo(() => {
     if (!transactions.length) return [];
 
     const openingTx = transactions.find((t) => t.type === "Opening") || null;
     const others = transactions.filter((t) => t.type !== "Opening");
 
-    const data = [...others];
-    data.sort((a, b) => {
+    const data = [...others].sort((a, b) => {
       const dc = toTime(a.date) - toTime(b.date);
       if (dc !== 0) return dc;
-      const pc = (a.partyName || "").localeCompare(
-        b.partyName || "",
-        undefined,
-        {
-          sensitivity: "base",
-        }
-      );
+      const pc = (a.partyName || "").localeCompare(b.partyName || "", undefined, {
+        sensitivity: "base",
+      });
       if (pc !== 0) return pc;
-      return (a.orderNo || "").localeCompare(
-        b.orderNo || "",
-        undefined,
-        {
-          sensitivity: "base",
-        }
-      );
+      return (a.orderNo || "").localeCompare(b.orderNo || "", undefined, {
+        sensitivity: "base",
+      });
     });
 
     const result: DisplayRow[] = [];
@@ -913,34 +753,22 @@ const AccountStatement: React.FC = () => {
     let rb = 0;
 
     if (openingTx) {
-      const openingBalance =
-        openingTx.debit > 0 ? openingTx.debit : -openingTx.credit;
+      const openingBalance = openingTx.debit > 0 ? openingTx.debit : -openingTx.credit;
       rb = openingBalance;
-      result.push({
-        ...openingTx,
-        srNo: sr++,
-        balance: rb,
-      });
+      result.push({ ...openingTx, srNo: sr++, balance: rb });
     }
 
     for (const row of data) {
-      const debit = row.debit || 0;
-      const credit = row.credit || 0;
-      rb += credit - debit;
-      result.push({
-        ...row,
-        srNo: sr++,
-        balance: rb,
-      });
+      rb += (row.debit || 0) - (row.credit || 0);
+      result.push({ ...row, srNo: sr++, balance: rb });
     }
 
     return result;
   }, [transactions]);
 
-  // ---------- Days column (difference from toDate) ----------
+  // ---------- Days ----------
   const rowsWithDays: DisplayRowWithDays[] = useMemo(() => {
     if (!sortedRowsAll.length) return [];
-
     const base = new Date(toDate);
     base.setHours(0, 0, 0, 0);
     const baseTime = base.getTime();
@@ -954,7 +782,7 @@ const AccountStatement: React.FC = () => {
     });
   }, [sortedRowsAll, toDate]);
 
-  // ---------- Transaction type filter (after report generate) ----------
+  // ---------- Filter by Tx type ----------
   const filteredRows: DisplayRowWithDays[] = useMemo(() => {
     if (transactionFilter === "all") return rowsWithDays;
     return rowsWithDays.filter((r) => r.type === transactionFilter);
@@ -962,11 +790,11 @@ const AccountStatement: React.FC = () => {
 
   // ---------- Totals ----------
   const totalDebit = useMemo(
-    () => transactions.reduce((s, t) => s + t.debit, 0),
+    () => transactions.reduce((s, t) => s + (t.debit || 0), 0),
     [transactions]
   );
   const totalCredit = useMemo(
-    () => transactions.reduce((s, t) => s + t.credit, 0),
+    () => transactions.reduce((s, t) => s + (t.credit || 0), 0),
     [transactions]
   );
 
@@ -982,17 +810,13 @@ const AccountStatement: React.FC = () => {
   }, [sortedRowsAll]);
 
   const totals = useMemo(
-    () => ({
-      rows: filteredRows.length,
-      debit: totalDebit,
-      credit: totalCredit,
-    }),
+    () => ({ rows: filteredRows.length, debit: totalDebit, credit: totalCredit }),
     [filteredRows, totalDebit, totalCredit]
   );
 
-  // ---------- UI helpers ----------
   function resetAll() {
-    setBrokerName("");
+    setSelectedBroker("");
+    setSelectedParty("");
     setBrokerSearch("");
     setFromDate(getFirstOfMonthIso());
     setToDate(getTodayIso());
@@ -1004,16 +828,15 @@ const AccountStatement: React.FC = () => {
   }
 
   function handlePrintReport() {
-    if (typeof window === "undefined" || typeof document === "undefined") {
-      return;
-    }
+    if (typeof window === "undefined" || typeof document === "undefined") return;
     if (!filteredRows.length) {
       alert("No transactions to print");
       return;
     }
 
-    try {
-      const html = `<!doctype html>
+    const partyLine = selectedParty ? ` &nbsp; | &nbsp; <strong>Party:</strong> ${selectedParty}` : "";
+
+    const html = `<!doctype html>
 <html>
   <head>
     <meta charset="utf-8" />
@@ -1027,18 +850,13 @@ const AccountStatement: React.FC = () => {
       th { background: #eee; }
       .text-right { text-align: right; }
       .totals { margin-top: 12px; font-weight: bold; font-size: 12px; }
-      @media print {
-        button { display: none; }
-      }
     </style>
   </head>
   <body>
     <h2>Account Statement (Broker Wise)</h2>
     <div class="info">
-      <div><strong>Broker:</strong> ${brokerName || "All"}</div>
-      <div><strong>From:</strong> ${fmtDateHeader(
-        fromDate
-      )} &nbsp; <strong>To:</strong> ${fmtDateHeader(toDate)}</div>
+      <div><strong>Broker:</strong> ${selectedBroker || "All"} ${partyLine}</div>
+      <div><strong>From:</strong> ${fmtDateHeader(fromDate)} &nbsp; <strong>To:</strong> ${fmtDateHeader(toDate)}</div>
       <div style="margin-top:8px;">
         <strong>Rows (Filtered):</strong> ${totals.rows}
         &nbsp; | &nbsp;
@@ -1047,6 +865,7 @@ const AccountStatement: React.FC = () => {
         <strong>Total Credit (All):</strong> ${fmtNumber(totalCredit)}
       </div>
     </div>
+
     <table>
       <thead>
         <tr>
@@ -1054,7 +873,6 @@ const AccountStatement: React.FC = () => {
           <th>Date</th>
           <th>Party</th>
           <th>Doc No</th>
-          <th>Narration</th>
           <th class="text-right">Debit</th>
           <th class="text-right">Credit</th>
           <th class="text-right">Balance</th>
@@ -1071,70 +889,59 @@ const AccountStatement: React.FC = () => {
           <td>${fmtDateHeader(r.date)}</td>
           <td>${r.partyName || ""}</td>
           <td>${r.orderNo || ""}</td>
-          <td>${r.narration}</td>
           <td class="text-right">${fmtNumber(r.debit)}</td>
           <td class="text-right">${fmtNumber(r.credit)}</td>
           <td class="text-right">${fmtNumber(r.balance)}</td>
           <td>${typeLabel(r.type)}</td>
           <td class="text-right">${r.days}</td>
-        </tr>
-        `
+        </tr>`
           )
           .join("")}
       </tbody>
     </table>
+
     <div class="totals">
       <div>Total Debit (All): ${fmtNumber(totalDebit)}</div>
       <div>Total Credit (All): ${fmtNumber(totalCredit)}</div>
       <div>Opening Balance: ${fmtNumber(openingBalance)}</div>
       <div>Closing Balance: ${fmtNumber(closingBalance)}</div>
     </div>
+
     <script>
       window.onload = function () {
-        try {
-          window.focus();
-          window.print();
-        } catch (e) {
-          console.error('Print error', e);
-        }
-        setTimeout(function () {
-          try {
-            if (window.frameElement && window.frameElement.parentNode) {
-              window.frameElement.parentNode.removeChild(window.frameElement);
-            }
-          } catch (e) {}
-        }, 500);
+        window.focus();
+        window.print();
       };
     </script>
   </body>
 </html>`;
 
-      const iframe = document.createElement("iframe");
-      iframe.style.position = "fixed";
-      iframe.style.right = "0";
-      iframe.style.bottom = "0";
-      iframe.style.width = "0";
-      iframe.style.height = "0";
-      iframe.style.border = "0";
-      iframe.style.visibility = "hidden";
-      document.body.appendChild(iframe);
-      const printWindow = iframe.contentWindow;
-      if (!printWindow) {
-        document.body.removeChild(iframe);
-        alert("Unable to open print preview.");
-        return;
-      }
-      const printDoc = printWindow.document;
-      printDoc.open();
-      printDoc.write(html);
-      printDoc.close();
-    } catch (err) {
-      console.error("Print generation failed:", err);
-      alert("Failed to generate print preview. See console for details.");
+    const iframe = document.createElement("iframe");
+    iframe.style.position = "fixed";
+    iframe.style.right = "0";
+    iframe.style.bottom = "0";
+    iframe.style.width = "0";
+    iframe.style.height = "0";
+    iframe.style.border = "0";
+    iframe.style.visibility = "hidden";
+    document.body.appendChild(iframe);
+
+    const printWindow = iframe.contentWindow;
+    if (!printWindow) {
+      document.body.removeChild(iframe);
+      alert("Unable to open print preview.");
+      return;
     }
+    const printDoc = printWindow.document;
+    printDoc.open();
+    printDoc.write(html);
+    printDoc.close();
   }
 
-  // ================= Render =================
+  const selectValue = selectedBroker
+    ? `${selectedBroker}|||${selectedParty}`
+    : "";
+
   return (
     <Dashboard>
       <div className="p-6 bg-gray-100">
@@ -1142,6 +949,7 @@ const AccountStatement: React.FC = () => {
           <h2 className="text-xl font-bold mb-3">
             Account Statement (Broker Wise)
           </h2>
+
           {loading && (
             <div className="text-sm text-gray-600 mb-2">
               Loading master data...
@@ -1159,40 +967,55 @@ const AccountStatement: React.FC = () => {
           <div className="grid grid-cols-12 gap-3 items-end">
             <div className="col-span-4">
               <label className="block text-sm mb-1">
-                Broker / Agent Name (with Parties)
+                Broker / Agent (Broker search OR Party search)
               </label>
+
               <input
                 type="text"
                 value={brokerSearch}
                 onChange={(e) => setBrokerSearch(e.target.value)}
-                placeholder="Search by broker / party..."
+                placeholder="Type broker name OR party name..."
                 className="border p-2 rounded w-full mb-1 text-sm"
               />
+
               <select
-                value={brokerName}
-                onChange={(e) => setBrokerName(e.target.value)}
+                value={selectValue}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  if (!v) {
+                    setSelectedBroker("");
+                    setSelectedParty("");
+                    return;
+                  }
+                  const [b, p] = v.split("|||");
+                  setSelectedBroker(b || "");
+                  setSelectedParty(p || "");
+                }}
                 className="p-2 border rounded w-full text-sm"
               >
-                <option value="">-- Select Broker --</option>
-                {filteredBrokerInfos.map((b) => {
-                  const partiesLabel =
-                    b.parties.length === 0
-                      ? ""
-                      : " - " +
-                        (b.parties.length <= 3
-                          ? b.parties.join(", ")
-                          : `${b.parties.slice(0, 3).join(", ")}...`);
-                  return (
-                    <option key={b.name} value={b.name}>
-                      {b.name}
-                      {partiesLabel}
-                    </option>
-                  );
-                })}
+                <option value="">-- Select Broker / Party --</option>
+                {brokerSelectOptions.map((o) => (
+                  <option key={o.key} value={o.value}>
+                    {o.label}
+                  </option>
+                ))}
               </select>
-              {filteredBrokerInfos.length === 0 && (
+
+              {brokerSelectOptions.length === 0 && (
                 <div className="text-xs text-red-500 mt-1">
-                  No brokers match this search.
+                  No brokers/parties match this search.
+                </div>
+              )}
+
+              {(selectedBroker || selectedParty) && (
+                <div className="text-xs text-gray-600 mt-1">
+                  Selected: <b>{selectedBroker || "-"}</b>
+                  {selectedParty ? (
+                    <>
+                      {" "}
+                      | Party: <b>{selectedParty}</b>
+                    </>
+                  ) : null}
                 </div>
               )}
             </div>
@@ -1245,6 +1068,7 @@ const AccountStatement: React.FC = () => {
             >
               Reset
             </button>
+
             <div className="ml-auto text-sm text-gray-600">
               Rows (Filtered): <strong>{totals.rows}</strong> | Debit (All):{" "}
               <strong>{fmtNumber(totalDebit)}</strong> | Credit (All):{" "}
@@ -1269,16 +1093,22 @@ const AccountStatement: React.FC = () => {
               <div className="flex items-center justify-between p-3 border-b">
                 <div>
                   <div className="text-sm text-gray-700">
-                    <strong>Broker:</strong> {brokerName || "All"} &nbsp; | &nbsp;
-                    <strong>From:</strong> {fmtDateHeader(fromDate)} &nbsp; |
-                    &nbsp;
-                    <strong>To:</strong> {fmtDateHeader(toDate)}
+                    <strong>Broker:</strong> {selectedBroker || "All"}{" "}
+                    {selectedParty ? (
+                      <>
+                        &nbsp; | &nbsp;<strong>Party:</strong> {selectedParty}
+                      </>
+                    ) : null}
+                    &nbsp; | &nbsp;<strong>From:</strong> {fmtDateHeader(fromDate)}
+                    &nbsp; | &nbsp;<strong>To:</strong> {fmtDateHeader(toDate)}
                   </div>
+
                   <div className="text-xs text-gray-600 mt-1">
                     Rows (Filtered): {totals.rows} | Debit (All):{" "}
                     {fmtNumber(totalDebit)} | Credit (All):{" "}
                     {fmtNumber(totalCredit)}
                   </div>
+
                   {transactions.length > 0 && (
                     <div className="mt-2 flex items-center gap-2 text-xs">
                       <span className="text-gray-700">Transaction Type:</span>
@@ -1302,6 +1132,7 @@ const AccountStatement: React.FC = () => {
                     </div>
                   )}
                 </div>
+
                 <div className="flex items-center gap-2">
                   <button
                     className="px-2 py-1 border rounded text-sm hover:bg-gray-100"
@@ -1336,7 +1167,6 @@ const AccountStatement: React.FC = () => {
                         <th className="px-2 py-1 border">Date</th>
                         <th className="px-2 py-1 border">Party</th>
                         <th className="px-2 py-1 border">Doc No</th>
-                        <th className="px-2 py-1 border">Narration</th>
                         <th className="px-2 py-1 border text-right">Debit</th>
                         <th className="px-2 py-1 border text-right">Credit</th>
                         <th className="px-2 py-1 border text-right">Balance</th>
@@ -1344,6 +1174,7 @@ const AccountStatement: React.FC = () => {
                         <th className="px-2 py-1 border text-right">Days</th>
                       </tr>
                     </thead>
+
                     <tbody>
                       {filteredRows.map((r) => (
                         <tr
@@ -1351,96 +1182,65 @@ const AccountStatement: React.FC = () => {
                           className={r.srNo % 2 === 0 ? "bg-white" : "bg-gray-50"}
                         >
                           <td className="px-2 py-1 border">{r.srNo}</td>
-                          <td className="px-2 py-1 border">
-                            {fmtDateHeader(r.date)}
-                          </td>
+                          <td className="px-2 py-1 border">{fmtDateHeader(r.date)}</td>
                           <td className="px-2 py-1 border">{r.partyName}</td>
                           <td className="px-2 py-1 border">{r.orderNo}</td>
-                          <td className="px-2 py-1 border">{r.narration}</td>
-                          <td className="px-2 py-1 border text-right">
-                            {fmtNumber(r.debit)}
-                          </td>
-                          <td className="px-2 py-1 border text-right">
-                            {fmtNumber(r.credit)}
-                          </td>
-                          <td className="px-2 py-1 border text-right">
-                            {fmtNumber(r.balance)}
-                          </td>
-                          <td className="px-2 py-1 border">
-                            {typeLabel(r.type)}
-                          </td>
-                          <td className="px-2 py-1 border text-right">
-                            {r.days}
-                          </td>
+                          <td className="px-2 py-1 border text-right">{fmtNumber(r.debit)}</td>
+                          <td className="px-2 py-1 border text-right">{fmtNumber(r.credit)}</td>
+                          <td className="px-2 py-1 border text-right">{fmtNumber(r.balance)}</td>
+                          <td className="px-2 py-1 border">{typeLabel(r.type)}</td>
+                          <td className="px-2 py-1 border text-right">{r.days}</td>
                         </tr>
                       ))}
 
-                      {/* Totals + summary row */}
-                      <tr>
-                        <td colSpan={10} className="p-0">
-                          <div className="w-full bg-white border-t">
-                            <div className="p-3">
-                              <div className="grid grid-cols-12 gap-4 items-center">
-                                <div className="col-span-4">
-                                  <div className="text-sm font-semibold">
-                                    Totals (All Transactions)
-                                  </div>
-                                  <div className="text-xs text-gray-700 mt-1">
-                                    Debit:{" "}
-                                    <strong>{fmtNumber(totalDebit)}</strong>
-                                  </div>
-                                  <div className="text-xs text-gray-700">
-                                    Credit:{" "}
-                                    <strong>{fmtNumber(totalCredit)}</strong>
-                                  </div>
-                                </div>
-                                <div className="col-span-5">
-                                  <div className="text-sm font-semibold">
-                                    Balance Summary
-                                  </div>
-                                  <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
-                                    <div className="text-gray-700">
-                                      Opening Balance:
+                      {filteredRows.length === 0 && (
+                        <tr>
+                          <td colSpan={9} className="px-2 py-3 border text-center text-gray-500">
+                            No transactions found for selected broker / period.
+                          </td>
+                        </tr>
+                      )}
+
+                      {filteredRows.length > 0 && (
+                        <tr>
+                          <td colSpan={9} className="p-0">
+                            <div className="w-full bg-white border-t">
+                              <div className="p-3">
+                                <div className="grid grid-cols-12 gap-4 items-center">
+                                  <div className="col-span-4">
+                                    <div className="text-sm font-semibold">Totals (All Transactions)</div>
+                                    <div className="text-xs text-gray-700 mt-1">
+                                      Debit: <strong>{fmtNumber(totalDebit)}</strong>
                                     </div>
-                                    <div className="text-right text-gray-900">
-                                      {fmtNumber(openingBalance)}
+                                    <div className="text-xs text-gray-700">
+                                      Credit: <strong>{fmtNumber(totalCredit)}</strong>
                                     </div>
-                                    <div className="text-gray-700">
-                                      Closing Balance:
+                                  </div>
+
+                                  <div className="col-span-5">
+                                    <div className="text-sm font-semibold">Balance Summary</div>
+                                    <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
+                                      <div className="text-gray-700">Opening Balance:</div>
+                                      <div className="text-right text-gray-900">{fmtNumber(openingBalance)}</div>
+                                      <div className="text-gray-700">Closing Balance:</div>
+                                      <div className="text-right text-gray-900">{fmtNumber(closingBalance)}</div>
                                     </div>
-                                    <div className="text-right text-gray-900">
+                                  </div>
+
+                                  <div className="col-span-3 text-right">
+                                    <div className="text-sm font-semibold">Net Position</div>
+                                    <div className="text-lg text-black font-bold bg-yellow-200 inline-block px-3 py-1 rounded mt-2">
                                       {fmtNumber(closingBalance)}
                                     </div>
                                   </div>
                                 </div>
-                                <div className="col-span-3 text-right">
-                                  <div className="text-sm font-semibold">
-                                    Net Position
-                                  </div>
-                                  <div className="text-lg text-black font-bold bg-yellow-200 inline-block px-3 py-1 rounded mt-2">
-                                    {fmtNumber(closingBalance)}
-                                  </div>
-                                </div>
-                              </div>
-                              <div className="mt-3 text-xs text-gray-600">
-                                <div>
-                                  Note: Running balance is calculated in FIFO
-                                  (oldest first). Days = difference between
+
+                                <div className="mt-3 text-xs text-gray-600">
+                                  Note: Running balance is calculated in FIFO (oldest first). Days = difference between
                                   transaction date and report To date.
                                 </div>
                               </div>
                             </div>
-                          </div>
-                        </td>
-                      </tr>
-
-                      {filteredRows.length === 0 && (
-                        <tr>
-                          <td
-                            colSpan={10}
-                            className="px-2 py-3 border text-center text-gray-500"
-                          >
-                            No transactions found for selected broker / period.
                           </td>
                         </tr>
                       )}

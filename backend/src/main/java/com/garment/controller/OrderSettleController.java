@@ -11,7 +11,7 @@ import com.garment.service.OrderSettleService;
 import lombok.RequiredArgsConstructor;
 
 @RestController
-@RequestMapping("/api/order-settles")
+@RequestMapping("/api/order-settles")    // IMPORTANT: must NOT be "/api/sale-orders"
 @RequiredArgsConstructor
 @CrossOrigin(origins = "http://localhost:3000")
 public class OrderSettleController {

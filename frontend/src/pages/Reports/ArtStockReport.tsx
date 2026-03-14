@@ -128,14 +128,6 @@ const todayStr = () => {
 type SortField = "artNo" | "artName" | "shadeName";
 
 /* ---------------------- SIZE SEQUENCE / COMPARATOR ---------------------- */
-/**
- * Order requirement:
- * 1. Clothing labels: XS, S, M, L, XL, XXL, 3XL, 4XL, 5XL (plus variations)
- * 2. Range sizes: 20*24, 23*24, 26*30, 32*36, ...
- * 3. Plain numeric sizes: 30, 32, 38, 48, ...
- * 4. Others alphabetically.
- */
-
 const alphaOrder = [
   "XXXS",
   "XXS",
@@ -170,12 +162,10 @@ const classifySizeName = (name: string): SizeClass => {
   const trimmed = name.trim();
   const upper = trimmed.toUpperCase();
 
-  // 1. Alpha sizes (XS, S, M, L, XL, XXL, 3XL, 4XL, 5XL, ...)
   if (alphaIndexMap[upper] !== undefined) {
     return { kind: "alpha", alphaIndex: alphaIndexMap[upper] };
   }
 
-  // 2. Range sizes: 20*24, 23*24, 26*30, 32*36, ...
   const rangeMatch = upper.match(/^(\d+(?:\.\d+)?)\s*[*Xx]\s*(\d+(?:\.\d+)?)$/);
   if (rangeMatch) {
     return {
@@ -185,13 +175,11 @@ const classifySizeName = (name: string): SizeClass => {
     };
   }
 
-  // 3. Plain numeric sizes
   const numMatch = upper.match(/^(\d+(?:\.\d+)?)$/);
   if (numMatch) {
     return { kind: "numeric", n: parseFloat(numMatch[1]) };
   }
 
-  // 4. Fallback
   return { kind: "other", raw: upper };
 };
 
@@ -273,6 +261,13 @@ const ArtReport: React.FC = () => {
     new Set()
   );
 
+  // NEW: search bars for all lists
+  const [searchGroup, setSearchGroup] = useState("");
+  const [searchArtNo, setSearchArtNo] = useState("");
+  const [searchArtName, setSearchArtName] = useState("");
+  const [searchShade, setSearchShade] = useState("");
+  const [searchSize, setSearchSize] = useState("");
+
   // detail rows
   const [detailRows, setDetailRows] = useState<DetailRow[]>([]);
   const [sortField, setSortField] = useState<SortField>("artNo");
@@ -314,10 +309,55 @@ const ArtReport: React.FC = () => {
   }, []);
 
   /* ------------------------ FILTERED MASTER LISTS ------------------------ */
+  const filteredArtGroups = useMemo(() => {
+    const s = searchGroup.trim().toLowerCase();
+    if (!s) return artGroups;
+    return artGroups.filter((g) =>
+      (g.artGroupName || "").toLowerCase().includes(s)
+    );
+  }, [artGroups, searchGroup]);
+
   const filteredArts = useMemo(() => {
     if (selectedGroups.size === 0) return arts;
     return arts.filter((a) => selectedGroups.has(a.artGroup));
   }, [arts, selectedGroups]);
+
+  const filteredArtsForArtNo = useMemo(() => {
+    const s = searchArtNo.trim().toLowerCase();
+    if (!s) return filteredArts;
+    return filteredArts.filter((a) =>
+      (a.artNo || "").toLowerCase().includes(s)
+    );
+  }, [filteredArts, searchArtNo]);
+
+  const filteredArtsForArtName = useMemo(() => {
+    const s = searchArtName.trim().toLowerCase();
+    if (!s) return filteredArts;
+    return filteredArts.filter((a) =>
+      (a.artName || "").toLowerCase().includes(s)
+    );
+  }, [filteredArts, searchArtName]);
+
+  const filteredShades = useMemo(() => {
+    const s = searchShade.trim().toLowerCase();
+    if (!s) return shades;
+    return shades.filter((sh) => {
+      const a = (sh.shadeName || "").toLowerCase();
+      const b = (sh.shadeCode || "").toLowerCase();
+      const c = (sh.colorFamily || "").toLowerCase();
+      return a.includes(s) || b.includes(s) || c.includes(s);
+    });
+  }, [shades, searchShade]);
+
+  const filteredSizes = useMemo(() => {
+    const s = searchSize.trim().toLowerCase();
+    const base = !s
+      ? sizes
+      : sizes.filter((sz) => (sz.sizeName || "").toLowerCase().includes(s));
+    return base.slice().sort((a, b) =>
+      compareSizeNames(a.sizeName || "", b.sizeName || "")
+    );
+  }, [sizes, searchSize]);
 
   /* --------------------------- SET HELPERS ------------------------------- */
   const toggleSetItem = <T extends string>(
@@ -350,7 +390,6 @@ const ArtReport: React.FC = () => {
   }, [detailRows]);
 
   /* ----------------------- GROUP & SORT RESULT ROWS ---------------------- */
-
   const groupRows: GroupRow[] = useMemo(() => {
     const map = new Map<string, GroupRow>();
 
@@ -490,13 +529,6 @@ const ArtReport: React.FC = () => {
       shades.forEach((s) => {
         shadeCodeToName.set(s.shadeCode, s.shadeName);
         shadeNameToCode.set(s.shadeName.trim(), s.shadeCode);
-      });
-
-      // Selected shade names (from selected codes)
-      const selectedShadeNames = new Set<string>();
-      selectedShadeCodes.forEach((code) => {
-        const nm = shadeCodeToName.get(code);
-        if (nm) selectedShadeNames.add(nm);
       });
 
       // Map sizeName -> serialNo for filter
@@ -710,7 +742,7 @@ const ArtReport: React.FC = () => {
             shadeName,
             sizeName,
             pcsDelta: -pcs, // subtract
-            perBox, // we can update perBox here; rate not changed
+            perBox, // update perBox; rate not changed
           });
         });
       });
@@ -719,11 +751,14 @@ const ArtReport: React.FC = () => {
       const out: DetailRow[] = [];
 
       for (const agg of Array.from(aggMap.values())) {
-        // Skip zero stock
         if (Math.abs(agg.pcs) < 1e-6) continue;
 
         // Shade filter
         if (selectedShadeCodes.size > 0) {
+          const shadeNameToCode = new Map<string, string>();
+          shades.forEach((s) =>
+            shadeNameToCode.set(s.shadeName.trim(), s.shadeCode)
+          );
           const code = shadeNameToCode.get(agg.shadeName.trim());
           if (!code || !selectedShadeCodes.has(code)) continue;
         }
@@ -858,7 +893,6 @@ const ArtReport: React.FC = () => {
       '<th style="border:1px solid #000;padding:4px">Art No</th>',
       '<th style="border:1px solid #000;padding:4px">Art Name</th>',
       '<th style="border:1px solid #000;padding:4px">Shade</th>',
-      // NEW: Row label column
       '<th style="border:1px solid #000;padding:4px">Row</th>',
     ];
     sizeNames.forEach((sz) => {
@@ -1036,6 +1070,21 @@ const ArtReport: React.FC = () => {
     </div>
   );
 
+  const ListSearch: React.FC<{
+    value: string;
+    onChange: (v: string) => void;
+    placeholder: string;
+  }> = ({ value, onChange, placeholder }) => (
+    <div className="px-2 pb-2">
+      <input
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        className="w-full border rounded px-2 py-1 text-sm"
+      />
+    </div>
+  );
+
   /* -------------------------------- RENDER -------------------------------- */
   return (
     <Dashboard>
@@ -1065,13 +1114,15 @@ const ArtReport: React.FC = () => {
                       <input
                         type="checkbox"
                         checked={
-                          selectedGroups.size === (artGroups?.length || 0) &&
-                          artGroups.length > 0
+                          filteredArtGroups.length > 0 &&
+                          filteredArtGroups.every((g) =>
+                            selectedGroups.has(g.artGroupName)
+                          )
                         }
                         onChange={(e) =>
                           setAllOrNone(
                             setSelectedGroups,
-                            artGroups.map((g) => g.artGroupName as string),
+                            filteredArtGroups.map((g) => g.artGroupName),
                             e.target.checked
                           )
                         }
@@ -1080,8 +1131,13 @@ const ArtReport: React.FC = () => {
                     </label>
                   }
                 />
+                <ListSearch
+                  value={searchGroup}
+                  onChange={setSearchGroup}
+                  placeholder="Search art group..."
+                />
                 <div className="h-72 overflow-auto px-2 pb-2">
-                  {artGroups.map((g) => (
+                  {filteredArtGroups.map((g) => (
                     <label
                       key={g.serialNo}
                       className="flex items-center gap-2 text-sm py-1 cursor-pointer select-none"
@@ -1101,6 +1157,11 @@ const ArtReport: React.FC = () => {
                       <span className="truncate">{g.artGroupName}</span>
                     </label>
                   ))}
+                  {filteredArtGroups.length === 0 && (
+                    <div className="text-xs text-gray-500 px-1 py-2">
+                      No groups found.
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -1113,26 +1174,34 @@ const ArtReport: React.FC = () => {
                       <input
                         type="checkbox"
                         checked={
-                          filteredArts.length > 0 &&
-                          selectedArtNos.size ===
-                            filteredArts.filter((a) => a.artNo).length
+                          filteredArtsForArtNo.length > 0 &&
+                          filteredArtsForArtNo
+                            .map((a) => a.artNo)
+                            .filter((x): x is string => !!x)
+                            .every((no) => selectedArtNos.has(no))
                         }
-                        onChange={(e) =>
+                        onChange={(e) => {
+                          const visible = filteredArtsForArtNo
+                            .map((a) => a.artNo)
+                            .filter((x): x is string => !!x);
                           setAllOrNone(
                             setSelectedArtNos,
-                            filteredArts
-                              .map((a) => a.artNo)
-                              .filter((no): no is string => !!no),
+                            visible,
                             e.target.checked
-                          )
-                        }
+                          );
+                        }}
                       />
                       <span>Select/Unselect All</span>
                     </label>
                   }
                 />
+                <ListSearch
+                  value={searchArtNo}
+                  onChange={setSearchArtNo}
+                  placeholder="Search art no..."
+                />
                 <div className="h-72 overflow-auto px-2 pb-2">
-                  {filteredArts.map((a) => (
+                  {filteredArtsForArtNo.map((a) => (
                     <label
                       key={`artno-${a.serialNumber}`}
                       className="flex items-center gap-2 text-sm py-1 cursor-pointer select-none"
@@ -1153,6 +1222,11 @@ const ArtReport: React.FC = () => {
                       <span className="truncate">{a.artNo}</span>
                     </label>
                   ))}
+                  {filteredArtsForArtNo.length === 0 && (
+                    <div className="text-xs text-gray-500 px-1 py-2">
+                      No arts found.
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -1165,13 +1239,15 @@ const ArtReport: React.FC = () => {
                       <input
                         type="checkbox"
                         checked={
-                          filteredArts.length > 0 &&
-                          selectedArtSerials.size === filteredArts.length
+                          filteredArtsForArtName.length > 0 &&
+                          filteredArtsForArtName.every((a) =>
+                            selectedArtSerials.has(a.serialNumber)
+                          )
                         }
                         onChange={(e) =>
                           setAllOrNone(
                             setSelectedArtSerials,
-                            filteredArts.map((a) => a.serialNumber),
+                            filteredArtsForArtName.map((a) => a.serialNumber),
                             e.target.checked
                           )
                         }
@@ -1180,8 +1256,13 @@ const ArtReport: React.FC = () => {
                     </label>
                   }
                 />
+                <ListSearch
+                  value={searchArtName}
+                  onChange={setSearchArtName}
+                  placeholder="Search art name..."
+                />
                 <div className="h-72 overflow-auto px-2 pb-2">
-                  {filteredArts.map((a) => (
+                  {filteredArtsForArtName.map((a) => (
                     <label
                       key={a.serialNumber}
                       className="flex items-center gap-2 text-sm py-1 cursor-pointer select-none"
@@ -1201,6 +1282,11 @@ const ArtReport: React.FC = () => {
                       <span className="truncate">{a.artName}</span>
                     </label>
                   ))}
+                  {filteredArtsForArtName.length === 0 && (
+                    <div className="text-xs text-gray-500 px-1 py-2">
+                      No arts found.
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -1213,13 +1299,15 @@ const ArtReport: React.FC = () => {
                       <input
                         type="checkbox"
                         checked={
-                          shades.length > 0 &&
-                          selectedShadeCodes.size === shades.length
+                          filteredShades.length > 0 &&
+                          filteredShades.every((s) =>
+                            selectedShadeCodes.has(s.shadeCode)
+                          )
                         }
                         onChange={(e) =>
                           setAllOrNone(
                             setSelectedShadeCodes,
-                            shades.map((s) => s.shadeCode),
+                            filteredShades.map((s) => s.shadeCode),
                             e.target.checked
                           )
                         }
@@ -1228,8 +1316,13 @@ const ArtReport: React.FC = () => {
                     </label>
                   }
                 />
+                <ListSearch
+                  value={searchShade}
+                  onChange={setSearchShade}
+                  placeholder="Search shade (name/code/family)..."
+                />
                 <div className="h-72 overflow-auto px-2 pb-2">
-                  {shades.map((s) => (
+                  {filteredShades.map((s) => (
                     <label
                       key={s.shadeCode}
                       className="flex items-center gap-2 text-sm py-1 cursor-pointer select-none"
@@ -1249,6 +1342,11 @@ const ArtReport: React.FC = () => {
                       <span className="truncate">{s.shadeName}</span>
                     </label>
                   ))}
+                  {filteredShades.length === 0 && (
+                    <div className="text-xs text-gray-500 px-1 py-2">
+                      No shades found.
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -1261,13 +1359,15 @@ const ArtReport: React.FC = () => {
                       <input
                         type="checkbox"
                         checked={
-                          sizes.length > 0 &&
-                          selectedSizeSerials.size === sizes.length
+                          filteredSizes.length > 0 &&
+                          filteredSizes.every((s) =>
+                            selectedSizeSerials.has(s.serialNo)
+                          )
                         }
                         onChange={(e) =>
                           setAllOrNone(
                             setSelectedSizeSerials,
-                            sizes.map((s) => s.serialNo),
+                            filteredSizes.map((s) => s.serialNo),
                             e.target.checked
                           )
                         }
@@ -1276,32 +1376,37 @@ const ArtReport: React.FC = () => {
                     </label>
                   }
                 />
+                <ListSearch
+                  value={searchSize}
+                  onChange={setSearchSize}
+                  placeholder="Search size..."
+                />
                 <div className="h-72 overflow-auto px-2 pb-2">
-                  {sizes
-                    .slice()
-                    .sort((a, b) =>
-                      compareSizeNames(a.sizeName || "", b.sizeName || "")
-                    )
-                    .map((s) => (
-                      <label
-                        key={s.serialNo}
-                        className="flex items-center gap-2 text-sm py-1 cursor-pointer select-none"
-                        title={s.sizeName}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={selectedSizeSerials.has(s.serialNo)}
-                          onChange={() =>
-                            toggleSetItem(
-                              setSelectedSizeSerials,
-                              selectedSizeSerials,
-                              s.serialNo
-                            )
-                          }
-                        />
-                        <span className="truncate">{s.sizeName}</span>
-                      </label>
-                    ))}
+                  {filteredSizes.map((s) => (
+                    <label
+                      key={s.serialNo}
+                      className="flex items-center gap-2 text-sm py-1 cursor-pointer select-none"
+                      title={s.sizeName}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={selectedSizeSerials.has(s.serialNo)}
+                        onChange={() =>
+                          toggleSetItem(
+                            setSelectedSizeSerials,
+                            selectedSizeSerials,
+                            s.serialNo
+                          )
+                        }
+                      />
+                      <span className="truncate">{s.sizeName}</span>
+                    </label>
+                  ))}
+                  {filteredSizes.length === 0 && (
+                    <div className="text-xs text-gray-500 px-1 py-2">
+                      No sizes found.
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -1323,7 +1428,7 @@ const ArtReport: React.FC = () => {
               <div className="text-sm text-gray-600">As On: {asOn}</div>
             </div>
 
-            {/* RESULT TABLE – 4 VERTICAL ROWS PER ART+SHADE, SIZE SEQUENCE APPLIED */}
+            {/* RESULT TABLE */}
             <div className="border border-gray-500 rounded max-h-[500px] max-w-[1400px] overflow-y-auto overflow-x-auto">
               <table className="min-w-full text-sm border border-gray-500 border-collapse">
                 <thead className="bg-gray-100 select-none">
@@ -1352,7 +1457,6 @@ const ArtReport: React.FC = () => {
                     >
                       Shade
                     </th>
-                    {/* NEW: Row label column in screen table */}
                     <th className="px-2 py-2 border border-gray-500 text-left">
                       Row
                     </th>
@@ -1393,7 +1497,7 @@ const ArtReport: React.FC = () => {
                     const rowSpan = 4;
 
                     const blockIndex = Math.floor(idx / 1);
-                    const isYellowBlock = blockIndex % 2 === 1; // true => colored block
+                    const isYellowBlock = blockIndex % 2 === 1;
                     const bgClass = isYellowBlock ? "bg-sky-50" : "bg-white";
 
                     return (
@@ -1444,29 +1548,22 @@ const ArtReport: React.FC = () => {
                                 </>
                               )}
 
-                              {/* NEW: Row label cell between Shade and Size columns */}
                               <td className="px-2 py-1 border border-gray-400 text-left">
                                 {label}
                               </td>
 
                               {sizeNames.map((szName) => {
                                 const szData = g.sizes[szName];
-                                const box = szData
-                                  ? toNum(szData.openingBox)
-                                  : 0;
+                                const box = szData ? toNum(szData.openingBox) : 0;
                                 const pcs = szData ? toNum(szData.pcs) : 0;
                                 const rate = szData ? toNum(szData.rate) : 0;
                                 const amt = szData ? toNum(szData.amount) : 0;
 
                                 let val = "";
-                                if (line === 0 && box)
-                                  val = box.toFixed(2); // Box
-                                else if (line === 1 && pcs)
-                                  val = pcs.toFixed(2); // Pcs
-                                else if (line === 2 && rate)
-                                  val = rate.toFixed(2); // Rate
-                                else if (line === 3 && amt)
-                                  val = amt.toFixed(2); // Amount
+                                if (line === 0 && box) val = box.toFixed(2);
+                                else if (line === 1 && pcs) val = pcs.toFixed(2);
+                                else if (line === 2 && rate) val = rate.toFixed(2);
+                                else if (line === 3 && amt) val = amt.toFixed(2);
 
                                 return (
                                   <td
@@ -1511,23 +1608,19 @@ const ArtReport: React.FC = () => {
                     <tr>
                       <td
                         className="px-2 py-2 border border-gray-400 text-center"
-                        colSpan={5 + sizeNames.length + 3} // 4 base + 1 row label + sizes + 3 totals
+                        colSpan={5 + sizeNames.length + 3}
                       >
                         No data
                       </td>
                     </tr>
                   )}
 
-                  {/* BOTTOM TOTAL ROW */}
                   {sortedGroupRows.length > 0 && (
                     <tr className="bg-sky-100 font-semibold">
                       <td className="px-2 py-2 border border-gray-500"></td>
-                      <td className="px-2 py-2 border border-gray-500">
-                        Total
-                      </td>
+                      <td className="px-2 py-2 border border-gray-500">Total</td>
                       <td className="px-2 py-2 border border-gray-500"></td>
                       <td className="px-2 py-2 border border-gray-500"></td>
-                      {/* NEW: blank cell for Row column */}
                       <td className="px-2 py-2 border border-gray-500"></td>
                       {sizeNames.map((sz) => {
                         const amt = sizeTotalAmount[sz] || 0;

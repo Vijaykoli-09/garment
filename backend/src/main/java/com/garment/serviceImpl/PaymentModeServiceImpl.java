@@ -1,6 +1,5 @@
 package com.garment.serviceImpl;
 
-
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -46,6 +45,11 @@ public class PaymentModeServiceImpl implements PaymentModeService {
         entity.setBankNameOrUpiId(dto.getBankNameOrUpiId());
         entity.setAccountNo(dto.getAccountNo());
 
+        entity.setOpeningBalance(dto.getOpeningBalance() == null ? 0.0 : dto.getOpeningBalance());
+        entity.setOpeningBalanceType(dto.getOpeningBalanceType() == null
+                ? PaymentMode.OpeningBalanceType.CR
+                : dto.getOpeningBalanceType());
+
         PaymentMode saved = paymentModeRepository.save(entity);
         return toDto(saved);
     }
@@ -60,6 +64,10 @@ public class PaymentModeServiceImpl implements PaymentModeService {
 
         existing.setBankNameOrUpiId(dto.getBankNameOrUpiId());
         existing.setAccountNo(dto.getAccountNo());
+        existing.setOpeningBalance(dto.getOpeningBalance() == null ? 0.0 : dto.getOpeningBalance());
+        existing.setOpeningBalanceType(dto.getOpeningBalanceType() == null
+                ? PaymentMode.OpeningBalanceType.CR
+                : dto.getOpeningBalanceType());
 
         PaymentMode updated = paymentModeRepository.save(existing);
         return toDto(updated);
@@ -80,6 +88,9 @@ public class PaymentModeServiceImpl implements PaymentModeService {
         dto.setId(entity.getId());
         dto.setBankNameOrUpiId(entity.getBankNameOrUpiId());
         dto.setAccountNo(entity.getAccountNo());
+        dto.setOpeningBalance(entity.getOpeningBalance());
+        dto.setOpeningBalanceType(entity.getOpeningBalanceType());
+
         return dto;
     }
 }

@@ -1,10 +1,10 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import Swal from "sweetalert2";
 import Dashboard from "../Dashboard";
 import api from "../../api/axiosInstance";
 
-type PaymentToType = "Party" | "Employee" | "";
+type PaymentToType = "Party" | "Employee" | "Other" | "";
 
 // matches your PaymentMode DTO from backend
 interface PaymentMode {
@@ -15,50 +15,59 @@ interface PaymentMode {
 
 interface PaymentRecord {
   id: number;
-  entryType: string;
   paymentTo: PaymentToType;
-  paymentDate: string;
-  date: string;
-  processName: string;
+  paymentDate?: string;
+  date?: string;
+  processName?: string;
   partyName?: string;
   employeeName?: string;
-  paymentThrough: string;
-  amount: string;
-  balance: string;
-  remarks: string;
+  paymentThrough?: string;
+  amount?: number | string;
+  balance?: number | string;
+  remarks?: string;
 }
 
 const routes = {
-  // KEEP create to match your existing backend
+  // IMPORTANT:
+  // Most backends use POST /payment (same as list GET /payment).
+  // If your backend is actually POST /payment/create, change `create` back to "/payment/create".
   create: "/payment/create",
-  // list/get/update/delete for payments
   list: "/payment",
   get: (id: number) => `/payment/${id}`,
   update: (id: number) => `/payment/${id}`,
   delete: (id: number) => `/payment/${id}`,
-  // Names for Party
   names: (type: PaymentToType) => `/payment/names/${type}`,
-  // Employees and processes
   employees: "/employees",
   processes: "/process/list",
-  // Payment modes
   paymentModes: "/payment/payment-mode",
+};
+
+type FormDataState = {
+  paymentTo: PaymentToType;
+  paymentDate: string;
+  processName: string;
+  partyName: string; // used for Party / Employee / Other display/input
+  paymentThrough: string;
+  amount: number | "";
+  balance: number | "";
+  remarks: string;
+  date: string;
 };
 
 const PaymentForm: React.FC = () => {
   const navigate = useNavigate();
+  const today = new Date().toISOString().split("T")[0];
 
-  const [formData, setFormData] = useState({
-    entryType: "",
-    paymentTo: "" as PaymentToType,
-    paymentDate: new Date().toISOString().split("T")[0],
+  const [formData, setFormData] = useState<FormDataState>({
+    paymentTo: "",
+    paymentDate: today,
     processName: "",
     partyName: "",
-    paymentThrough: "Cash", // default Cash
+    paymentThrough: "Cash",
     amount: "",
     balance: "",
     remarks: "",
-    date: new Date().toISOString().split("T")[0],
+    date: today,
   });
 
   const [editingId, setEditingId] = useState<number | null>(null);
@@ -77,34 +86,36 @@ const PaymentForm: React.FC = () => {
   const [showProcessModal, setShowProcessModal] = useState(false);
 
   const [showList, setShowList] = useState(false);
-  const [paymentList, setPaymentList] = useState<any[]>([]);
+  const [paymentList, setPaymentList] = useState<PaymentRecord[]>([]);
   const [searchText, setSearchText] = useState("");
 
   const [savedRecords, setSavedRecords] = useState<PaymentRecord[]>([]);
-
-  // payment modes from backend
   const [paymentModes, setPaymentModes] = useState<PaymentMode[]>([]);
 
-  // Load processes, employees, saved payment records, payment modes
   useEffect(() => {
     loadProcesses();
     loadEmployees();
     loadSavedRecords();
     loadPaymentModes();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const loadProcesses = () => {
-    api
-      .get(routes.processes)
-      .then((r) => setProcessList(Array.isArray(r.data) ? r.data : []))
-      .catch(() => Swal.fire("Error", "Failed to load processes", "error"));
+  const loadProcesses = async () => {
+    try {
+      const r = await api.get(routes.processes);
+      setProcessList(Array.isArray(r.data) ? r.data : []);
+    } catch {
+      Swal.fire("Error", "Failed to load processes", "error");
+    }
   };
 
-  const loadEmployees = () => {
-    api
-      .get(routes.employees)
-      .then((r) => setEmployeeList(Array.isArray(r.data) ? r.data : []))
-      .catch(() => Swal.fire("Error", "Failed to load employees", "error"));
+  const loadEmployees = async () => {
+    try {
+      const r = await api.get(routes.employees);
+      setEmployeeList(Array.isArray(r.data) ? r.data : []);
+    } catch {
+      Swal.fire("Error", "Failed to load employees", "error");
+    }
   };
 
   const loadPartyNames = async () => {
@@ -154,6 +165,15 @@ const PaymentForm: React.FC = () => {
       return;
     }
 
+    // Convert amount/balance to number (prevents backend failure if it expects numeric JSON)
+    if (name === "amount" || name === "balance") {
+      setFormData((prev) => ({
+        ...prev,
+        [name]: value === "" ? "" : Number(value),
+      }));
+      return;
+    }
+
     setFormData((prev) => ({ ...prev, [name]: value }));
   };
 
@@ -176,6 +196,7 @@ const PaymentForm: React.FC = () => {
       setPartySearchText("");
       setShowPartyModal(true);
     }
+    // for "Other": user can type manually (no modal)
   };
 
   const selectProcess = (p: any) => {
@@ -195,75 +216,67 @@ const PaymentForm: React.FC = () => {
   };
 
   // Filters
-  const filteredEmployees = employeeList.filter((e) =>
-    (e.name || e.employeeName || "")
-      .toLowerCase()
-      .includes(employeeSearchText.toLowerCase()),
-  );
+  const filteredEmployees = useMemo(() => {
+    return employeeList.filter((e) =>
+      (e.name || e.employeeName || "")
+        .toLowerCase()
+        .includes(employeeSearchText.toLowerCase()),
+    );
+  }, [employeeList, employeeSearchText]);
 
-  const filteredProcesses = processList.filter((p) =>
-    (p.processName || "")
-      .toLowerCase()
-      .includes(processSearchText.toLowerCase()),
-  );
+  const filteredProcesses = useMemo(() => {
+    return processList.filter((p) =>
+      (p.processName || "")
+        .toLowerCase()
+        .includes(processSearchText.toLowerCase()),
+    );
+  }, [processList, processSearchText]);
 
-  const filteredParties = partyList.filter((p) =>
-    (p || "").toLowerCase().includes(partySearchText.toLowerCase()),
-  );
+  const filteredParties = useMemo(() => {
+    return partyList.filter((p) =>
+      (p || "").toLowerCase().includes(partySearchText.toLowerCase()),
+    );
+  }, [partyList, partySearchText]);
 
-  const filteredList = Array.isArray(paymentList)
-    ? paymentList.filter((x) => {
-        const s = searchText.toLowerCase();
-        const displayName =
-          (x.paymentTo === "Employee" ? x.employeeName : x.partyName) || "";
-        return (
-          !searchText ||
-          (x.entryType || "").toLowerCase().includes(s) ||
-          (x.paymentTo || "").toLowerCase().includes(s) ||
-          (x.processName || "").toLowerCase().includes(s) ||
-          displayName.toLowerCase().includes(s)
-        );
-      })
-    : [];
+  const filteredList = useMemo(() => {
+    if (!Array.isArray(paymentList)) return [];
+    const s = searchText.toLowerCase();
+
+    return paymentList.filter((x: any) => {
+      const displayName =
+        (x.paymentTo === "Employee" ? x.employeeName : x.partyName) || "";
+      return (
+        !searchText ||
+        (x.paymentTo || "").toLowerCase().includes(s) ||
+        (x.processName || "").toLowerCase().includes(s) ||
+        (x.paymentThrough || "").toLowerCase().includes(s) ||
+        displayName.toLowerCase().includes(s)
+      );
+    });
+  }, [paymentList, searchText]);
+
+  const buildPayload = () => {
+    // NOTE: for "Other" we store the typed name in partyName (employeeName empty)
+    const payload: any = {
+      paymentTo: formData.paymentTo,
+      paymentDate: formData.paymentDate,
+      date: formData.date,
+      processName: formData.processName,
+      paymentThrough: formData.paymentThrough,
+      amount: formData.amount === "" ? null : formData.amount,
+      balance: formData.balance === "" ? null : formData.balance,
+      remarks: formData.remarks,
+
+      partyName: formData.paymentTo !== "Employee" ? formData.partyName : "",
+      employeeName: formData.paymentTo === "Employee" ? formData.partyName : "",
+    };
+
+    return payload;
+  };
 
   // Save / Update
   const handleSave = async () => {
-    const required = [
-      formData.entryType,
-      formData.paymentTo,
-      formData.paymentDate,
-      formData.date,
-      formData.paymentThrough,
-      formData.amount,
-    ];
-
-    if (required.some((x) => !x)) {
-      Swal.fire("Error", "Please fill all required fields!", "error");
-      return;
-    }
-    if (!formData.partyName) {
-      Swal.fire(
-        "Error",
-        `Please select a ${formData.paymentTo || "Party/Employee"} name`,
-        "error",
-      );
-      return;
-    }
-
-    const payload: any = {
-      entryType: formData.entryType,
-      paymentTo: formData.paymentTo,
-      paymentDate: formData.paymentDate,
-      paymentThrough: formData.paymentThrough, // "Cash" or "SBI-123..."
-      amount: formData.amount,
-      remarks: formData.remarks,
-      processName: formData.processName,
-      balance: formData.balance,
-      date: formData.date,
-      partyName: formData.paymentTo === "Party" ? formData.partyName : "",
-      employeeName:
-        formData.paymentTo === "Employee" ? formData.partyName : "",
-    };
+    const payload = buildPayload();
 
     try {
       if (editingId) {
@@ -278,9 +291,19 @@ const PaymentForm: React.FC = () => {
       loadSavedRecords();
     } catch (error: any) {
       console.error("Error saving payment:", error);
+
+      const status = error?.response?.status;
+      const serverMsg =
+        error?.response?.data?.message ||
+        error?.response?.data?.error ||
+        (typeof error?.response?.data === "string" ? error.response.data : "") ||
+        error?.message;
+
       Swal.fire(
         "Error",
-        error.response?.data?.message || "Failed to save",
+        serverMsg
+          ? `${serverMsg}${status ? ` (HTTP ${status})` : ""}`
+          : `Failed to save${status ? ` (HTTP ${status})` : ""}`,
         "error",
       );
     }
@@ -304,20 +327,26 @@ const PaymentForm: React.FC = () => {
       const rec: PaymentRecord = res.data;
 
       setFormData({
-        entryType: rec.entryType || "",
         paymentTo: (rec.paymentTo as PaymentToType) || "",
-        paymentDate: rec.paymentDate || new Date().toISOString().split("T")[0],
+        paymentDate: rec.paymentDate || today,
         processName: rec.processName || "",
         partyName:
           rec.paymentTo === "Employee"
             ? rec.employeeName || ""
             : rec.partyName || "",
         paymentThrough: rec.paymentThrough || "Cash",
-        amount: rec.amount || "",
-        balance: rec.balance || "",
+        amount:
+          rec.amount === undefined || rec.amount === null || rec.amount === ""
+            ? ""
+            : Number(rec.amount),
+        balance:
+          rec.balance === undefined || rec.balance === null || rec.balance === ""
+            ? ""
+            : Number(rec.balance),
         remarks: rec.remarks || "",
-        date: rec.date || new Date().toISOString().split("T")[0],
+        date: rec.date || today,
       });
+
       setEditingId(id);
       setShowList(false);
     } catch (err) {
@@ -361,45 +390,29 @@ const PaymentForm: React.FC = () => {
 
   const handleAddNew = (showToast = true) => {
     setFormData({
-      entryType: "",
-      paymentTo: "" as PaymentToType,
-      paymentDate: new Date().toISOString().split("T")[0],
+      paymentTo: "",
+      paymentDate: today,
       processName: "",
       partyName: "",
-      paymentThrough: "Cash", // reset to Cash
+      paymentThrough: "Cash",
       amount: "",
       balance: "",
       remarks: "",
-      date: new Date().toISOString().split("T")[0],
+      date: today,
     });
     setEditingId(null);
     if (showToast) Swal.fire("Cleared", "Ready for new entry", "success");
   };
 
-  // UI
+  const isNameReadOnly = formData.paymentTo === "Party" || formData.paymentTo === "Employee";
+
   return (
     <Dashboard>
       <div className="min-h-screen bg-gray-100 p-6">
         <div className="bg-white shadow-md rounded-lg w-full max-w-4xl mx-auto p-6 border">
           <h2 className="text-2xl font-bold text-center mb-6">Payment Form</h2>
 
-          {/* Header */}
           <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block mb-1 font-semibold">Entry Type</label>
-              <select
-                name="entryType"
-                value={formData.entryType}
-                onChange={handleChange}
-                className="border p-2 w-full rounded"
-              >
-                <option value="">Select</option>
-                <option value="Other">Other</option>
-                <option value="Purchase">Purchase</option>
-                <option value="Salary">Salary</option>
-              </select>
-            </div>
-
             <div>
               <label className="block mb-1 font-semibold">Payment To</label>
               <select
@@ -411,29 +424,34 @@ const PaymentForm: React.FC = () => {
                 <option value="">Select</option>
                 <option value="Party">Party</option>
                 <option value="Employee">Employee</option>
+                <option value="Other">Other</option>
               </select>
             </div>
 
-            <div>
-              <label className="block mb-1 font-semibold">Payment Date</label>
-              <input
-                type="date"
-                name="paymentDate"
-                value={formData.paymentDate}
-                onChange={handleChange}
-                className="border p-2 w-full rounded"
-              />
-            </div>
+            <div className="col-span-2">
+              <div className="flex gap-4">
+                <div className="flex-1">
+                  <label className="block mb-1 font-semibold">Payment Date</label>
+                  <input
+                    type="date"
+                    name="paymentDate"
+                    value={formData.paymentDate}
+                    onChange={handleChange}
+                    className="border p-2 w-full rounded"
+                  />
+                </div>
 
-            <div>
-              <label className="block mb-1 font-semibold">Date</label>
-              <input
-                type="date"
-                name="date"
-                value={formData.date}
-                onChange={handleChange}
-                className="border p-2 w-full rounded"
-              />
+                <div className="flex-1">
+                  <label className="block mb-1 font-semibold">Date</label>
+                  <input
+                    type="date"
+                    name="date"
+                    value={formData.date}
+                    onChange={handleChange}
+                    className="border p-2 w-full rounded"
+                  />
+                </div>
+              </div>
             </div>
 
             <div className="col-span-2">
@@ -450,17 +468,24 @@ const PaymentForm: React.FC = () => {
             </div>
 
             <div className="col-span-2">
-              <label className="block mb-1 font-semibold">
-                Party / Employee Name
-              </label>
+              <label className="block mb-1 font-semibold">Party / Employee Name</label>
               <input
                 type="text"
                 name="partyName"
                 value={formData.partyName}
-                onClick={openNameModal}
-                readOnly
-                placeholder="Click to select"
-                className="border p-2 w-full rounded cursor-pointer bg-gray-50 hover:bg-gray-100"
+                onChange={handleChange}
+                onClick={isNameReadOnly ? openNameModal : undefined}
+                readOnly={isNameReadOnly}
+                placeholder={
+                  formData.paymentTo === "Other"
+                    ? "Type name"
+                    : "Click to select"
+                }
+                className={`border p-2 w-full rounded ${
+                  isNameReadOnly
+                    ? "cursor-pointer bg-gray-50 hover:bg-gray-100"
+                    : "bg-white"
+                }`}
               />
             </div>
 
@@ -472,10 +497,7 @@ const PaymentForm: React.FC = () => {
                 onChange={handleChange}
                 className="border p-2 w-full rounded"
               >
-                {/* Always have Cash as default/simple option */}
                 <option value="Cash">Cash</option>
-
-                {/* Dynamic options from payment modes: BANKNAME-ACCOUNTNO */}
                 {paymentModes.map((pm) => {
                   const label = `${pm.bankNameOrUpiId}-${pm.accountNo}`;
                   return (
@@ -521,7 +543,6 @@ const PaymentForm: React.FC = () => {
             </div>
           </div>
 
-          {/* Footer Actions */}
           <div className="flex flex-wrap justify-between mt-6">
             <div>
               <button
@@ -571,7 +592,7 @@ const PaymentForm: React.FC = () => {
                 <thead className="bg-blue-100">
                   <tr>
                     <th className="border p-2">#</th>
-                    <th className="border p-2">Date</th>
+                    <th className="border p-2">Payment Date</th>
                     <th className="border p-2">Payment To</th>
                     <th className="border p-2">Name</th>
                     <th className="border p-2">Process</th>
@@ -589,18 +610,14 @@ const PaymentForm: React.FC = () => {
                         <td className="border p-2 text-center">{idx + 1}</td>
                         <td className="border p-2">
                           {record.paymentDate
-                            ? new Date(
-                                record.paymentDate,
-                              ).toLocaleDateString()
+                            ? new Date(record.paymentDate).toLocaleDateString()
                             : "-"}
                         </td>
                         <td className="border p-2">{record.paymentTo}</td>
-                        <td className="border p-2">{name}</td>
-                        <td className="border p-2">
-                          {record.processName || "-"}
-                        </td>
+                        <td className="border p-2">{name || "-"}</td>
+                        <td className="border p-2">{record.processName || "-"}</td>
                         <td className="border p-2 text-right">
-                          {record.amount}
+                          {record.amount ?? "-"}
                         </td>
                       </tr>
                     );
@@ -616,9 +633,7 @@ const PaymentForm: React.FC = () => {
       {showEmployeeModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg shadow-lg w-full max-w-2xl p-5">
-            <h3 className="text-xl font-bold text-center mb-4">
-              Select Employee
-            </h3>
+            <h3 className="text-xl font-bold text-center mb-4">Select Employee</h3>
             <input
               type="text"
               placeholder="Search employee name..."
@@ -638,12 +653,8 @@ const PaymentForm: React.FC = () => {
                 <tbody>
                   {filteredEmployees.map((e) => (
                     <tr key={e.id}>
-                      <td className="border p-2">
-                        {e.name || e.employeeName}
-                      </td>
-                      <td className="border p-2">
-                        {e.code || e.employeeCode}
-                      </td>
+                      <td className="border p-2">{e.name || e.employeeName}</td>
+                      <td className="border p-2">{e.code || e.employeeCode}</td>
                       <td className="border p-2 text-center">
                         <button
                           onClick={() => selectEmployee(e)}
@@ -654,6 +665,13 @@ const PaymentForm: React.FC = () => {
                       </td>
                     </tr>
                   ))}
+                  {filteredEmployees.length === 0 && (
+                    <tr>
+                      <td className="border p-2 text-center" colSpan={3}>
+                        No employees found
+                      </td>
+                    </tr>
+                  )}
                 </tbody>
               </table>
             </div>
@@ -673,9 +691,7 @@ const PaymentForm: React.FC = () => {
       {showPartyModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg shadow-lg w-full max-w-2xl p-5">
-            <h3 className="text-xl font-bold text-center mb-4">
-              Select Party
-            </h3>
+            <h3 className="text-xl font-bold text-center mb-4">Select Party</h3>
             <input
               type="text"
               placeholder="Search party name..."
@@ -731,9 +747,7 @@ const PaymentForm: React.FC = () => {
       {showProcessModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg shadow-lg w-full max-w-2xl p-5">
-            <h3 className="text-xl font-bold text-center mb-4">
-              Select Process
-            </h3>
+            <h3 className="text-xl font-bold text-center mb-4">Select Process</h3>
             <input
               type="text"
               placeholder="Search process name..."
@@ -791,12 +805,10 @@ const PaymentForm: React.FC = () => {
       {showList && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg shadow-lg w-full max-w-5xl p-5 flex flex-col max-h-[90vh]">
-            <h3 className="text-xl font-bold text-center mb-4">
-              Payment List
-            </h3>
+            <h3 className="text-xl font-bold text-center mb-4">Payment List</h3>
 
             <input
-              placeholder="Search by Entry Type / Payment To / Name / Process"
+              placeholder="Search by Payment To / Name / Process / Through"
               className="border p-2 rounded w-full mb-3"
               value={searchText}
               onChange={(e) => setSearchText(e.target.value)}
@@ -808,7 +820,6 @@ const PaymentForm: React.FC = () => {
                   <tr>
                     <th className="border p-2">#</th>
                     <th className="border p-2">Payment Date</th>
-                    <th className="border p-2">Entry Type</th>
                     <th className="border p-2">Payment To</th>
                     <th className="border p-2">Name</th>
                     <th className="border p-2">Process</th>
@@ -819,38 +830,26 @@ const PaymentForm: React.FC = () => {
                 <tbody>
                   {filteredList.length === 0 ? (
                     <tr>
-                      <td
-                        colSpan={8}
-                        className="border p-4 text-center text-gray-500"
-                      >
+                      <td colSpan={7} className="border p-4 text-center text-gray-500">
                         No records found
                       </td>
                     </tr>
                   ) : (
                     filteredList.map((d: any, i: number) => {
                       const name =
-                        d.paymentTo === "Employee"
-                          ? d.employeeName
-                          : d.partyName;
+                        d.paymentTo === "Employee" ? d.employeeName : d.partyName;
                       return (
                         <tr key={d.id}>
                           <td className="border p-2 text-center">{i + 1}</td>
                           <td className="border p-2">
                             {d.paymentDate
-                              ? new Date(
-                                  d.paymentDate,
-                                ).toLocaleDateString()
+                              ? new Date(d.paymentDate).toLocaleDateString()
                               : "-"}
                           </td>
-                          <td className="border p-2">{d.entryType}</td>
                           <td className="border p-2">{d.paymentTo}</td>
-                          <td className="border p-2">{name}</td>
-                          <td className="border p-2">
-                            {d.processName || "-"}
-                          </td>
-                          <td className="border p-2 text-right">
-                            {d.amount}
-                          </td>
+                          <td className="border p-2">{name || "-"}</td>
+                          <td className="border p-2">{d.processName || "-"}</td>
+                          <td className="border p-2 text-right">{d.amount ?? "-"}</td>
                           <td className="border p-2 text-center">
                             <button
                               onClick={() => handleEdit(d.id)}

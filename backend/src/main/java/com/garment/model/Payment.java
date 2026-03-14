@@ -31,32 +31,37 @@ public class Payment {
     private Long id;
 
     @NotBlank
-    private String entryType;        // Other | Purchase | Salary
-
-    @NotBlank
-    private String paymentTo;        // Party | Employee
+    @Column(name = "payment_to")
+    private String paymentTo;
 
     @NotNull
+    @Column(name = "payment_date")
     private LocalDate paymentDate;
 
     @NotNull
+    @Column(name = "date")
     private LocalDate date;
 
+    @Column(name = "process_name")
     private String processName;
 
-    // If paymentTo = Party, fill partyName; if Employee, fill employeeName
+    @Column(name = "party_name")
     private String partyName;
+
+    @Column(name = "employee_name")
     private String employeeName;
 
     @NotBlank
-    private String paymentThrough;   // UPI | Cash | Bank
+    @Column(name = "payment_through")
+    private String paymentThrough;
 
-    @Column(precision = 19, scale = 2)
+    @Column(name = "amount", precision = 19, scale = 2)
     @NotNull
     private BigDecimal amount;
 
-    @Column(precision = 19, scale = 2)
+    @Column(name = "balance", precision = 19, scale = 2)
     private BigDecimal balance;
 
+    @Column(name = "remarks")
     private String remarks;
 }
