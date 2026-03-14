@@ -48,7 +48,7 @@ interface ReceiptRecord {
   employeeName?: string;
   paymentThrough: string;
   amount: number | null;
-  balance: number | null;
+  balance: number | null; // (+) Dr, (-) Cr (UI will show)
   remarks: string;
   agentName?: string;
   date?: string; // To Date
@@ -78,7 +78,7 @@ type FormData = {
   name: string; // party/employee name
   paymentThrough: string;
   amount: number | "";
-  balance: number | "";
+  balance: number | ""; // (+) Dr, (-) Cr
   remarks: string;
   agentName: string;
   date: string;
@@ -212,8 +212,26 @@ const PaymentReceiptForm: React.FC = () => {
     }
   };
 
-  const norm = (s: any) =>
-    (s ?? "").toString().trim().toLowerCase();
+  const norm = (s: any) => (s ?? "").toString().trim().toLowerCase();
+
+  // -------- Dr/Cr helpers (NEW) ----------
+  const getDrCr = (val: number | "" | null | undefined) => {
+    if (val === "" || val === null || val === undefined) return "";
+    const n = Number(val);
+    if (!Number.isFinite(n) || n === 0) return "";
+    return n > 0 ? "Dr" : "Cr";
+  };
+
+  const absVal = (val: number | "" | null | undefined) => {
+    if (val === "" || val === null || val === undefined) return "";
+    const n = Number(val);
+    if (!Number.isFinite(n)) return "";
+    return Math.abs(n);
+  };
+
+  const balanceDrCr = useMemo(() => getDrCr(formData.balance), [formData.balance]);
+  const baseBalDrCr = useMemo(() => getDrCr(partyBaseBalance ?? null), [partyBaseBalance]);
+  // --------------------------------------
 
   // Compute base balance for party from cached dispatchChallans
   const computePartyBaseBalance = (partyName: string) => {
@@ -227,20 +245,13 @@ const PaymentReceiptForm: React.FC = () => {
       (ch: any) => norm(ch.partyName) === norm(partyName),
     );
 
-    console.log(
-      "Party:",
-      partyName,
-      "matching challans:",
-      matches.length,
-    );
-
     const totalNet = matches.reduce(
       (sum: number, ch: any) => sum + Number(ch.netAmt ?? 0),
       0,
     );
 
-    console.log("Computed base netAmt for", partyName, "=", totalNet);
-
+    // NOTE:
+    // We are treating +ve as Dr and -ve as Cr.
     setPartyBaseBalance(totalNet);
     setFormData((prev) => ({
       ...prev,
@@ -473,7 +484,7 @@ const PaymentReceiptForm: React.FC = () => {
       processName: formData.processName || "",
       paymentThrough: formData.paymentThrough || "",
       amount: formData.amount === "" ? null : formData.amount,
-      balance: formData.balance === "" ? null : formData.balance,
+      balance: formData.balance === "" ? null : formData.balance, // sign kept (+ Dr, - Cr)
       remarks: formData.remarks || "",
       date: formData.date || null,
       partyName: formData.receiptTo === "Party" ? formData.name || "" : "",
@@ -827,9 +838,7 @@ const PaymentReceiptForm: React.FC = () => {
             </div>
 
             <div className="col-span-2">
-              <label className="block mb-1 font-semibold">
-                Payment Through
-              </label>
+              <label className="block mb-1 font-semibold">Payment Through</label>
               <select
                 name="paymentThrough"
                 value={formData.paymentThrough}
@@ -861,25 +870,51 @@ const PaymentReceiptForm: React.FC = () => {
               />
             </div>
 
+            {/* Balance + Dr/Cr (UPDATED UI) */}
             <div>
               <label className="block mb-1 font-semibold">Balance</label>
-              <input
-                type="number"
-                name="balance"
-                value={formData.balance}
-                onChange={handleChange}
-                readOnly={formData.receiptTo === "Party"}
-                placeholder={
-                  formData.receiptTo === "Party"
-                    ? "Base from Dispatch - Amount"
-                    : ""
-                }
-                className={`border p-2 w-full rounded ${
-                  formData.receiptTo === "Party"
-                    ? "bg-gray-50 cursor-not-allowed"
-                    : ""
-                }`}
-              />
+
+              <div className="flex gap-2 items-center">
+                <input
+                  type="number"
+                  name="balance"
+                  value={formData.balance}
+                  onChange={handleChange}
+                  readOnly={formData.receiptTo === "Party"}
+                  placeholder={
+                    formData.receiptTo === "Party"
+                      ? "Base from Dispatch - Amount"
+                      : ""
+                  }
+                  className={`border p-2 w-full rounded ${
+                    formData.receiptTo === "Party"
+                      ? "bg-gray-50 cursor-not-allowed"
+                      : ""
+                  }`}
+                />
+
+                <input
+                  type="text"
+                  value={balanceDrCr}
+                  readOnly
+                  placeholder="Dr/Cr"
+                  className="border p-2 w-20 rounded bg-gray-50 text-center"
+                  title="Balance Type"
+                />
+              </div>
+
+              {/* Optional hint (base balance from dispatch) */}
+              {formData.receiptTo === "Party" && partyBaseBalance !== null && (
+                <div className="text-xs text-gray-600 mt-1">
+                  Base (Dispatch): {absVal(partyBaseBalance)} {baseBalDrCr}
+                  {formData.amount !== "" && (
+                    <>
+                      {" "}
+                      | Current: {absVal(formData.balance)} {balanceDrCr}
+                    </>
+                  )}
+                </div>
+              )}
             </div>
 
             <div className="col-span-2">
@@ -957,6 +992,8 @@ const PaymentReceiptForm: React.FC = () => {
                     <th className="border p-2">Agent</th>
                     <th className="border p-2">Process</th>
                     <th className="border p-2">Amount</th>
+                    <th className="border p-2">Balance</th>
+                    <th className="border p-2">Dr/Cr</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -970,6 +1007,9 @@ const PaymentReceiptForm: React.FC = () => {
                       record.id ??
                       (record as any).receiptId ??
                       `${record.receiptDate}-${record.processName}-${idx}`;
+
+                    const drcr = getDrCr(record.balance);
+                    const balAbs = absVal(record.balance);
 
                     return (
                       <tr key={rowKey}>
@@ -986,15 +1026,19 @@ const PaymentReceiptForm: React.FC = () => {
                         </td>
                         <td className="border p-2">{record.receiptTo}</td>
                         <td className="border p-2">{name}</td>
-                        <td className="border p-2">
-                          {record.agentName || "-"}
-                        </td>
+                        <td className="border p-2">{record.agentName || "-"}</td>
                         <td className="border p-2">
                           {record.processName || "-"}
                         </td>
                         <td className="border p-2 text-right">
                           {record.amount ?? "-"}
                         </td>
+                        <td className="border p-2 text-right">
+                          {record.balance === null || record.balance === undefined
+                            ? "-"
+                            : balAbs}
+                        </td>
+                        <td className="border p-2 text-center">{drcr || "-"}</td>
                       </tr>
                     );
                   })}
@@ -1074,9 +1118,7 @@ const PaymentReceiptForm: React.FC = () => {
                     <tr key={e.id ?? e.code ?? idx}>
                       <td className="border p-2">{e.employeeName}</td>
                       <td className="border p-2">{e.code}</td>
-                      <td className="border p-2">
-                        {e.process?.processName || "-"}
-                      </td>
+                      <td className="border p-2">{e.process?.processName || "-"}</td>
                       <td className="border p-2 text-center">
                         <button
                           onClick={() => selectEmployee(e)}
@@ -1136,9 +1178,7 @@ const PaymentReceiptForm: React.FC = () => {
                   {filteredParties.map((p, idx) => (
                     <tr key={p.id ?? p.serialNumber ?? idx}>
                       <td className="border p-2">{p.partyName}</td>
-                      <td className="border p-2">
-                        {p.agent?.agentName || "-"}
-                      </td>
+                      <td className="border p-2">{p.agent?.agentName || "-"}</td>
                       <td className="border p-2 text-center">
                         <button
                           onClick={() => selectParty(p)}
@@ -1175,9 +1215,7 @@ const PaymentReceiptForm: React.FC = () => {
       {showProcessModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg shadow-lg w-full max-w-2xl p-5">
-            <h3 className="text-xl font-bold text-center mb-4">
-              Select Process
-            </h3>
+            <h3 className="text-xl font-bold text-center mb-4">Select Process</h3>
             <input
               type="text"
               placeholder="Search process name..."
@@ -1337,36 +1375,16 @@ const PaymentReceiptForm: React.FC = () => {
                             ? new Date(row.dated).toLocaleDateString()
                             : "-"}
                         </td>
-                        <td className="border p-2">
-                          {row.voucherNo || "-"}
-                        </td>
-                        <td className="border p-2">
-                          {row.employeeName || "-"}
-                        </td>
-                        <td className="border p-2">
-                          {row.processName || "-"}
-                        </td>
-                        <td className="border p-2">
-                          {row.cardNo || "-"}
-                        </td>
-                        <td className="border p-2">
-                          {row.artNo || "-"}
-                        </td>
-                        <td className="border p-2">
-                          {row.shade || "-"}
-                        </td>
-                        <td className="border p-2 text-right">
-                          {row.pcs || ""}
-                        </td>
-                        <td className="border p-2 text-right">
-                          {row.rate || ""}
-                        </td>
-                        <td className="border p-2 text-right">
-                          {row.amount || ""}
-                        </td>
-                        <td className="border p-2">
-                          {row.remarks || ""}
-                        </td>
+                        <td className="border p-2">{row.voucherNo || "-"}</td>
+                        <td className="border p-2">{row.employeeName || "-"}</td>
+                        <td className="border p-2">{row.processName || "-"}</td>
+                        <td className="border p-2">{row.cardNo || "-"}</td>
+                        <td className="border p-2">{row.artNo || "-"}</td>
+                        <td className="border p-2">{row.shade || "-"}</td>
+                        <td className="border p-2 text-right">{row.pcs || ""}</td>
+                        <td className="border p-2 text-right">{row.rate || ""}</td>
+                        <td className="border p-2 text-right">{row.amount || ""}</td>
+                        <td className="border p-2">{row.remarks || ""}</td>
                       </tr>
                     ))
                   )}
@@ -1390,9 +1408,7 @@ const PaymentReceiptForm: React.FC = () => {
       {showList && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg shadow-lg w-full max-w-5xl p-5 flex flex-col max-h-[90vh]">
-            <h3 className="text-xl font-bold text-center mb-4">
-              Receipt List
-            </h3>
+            <h3 className="text-xl font-bold text-center mb-4">Receipt List</h3>
 
             <input
               placeholder="Search by Entry Type / Receipt To / Name / Process"
@@ -1414,6 +1430,8 @@ const PaymentReceiptForm: React.FC = () => {
                     <th className="border p-2">Agent</th>
                     <th className="border p-2">Process</th>
                     <th className="border p-2">Amount</th>
+                    <th className="border p-2">Balance</th>
+                    <th className="border p-2">Dr/Cr</th>
                     <th className="border p-2">Actions</th>
                   </tr>
                 </thead>
@@ -1421,7 +1439,7 @@ const PaymentReceiptForm: React.FC = () => {
                   {filteredList.length === 0 ? (
                     <tr>
                       <td
-                        colSpan={10}
+                        colSpan={12}
                         className="border p-4 text-center text-gray-500"
                       >
                         No records found
@@ -1430,11 +1448,12 @@ const PaymentReceiptForm: React.FC = () => {
                   ) : (
                     filteredList.map((d: any, i: number) => {
                       const name =
-                        d.receiptTo === "Employee"
-                          ? d.employeeName
-                          : d.partyName;
+                        d.receiptTo === "Employee" ? d.employeeName : d.partyName;
 
                       const rowKey = d.id ?? d.receiptId ?? i;
+
+                      const drcr = getDrCr(d.balance);
+                      const balAbs = absVal(d.balance);
 
                       return (
                         <tr key={rowKey}>
@@ -1445,22 +1464,18 @@ const PaymentReceiptForm: React.FC = () => {
                               : "-"}
                           </td>
                           <td className="border p-2">
-                            {d.date
-                              ? new Date(d.date).toLocaleDateString()
-                              : "-"}
+                            {d.date ? new Date(d.date).toLocaleDateString() : "-"}
                           </td>
                           <td className="border p-2">{d.entryType}</td>
                           <td className="border p-2">{d.receiptTo}</td>
                           <td className="border p-2">{name}</td>
-                          <td className="border p-2">
-                            {d.agentName || "-"}
-                          </td>
-                          <td className="border p-2">
-                            {d.processName || "-"}
-                          </td>
+                          <td className="border p-2">{d.agentName || "-"}</td>
+                          <td className="border p-2">{d.processName || "-"}</td>
+                          <td className="border p-2 text-right">{d.amount ?? "-"}</td>
                           <td className="border p-2 text-right">
-                            {d.amount ?? "-"}
+                            {d.balance === null || d.balance === undefined ? "-" : balAbs}
                           </td>
+                          <td className="border p-2 text-center">{drcr || "-"}</td>
                           <td className="border p-2 text-center">
                             <button
                               onClick={() => handleEdit(d.id)}
