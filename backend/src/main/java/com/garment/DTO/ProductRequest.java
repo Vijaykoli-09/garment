@@ -6,6 +6,8 @@ public class ProductRequest {
 
     private String name;
     private String description;
+    private List<String> categories;   // e.g. ["MEN", "WOMEN"]
+    private String subCategory;        // e.g. "T-Shirt"
     private Integer boxQuantity;
     private List<String> sizes;
     private List<String> images;
@@ -44,6 +46,10 @@ public class ProductRequest {
     public void setName(String name) { this.name = name; }
     public String getDescription() { return description; }
     public void setDescription(String description) { this.description = description; }
+    public List<String> getCategories() { return categories; }
+    public void setCategories(List<String> categories) { this.categories = categories; }
+    public String getSubCategory() { return subCategory; }
+    public void setSubCategory(String subCategory) { this.subCategory = subCategory; }
     public Integer getBoxQuantity() { return boxQuantity; }
     public void setBoxQuantity(Integer boxQuantity) { this.boxQuantity = boxQuantity; }
     public List<String> getSizes() { return sizes; }

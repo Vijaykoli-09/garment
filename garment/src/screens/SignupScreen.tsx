@@ -27,13 +27,24 @@ export default function SignupScreen({ navigation }: any) {
 
   const validate = () => {
     const e: Record<string, string> = {};
-    if (!form.fullName.trim())               e.fullName       = 'Required';
-    if (!/^\S+@\S+\.\S+$/.test(form.email)) e.email          = 'Enter a valid email';
-    if (!/^[0-9]{10}$/.test(form.phone))    e.phone          = 'Enter 10-digit phone';
-    if (!form.customerType)                 e.customerType   = 'Select customer type';
-    if (!form.deliveryAddress.trim())       e.deliveryAddress = 'Required';
-    if (form.password.length < 6)           e.password       = 'Min 6 characters';
+    if (!form.fullName.trim())                e.fullName        = 'Full name is required';
+    if (!/^\S+@\S+\.\S+$/.test(form.email))  e.email           = 'Enter a valid email';
+    if (!/^[0-9]{10}$/.test(form.phone))     e.phone           = 'Enter a valid 10-digit phone';
+    if (!form.customerType)                   e.customerType    = 'Select customer type';
+    if (!form.deliveryAddress.trim())         e.deliveryAddress = 'Delivery address is required';
+
+    // GST — MANDATORY with format check
+    if (!form.gstNo.trim()) {
+      e.gstNo = 'GST number is required';
+    } else if (!/^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/.test(form.gstNo.toUpperCase())) {
+      e.gstNo = 'Invalid GST format (e.g. 22AAAAA0000A1Z5)';
+    }
+
+    if (form.brokerPhone && !/^[0-9]{10}$/.test(form.brokerPhone))
+      e.brokerPhone = 'Enter a valid 10-digit phone';
+    if (form.password.length < 6)             e.password        = 'Minimum 6 characters';
     if (form.password !== form.confirmPassword) e.confirmPassword = 'Passwords do not match';
+
     setErrors(e);
     return Object.keys(e).length === 0;
   };
@@ -45,7 +56,8 @@ export default function SignupScreen({ navigation }: any) {
       await authApi.signup({
         fullName: form.fullName, email: form.email, phone: form.phone,
         password: form.password, customerType: form.customerType,
-        deliveryAddress: form.deliveryAddress, gstNo: form.gstNo,
+        deliveryAddress: form.deliveryAddress,
+        gstNo: form.gstNo.toUpperCase(),
         brokerName: form.brokerName, brokerPhone: form.brokerPhone,
       });
       Alert.alert(
@@ -72,10 +84,13 @@ export default function SignupScreen({ navigation }: any) {
           <View style={s.hero}>
             <Text style={s.emoji}>👕</Text>
             <Text style={s.brand}>Shriuday Garments</Text>
-            <Text style={s.tagline}>Create your account</Text>
+            <Text style={s.tagline}>Create your B2B account</Text>
           </View>
 
           <View style={s.card}>
+
+            {/* ── Required notice ── */}
+            <Text style={s.requiredNote}><Text style={s.star}>*</Text> All fields marked are required</Text>
 
             <F label="Full Name *" error={errors.fullName}>
               <TextInput style={s.input} value={form.fullName} onChangeText={set('fullName')}
@@ -84,7 +99,7 @@ export default function SignupScreen({ navigation }: any) {
 
             <F label="Email *" error={errors.email}>
               <TextInput style={s.input} value={form.email} onChangeText={set('email')}
-                placeholder="Enter email" placeholderTextColor="#9CA3AF"
+                placeholder="name@example.com" placeholderTextColor="#9CA3AF"
                 keyboardType="email-address" autoCapitalize="none" />
             </F>
 
@@ -95,10 +110,10 @@ export default function SignupScreen({ navigation }: any) {
                 keyboardType="number-pad" maxLength={10} />
             </F>
 
-            {/* Customer type picker */}
-            <Text style={s.label}>Customer Type *</Text>
+            {/* ── Customer Type ── */}
+            <Text style={s.label}>Customer Type <Text style={s.star}>*</Text></Text>
             <TouchableOpacity
-              style={[s.row, errors.customerType ? s.rowErr : null, { justifyContent: 'space-between', paddingVertical: 13 }]}
+              style={[s.row, { justifyContent: 'space-between', paddingVertical: 13 }, errors.customerType ? s.rowErr : null]}
               onPress={() => setTypeModal(true)}
             >
               <Text style={{ fontSize: 14, color: form.customerType ? '#111827' : '#9CA3AF' }}>
@@ -108,7 +123,6 @@ export default function SignupScreen({ navigation }: any) {
             </TouchableOpacity>
             {errors.customerType ? <Text style={s.err}>{errors.customerType}</Text> : null}
 
-            {/* Type bottom sheet */}
             <Modal visible={typeModal} transparent animationType="slide">
               <View style={s.overlay}>
                 <View style={s.sheet}>
@@ -128,27 +142,58 @@ export default function SignupScreen({ navigation }: any) {
             </Modal>
 
             <F label="Delivery Address *" error={errors.deliveryAddress} multiline>
-              <TextInput style={[s.input, { paddingTop: 8 }]} value={form.deliveryAddress}
+              <TextInput style={[s.input, { paddingTop: 10 }]} value={form.deliveryAddress}
                 onChangeText={set('deliveryAddress')} placeholder="Full delivery address"
                 placeholderTextColor="#9CA3AF" multiline numberOfLines={3} />
             </F>
 
-            <F label="GST No (Optional)">
-              <TextInput style={s.input} value={form.gstNo} onChangeText={set('gstNo')}
-                placeholder="GST number" placeholderTextColor="#9CA3AF" autoCapitalize="characters" />
-            </F>
+            {/* ── GST — MANDATORY ── */}
+            <Text style={s.label}>GST Number <Text style={s.star}>*</Text></Text>
+            <View style={[s.row, errors.gstNo ? s.rowErr : s.rowHighlight]}>
+              <Text style={s.gstIcon}>🧾</Text>
+              <TextInput
+                style={s.input}
+                value={form.gstNo}
+                onChangeText={v => set('gstNo')(v.toUpperCase())}
+                placeholder="e.g. 22AAAAA0000A1Z5"
+                placeholderTextColor="#9CA3AF"
+                autoCapitalize="characters"
+                maxLength={15}
+              />
+              {form.gstNo.length === 15 && !errors.gstNo && (
+                <Text style={{ color: '#10b981', fontSize: 16 }}>✓</Text>
+              )}
+            </View>
+            {errors.gstNo
+              ? <Text style={s.err}>{errors.gstNo}</Text>
+              : <Text style={s.hint}>15-character GST Identification Number (GSTIN)</Text>
+            }
 
-            <F label="Broker Name (Optional)">
+            {/* ── Optional section ── */}
+            <View style={s.dividerRow}>
+              <View style={s.dividerLine} />
+              <Text style={s.dividerTxt}>Referral Info (Optional)</Text>
+              <View style={s.dividerLine} />
+            </View>
+
+            <F label="Referral Name">
               <TextInput style={s.input} value={form.brokerName} onChangeText={set('brokerName')}
-                placeholder="Broker name" placeholderTextColor="#9CA3AF" />
+                placeholder="Referral name" placeholderTextColor="#9CA3AF" />
             </F>
 
-            <F label="Broker Phone (Optional)">
+            <F label="Referral Phone" error={errors.brokerPhone}>
               <Text style={s.prefix}>+91</Text>
               <TextInput style={s.input} value={form.brokerPhone} onChangeText={set('brokerPhone')}
                 placeholder="10-digit number" placeholderTextColor="#9CA3AF"
                 keyboardType="number-pad" maxLength={10} />
             </F>
+
+            {/* ── Password ── */}
+            <View style={s.dividerRow}>
+              <View style={s.dividerLine} />
+              <Text style={s.dividerTxt}>Security</Text>
+              <View style={s.dividerLine} />
+            </View>
 
             <F label="Password *" error={errors.password}>
               <TextInput style={s.input} value={form.password} onChangeText={set('password')}
@@ -168,7 +213,7 @@ export default function SignupScreen({ navigation }: any) {
               </TouchableOpacity>
             </F>
 
-            <TouchableOpacity onPress={handleSignup} disabled={loading} style={{ marginTop: 22 }}>
+            <TouchableOpacity onPress={handleSignup} disabled={loading} style={{ marginTop: 24 }}>
               <LinearGradient colors={['#10b981', '#059669']} style={s.btn}>
                 {loading
                   ? <ActivityIndicator color="#fff" />
@@ -191,11 +236,10 @@ export default function SignupScreen({ navigation }: any) {
   );
 }
 
-// Field wrapper component
 const F = ({ label, error, children, multiline }: any) => (
   <View>
     <Text style={s.label}>{label}</Text>
-    <View style={[s.row, multiline && { height: 80, alignItems: 'flex-start' }, error && s.rowErr]}>
+    <View style={[s.row, multiline && { height: 82, alignItems: 'flex-start' }, error && s.rowErr]}>
       {children}
     </View>
     {error ? <Text style={s.err}>{error}</Text> : null}
@@ -203,38 +247,38 @@ const F = ({ label, error, children, multiline }: any) => (
 );
 
 const s = StyleSheet.create({
-  bg: { flex: 1 },
-  scroll: { flexGrow: 1, padding: 20, paddingTop: 40 },
-  hero: { alignItems: 'center', marginBottom: 24 },
-  emoji: { fontSize: 46, marginBottom: 10 },
-  brand: { fontSize: 24, fontWeight: '800', color: '#fff' },
-  tagline: { fontSize: 13, color: 'rgba(255,255,255,0.7)', marginTop: 4 },
-  card: {
-    backgroundColor: '#fff', borderRadius: 20, padding: 22,
-    shadowColor: '#000', shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.2, shadowRadius: 16, elevation: 8,
-  },
-  label: { fontSize: 11, fontWeight: '700', color: '#374151', marginTop: 14, marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.5 },
-  row: {
-    flexDirection: 'row', alignItems: 'center',
-    borderWidth: 1.5, borderColor: '#e5e7eb', borderRadius: 10,
-    paddingHorizontal: 12, backgroundColor: '#f9fafb',
-  },
-  rowErr: { borderColor: '#ef4444' },
-  prefix: { color: '#374151', fontWeight: '600', marginRight: 8, fontSize: 13 },
-  input: { flex: 1, paddingVertical: 12, fontSize: 14, color: '#111827' },
-  toggle: { color: '#2563eb', fontWeight: '700', fontSize: 12 },
-  err: { color: '#ef4444', fontSize: 11, marginTop: 3, fontWeight: '500' },
-  btn: { borderRadius: 12, paddingVertical: 15, alignItems: 'center' },
-  btnTxt: { color: '#fff', fontSize: 15, fontWeight: '800' },
-  footer: { flexDirection: 'row', justifyContent: 'center', marginTop: 24 },
-  footerTxt: { color: 'rgba(255,255,255,0.8)', fontSize: 13 },
-  footerLink: { color: '#fff', fontWeight: '800', fontSize: 13 },
-  overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
-  sheet: { backgroundColor: '#fff', borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 24 },
-  sheetTitle: { fontSize: 16, fontWeight: '700', color: '#1f2937', marginBottom: 16 },
-  option: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: '#f3f4f6' },
-  optionTxt: { fontSize: 15, color: '#374151' },
-  optionActive: { color: '#2563eb', fontWeight: '700' },
-  cancel: { textAlign: 'center', marginTop: 16, color: '#dc2626', fontWeight: '700', fontSize: 14 },
+  bg:           { flex: 1 },
+  scroll:       { flexGrow: 1, padding: 20, paddingTop: 44 },
+  hero:         { alignItems: 'center', marginBottom: 24 },
+  emoji:        { fontSize: 48, marginBottom: 10 },
+  brand:        { fontSize: 24, fontWeight: '800', color: '#fff' },
+  tagline:      { fontSize: 13, color: 'rgba(255,255,255,0.7)', marginTop: 4 },
+  card:         { backgroundColor: '#fff', borderRadius: 20, padding: 22, shadowColor: '#000', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.2, shadowRadius: 16, elevation: 8 },
+  requiredNote: { fontSize: 11, color: '#6B7280', marginBottom: 4 },
+  star:         { color: '#EF4444', fontWeight: '700' },
+  label:        { fontSize: 11, fontWeight: '700', color: '#374151', marginTop: 14, marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.5 },
+  row:          { flexDirection: 'row', alignItems: 'center', borderWidth: 1.5, borderColor: '#E5E7EB', borderRadius: 10, paddingHorizontal: 12, backgroundColor: '#F9FAFB' },
+  rowErr:       { borderColor: '#EF4444', backgroundColor: '#FFF5F5' },
+  rowHighlight: { borderColor: '#2563EB', backgroundColor: '#EFF6FF' },
+  prefix:       { color: '#374151', fontWeight: '600', marginRight: 8, fontSize: 13 },
+  input:        { flex: 1, paddingVertical: 12, fontSize: 14, color: '#111827' },
+  toggle:       { color: '#2563EB', fontWeight: '700', fontSize: 12 },
+  err:          { color: '#EF4444', fontSize: 11, marginTop: 3, fontWeight: '500' },
+  hint:         { color: '#6B7280', fontSize: 11, marginTop: 3 },
+  gstIcon:      { fontSize: 16, marginRight: 8 },
+  dividerRow:   { flexDirection: 'row', alignItems: 'center', marginTop: 22, marginBottom: 4, gap: 10 },
+  dividerLine:  { flex: 1, height: 1, backgroundColor: '#E5E7EB' },
+  dividerTxt:   { fontSize: 11, fontWeight: '700', color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: 0.5 },
+  btn:          { borderRadius: 12, paddingVertical: 15, alignItems: 'center' },
+  btnTxt:       { color: '#fff', fontSize: 15, fontWeight: '800' },
+  footer:       { flexDirection: 'row', justifyContent: 'center', marginTop: 24, marginBottom: 12 },
+  footerTxt:    { color: 'rgba(255,255,255,0.8)', fontSize: 13 },
+  footerLink:   { color: '#fff', fontWeight: '800', fontSize: 13 },
+  overlay:      { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
+  sheet:        { backgroundColor: '#fff', borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 24 },
+  sheetTitle:   { fontSize: 16, fontWeight: '700', color: '#1F2937', marginBottom: 16 },
+  option:       { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: '#F3F4F6' },
+  optionTxt:    { fontSize: 15, color: '#374151' },
+  optionActive: { color: '#2563EB', fontWeight: '700' },
+  cancel:       { textAlign: 'center', marginTop: 16, color: '#DC2626', fontWeight: '700', fontSize: 14 },
 });

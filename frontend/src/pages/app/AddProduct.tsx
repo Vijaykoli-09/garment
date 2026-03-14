@@ -6,12 +6,62 @@ interface Pricing { wholeSeller: number; semiWholeSeller: number; retailer: numb
 interface MinBox  { wholeSeller: number; semiWholeSeller: number; retailer: number; }
 interface Product {
   id: number; name: string; description: string;
+  categories: string[]; subCategory: string;
   images: string[]; sizes: string[]; boxQuantity: number;
   pricing: Pricing; minBox: MinBox; active: boolean;
 }
 
+// ── Category / Sub-category master list ──────────────────────────────────────
+// To add/remove a category or sub-category, edit only this map.
+const CATEGORY_MAP: Record<string, string[]> = {
+  MEN: [
+    "T-Shirt",
+    "Pouch Gents",
+    "Gents Sweet Shirt",
+    "Gents Pajama",
+    "Track Suit",
+    "Night Suit",
+    "Boys Suit",
+  ],
+  WOMEN: [
+    "Ladies Pouch",
+    "Girly Pouch",
+    "Girlyish Tees",
+    "Ladies Sweet",
+    "Ladies Pajama",
+    "Girl Suit",
+    "Night Suit",
+    "Track Suit",
+  ],
+  KIDS: [
+    "Kit T-Shirt",
+    "Kids Pouch",
+    "Kids Sweet Shirt",
+    "Kid Pajama",
+    "Boys Suit",
+    "Girl Suit",
+    "Track Suit",
+    "Night Suit",
+  ],
+};
+
+const ALL_CATEGORIES = Object.keys(CATEGORY_MAP);
+
+// Returns the union of sub-categories for the selected categories (deduped, order preserved)
+function getSubCategoryOptions(selectedCats: string[]): string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const cat of selectedCats) {
+    for (const sub of (CATEGORY_MAP[cat] ?? [])) {
+      if (!seen.has(sub)) { seen.add(sub); result.push(sub); }
+    }
+  }
+  return result;
+}
+
 const EMPTY: Omit<Product, "id" | "active"> = {
-  name: "", description: "", images: [], sizes: [], boxQuantity: 12,
+  name: "", description: "", categories: [], subCategory: "",
+  images: [], sizes: [], boxQuantity: 12,
   pricing: { wholeSeller: 0, semiWholeSeller: 0, retailer: 0 },
   minBox:  { wholeSeller: 10, semiWholeSeller: 8, retailer: 5 },
 };
@@ -83,18 +133,35 @@ export default function AddProduct() {
   const openEdit = (p: Product) => {
     setEditingId(p.id);
     setFormData({
-      name: p.name, description: p.description, images: p.images,
-      sizes: p.sizes, boxQuantity: p.boxQuantity,
+      name: p.name, description: p.description,
+      categories: p.categories ?? [], subCategory: p.subCategory ?? "",
+      images: p.images, sizes: p.sizes, boxQuantity: p.boxQuantity,
       pricing: { ...p.pricing },
       minBox: p.minBox ? { ...p.minBox } : { wholeSeller: 10, semiWholeSeller: 8, retailer: 5 },
     });
     setFormError(""); setUploadLog([]); setShowModal(true);
   };
 
+  // Toggle a category on/off; if removed, reset subCategory if it's no longer valid
+  const toggleCategory = (cat: string) => {
+    setFormData(f => {
+      const already = f.categories.includes(cat);
+      const newCats = already
+        ? f.categories.filter(c => c !== cat)
+        : [...f.categories, cat];
+      // If the current subCategory is no longer in the new union, clear it
+      const newSubs = getSubCategoryOptions(newCats);
+      const subStillValid = newSubs.includes(f.subCategory);
+      return { ...f, categories: newCats, subCategory: subStillValid ? f.subCategory : "" };
+    });
+  };
+
   const validate = () => {
-    if (!formData.name.trim())    return "Product name is required.";
-    if (formData.boxQuantity < 1) return "Pieces per box must be at least 1.";
-    if (uploading)                return "Please wait for images to finish uploading.";
+    if (!formData.name.trim())            return "Product name is required.";
+    if (formData.categories.length === 0) return "Select at least one category.";
+    if (!formData.subCategory)            return "Please select a sub-category.";
+    if (formData.boxQuantity < 1)         return "Pieces per box must be at least 1.";
+    if (uploading)                        return "Please wait for images to finish uploading.";
     for (const t of TIERS) {
       if ((formData.pricing as any)[t.key] < 0) return `${t.label} price cannot be negative.`;
       if ((formData.minBox as any)[t.key] < 1)  return `${t.label} min boxes must be at least 1.`;
@@ -132,11 +199,13 @@ export default function AddProduct() {
     setFormData(f => ({ ...f, minBox: { ...f.minBox, [key]: val } }));
 
   const addSize = () => {
-    const s = newSize.trim().toUpperCase();
-    if (!s || formData.sizes.includes(s)) return;
-    setFormData(f => ({ ...f, sizes: [...f.sizes, s] })); setNewSize("");
+    const sz = newSize.trim().toUpperCase();
+    if (!sz || formData.sizes.includes(sz)) return;
+    setFormData(f => ({ ...f, sizes: [...f.sizes, sz] })); setNewSize("");
   };
-  const removeSize = (s: string) => setFormData(f => ({ ...f, sizes: f.sizes.filter(x => x !== s) }));
+  const removeSize = (sz: string) => setFormData(f => ({ ...f, sizes: f.sizes.filter(x => x !== sz) }));
+
+  const subCategoryOptions = getSubCategoryOptions(formData.categories);
 
   if (loading) return (
     <Dashboard>
@@ -183,6 +252,17 @@ export default function AddProduct() {
                         ))}
                       </div>
                     )}
+
+                    {/* Category + sub-category badges */}
+                    {(p.categories?.length > 0 || p.subCategory) && (
+                      <div style={s.badgeRow}>
+                        {(p.categories ?? []).map(cat => (
+                          <span key={cat} style={{ ...s.catBadge, ...catBadgeColor(cat) }}>{catEmoji(cat)} {cat}</span>
+                        ))}
+                        {p.subCategory && <span style={s.subCatBadge}>{p.subCategory}</span>}
+                      </div>
+                    )}
+
                     <h3 style={s.cardName}>{p.name}</h3>
                     <p  style={s.cardDesc}>{p.description}</p>
                     <p  style={s.cardMeta}><b>Sizes:</b> {p.sizes.join(", ") || "—"} &nbsp;|&nbsp; <b>Pcs/Box:</b> {p.boxQuantity}</p>
@@ -234,6 +314,40 @@ export default function AddProduct() {
               <textarea style={{ ...s.input, height:64, resize:"vertical" }}
                 value={formData.description} placeholder="Describe the product..."
                 onChange={e => setFormData(f => ({ ...f, description: e.target.value }))} />
+
+              {/* ── CATEGORY (multi-select) ── */}
+              <label style={s.label}>
+                Category * <span style={{ fontWeight:400, color:"#94a3b8", textTransform:"none", marginLeft:4 }}>(select one or more)</span>
+              </label>
+              <div style={s.catRow}>
+                {ALL_CATEGORIES.map(cat => {
+                  const selected = formData.categories.includes(cat);
+                  return (
+                    <button key={cat} onClick={() => toggleCategory(cat)}
+                      style={{ ...s.catBtn, ...(selected ? catBtnActive(cat) : {}) }}>
+                      {catEmoji(cat)} {cat}
+                      {selected && <span style={{ marginLeft:5, fontSize:11 }}>✓</span>}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* ── SUB-CATEGORY (single, shown only after a category is picked) ── */}
+              {formData.categories.length > 0 && (
+                <>
+                  <label style={s.label}>Sub-Category *</label>
+                  <p style={s.hint}>
+                    Showing sub-categories for: <strong>{formData.categories.join(", ")}</strong>
+                  </p>
+                  <select style={s.select} value={formData.subCategory}
+                    onChange={e => setFormData(f => ({ ...f, subCategory: e.target.value }))}>
+                    <option value="">— Select sub-category —</option>
+                    {subCategoryOptions.map(sc => (
+                      <option key={sc} value={sc}>{sc}</option>
+                    ))}
+                  </select>
+                </>
+              )}
 
               {/* Pcs per box */}
               <label style={s.label}>Pieces per Box *</label>
@@ -365,6 +479,29 @@ export default function AddProduct() {
   );
 }
 
+// ── Helpers ───────────────────────────────────────────────────────────────────
+function catEmoji(cat: string) {
+  if (cat === "MEN")   return "👔";
+  if (cat === "WOMEN") return "👗";
+  if (cat === "KIDS")  return "🧒";
+  return "🏷";
+}
+
+function catBadgeColor(cat: string): React.CSSProperties {
+  if (cat === "MEN")   return { background:"#dbeafe", color:"#1d4ed8" };
+  if (cat === "WOMEN") return { background:"#fce7f3", color:"#be185d" };
+  if (cat === "KIDS")  return { background:"#d1fae5", color:"#065f46" };
+  return {};
+}
+
+function catBtnActive(cat: string): React.CSSProperties {
+  if (cat === "MEN")   return { background:"#1d4ed8", color:"#fff", borderColor:"#1d4ed8" };
+  if (cat === "WOMEN") return { background:"#be185d", color:"#fff", borderColor:"#be185d" };
+  if (cat === "KIDS")  return { background:"#065f46", color:"#fff", borderColor:"#065f46" };
+  return { background:"#2563eb", color:"#fff" };
+}
+
+// ── Styles ────────────────────────────────────────────────────────────────────
 const s: Record<string, React.CSSProperties> = {
   page:        { padding:24, minHeight:"100vh", background:"#f8fafc" },
   pageHeader:  { display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:20 },
@@ -379,6 +516,9 @@ const s: Record<string, React.CSSProperties> = {
   imgPh:       { width:"100%", height:200, background:"#f1f5f9", borderRadius:10, display:"flex", alignItems:"center", justifyContent:"center", fontSize:52, marginBottom:8 },
   thumbRow:    { display:"flex", gap:6, flexWrap:"wrap", marginTop:6 },
   thumb:       { width:48, height:48, objectFit:"cover", borderRadius:6 },
+  badgeRow:    { display:"flex", gap:6, flexWrap:"wrap", margin:"6px 0 2px" },
+  catBadge:    { fontSize:11, fontWeight:700, padding:"2px 8px", borderRadius:20 },
+  subCatBadge: { fontSize:11, fontWeight:600, padding:"2px 8px", borderRadius:20, background:"#f1f5f9", color:"#475569" },
   cardName:    { margin:"8px 0 4px", fontSize:15, fontWeight:700, color:"#0f172a" },
   cardDesc:    { margin:"0 0 6px", fontSize:12, color:"#64748b" },
   cardMeta:    { margin:"2px 0 8px", fontSize:12, color:"#374151" },
@@ -398,6 +538,7 @@ const s: Record<string, React.CSSProperties> = {
   label:       { display:"block", fontSize:11, fontWeight:700, color:"#475569", textTransform:"uppercase", letterSpacing:"0.5px", marginTop:14, marginBottom:4 },
   subLabel:    { display:"block", fontSize:11, fontWeight:700, textTransform:"uppercase", letterSpacing:"0.4px", marginBottom:8 },
   input:       { width:"100%", padding:"9px 10px", border:"1px solid #e2e8f0", borderRadius:8, marginTop:4, fontSize:13, color:"#0f172a", boxSizing:"border-box", outline:"none" },
+  select:      { width:"100%", padding:"9px 10px", border:"1px solid #e2e8f0", borderRadius:8, marginTop:4, fontSize:13, color:"#0f172a", boxSizing:"border-box", outline:"none", background:"#fff", cursor:"pointer" },
   hint:        { fontSize:11, color:"#94a3b8", margin:"3px 0 0" },
   sectionBox:  { marginTop:18, border:"1px solid #e2e8f0", borderRadius:12, padding:16, background:"#fafafa" },
   sectionTitle:{ fontSize:14, fontWeight:700, color:"#0f172a", margin:"0 0 4px" },
@@ -417,4 +558,6 @@ const s: Record<string, React.CSSProperties> = {
   editBtn:     { flex:1, padding:"7px", background:"#10b981", color:"#fff", border:"none", borderRadius:8, cursor:"pointer", fontWeight:700, fontSize:13 },
   deleteBtn:   { flex:1, padding:"7px", background:"#ef4444", color:"#fff", border:"none", borderRadius:8, cursor:"pointer", fontWeight:700, fontSize:13 },
   addBtn:      { padding:"9px 14px", background:"#e0e7ff", color:"#4f46e5", border:"none", borderRadius:8, cursor:"pointer", fontWeight:700, fontSize:13, whiteSpace:"nowrap" },
+  catRow:      { display:"flex", gap:8, marginTop:4 },
+  catBtn:      { flex:1, padding:"9px 6px", border:"1px solid #e2e8f0", borderRadius:10, cursor:"pointer", fontWeight:700, fontSize:13, background:"#f8fafc", color:"#475569" },
 };

@@ -17,6 +17,15 @@ public class Product {
     @Column(columnDefinition = "TEXT")
     private String description;
 
+    // Multiple categories stored as comma-separated: "MEN,WOMEN" or "MEN,WOMEN,KIDS"
+    // nullable = true so existing rows are not broken on migration
+    @Column(nullable = true)
+    private String categories = "";
+
+    // Single sub-category e.g. "T-Shirt", "Ladies Pouch", etc.
+    @Column(nullable = true)
+    private String subCategory = "";
+
     // How many pieces are in 1 box
     @Column(nullable = false)
     private Integer boxQuantity = 12;
@@ -62,6 +71,10 @@ public class Product {
     public void setName(String name) { this.name = name; }
     public String getDescription() { return description; }
     public void setDescription(String description) { this.description = description; }
+    public String getCategories() { return categories; }
+    public void setCategories(String categories) { this.categories = categories; }
+    public String getSubCategory() { return subCategory; }
+    public void setSubCategory(String subCategory) { this.subCategory = subCategory; }
     public Integer getBoxQuantity() { return boxQuantity; }
     public void setBoxQuantity(Integer boxQuantity) { this.boxQuantity = boxQuantity; }
     public String getSizes() { return sizes; }

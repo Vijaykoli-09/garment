@@ -10,6 +10,8 @@ public class ProductResponse {
     private Long id;
     private String name;
     private String description;
+    private List<String> categories;   // e.g. ["MEN", "WOMEN"]
+    private String subCategory;        // e.g. "T-Shirt"
     private Integer boxQuantity;
     private List<String> sizes;
     private List<String> images;
@@ -56,9 +58,14 @@ public class ProductResponse {
         res.id          = p.getId();
         res.name        = p.getName();
         res.description = p.getDescription();
+        res.subCategory = p.getSubCategory();
         res.boxQuantity = p.getBoxQuantity();
         res.active      = p.getActive();
         res.createdAt   = p.getCreatedAt() != null ? p.getCreatedAt().toString() : null;
+
+        res.categories = (p.getCategories() != null && !p.getCategories().isBlank())
+                ? Arrays.asList(p.getCategories().split(","))
+                : Collections.emptyList();
 
         res.sizes = (p.getSizes() != null && !p.getSizes().isBlank())
                 ? Arrays.asList(p.getSizes().split(","))
@@ -86,6 +93,8 @@ public class ProductResponse {
     public Long getId() { return id; }
     public String getName() { return name; }
     public String getDescription() { return description; }
+    public List<String> getCategories() { return categories; }
+    public String getSubCategory() { return subCategory; }
     public Integer getBoxQuantity() { return boxQuantity; }
     public List<String> getSizes() { return sizes; }
     public List<String> getImages() { return images; }
