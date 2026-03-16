@@ -1052,43 +1052,7 @@ const SaleOrderPendencyArtSizeWise: React.FC = () => {
     }
   };
 
-  const handleFulfillAll = async () => {
-    if (!rows.length) return Swal.fire("Info", "No data to fulfill", "info");
-
-    const confirm = await Swal.fire({
-      title: "Fulfill all pending?",
-      text: "This will create settlements for all pending quantities shown in this report.",
-      icon: "warning",
-      showCancelButton: true,
-      confirmButtonText: "Yes, Fulfill All",
-      cancelButtonText: "Cancel",
-    });
-
-    if (!confirm.isConfirmed) return;
-
-    try {
-      setLoading(true);
-
-      const payloadRows: any[] = [];
-      groupedRows.forEach((g) => payloadRows.push(...buildPayloadForGroup(g)));
-
-      if (!payloadRows.length) return Swal.fire("Info", "No pending quantity to fulfill.", "info");
-
-      await api.post("/sale-orders/pendency/fulfill", {
-        fromDate,
-        toDate,
-        rows: payloadRows,
-      });
-
-      Swal.fire("Done", "Pending quantities fulfilled successfully.", "success");
-      await showReport();
-    } catch (e: any) {
-      console.error("Fulfill all error:", e?.response?.data || e?.message);
-      Swal.fire("Error", "Could not fulfill orders. Please try again.", "error");
-    } finally {
-      setLoading(false);
-    }
-  };
+  
 
   return (
     <Dashboard>
