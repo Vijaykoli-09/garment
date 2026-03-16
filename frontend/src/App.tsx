@@ -83,6 +83,7 @@ import RateList from "./pages/Reports/RateList";
 import PaymentMode from "./pages/Payment/PaymentMode";
 import OtherDispatchChallan from "./pages/Knitting/OtherDispatchChallan";
 import AccountStatement from "./pages/Reports/AccountStatement";
+import PaymentModeReport from "./pages/Reports/PaymentModeReport";
 
 
 function App() {
@@ -182,6 +183,7 @@ function App() {
           <Route path="job-work-report" element={<JobWorkReport />} />
           <Route path="rate-list-report" element={<RateList />} />
           <Route path="account-report" element={<AccountStatement />} />
+          <Route path="paymentmod-report" element={<PaymentModeReport />} />
         </Route>
 
  

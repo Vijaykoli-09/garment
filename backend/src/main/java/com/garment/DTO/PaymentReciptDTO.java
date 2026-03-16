@@ -1,4 +1,3 @@
-// src/main/java/com/garment/DTO/PaymentReciptDTO.java
 package com.garment.DTO;
 
 import java.math.BigDecimal;
@@ -7,34 +6,25 @@ import java.time.LocalDate;
 public class PaymentReciptDTO {
 
     private Long id;
-
     private String entryType;
 
-    // "Party", "Employee", "Other"
+    // "Party", "Employee", "Broker", "Other"
     private String receiptTo;
 
-    // From Date
-    private LocalDate receiptDate;
-
-    // To Date
-    private LocalDate date;
+    private LocalDate receiptDate; // From Date
+    private LocalDate date;        // To Date
 
     private String processName;
-
     private String partyName;
-
     private String employeeName;
-
     private String paymentThrough;
 
     private BigDecimal amount;
-
     private BigDecimal balance;
 
     private String remarks;
 
-    // agentName is used in React but not stored in DB here.
-    // You can add it + column if you want to persist it.
+    // NOW persisted in DB
     private String agentName;
 
     public PaymentReciptDTO() {}

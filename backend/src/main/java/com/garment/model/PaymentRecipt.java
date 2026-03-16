@@ -1,4 +1,3 @@
-// src/main/java/com/garment/model/PaymentRecipt.java
 package com.garment.model;
 
 import java.math.BigDecimal;
@@ -17,14 +16,13 @@ public class PaymentRecipt {
     @Column(name="entry_type", length = 50)
     private String entryType;
 
-    // "Party", "Employee", "Other"
+    // "Party", "Employee", "Broker", "Other"
     @Column(name="payment_to", length = 20)
     private String paymentTo;
 
     @Column(name="payment_date")
     private LocalDate paymentDate;
 
-    // frontend "date" -> stored as to_date
     @Column(name="to_date")
     private LocalDate toDate;
 
@@ -37,11 +35,9 @@ public class PaymentRecipt {
     @Column(name="employee_name", length = 255)
     private String employeeName;
 
-    // "Cash" or "BANK-ACCNO"
     @Column(name="payment_through", length = 255)
     private String paymentThrough;
 
-    // NUMERIC in DB -> BigDecimal here
     @Column(name="amount", precision = 18, scale = 2)
     private BigDecimal amount;
 
@@ -50,6 +46,10 @@ public class PaymentRecipt {
 
     @Column(name="remarks", length = 500)
     private String remarks;
+
+    // NEW: persist broker/agent name
+    @Column(name="agent_name", length = 255)
+    private String agentName;
 
     public PaymentRecipt() {}
 
@@ -65,6 +65,7 @@ public class PaymentRecipt {
     public BigDecimal getAmount() { return amount; }
     public BigDecimal getBalance() { return balance; }
     public String getRemarks() { return remarks; }
+    public String getAgentName() { return agentName; }
 
     public void setId(Long id) { this.id = id; }
     public void setEntryType(String entryType) { this.entryType = entryType; }
@@ -78,4 +79,5 @@ public class PaymentRecipt {
     public void setAmount(BigDecimal amount) { this.amount = amount; }
     public void setBalance(BigDecimal balance) { this.balance = balance; }
     public void setRemarks(String remarks) { this.remarks = remarks; }
+    public void setAgentName(String agentName) { this.agentName = agentName; }
 }

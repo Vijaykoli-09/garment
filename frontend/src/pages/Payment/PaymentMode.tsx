@@ -4,6 +4,7 @@ import React, {
   useMemo,
   useState,
 } from "react";
+import { useNavigate } from "react-router-dom"; // ✅ NEW
 import api from "../../api/axiosInstance";
 import Swal from "sweetalert2";
 import Dashboard from "../Dashboard";
@@ -34,6 +35,8 @@ const normalizeOpeningType = (x: any): OpeningBalanceType => {
 };
 
 const PaymentModeCreation: React.FC = () => {
+  const navigate = useNavigate(); // ✅ NEW
+
   const initialFormData: PaymentModeFormData = {
     bankNameOrUpiId: "",
     accountNo: "",
@@ -75,7 +78,6 @@ const PaymentModeCreation: React.FC = () => {
     };
   }, []);
 
-  // useCallback with correct dependency on mapFromServer
   const loadAllPaymentModes = useCallback(async () => {
     try {
       const res = await api.get("/payment/payment-mode");
@@ -89,7 +91,6 @@ const PaymentModeCreation: React.FC = () => {
     }
   }, [mapFromServer]);
 
-  // useEffect depends on loadAllPaymentModes
   useEffect(() => {
     loadAllPaymentModes();
   }, [loadAllPaymentModes]);
@@ -178,12 +179,7 @@ const PaymentModeCreation: React.FC = () => {
       const b = (p.accountNo || "").toLowerCase();
       const c = (p.openingBalance || "").toLowerCase();
       const d = (p.openingBalanceType || "").toLowerCase();
-      return (
-        a.includes(term) ||
-        b.includes(term) ||
-        c.includes(term) ||
-        d.includes(term)
-      );
+      return a.includes(term) || b.includes(term) || c.includes(term) || d.includes(term);
     });
 
     setFilteredPaymentModes(filtered);
@@ -271,14 +267,7 @@ const PaymentModeCreation: React.FC = () => {
             />
 
             <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
-              <label
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 4,
-                  cursor: "pointer",
-                }}
-              >
+              <label style={{ display: "flex", alignItems: "center", gap: 4, cursor: "pointer" }}>
                 <input
                   type="radio"
                   name="openingBalanceType"
@@ -289,14 +278,7 @@ const PaymentModeCreation: React.FC = () => {
                 Cr
               </label>
 
-              <label
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 4,
-                  cursor: "pointer",
-                }}
-              >
+              <label style={{ display: "flex", alignItems: "center", gap: 4, cursor: "pointer" }}>
                 <input
                   type="radio"
                   name="openingBalanceType"
@@ -337,6 +319,15 @@ const PaymentModeCreation: React.FC = () => {
               Delete Current
             </button>
           )}
+
+          {/* ✅ NEW Exit button */}
+          <button
+            type="button"
+            style={{ ...buttonStyle, backgroundColor: "#6b7280" }}
+            onClick={() => navigate(-1)}
+          >
+            Exit
+          </button>
         </div>
 
         {/* View List Modal */}
@@ -384,90 +375,33 @@ const PaymentModeCreation: React.FC = () => {
                 {allPaymentModes.length})
               </h3>
 
-              <div
-                style={{
-                  maxHeight: "400px",
-                  overflowY: "auto",
-                  border: "1px solid #eee",
-                }}
-              >
-                <table
-                  style={{
-                    width: "100%",
-                    borderCollapse: "collapse",
-                    fontSize: 14,
-                  }}
-                >
+              <div style={{ maxHeight: "400px", overflowY: "auto", border: "1px solid #eee" }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 14 }}>
                   <thead>
                     <tr style={{ background: "#f0f0f0" }}>
-                      <th style={{ border: "1px solid #ccc", padding: "8px" }}>
-                        Bank Name / UPI ID
-                      </th>
-                      <th style={{ border: "1px solid #ccc", padding: "8px" }}>
-                        Account No
-                      </th>
-                      <th style={{ border: "1px solid #ccc", padding: "8px" }}>
-                        Opening Balance
-                      </th>
-                      <th style={{ border: "1px solid #ccc", padding: "8px" }}>
-                        Type
-                      </th>
-                      <th style={{ border: "1px solid #ccc", padding: "8px" }}>
-                        Actions
-                      </th>
+                      <th style={{ border: "1px solid #ccc", padding: "8px" }}>Bank Name / UPI ID</th>
+                      <th style={{ border: "1px solid #ccc", padding: "8px" }}>Account No</th>
+                      <th style={{ border: "1px solid #ccc", padding: "8px" }}>Opening Balance</th>
+                      <th style={{ border: "1px solid #ccc", padding: "8px" }}>Type</th>
+                      <th style={{ border: "1px solid #ccc", padding: "8px" }}>Actions</th>
                     </tr>
                   </thead>
 
                   <tbody>
                     {filteredPaymentModes.map((p) => (
                       <tr key={p.id}>
-                        <td
-                          style={{
-                            border: "1px solid #ccc",
-                            padding: "8px",
-                          }}
-                        >
-                          {p.bankNameOrUpiId}
-                        </td>
-                        <td
-                          style={{
-                            border: "1px solid #ccc",
-                            padding: "8px",
-                          }}
-                        >
-                          {p.accountNo}
-                        </td>
-                        <td
-                          style={{
-                            border: "1px solid #ccc",
-                            padding: "8px",
-                            textAlign: "right",
-                          }}
-                        >
+                        <td style={{ border: "1px solid #ccc", padding: "8px" }}>{p.bankNameOrUpiId}</td>
+                        <td style={{ border: "1px solid #ccc", padding: "8px" }}>{p.accountNo}</td>
+                        <td style={{ border: "1px solid #ccc", padding: "8px", textAlign: "right" }}>
                           {p.openingBalance === "" ? "-" : p.openingBalance}
                         </td>
-                        <td
-                          style={{
-                            border: "1px solid #ccc",
-                            padding: "8px",
-                            textAlign: "center",
-                          }}
-                        >
+                        <td style={{ border: "1px solid #ccc", padding: "8px", textAlign: "center" }}>
                           {p.openingBalanceType || "-"}
                         </td>
-                        <td
-                          style={{
-                            border: "1px solid #ccc",
-                            padding: "8px",
-                          }}
-                        >
+                        <td style={{ border: "1px solid #ccc", padding: "8px" }}>
                           <button
                             type="button"
-                            style={{
-                              ...buttonStyle,
-                              backgroundColor: "green",
-                              marginRight: "5px",
-                            }}
+                            style={{ ...buttonStyle, backgroundColor: "green", marginRight: "5px" }}
                             onClick={() => {
                               handleSelectPaymentMode(p);
                               setShowList(false);
@@ -477,10 +411,7 @@ const PaymentModeCreation: React.FC = () => {
                           </button>
                           <button
                             type="button"
-                            style={{
-                              ...buttonStyle,
-                              backgroundColor: "red",
-                            }}
+                            style={{ ...buttonStyle, backgroundColor: "red" }}
                             onClick={() => handleDelete(p.id)}
                           >
                             Delete
@@ -491,10 +422,7 @@ const PaymentModeCreation: React.FC = () => {
 
                     {filteredPaymentModes.length === 0 && (
                       <tr>
-                        <td
-                          colSpan={5}
-                          style={{ textAlign: "center", padding: 10 }}
-                        >
+                        <td colSpan={5} style={{ textAlign: "center", padding: 10 }}>
                           No matching payment modes found.
                         </td>
                       </tr>
@@ -503,11 +431,7 @@ const PaymentModeCreation: React.FC = () => {
                 </table>
               </div>
 
-              <button
-                type="button"
-                onClick={() => setShowList(false)}
-                style={{ marginTop: 10, padding: 6 }}
-              >
+              <button type="button" onClick={() => setShowList(false)} style={{ marginTop: 10, padding: 6 }}>
                 Close
               </button>
             </div>

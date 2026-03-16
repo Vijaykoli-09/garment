@@ -66,6 +66,11 @@ const ReportsNavigator: React.FC<ReportsNavigatorProps> = ({ onNavigate }) => {
       label: "Account Report",
       path: "/reports/account-report",
     },
+    {
+      key: "paymentMod-report",
+      label: "PaymentMod Report",
+      path: "/reports/paymentmod-report",
+    },
   ];
 
   return (
