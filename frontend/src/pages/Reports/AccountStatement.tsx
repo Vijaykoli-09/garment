@@ -6,7 +6,7 @@ import Dashboard from "../Dashboard";
 import api from "../../api/axiosInstance";
 
 // ================= Config =================
-const OVERDUE_DAYS = 60; // testing: change to 60 later
+const OVERDUE_DAYS = 60;
 
 // ================= Types =================
 interface Party {
@@ -68,21 +68,44 @@ interface PaymentDoc {
   id: number;
   paymentDate: string;
   date?: string;
+
+  // Party payments => partyName set
   partyName: string;
+
+  // Broker payments => brokerName set (if your backend supports)
+  brokerName?: string;
+
+  // Optional: paymentTo from backend
+  paymentTo?: string;
+
   amount: number;
   paymentThrough?: string;
   processName?: string;
+
+  // Optional from backend
+  agentName?: string;
 }
 
 interface ReceiptDoc {
   id: number;
   receiptDate: string;
   date?: string;
+
+  // Party receipts => partyName set
   partyName: string;
+
+  // Broker receipts => brokerName set (saved in DB as agentName in your Receipt module)
   brokerName?: string;
+
+  // IMPORTANT: receiptTo from backend (Party/Broker/Employee/Other)
+  receiptTo?: string;
+
   amount: number;
   paymentThrough?: string;
   processName?: string;
+
+  // Optional from backend
+  agentName?: string;
 }
 
 interface JobOutwardChallanDoc {
@@ -121,7 +144,12 @@ type TxType =
 type BaseTransaction = {
   id: number;
   date: string;
+
+  // For Party docs: partyName filled
+  // For Broker-only docs: partyName may be "", brokerName filled
   partyName: string;
+  brokerName?: string;
+
   orderNo?: string;
   mode?: string;
   debit: number;
@@ -157,7 +185,7 @@ const fmtDateHeader = (iso: string) => {
   if (!isNaN(d.getTime())) {
     return `${String(d.getDate()).padStart(2, "0")}/${String(d.getMonth() + 1).padStart(
       2,
-      "0"
+      "0",
     )}/${d.getFullYear()}`;
   }
   return "Invalid Date";
@@ -311,19 +339,29 @@ const AccountStatement: React.FC = () => {
       setLoading(true);
       setError(null);
       try {
-        const [partyRaw, agentRaw, dcRaw, odcRaw, poRaw, peRaw, prRaw, payRaw, jobOutRaw, jobInRaw] =
-          await Promise.all([
-            safeGet<Party[]>("/party/all"),
-            safeGet<Agent[]>("/agent/list"),
-            safeGet<any[]>("/dispatch-challan"),
-            safeGet<any[]>("/other-dispatch-challan"),
-            safeGet<any[]>("/purchase-orders"),
-            safeGet<any[]>("/purchase-entry"),
-            safeGet<any[]>("/purchase-returns"),
-            safeGet<any[]>("/payment"),
-            safeGet<any[]>("/job-outward-challan"),
-            safeGet<any[]>("/job-inward-challan"),
-          ]);
+        const [
+          partyRaw,
+          agentRaw,
+          dcRaw,
+          odcRaw,
+          poRaw,
+          peRaw,
+          prRaw,
+          payRaw,
+          jobOutRaw,
+          jobInRaw,
+        ] = await Promise.all([
+          safeGet<Party[]>("/party/all"),
+          safeGet<Agent[]>("/agent/list"),
+          safeGet<any[]>("/dispatch-challan"),
+          safeGet<any[]>("/other-dispatch-challan"),
+          safeGet<any[]>("/purchase-orders"),
+          safeGet<any[]>("/purchase-entry"),
+          safeGet<any[]>("/purchase-returns"),
+          safeGet<any[]>("/payment"),
+          safeGet<any[]>("/job-outward-challan"),
+          safeGet<any[]>("/job-inward-challan"),
+        ]);
 
         const recRaw = await safeGetReceipts();
 
@@ -341,9 +379,9 @@ const AccountStatement: React.FC = () => {
             date: dc.date || dc.dated || "",
             dated: dc.dated,
             partyName: dc.partyName || "",
-            brokerName: dc.brokerName || "",
+            brokerName: (dc.brokerName || dc.agentName || "").trim(),
             netAmt: dc.netAmt,
-          }))
+          })),
         );
 
         setOtherDispatchChallans(
@@ -352,9 +390,9 @@ const AccountStatement: React.FC = () => {
             challanNo: String(od.challanNo ?? ""),
             date: od.date || "",
             partyName: od.partyName || "",
-            brokerName: od.brokerName || "",
+            brokerName: (od.brokerName || od.agentName || "").trim(),
             netAmt: od.netAmt,
-          }))
+          })),
         );
 
         setPurchaseOrders(
@@ -368,7 +406,7 @@ const AccountStatement: React.FC = () => {
               partyName: po.partyName || po.party?.partyName || "",
               amount,
             };
-          })
+          }),
         );
 
         setPurchaseEntries(
@@ -382,7 +420,7 @@ const AccountStatement: React.FC = () => {
               partyName: e.partyName || e.party?.partyName || "",
               amount,
             };
-          })
+          }),
         );
 
         setPurchaseReturns(
@@ -396,7 +434,7 @@ const AccountStatement: React.FC = () => {
               partyName: r.partyName || r.party?.partyName || "",
               amount,
             };
-          })
+          }),
         );
 
         setJobOutwards(
@@ -415,7 +453,7 @@ const AccountStatement: React.FC = () => {
                 totalPcs,
               } as JobOutwardChallanDoc;
             })
-            .filter((x) => x.partyName && x.date && x.challanNo)
+            .filter((x) => x.partyName && x.date && x.challanNo),
         );
 
         setJobInwards(
@@ -434,36 +472,63 @@ const AccountStatement: React.FC = () => {
                 amount,
               } as JobInwardChallanDoc;
             })
-            .filter((x) => x.partyName && x.date && x.challanNo)
+            .filter((x) => x.partyName && x.date && x.challanNo),
         );
 
+        // ✅ FIX: include Broker payments too (if present)
         setPayments(
           (Array.isArray(payRaw) ? payRaw : [])
-            .map((p: any) => ({
-              id: p.id,
-              paymentDate: p.paymentDate || p.date || "",
-              date: p.date || "",
-              partyName: p.paymentTo === "Party" ? p.partyName || "" : "",
-              amount: parseFloat(p.amount ?? 0) || 0,
-              paymentThrough: String(p.paymentThrough ?? "").trim(),
-              processName: String(p.processName ?? "").trim(),
-            }))
-            .filter((p) => p.partyName)
+            .map((p: any) => {
+              const paymentTo = String(p.paymentTo ?? p.payment_to ?? "").trim(); // tolerant
+              const partyName = paymentTo === "Party" ? String(p.partyName ?? "").trim() : "";
+              const brokerName =
+                paymentTo === "Broker"
+                  ? String(p.agentName ?? p.brokerName ?? "").trim()
+                  : "";
+
+              return {
+                id: p.id,
+                paymentDate: p.paymentDate || p.date || "",
+                date: p.date || "",
+                paymentTo: paymentTo || "",
+                partyName,
+                brokerName,
+                agentName: String(p.agentName ?? "").trim(),
+                amount: parseFloat(p.amount ?? 0) || 0,
+                paymentThrough: String(p.paymentThrough ?? "").trim(),
+                processName: String(p.processName ?? "").trim(),
+              } as PaymentDoc;
+            })
+            // ✅ keep Party payments OR Broker payments
+            .filter((p) => p.partyName || p.brokerName),
         );
 
+        // ✅ FIX: include Broker receipts too (receiptTo=Broker)
         setReceipts(
           (Array.isArray(recRaw) ? recRaw : [])
-            .map((r: any) => ({
-              id: r.id,
-              receiptDate: r.receiptDate || r.date || "",
-              date: r.date || "",
-              partyName: r.receiptTo === "Party" ? r.partyName || "" : "",
-              brokerName: r.agentName || r.brokerName || "",
-              amount: parseFloat(r.amount ?? 0) || 0,
-              paymentThrough: String(r.paymentThrough ?? "").trim(),
-              processName: String(r.processName ?? "").trim(),
-            }))
-            .filter((r) => r.partyName)
+            .map((r: any) => {
+              const receiptTo = String(r.receiptTo ?? r.paymentTo ?? "").trim();
+              const partyName = receiptTo === "Party" ? String(r.partyName ?? "").trim() : "";
+              const brokerName =
+                receiptTo === "Broker"
+                  ? String(r.agentName ?? r.brokerName ?? "").trim()
+                  : String(r.agentName ?? r.brokerName ?? "").trim(); // party receipt also may carry agentName
+
+              return {
+                id: r.id,
+                receiptTo,
+                receiptDate: r.receiptDate || r.paymentDate || r.date || "",
+                date: r.date || "",
+                partyName,
+                brokerName,
+                agentName: String(r.agentName ?? "").trim(),
+                amount: parseFloat(r.amount ?? 0) || 0,
+                paymentThrough: String(r.paymentThrough ?? "").trim(),
+                processName: String(r.processName ?? "").trim(),
+              } as ReceiptDoc;
+            })
+            // ✅ keep Party receipts OR Broker receipts
+            .filter((r) => r.partyName || r.brokerName),
         );
       } catch (e: any) {
         setError(e?.message || "Failed to load data");
@@ -492,7 +557,7 @@ const AccountStatement: React.FC = () => {
         : "";
       return (masterAgentName || p?.agent?.agentName || "").trim();
     },
-    [partyByName, agents]
+    [partyByName, agents],
   );
 
   const getBrokerNameForDoc = useCallback(
@@ -501,7 +566,7 @@ const AccountStatement: React.FC = () => {
       if (direct) return direct;
       return getBrokerFromPartyName(doc.partyName);
     },
-    [getBrokerFromPartyName]
+    [getBrokerFromPartyName],
   );
 
   // Payment => DEBIT, Receipt => CREDIT, JobInward => CREDIT, JobOutward => 0, Others => DEBIT
@@ -534,13 +599,23 @@ const AccountStatement: React.FC = () => {
     purchaseReturns.forEach((d) => add(getBrokerFromPartyName(d.partyName), d.partyName));
     jobOutwards.forEach((d) => add(getBrokerFromPartyName(d.partyName), d.partyName));
     jobInwards.forEach((d) => add(getBrokerFromPartyName(d.partyName), d.partyName));
-    payments.forEach((d) => add(getBrokerFromPartyName(d.partyName), d.partyName));
-    receipts.forEach((d) => add(getBrokerFromPartyName(d.partyName), d.partyName));
+
+    // ✅ FIX: Payments may be broker-only
+    payments.forEach((d) => {
+      const b = d.brokerName || (d.partyName ? getBrokerFromPartyName(d.partyName) : "");
+      add(b, d.partyName || "");
+    });
+
+    // ✅ FIX: Receipts may be broker-only (receiptTo=Broker)
+    receipts.forEach((d) => {
+      const b = d.brokerName || (d.partyName ? getBrokerFromPartyName(d.partyName) : "");
+      add(b, d.partyName || "");
+    });
 
     const arr = Array.from(map.values()).map((x) => ({
       name: x.name,
       parties: Array.from(x.parties).sort((a, b) =>
-        a.localeCompare(b, undefined, { sensitivity: "base" })
+        a.localeCompare(b, undefined, { sensitivity: "base" }),
       ),
     }));
     arr.sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
@@ -566,7 +641,7 @@ const AccountStatement: React.FC = () => {
     parties.forEach((p) => p.agent?.agentName && set.add(p.agent.agentName.trim()));
     brokerInfos.forEach((b) => b.name && set.add(b.name.trim()));
     return Array.from(set).sort((a, b) =>
-      a.localeCompare(b, undefined, { sensitivity: "base" })
+      a.localeCompare(b, undefined, { sensitivity: "base" }),
     );
   }, [agents, parties, brokerInfos]);
 
@@ -574,7 +649,7 @@ const AccountStatement: React.FC = () => {
     const set = new Set<string>();
     parties.forEach((p) => p.partyName && set.add(p.partyName.trim()));
     return Array.from(set).sort((a, b) =>
-      a.localeCompare(b, undefined, { sensitivity: "base" })
+      a.localeCompare(b, undefined, { sensitivity: "base" }),
     );
   }, [parties]);
 
@@ -668,24 +743,29 @@ const AccountStatement: React.FC = () => {
         id: number;
         date: string;
         number: string;
+
         partyName: string;
+        brokerName: string;
+
         amount: number;
         mode?: string;
       };
 
       const docs: Doc[] = [];
 
-      // ✅ FIX: NO DEDUP between Payment and Receipt
+      // Dispatch
       dispatchChallans.forEach((dc) => {
         const bName = getBrokerNameForDoc(dc);
         if (!brokerOk(bName)) return;
         if (!partyOk(dc.partyName)) return;
+
         docs.push({
           source: "Dispatch",
           id: dc.id,
           date: (dc.date || dc.dated || "") || fromDate,
           number: dc.challanNo,
           partyName: dc.partyName,
+          brokerName: bName,
           amount: toNum(dc.netAmt),
         });
       });
@@ -694,12 +774,14 @@ const AccountStatement: React.FC = () => {
         const bName = getBrokerNameForDoc(od);
         if (!brokerOk(bName)) return;
         if (!partyOk(od.partyName)) return;
+
         docs.push({
           source: "OtherDispatch",
           id: od.id,
           date: od.date || fromDate,
           number: od.challanNo,
           partyName: od.partyName,
+          brokerName: bName,
           amount: toNum(od.netAmt),
         });
       });
@@ -708,12 +790,14 @@ const AccountStatement: React.FC = () => {
         const bName = getBrokerFromPartyName(po.partyName);
         if (!brokerOk(bName)) return;
         if (!partyOk(po.partyName)) return;
+
         docs.push({
           source: "PurchaseOrder",
           id: po.id,
           date: po.date || fromDate,
           number: po.orderNo,
           partyName: po.partyName,
+          brokerName: bName,
           amount: toNum(po.amount),
         });
       });
@@ -722,12 +806,14 @@ const AccountStatement: React.FC = () => {
         const bName = getBrokerFromPartyName(pe.partyName);
         if (!brokerOk(bName)) return;
         if (!partyOk(pe.partyName)) return;
+
         docs.push({
           source: "PurchaseEntry",
           id: pe.id,
           date: pe.date || fromDate,
           number: pe.challanNo,
           partyName: pe.partyName,
+          brokerName: bName,
           amount: toNum(pe.amount),
         });
       });
@@ -736,12 +822,14 @@ const AccountStatement: React.FC = () => {
         const bName = getBrokerFromPartyName(pr.partyName);
         if (!brokerOk(bName)) return;
         if (!partyOk(pr.partyName)) return;
+
         docs.push({
           source: "PurchaseReturn",
           id: pr.id,
           date: pr.date || fromDate,
           number: pr.challanNo,
           partyName: pr.partyName,
+          brokerName: bName,
           amount: toNum(pr.amount),
         });
       });
@@ -750,12 +838,14 @@ const AccountStatement: React.FC = () => {
         const bName = getBrokerFromPartyName(j.partyName);
         if (!brokerOk(bName)) return;
         if (!partyOk(j.partyName)) return;
+
         docs.push({
           source: "JobOutward",
           id: typeof j.id === "number" ? j.id : hashToInt(String(j.id)),
           date: j.date || fromDate,
           number: j.challanNo,
           partyName: j.partyName,
+          brokerName: bName,
           amount: 0,
           mode: j.totalPcs ? `Pcs: ${j.totalPcs}` : "",
         });
@@ -765,44 +855,63 @@ const AccountStatement: React.FC = () => {
         const bName = getBrokerFromPartyName(j.partyName);
         if (!brokerOk(bName)) return;
         if (!partyOk(j.partyName)) return;
+
         docs.push({
           source: "JobInward",
           id: typeof j.id === "number" ? j.id : hashToInt(String(j.id)),
           date: j.date || fromDate,
           number: j.challanNo,
           partyName: j.partyName,
+          brokerName: bName,
           amount: toNum(j.amount),
         });
       });
 
+      // ✅ Payments: include party payments + broker payments
       payments.forEach((p) => {
-        const bName = getBrokerFromPartyName(p.partyName);
+        const bName =
+          (p.brokerName || "").trim() ||
+          (p.partyName ? getBrokerFromPartyName(p.partyName) : "");
+
         if (!brokerOk(bName)) return;
-        if (!partyOk(p.partyName)) return;
+
+        // party filter applied only if payment has partyName
+        if (targetParty && !partyOk(p.partyName)) return;
+        if (targetParty && !p.partyName) return;
 
         const rawDate = p.paymentDate || p.date || fromDate;
+
         docs.push({
           source: "Payment",
           id: p.id,
           date: rawDate,
           number: `PAY-${p.id}`,
-          partyName: p.partyName,
+          partyName: p.partyName || "",
+          brokerName: bName,
           amount: toNum(p.amount),
           mode: p.paymentThrough || "",
         });
       });
 
+      // ✅ Receipts: include party receipts + broker receipts (receiptTo=Broker)
       receipts.forEach((r) => {
-        const bName = getBrokerFromPartyName(r.partyName);
+        const bName =
+          (r.brokerName || "").trim() ||
+          (r.partyName ? getBrokerFromPartyName(r.partyName) : "");
+
         if (!brokerOk(bName)) return;
-        if (!partyOk(r.partyName)) return;
+
+        // party filter applied only if receipt has partyName
+        if (targetParty && !partyOk(r.partyName)) return;
+        if (targetParty && !r.partyName) return;
 
         docs.push({
           source: "Receipt",
           id: r.id,
           date: r.receiptDate || fromDate,
           number: `REC-${r.id}`,
-          partyName: r.partyName,
+          partyName: r.partyName || "",
+          brokerName: bName,
           amount: toNum(r.amount),
           mode: r.paymentThrough || "",
         });
@@ -818,10 +927,12 @@ const AccountStatement: React.FC = () => {
           const { debit, credit } = getDrCr(d.source, d.amount);
           openingBal += debit - credit;
         }
+
         baseRows.push({
           id: -1,
           date: fromDate,
           partyName: "Opening Balance",
+          brokerName: effectiveBroker || "",
           orderNo: "",
           mode: "",
           debit: openingBal > 0 ? openingBal : 0,
@@ -851,6 +962,7 @@ const AccountStatement: React.FC = () => {
           id: d.id,
           date: d.date,
           partyName: d.partyName,
+          brokerName: d.brokerName,
           orderNo: d.number,
           mode: d.mode || "",
           debit,
@@ -917,20 +1029,28 @@ const AccountStatement: React.FC = () => {
     });
   }, [sortedRowsAll, toDate]);
 
-  // ---------- Overdue for ALL rows ----------
+  // ---------- Overdue ----------
   const overdueRowsAll: OverdueAlertRow[] = useMemo(() => {
     const list = rowsWithDays
       .filter((r) => r.type !== "Opening" && r.days >= OVERDUE_DAYS)
-      .map((r) => ({
-        partyName: r.partyName || "",
-        brokerName: getBrokerFromPartyName(r.partyName || "") || "-",
-        docNo: r.orderNo || "-",
-        txType: typeLabel(r.type),
-        date: r.date,
-        days: r.days,
-        debit: r.debit || 0,
-        credit: r.credit || 0,
-      }));
+      .map((r) => {
+        const b =
+          (r.brokerName || "").trim() ||
+          (r.partyName ? getBrokerFromPartyName(r.partyName) : "") ||
+          "-";
+
+        return {
+          partyName: r.partyName || "-",
+          brokerName: b,
+          docNo: r.orderNo || "-",
+          txType: typeLabel(r.type),
+          date: r.date,
+          days: r.days,
+          debit: r.debit || 0,
+          credit: r.credit || 0,
+        };
+      });
+
     list.sort((a, b) => b.days - a.days);
     return list;
   }, [rowsWithDays, getBrokerFromPartyName]);
@@ -971,7 +1091,7 @@ const AccountStatement: React.FC = () => {
                   <td>${fmtDateHeader(x.date)}</td>
                   <td style="text-align:right; font-weight:700; color:#b91c1c;">${x.days}</td>
                 </tr>
-              `
+              `,
               )
               .join("")}
           </tbody>
@@ -994,8 +1114,14 @@ const AccountStatement: React.FC = () => {
   }, [rowsWithDays, transactionFilter]);
 
   // ---------- Totals ----------
-  const totalDebit = useMemo(() => transactions.reduce((s, t) => s + (t.debit || 0), 0), [transactions]);
-  const totalCredit = useMemo(() => transactions.reduce((s, t) => s + (t.credit || 0), 0), [transactions]);
+  const totalDebit = useMemo(
+    () => transactions.reduce((s, t) => s + (t.debit || 0), 0),
+    [transactions],
+  );
+  const totalCredit = useMemo(
+    () => transactions.reduce((s, t) => s + (t.credit || 0), 0),
+    [transactions],
+  );
 
   const openingBalance = useMemo(() => {
     const op = transactions.find((t) => t.type === "Opening");
@@ -1010,10 +1136,10 @@ const AccountStatement: React.FC = () => {
 
   const totals = useMemo(
     () => ({ rows: filteredRows.length, debit: totalDebit, credit: totalCredit }),
-    [filteredRows.length, totalDebit, totalCredit]
+    [filteredRows.length, totalDebit, totalCredit],
   );
 
-  // ✅ PRINT (SAFE string building)
+  // ✅ PRINT
   const handlePrintReport = () => {
     if (typeof window === "undefined" || typeof document === "undefined") return;
     if (!filteredRows.length) {
@@ -1021,7 +1147,9 @@ const AccountStatement: React.FC = () => {
       return;
     }
 
-    const partyLine = selectedParty ? ` &nbsp; | &nbsp; <strong>Party:</strong> ${selectedParty}` : "";
+    const partyLine = selectedParty
+      ? ` &nbsp; | &nbsp; <strong>Party:</strong> ${selectedParty}`
+      : "";
 
     const rowsHtml = filteredRows
       .map((r) => {
@@ -1029,16 +1157,18 @@ const AccountStatement: React.FC = () => {
         const cls = overdue
           ? "row-overdue"
           : r.type === "Payment"
-          ? "row-payment"
-          : r.type === "Receipt"
-          ? "row-receipt"
-          : "";
+            ? "row-payment"
+            : r.type === "Receipt"
+              ? "row-receipt"
+              : "";
+
+        const partyCell = r.partyName || (r.brokerName ? `Broker: ${r.brokerName}` : "");
 
         return `
           <tr class="${cls}">
             <td>${r.srNo}</td>
             <td>${fmtDateHeader(r.date)}</td>
-            <td>${r.partyName || ""}</td>
+            <td>${partyCell}</td>
             <td>${r.orderNo || ""}</td>
             <td>${r.mode || ""}</td>
             <td class="text-right">${fmtNumber(r.debit)}</td>
@@ -1065,7 +1195,6 @@ const AccountStatement: React.FC = () => {
       th { background: #eee; }
       .text-right { text-align: right; }
       .totals { margin-top: 12px; font-weight: bold; font-size: 12px; }
-
       .row-payment { background: #dcfce7; }
       .row-receipt { background: #dbeafe; }
       .row-overdue { background: #fee2e2; }
@@ -1094,7 +1223,7 @@ const AccountStatement: React.FC = () => {
         <tr>
           <th>S No</th>
           <th>Date</th>
-          <th>Party</th>
+          <th>Party/Broker</th>
           <th>Doc No</th>
           <th>Mode</th>
           <th class="text-right">Debit</th>
@@ -1334,7 +1463,10 @@ const AccountStatement: React.FC = () => {
         {/* Modal */}
         {showModal && (
           <div className="fixed inset-0 z-50 flex items-start justify-center pt-8">
-            <div className="absolute inset-0 bg-black opacity-30" onClick={() => setShowModal(false)} />
+            <div
+              className="absolute inset-0 bg-black opacity-30"
+              onClick={() => setShowModal(false)}
+            />
             <div
               className={`relative bg-white rounded shadow overflow-hidden ${
                 fullScreen ? "w-full h-full m-0" : "w-[95%] lg:w-[90%] m-4"
@@ -1356,8 +1488,8 @@ const AccountStatement: React.FC = () => {
                   </div>
 
                   <div className="text-xs text-gray-600 mt-1">
-                    Rows (Filtered): {totals.rows} | Debit (All): {fmtNumber(totalDebit)} | Credit (All):{" "}
-                    {fmtNumber(totalCredit)}
+                    Rows (Filtered): {totals.rows} | Debit (All): {fmtNumber(totalDebit)} | Credit
+                    (All): {fmtNumber(totalCredit)}
                   </div>
 
                   {transactions.length > 0 && (
@@ -1426,7 +1558,7 @@ const AccountStatement: React.FC = () => {
                       <tr>
                         <th className="px-2 py-1 border">S No</th>
                         <th className="px-2 py-1 border">Date</th>
-                        <th className="px-2 py-1 border">Party</th>
+                        <th className="px-2 py-1 border">Party/Broker</th>
                         <th className="px-2 py-1 border">Doc No</th>
                         <th className="px-2 py-1 border">Mode</th>
                         <th className="px-2 py-1 border text-right">Debit</th>
@@ -1444,25 +1576,32 @@ const AccountStatement: React.FC = () => {
                         const rowClass = overdue
                           ? "bg-red-100"
                           : r.type === "Payment"
-                          ? "bg-green-100"
-                          : r.type === "Receipt"
-                          ? "bg-blue-100"
-                          : r.srNo % 2 === 0
-                          ? "bg-white"
-                          : "bg-gray-50";
+                            ? "bg-green-100"
+                            : r.type === "Receipt"
+                              ? "bg-blue-100"
+                              : r.srNo % 2 === 0
+                                ? "bg-white"
+                                : "bg-gray-50";
+
+                        const partyCell =
+                          r.partyName || (r.brokerName ? `Broker: ${r.brokerName}` : "");
 
                         return (
                           <tr key={`${r.type}-${r.id}-${r.srNo}`} className={rowClass}>
                             <td className="px-2 py-1 border">{r.srNo}</td>
                             <td className="px-2 py-1 border">{fmtDateHeader(r.date)}</td>
-                            <td className="px-2 py-1 border">{r.partyName}</td>
+                            <td className="px-2 py-1 border">{partyCell}</td>
                             <td className="px-2 py-1 border">{r.orderNo}</td>
                             <td className="px-2 py-1 border">{r.mode || ""}</td>
                             <td className="px-2 py-1 border text-right">{fmtNumber(r.debit)}</td>
                             <td className="px-2 py-1 border text-right">{fmtNumber(r.credit)}</td>
                             <td className="px-2 py-1 border text-right">{fmtNumber(r.balance)}</td>
                             <td className="px-2 py-1 border">{typeLabel(r.type)}</td>
-                            <td className={`px-2 py-1 border text-right ${overdue ? "text-red-700 font-bold" : ""}`}>
+                            <td
+                              className={`px-2 py-1 border text-right ${
+                                overdue ? "text-red-700 font-bold" : ""
+                              }`}
+                            >
                               {r.days}
                             </td>
                           </tr>
@@ -1498,9 +1637,13 @@ const AccountStatement: React.FC = () => {
                                     <div className="text-sm font-semibold">Balance Summary</div>
                                     <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
                                       <div className="text-gray-700">Opening Balance:</div>
-                                      <div className="text-right text-gray-900">{fmtNumber(openingBalance)}</div>
+                                      <div className="text-right text-gray-900">
+                                        {fmtNumber(openingBalance)}
+                                      </div>
                                       <div className="text-gray-700">Closing Balance:</div>
-                                      <div className="text-right text-gray-900">{fmtNumber(closingBalance)}</div>
+                                      <div className="text-right text-gray-900">
+                                        {fmtNumber(closingBalance)}
+                                      </div>
                                     </div>
                                   </div>
 
@@ -1512,7 +1655,9 @@ const AccountStatement: React.FC = () => {
                                   </div>
                                 </div>
 
-                                <div className="mt-3 text-xs text-gray-600">Red row = {OVERDUE_DAYS}+ days.</div>
+                                <div className="mt-3 text-xs text-gray-600">
+                                  Red row = {OVERDUE_DAYS}+ days.
+                                </div>
                               </div>
                             </div>
                           </td>
