@@ -9,7 +9,7 @@ interface PaymentModeMaster {
   id?: number;
   bankNameOrUpiId: string;
   accountNo: string;
-  openingBalance?: number | string; // master opening
+  openingBalance?: number | string;
 }
 
 interface PaymentDoc {
@@ -19,6 +19,7 @@ interface PaymentDoc {
   paymentTo?: string;
   partyName?: string;
   employeeName?: string;
+  agentName?: string; // ✅ NEW (for Broker payments if any)
   remarks?: string;
   amount?: number | string;
   paymentThrough?: string;
@@ -31,6 +32,7 @@ interface ReceiptDoc {
   receiptTo?: string;
   partyName?: string;
   employeeName?: string;
+  agentName?: string; // ✅ NEW (Broker name for receiptTo=Broker)
   remarks?: string;
   amount?: number | string;
   paymentThrough?: string;
@@ -42,7 +44,7 @@ type TxFilter = "all" | TxType;
 type BaseTransaction = {
   id: number;
   date: string;
-  name: string; // party/employee
+  name: string;
   remarks?: string;
   amount: number;
   type: TxType;
@@ -50,7 +52,7 @@ type BaseTransaction = {
 
 type DisplayRow = BaseTransaction & {
   srNo: number;
-  balance: number; // running balance (master opening se start)
+  balance: number;
 };
 
 // ================= Utils =================
@@ -93,8 +95,7 @@ const escapeHtml = (s: any) =>
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;");
 
-// same date ordering
-const typeRank = (t: TxType) => (t === "Payment" ? 1 : 2); // Payment first, then Receipt
+const typeRank = (t: TxType) => (t === "Payment" ? 1 : 2);
 
 // ================= Component =================
 const PaymentModeRemainingReport: React.FC = () => {
@@ -106,22 +107,22 @@ const PaymentModeRemainingReport: React.FC = () => {
   const [reportPreparing, setReportPreparing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // combo
   const [comboInput, setComboInput] = useState("");
   const [comboQuery, setComboQuery] = useState("");
   const [comboOpen, setComboOpen] = useState(false);
 
   const [selectedMode, setSelectedMode] = useState<string>("");
 
-  // report state
-  const [openingBalance, setOpeningBalance] = useState<number>(0); // ONLY master opening
+  const today = getTodayIso();
+  const [fromDate, setFromDate] = useState<string>("");
+  const [toDate, setToDate] = useState<string>("");
+
+  const [openingBalance, setOpeningBalance] = useState<number>(0);
   const [tx, setTx] = useState<BaseTransaction[]>([]);
   const [transactionFilter, setTransactionFilter] = useState<TxFilter>("all");
 
   const [showModal, setShowModal] = useState(false);
   const [fullScreen, setFullScreen] = useState(false);
-
-  const asOnDate = getTodayIso();
 
   // ---------- Load ----------
   useEffect(() => {
@@ -175,6 +176,7 @@ const PaymentModeRemainingReport: React.FC = () => {
             paymentTo: p.paymentTo || "",
             partyName: p.partyName || "",
             employeeName: p.employeeName || "",
+            agentName: p.agentName || "", // ✅
             remarks: p.remarks || "",
             amount: p.amount ?? 0,
             paymentThrough: String(p.paymentThrough ?? "").trim(),
@@ -189,6 +191,7 @@ const PaymentModeRemainingReport: React.FC = () => {
             receiptTo: r.receiptTo || "",
             partyName: r.partyName || "",
             employeeName: r.employeeName || "",
+            agentName: r.agentName || r.brokerName || "", // ✅ IMPORTANT
             remarks: r.remarks || "",
             amount: r.amount ?? 0,
             paymentThrough: String(r.paymentThrough ?? "").trim(),
@@ -229,11 +232,13 @@ const PaymentModeRemainingReport: React.FC = () => {
     setComboOpen(false);
   };
 
-  // ---------- Build report (NO date filter inputs, only "as on today") ----------
+  const effectiveToUI = useMemo(() => (toDate?.trim() ? toDate.trim() : today), [toDate, today]);
+  const effectiveFromUI = useMemo(() => (fromDate?.trim() ? fromDate.trim() : ""), [fromDate]);
+
+  // ---------- Build report ----------
   const handleShow = async () => {
     let effectiveMode = selectedMode;
 
-    // typed exact but not clicked
     if (!effectiveMode && comboInput.trim()) {
       const exact = modeOptions.find((m) => norm(m) === norm(comboInput));
       if (exact) effectiveMode = exact;
@@ -244,61 +249,76 @@ const PaymentModeRemainingReport: React.FC = () => {
       return;
     }
 
+    const effectiveTo = toDate?.trim() ? toDate.trim() : today;
+    let effectiveFrom = fromDate?.trim() ? fromDate.trim() : "";
+
+    if (effectiveFrom && effectiveFrom > effectiveTo) {
+      effectiveFrom = effectiveTo;
+      setFromDate(effectiveFrom);
+    }
+
     setReportPreparing(true);
     setError(null);
     setTransactionFilter("all");
 
     try {
-      // ONLY master opening
       const pmMaster = paymentModes.find(
         (pm) => norm(`${pm.bankNameOrUpiId}-${pm.accountNo}`) === norm(effectiveMode),
       );
-      const masterOpening = pmMaster ? toNum(pmMaster.openingBalance) : 0;
-      setOpeningBalance(masterOpening);
+      const baseOpening = pmMaster ? toNum(pmMaster.openingBalance) : 0;
 
-      const todayEnd = endOfDayTime(asOnDate);
+      const toEnd = endOfDayTime(effectiveTo);
 
       const pList = payments.filter((p) => norm(p.paymentThrough) === norm(effectiveMode));
       const rList = receipts.filter((r) => norm(r.paymentThrough) === norm(effectiveMode));
 
-      const rows: BaseTransaction[] = [];
+      const allRows: BaseTransaction[] = [];
 
-      // ✅ Payment = DR
+      // Payment = CR (name also supports Broker)
       pList.forEach((p) => {
-        const d = (p.paymentDate || p.date || "") || asOnDate;
-        const tt = toTime(d);
-        if (tt > todayEnd) return; // only up to current date
+        const d = (p.paymentDate || p.date || "") || effectiveTo;
+        if (toTime(d) > toEnd) return;
 
-        const name = (p.paymentTo === "Employee" ? p.employeeName : p.partyName) || "-";
-        rows.push({
+        const name =
+          p.paymentTo === "Employee"
+            ? p.employeeName
+            : p.paymentTo === "Broker"
+              ? p.agentName
+              : p.partyName;
+
+        allRows.push({
           id: p.id,
           date: d,
-          name,
+          name: (name || "-").trim(),
           remarks: p.remarks || "",
           amount: toNum(p.amount),
           type: "Payment",
         });
       });
 
-      // ✅ Receipt = CR
+      // ✅ Receipt = DR (FIXED: Broker name)
       rList.forEach((r) => {
-        const d = (r.receiptDate || r.date || "") || asOnDate;
-        const tt = toTime(d);
-        if (tt > todayEnd) return; // only up to current date
+        const d = (r.receiptDate || r.date || "") || effectiveTo;
+        if (toTime(d) > toEnd) return;
 
-        const name = (r.receiptTo === "Employee" ? r.employeeName : r.partyName) || "-";
-        rows.push({
+        const name =
+          r.receiptTo === "Employee"
+            ? r.employeeName
+            : r.receiptTo === "Broker"
+              ? r.agentName
+              : r.partyName;
+
+        allRows.push({
           id: r.id,
           date: d,
-          name,
+          name: (name || "-").trim(),
           remarks: r.remarks || "",
           amount: toNum(r.amount),
           type: "Receipt",
         });
       });
 
-      // sort (same date -> Payment first -> Receipt)
-      rows.sort((a, b) => {
+      allRows.sort((a, b) => {
         const dc = toTime(a.date) - toTime(b.date);
         if (dc !== 0) return dc;
         const tr = typeRank(a.type) - typeRank(b.type);
@@ -308,8 +328,34 @@ const PaymentModeRemainingReport: React.FC = () => {
         return (a.id || 0) - (b.id || 0);
       });
 
+      // Opening = baseOpening + Receipts(before From) - Payments(before From)
+      let finalOpening = baseOpening;
+      if (effectiveFrom) {
+        const fromT = toTime(effectiveFrom);
+        const beforeFrom = allRows.filter((x) => toTime(x.date) < fromT);
+
+        const receiptsBefore = beforeFrom
+          .filter((x) => x.type === "Receipt")
+          .reduce((s, x) => s + toNum(x.amount), 0);
+
+        const paymentsBefore = beforeFrom
+          .filter((x) => x.type === "Payment")
+          .reduce((s, x) => s + toNum(x.amount), 0);
+
+        finalOpening = baseOpening + receiptsBefore - paymentsBefore;
+      }
+
+      setOpeningBalance(finalOpening);
+
+      const periodRows = effectiveFrom
+        ? allRows.filter((x) => {
+            const t = toTime(x.date);
+            return t >= toTime(effectiveFrom) && t <= toEnd;
+          })
+        : allRows;
+
       setSelectedMode(effectiveMode);
-      setTx(rows);
+      setTx(periodRows);
       setShowModal(true);
     } catch (e: any) {
       console.error(e);
@@ -319,51 +365,47 @@ const PaymentModeRemainingReport: React.FC = () => {
     }
   };
 
-  // ---------- Running balance from MASTER opening ----------
-  // ✅ Payment = DR (+), Receipt = CR (-)
+  // Totals
+  const totalReceiptDr = useMemo(
+    () => tx.filter((x) => x.type === "Receipt").reduce((s, x) => s + (x.amount || 0), 0),
+    [tx],
+  );
+  const totalPaymentCr = useMemo(
+    () => tx.filter((x) => x.type === "Payment").reduce((s, x) => s + (x.amount || 0), 0),
+    [tx],
+  );
+
+  // Running balance
   const rowsAllWithBalance: DisplayRow[] = useMemo(() => {
     let rb = openingBalance;
     let sr = 1;
 
     return tx.map((r) => {
-      if (r.type === "Payment") rb += r.amount; // DR add
-      else rb -= r.amount; // Receipt = CR subtract
-
+      if (r.type === "Receipt") rb += r.amount;
+      else rb -= r.amount;
       return { ...r, srNo: sr++, balance: rb };
     });
   }, [tx, openingBalance]);
+
+  const closingBalance = useMemo(() => {
+    if (!rowsAllWithBalance.length) return openingBalance;
+    return rowsAllWithBalance[rowsAllWithBalance.length - 1].balance;
+  }, [rowsAllWithBalance, openingBalance]);
 
   const filteredRows: DisplayRow[] = useMemo(() => {
     if (transactionFilter === "all") return rowsAllWithBalance;
     return rowsAllWithBalance.filter((r) => r.type === transactionFilter);
   }, [rowsAllWithBalance, transactionFilter]);
 
-  // ---------- Totals & Remaining ----------
-  const totalPaymentDr = useMemo(
-    () => tx.filter((x) => x.type === "Payment").reduce((s, x) => s + (x.amount || 0), 0),
-    [tx],
-  );
-  const totalReceiptCr = useMemo(
-    () => tx.filter((x) => x.type === "Receipt").reduce((s, x) => s + (x.amount || 0), 0),
-    [tx],
-  );
-
-  // ✅ Remaining = Opening + DR - CR
-  const remainingBalance = useMemo(
-    () => openingBalance + totalPaymentDr - totalReceiptCr,
-    [openingBalance, totalPaymentDr, totalReceiptCr],
-  );
-
-  const totals = useMemo(
-    () => ({ rows: filteredRows.length }),
-    [filteredRows.length],
-  );
+  const totals = useMemo(() => ({ rows: filteredRows.length }), [filteredRows.length]);
 
   const resetAll = () => {
     setSelectedMode("");
     setComboInput("");
     setComboQuery("");
     setComboOpen(false);
+    setFromDate("");
+    setToDate("");
     setOpeningBalance(0);
     setTx([]);
     setTransactionFilter("all");
@@ -371,15 +413,15 @@ const PaymentModeRemainingReport: React.FC = () => {
     setFullScreen(false);
   };
 
-  // ---------- Print ----------
+  // Print (unchanged)
   const handlePrintReport = () => {
     if (typeof window === "undefined" || typeof document === "undefined") return;
 
     const htmlRows = filteredRows
       .map((r) => {
-        const cls = r.type === "Payment" ? "row-dr" : "row-cr";
-        const dr = r.type === "Payment" ? r.amount : 0;
-        const cr = r.type === "Receipt" ? r.amount : 0;
+        const cls = r.type === "Receipt" ? "row-dr" : "row-cr";
+        const dr = r.type === "Receipt" ? r.amount : 0;
+        const cr = r.type === "Payment" ? r.amount : 0;
 
         return `<tr class="${cls}">
           <td>${r.srNo}</td>
@@ -389,7 +431,7 @@ const PaymentModeRemainingReport: React.FC = () => {
           <td class="text-right">${fmtNumber(dr)}</td>
           <td class="text-right">${fmtNumber(cr)}</td>
           <td class="text-right">${fmtNumber(r.balance)}</td>
-          <td>${r.type === "Payment" ? "Payment (Dr)" : "Receipt (Cr)"}</td>
+          <td>${r.type === "Receipt" ? "Receipt (Dr)" : "Payment (Cr)"}</td>
         </tr>`;
       })
       .join("");
@@ -407,8 +449,8 @@ const PaymentModeRemainingReport: React.FC = () => {
   th, td { border: 1px solid #444; padding: 6px; text-align: left; }
   th { background: #eee; }
   .text-right { text-align: right; }
-  .row-dr { background: #dcfce7; } /* Payment (Dr) */
-  .row-cr { background: #dbeafe; } /* Receipt (Cr) */
+  .row-dr { background: #dbeafe; }
+  .row-cr { background: #dcfce7; }
   .box { border: 1px solid #333; padding: 10px; margin-top: 10px; }
 </style>
 </head>
@@ -417,14 +459,15 @@ const PaymentModeRemainingReport: React.FC = () => {
 
 <div class="info">
   <div><strong>Mode:</strong> ${escapeHtml(selectedMode)}</div>
-  <div><strong>As On:</strong> ${fmtDateHeader(asOnDate)}</div>
+  <div><strong>From:</strong> ${effectiveFromUI ? fmtDateHeader(effectiveFromUI) : "Beginning"} &nbsp;
+       <strong>To:</strong> ${fmtDateHeader(effectiveToUI)}</div>
 </div>
 
 <div class="box">
-  <div><strong>Opening Balance (Master):</strong> ${fmtNumber(openingBalance)}</div>
-  <div><strong>Total Payment (Dr):</strong> ${fmtNumber(totalPaymentDr)}</div>
-  <div><strong>Total Receipt (Cr):</strong> ${fmtNumber(totalReceiptCr)}</div>
-  <div><strong>Remaining Balance:</strong> ${fmtNumber(remainingBalance)}</div>
+  <div><strong>Opening Balance:</strong> ${fmtNumber(openingBalance)}</div>
+  <div><strong>Total Receipt (Dr +):</strong> ${fmtNumber(totalReceiptDr)}</div>
+  <div><strong>Total Payment (Cr -):</strong> ${fmtNumber(totalPaymentCr)}</div>
+  <div><strong>Closing Balance:</strong> ${fmtNumber(closingBalance)}</div>
 </div>
 
 <table style="margin-top:12px;">
@@ -434,8 +477,8 @@ const PaymentModeRemainingReport: React.FC = () => {
   <th>Date</th>
   <th>Name</th>
   <th>Remarks</th>
-  <th class="text-right">Dr (Payment +)</th>
-  <th class="text-right">Cr (Receipt -)</th>
+  <th class="text-right">Dr (Receipt +)</th>
+  <th class="text-right">Cr (Payment -)</th>
   <th class="text-right">Balance</th>
   <th>Type</th>
 </tr>
@@ -485,7 +528,6 @@ ${htmlRows || `<tr><td colspan="8" style="text-align:center;">No data</td></tr>`
           )}
 
           <div className="grid grid-cols-12 gap-3 items-end">
-            {/* Combo mode */}
             <div className="col-span-5">
               <label className="block text-sm mb-1">Payment Mode</label>
 
@@ -523,25 +565,35 @@ ${htmlRows || `<tr><td colspan="8" style="text-align:center;">No data</td></tr>`
                         {m}
                       </button>
                     ))}
-                    {comboOptions.length === 0 && (
-                      <div className="px-3 py-2 text-sm text-gray-500">No match found.</div>
-                    )}
                   </div>
                 )}
               </div>
-
-              {selectedMode && (
-                <div className="text-xs text-gray-600 mt-1">
-                  Selected: <b>{selectedMode}</b>
-                </div>
-              )}
             </div>
 
-            {/* Date filter removed */}
             <div className="col-span-3">
-              <div className="text-sm text-gray-700">
-                <div className="font-semibold">As On</div>
-                <div className="mt-1 p-2 border rounded bg-gray-50">{fmtDateHeader(asOnDate)}</div>
+              <label className="block text-sm">From Date (optional)</label>
+              <input
+                type="date"
+                value={fromDate}
+                onChange={(e) => setFromDate(e.target.value)}
+                className="mt-1 p-2 border rounded w-full"
+              />
+            </div>
+
+            <div className="col-span-3">
+              <label className="block text-sm">To Date (optional)</label>
+              <input
+                type="date"
+                value={toDate}
+                onChange={(e) => setToDate(e.target.value)}
+                className="mt-1 p-2 border rounded w-full"
+              />
+            </div>
+
+            <div className="col-span-1">
+              <div className="text-xs text-gray-600">Effective To</div>
+              <div className="mt-1 p-2 border rounded bg-gray-50 text-xs">
+                {fmtDateHeader(effectiveToUI)}
               </div>
             </div>
           </div>
@@ -563,8 +615,13 @@ ${htmlRows || `<tr><td colspan="8" style="text-align:center;">No data</td></tr>`
               Reset
             </button>
 
-            <div className="ml-auto text-sm text-gray-600">
-              Rows (Filtered): <strong>{totals.rows}</strong>
+            <div className="ml-auto text-sm text-gray-700 text-right">
+              <div>
+                Rows (Filtered): <strong>{totals.rows}</strong>
+              </div>
+              <div>
+                Closing Balance: <strong>{fmtNumber(closingBalance)}</strong>
+              </div>
             </div>
           </div>
         </div>
@@ -584,13 +641,15 @@ ${htmlRows || `<tr><td colspan="8" style="text-align:center;">No data</td></tr>`
                 <div>
                   <div className="text-sm text-gray-700">
                     <strong>Mode:</strong> {selectedMode} &nbsp; | &nbsp;
-                    <strong>As On:</strong> {fmtDateHeader(asOnDate)}
+                    <strong>From:</strong> {effectiveFromUI ? fmtDateHeader(effectiveFromUI) : "Beginning"} &nbsp; | &nbsp;
+                    <strong>To:</strong> {fmtDateHeader(effectiveToUI)}
                   </div>
 
                   <div className="text-xs text-gray-600 mt-1">
-                    Opening (Master): {fmtNumber(openingBalance)} &nbsp; | &nbsp;
-                    Payment (Dr): {fmtNumber(totalPaymentDr)} &nbsp; | &nbsp;
-                    Receipt (Cr): {fmtNumber(totalReceiptCr)}
+                    Opening: {fmtNumber(openingBalance)} &nbsp; | &nbsp;
+                    Receipt (Dr): {fmtNumber(totalReceiptDr)} &nbsp; | &nbsp;
+                    Payment (Cr): {fmtNumber(totalPaymentCr)} &nbsp; | &nbsp;
+                    Closing: {fmtNumber(closingBalance)}
                   </div>
 
                   <div className="mt-2 flex items-center gap-2 text-xs">
@@ -601,8 +660,8 @@ ${htmlRows || `<tr><td colspan="8" style="text-align:center;">No data</td></tr>`
                       className="border rounded px-2 py-1 text-xs"
                     >
                       <option value="all">All</option>
-                      <option value="Payment">Payment (Dr)</option>
-                      <option value="Receipt">Receipt (Cr)</option>
+                      <option value="Receipt">Receipt (Dr)</option>
+                      <option value="Payment">Payment (Cr)</option>
                     </select>
                   </div>
                 </div>
@@ -632,26 +691,6 @@ ${htmlRows || `<tr><td colspan="8" style="text-align:center;">No data</td></tr>`
               </div>
 
               <div className="p-2 overflow-auto" style={{ height: fullScreen ? "calc(100vh - 72px)" : "78vh" }}>
-                {/* Summary box */}
-                <div className="mb-3 grid grid-cols-12 gap-3">
-                  <div className="col-span-3 p-3 border rounded bg-gray-50">
-                    <div className="text-xs text-gray-600">Opening Balance (Master)</div>
-                    <div className="text-lg font-bold">{fmtNumber(openingBalance)}</div>
-                  </div>
-                  <div className="col-span-3 p-3 border rounded bg-green-50">
-                    <div className="text-xs text-gray-600">Total Payment (Dr +)</div>
-                    <div className="text-lg font-bold">{fmtNumber(totalPaymentDr)}</div>
-                  </div>
-                  <div className="col-span-3 p-3 border rounded bg-blue-50">
-                    <div className="text-xs text-gray-600">Total Receipt (Cr -)</div>
-                    <div className="text-lg font-bold">{fmtNumber(totalReceiptCr)}</div>
-                  </div>
-                  <div className="col-span-3 p-3 border rounded bg-yellow-200">
-                    <div className="text-xs text-gray-700">Remaining Balance</div>
-                    <div className="text-xl font-bold">{fmtNumber(remainingBalance)}</div>
-                  </div>
-                </div>
-
                 <div className="min-w-max">
                   <table className="w-full table-auto text-sm border-collapse">
                     <thead className="bg-gray-50 sticky top-0">
@@ -660,8 +699,8 @@ ${htmlRows || `<tr><td colspan="8" style="text-align:center;">No data</td></tr>`
                         <th className="px-2 py-1 border">Date</th>
                         <th className="px-2 py-1 border">Name</th>
                         <th className="px-2 py-1 border">Remarks</th>
-                        <th className="px-2 py-1 border text-right">Dr (Payment +)</th>
-                        <th className="px-2 py-1 border text-right">Cr (Receipt -)</th>
+                        <th className="px-2 py-1 border text-right">Dr (Receipt +)</th>
+                        <th className="px-2 py-1 border text-right">Cr (Payment -)</th>
                         <th className="px-2 py-1 border text-right">Balance</th>
                         <th className="px-2 py-1 border">Type</th>
                       </tr>
@@ -669,13 +708,9 @@ ${htmlRows || `<tr><td colspan="8" style="text-align:center;">No data</td></tr>`
 
                     <tbody>
                       {filteredRows.map((r) => {
-                        const rowClass =
-                          r.type === "Payment"
-                            ? "bg-green-100"
-                            : "bg-blue-100";
-
-                        const dr = r.type === "Payment" ? r.amount : 0;
-                        const cr = r.type === "Receipt" ? r.amount : 0;
+                        const rowClass = r.type === "Receipt" ? "bg-blue-100" : "bg-green-100";
+                        const dr = r.type === "Receipt" ? r.amount : 0;
+                        const cr = r.type === "Payment" ? r.amount : 0;
 
                         return (
                           <tr key={`${r.type}-${r.id}-${r.srNo}`} className={rowClass}>
@@ -687,7 +722,7 @@ ${htmlRows || `<tr><td colspan="8" style="text-align:center;">No data</td></tr>`
                             <td className="px-2 py-1 border text-right">{fmtNumber(cr)}</td>
                             <td className="px-2 py-1 border text-right">{fmtNumber(r.balance)}</td>
                             <td className="px-2 py-1 border">
-                              {r.type === "Payment" ? "Payment (Dr)" : "Receipt (Cr)"}
+                              {r.type === "Receipt" ? "Receipt (Dr)" : "Payment (Cr)"}
                             </td>
                           </tr>
                         );
@@ -696,7 +731,7 @@ ${htmlRows || `<tr><td colspan="8" style="text-align:center;">No data</td></tr>`
                       {filteredRows.length === 0 && (
                         <tr>
                           <td colSpan={8} className="px-2 py-3 border text-center text-gray-500">
-                            No transactions found for selected mode (as on today).
+                            No transactions found for selected mode and date range.
                           </td>
                         </tr>
                       )}
@@ -705,22 +740,9 @@ ${htmlRows || `<tr><td colspan="8" style="text-align:center;">No data</td></tr>`
                 </div>
 
                 <div className="mt-4 p-3 border rounded bg-yellow-100 text-right">
-                  <span className="text-sm text-gray-700 mr-2">Remaining Balance:</span>
-                  <span className="text-xl font-bold">{fmtNumber(remainingBalance)}</span>
+                  <span className="text-sm text-gray-700 mr-2">Closing Balance:</span>
+                  <span className="text-xl font-bold">{fmtNumber(closingBalance)}</span>
                 </div>
-
-                {filteredRows.length > 0 && (
-                  <div className="mt-2 text-xs text-gray-700 flex items-center gap-3">
-                    <span className="inline-flex items-center gap-2">
-                      <span className="w-4 h-3 bg-green-100 border inline-block" />
-                      Payment (Dr +)
-                    </span>
-                    <span className="inline-flex items-center gap-2">
-                      <span className="w-4 h-3 bg-blue-100 border inline-block" />
-                      Receipt (Cr -)
-                    </span>
-                  </div>
-                )}
               </div>
             </div>
           </div>
