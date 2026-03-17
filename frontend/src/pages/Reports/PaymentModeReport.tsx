@@ -19,7 +19,7 @@ interface PaymentDoc {
   paymentTo?: string;
   partyName?: string;
   employeeName?: string;
-  agentName?: string; // ✅ NEW (for Broker payments if any)
+  agentName?: string; // optional (if paymentTo=Broker exists)
   remarks?: string;
   amount?: number | string;
   paymentThrough?: string;
@@ -32,7 +32,7 @@ interface ReceiptDoc {
   receiptTo?: string;
   partyName?: string;
   employeeName?: string;
-  agentName?: string; // ✅ NEW (Broker name for receiptTo=Broker)
+  agentName?: string; // ✅ broker name for receiptTo=Broker
   remarks?: string;
   amount?: number | string;
   paymentThrough?: string;
@@ -44,7 +44,7 @@ type TxFilter = "all" | TxType;
 type BaseTransaction = {
   id: number;
   date: string;
-  name: string;
+  name: string; // party/employee/broker
   remarks?: string;
   amount: number;
   type: TxType;
@@ -69,7 +69,10 @@ const fmtDateHeader = (iso: string) => {
 };
 
 const fmtNumber = (n: number) =>
-  (n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  (n || 0).toLocaleString(undefined, {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
 
 const toNum = (v: any) => {
   const n = parseFloat(v);
@@ -107,16 +110,18 @@ const PaymentModeRemainingReport: React.FC = () => {
   const [reportPreparing, setReportPreparing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // combo
   const [comboInput, setComboInput] = useState("");
   const [comboQuery, setComboQuery] = useState("");
   const [comboOpen, setComboOpen] = useState(false);
-
   const [selectedMode, setSelectedMode] = useState<string>("");
 
+  // Date filters
   const today = getTodayIso();
   const [fromDate, setFromDate] = useState<string>("");
   const [toDate, setToDate] = useState<string>("");
 
+  // report state
   const [openingBalance, setOpeningBalance] = useState<number>(0);
   const [tx, setTx] = useState<BaseTransaction[]>([]);
   const [transactionFilter, setTransactionFilter] = useState<TxFilter>("all");
@@ -176,7 +181,7 @@ const PaymentModeRemainingReport: React.FC = () => {
             paymentTo: p.paymentTo || "",
             partyName: p.partyName || "",
             employeeName: p.employeeName || "",
-            agentName: p.agentName || "", // ✅
+            agentName: p.agentName || "",
             remarks: p.remarks || "",
             amount: p.amount ?? 0,
             paymentThrough: String(p.paymentThrough ?? "").trim(),
@@ -191,7 +196,7 @@ const PaymentModeRemainingReport: React.FC = () => {
             receiptTo: r.receiptTo || "",
             partyName: r.partyName || "",
             employeeName: r.employeeName || "",
-            agentName: r.agentName || r.brokerName || "", // ✅ IMPORTANT
+            agentName: r.agentName || r.brokerName || "", // ✅ Broker receipts
             remarks: r.remarks || "",
             amount: r.amount ?? 0,
             paymentThrough: String(r.paymentThrough ?? "").trim(),
@@ -225,11 +230,18 @@ const PaymentModeRemainingReport: React.FC = () => {
     return list.slice(0, 200);
   }, [modeOptions, comboQuery]);
 
+  const closeReportView = () => {
+    setShowModal(false);
+    setFullScreen(false);
+    setTransactionFilter("all");
+  };
+
   const selectMode = (m: string) => {
     setSelectedMode(m);
     setComboInput(m);
     setComboQuery("");
     setComboOpen(false);
+    closeReportView();
   };
 
   const effectiveToUI = useMemo(() => (toDate?.trim() ? toDate.trim() : today), [toDate, today]);
@@ -262,6 +274,7 @@ const PaymentModeRemainingReport: React.FC = () => {
     setTransactionFilter("all");
 
     try {
+      // base opening from master
       const pmMaster = paymentModes.find(
         (pm) => norm(`${pm.bankNameOrUpiId}-${pm.accountNo}`) === norm(effectiveMode),
       );
@@ -274,7 +287,7 @@ const PaymentModeRemainingReport: React.FC = () => {
 
       const allRows: BaseTransaction[] = [];
 
-      // Payment = CR (name also supports Broker)
+      // Payment = CR
       pList.forEach((p) => {
         const d = (p.paymentDate || p.date || "") || effectiveTo;
         if (toTime(d) > toEnd) return;
@@ -296,7 +309,7 @@ const PaymentModeRemainingReport: React.FC = () => {
         });
       });
 
-      // ✅ Receipt = DR (FIXED: Broker name)
+      // Receipt = DR
       rList.forEach((r) => {
         const d = (r.receiptDate || r.date || "") || effectiveTo;
         if (toTime(d) > toEnd) return;
@@ -318,6 +331,7 @@ const PaymentModeRemainingReport: React.FC = () => {
         });
       });
 
+      // sort stable
       allRows.sort((a, b) => {
         const dc = toTime(a.date) - toTime(b.date);
         if (dc !== 0) return dc;
@@ -365,24 +379,25 @@ const PaymentModeRemainingReport: React.FC = () => {
     }
   };
 
-  // Totals
+  // ---------- Totals ----------
   const totalReceiptDr = useMemo(
     () => tx.filter((x) => x.type === "Receipt").reduce((s, x) => s + (x.amount || 0), 0),
     [tx],
   );
+
   const totalPaymentCr = useMemo(
     () => tx.filter((x) => x.type === "Payment").reduce((s, x) => s + (x.amount || 0), 0),
     [tx],
   );
 
-  // Running balance
+  // ---------- Running balance ----------
   const rowsAllWithBalance: DisplayRow[] = useMemo(() => {
     let rb = openingBalance;
     let sr = 1;
 
     return tx.map((r) => {
-      if (r.type === "Receipt") rb += r.amount;
-      else rb -= r.amount;
+      if (r.type === "Receipt") rb += r.amount; // DR add
+      else rb -= r.amount; // CR subtract
       return { ...r, srNo: sr++, balance: rb };
     });
   }, [tx, openingBalance]);
@@ -397,23 +412,23 @@ const PaymentModeRemainingReport: React.FC = () => {
     return rowsAllWithBalance.filter((r) => r.type === transactionFilter);
   }, [rowsAllWithBalance, transactionFilter]);
 
-  const totals = useMemo(() => ({ rows: filteredRows.length }), [filteredRows.length]);
-
+  // ---------- Reset ----------
   const resetAll = () => {
     setSelectedMode("");
     setComboInput("");
     setComboQuery("");
     setComboOpen(false);
+
     setFromDate("");
     setToDate("");
+
     setOpeningBalance(0);
     setTx([]);
-    setTransactionFilter("all");
-    setShowModal(false);
-    setFullScreen(false);
+
+    closeReportView();
   };
 
-  // Print (unchanged)
+  // ---------- Print ----------
   const handlePrintReport = () => {
     if (typeof window === "undefined" || typeof document === "undefined") return;
 
@@ -467,7 +482,7 @@ const PaymentModeRemainingReport: React.FC = () => {
   <div><strong>Opening Balance:</strong> ${fmtNumber(openingBalance)}</div>
   <div><strong>Total Receipt (Dr +):</strong> ${fmtNumber(totalReceiptDr)}</div>
   <div><strong>Total Payment (Cr -):</strong> ${fmtNumber(totalPaymentCr)}</div>
-  <div><strong>Closing Balance:</strong> ${fmtNumber(closingBalance)}</div>
+  <div><strong>Closing / Remaining:</strong> ${fmtNumber(closingBalance)}</div>
 </div>
 
 <table style="margin-top:12px;">
@@ -515,6 +530,7 @@ ${htmlRows || `<tr><td colspan="8" style="text-align:center;">No data</td></tr>`
     w.document.close();
   };
 
+  // ================= UI =================
   return (
     <Dashboard>
       <div className="p-6 bg-gray-100">
@@ -528,6 +544,7 @@ ${htmlRows || `<tr><td colspan="8" style="text-align:center;">No data</td></tr>`
           )}
 
           <div className="grid grid-cols-12 gap-3 items-end">
+            {/* Combo mode */}
             <div className="col-span-5">
               <label className="block text-sm mb-1">Payment Mode</label>
 
@@ -540,6 +557,7 @@ ${htmlRows || `<tr><td colspan="8" style="text-align:center;">No data</td></tr>`
                     setComboQuery(v);
                     setComboOpen(true);
                     setSelectedMode("");
+                    closeReportView(); // ✅ no summary on this page; close old report
                   }}
                   onFocus={() => {
                     setComboOpen(true);
@@ -565,19 +583,33 @@ ${htmlRows || `<tr><td colspan="8" style="text-align:center;">No data</td></tr>`
                         {m}
                       </button>
                     ))}
+                    {comboOptions.length === 0 && (
+                      <div className="px-3 py-2 text-sm text-gray-500">No match found.</div>
+                    )}
                   </div>
                 )}
               </div>
+
+              {selectedMode && (
+                <div className="text-xs text-gray-600 mt-1">
+                  Selected: <b>{selectedMode}</b>
+                </div>
+              )}
             </div>
 
+            {/* Date filters */}
             <div className="col-span-3">
               <label className="block text-sm">From Date (optional)</label>
               <input
                 type="date"
                 value={fromDate}
-                onChange={(e) => setFromDate(e.target.value)}
+                onChange={(e) => {
+                  setFromDate(e.target.value);
+                  closeReportView();
+                }}
                 className="mt-1 p-2 border rounded w-full"
               />
+              <div className="text-xs text-gray-500 mt-1">Empty = Beginning</div>
             </div>
 
             <div className="col-span-3">
@@ -585,9 +617,15 @@ ${htmlRows || `<tr><td colspan="8" style="text-align:center;">No data</td></tr>`
               <input
                 type="date"
                 value={toDate}
-                onChange={(e) => setToDate(e.target.value)}
+                onChange={(e) => {
+                  setToDate(e.target.value);
+                  closeReportView();
+                }}
                 className="mt-1 p-2 border rounded w-full"
               />
+              <div className="text-xs text-gray-500 mt-1">
+                Empty = Today ({fmtDateHeader(today)})
+              </div>
             </div>
 
             <div className="col-span-1">
@@ -614,19 +652,10 @@ ${htmlRows || `<tr><td colspan="8" style="text-align:center;">No data</td></tr>`
             >
               Reset
             </button>
-
-            <div className="ml-auto text-sm text-gray-700 text-right">
-              <div>
-                Rows (Filtered): <strong>{totals.rows}</strong>
-              </div>
-              <div>
-                Closing Balance: <strong>{fmtNumber(closingBalance)}</strong>
-              </div>
-            </div>
           </div>
         </div>
 
-        {/* Modal */}
+        {/* Modal (Report) */}
         {showModal && (
           <div className="fixed inset-0 z-50 flex items-start justify-center pt-8">
             <div className="absolute inset-0 bg-black opacity-30" onClick={() => setShowModal(false)} />
@@ -641,15 +670,9 @@ ${htmlRows || `<tr><td colspan="8" style="text-align:center;">No data</td></tr>`
                 <div>
                   <div className="text-sm text-gray-700">
                     <strong>Mode:</strong> {selectedMode} &nbsp; | &nbsp;
-                    <strong>From:</strong> {effectiveFromUI ? fmtDateHeader(effectiveFromUI) : "Beginning"} &nbsp; | &nbsp;
+                    <strong>From:</strong>{" "}
+                    {effectiveFromUI ? fmtDateHeader(effectiveFromUI) : "Beginning"} &nbsp; | &nbsp;
                     <strong>To:</strong> {fmtDateHeader(effectiveToUI)}
-                  </div>
-
-                  <div className="text-xs text-gray-600 mt-1">
-                    Opening: {fmtNumber(openingBalance)} &nbsp; | &nbsp;
-                    Receipt (Dr): {fmtNumber(totalReceiptDr)} &nbsp; | &nbsp;
-                    Payment (Cr): {fmtNumber(totalPaymentCr)} &nbsp; | &nbsp;
-                    Closing: {fmtNumber(closingBalance)}
                   </div>
 
                   <div className="mt-2 flex items-center gap-2 text-xs">
@@ -690,7 +713,30 @@ ${htmlRows || `<tr><td colspan="8" style="text-align:center;">No data</td></tr>`
                 </div>
               </div>
 
-              <div className="p-2 overflow-auto" style={{ height: fullScreen ? "calc(100vh - 72px)" : "78vh" }}>
+              <div
+                className="p-2 overflow-auto"
+                style={{ height: fullScreen ? "calc(100vh - 72px)" : "78vh" }}
+              >
+                {/* ✅ SUMMARY (ONLY IN REPORT MODAL) */}
+                <div className="mb-3 grid grid-cols-12 gap-3">
+                  <div className="col-span-3 p-3 border rounded bg-gray-50">
+                    <div className="text-xs text-gray-600">Opening Balance</div>
+                    <div className="text-lg font-bold">{fmtNumber(openingBalance)}</div>
+                  </div>
+                  <div className="col-span-3 p-3 border rounded bg-blue-50">
+                    <div className="text-xs text-gray-600">Total Receipt (Dr +)</div>
+                    <div className="text-lg font-bold">{fmtNumber(totalReceiptDr)}</div>
+                  </div>
+                  <div className="col-span-3 p-3 border rounded bg-green-50">
+                    <div className="text-xs text-gray-600">Total Payment (Cr -)</div>
+                    <div className="text-lg font-bold">{fmtNumber(totalPaymentCr)}</div>
+                  </div>
+                  <div className="col-span-3 p-3 border rounded bg-yellow-200">
+                    <div className="text-xs text-gray-700">Closing / Remaining</div>
+                    <div className="text-xl font-bold">{fmtNumber(closingBalance)}</div>
+                  </div>
+                </div>
+
                 <div className="min-w-max">
                   <table className="w-full table-auto text-sm border-collapse">
                     <thead className="bg-gray-50 sticky top-0">
@@ -740,7 +786,7 @@ ${htmlRows || `<tr><td colspan="8" style="text-align:center;">No data</td></tr>`
                 </div>
 
                 <div className="mt-4 p-3 border rounded bg-yellow-100 text-right">
-                  <span className="text-sm text-gray-700 mr-2">Closing Balance:</span>
+                  <span className="text-sm text-gray-700 mr-2">Closing / Remaining:</span>
                   <span className="text-xl font-bold">{fmtNumber(closingBalance)}</span>
                 </div>
               </div>
