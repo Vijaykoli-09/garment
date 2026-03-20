@@ -38,6 +38,7 @@ interface AppContextType {
   isLoading:     boolean;
   login:         (userData: AppUser) => Promise<void>;
   logout:        () => Promise<void>;
+  refreshCredit: () => Promise<void>;   // pull-to-refresh: re-fetches profile + orders
 
   cart:          CartItem[];
   // BUG FIX 3: new signature — boxes + pcsPerBox + pricePerBox separately
@@ -206,6 +207,45 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setUsedCredit(0);
   }, []);
 
+  // ── refreshCredit — called by pull-to-refresh on Dashboard ─────────
+  // Re-fetches profile (credit limit) and orders (usedCredit) from backend.
+  const refreshCredit = useCallback(async () => {
+    if (!user) return;
+    try {
+      const [profileRes, ordersRes] = await Promise.allSettled([
+        authApi.getProfile(),
+        orderApi.getMyOrders(),
+      ]);
+
+      if (profileRes.status === 'fulfilled') {
+        const fresh = profileRes.value.data;
+        const refreshed: AppUser = {
+          ...user,
+          name:          fresh.name          ?? fresh.fullName     ?? user.name,
+          type:          fresh.type          ?? fresh.customerType ?? user.type,
+          creditEnabled: Boolean(fresh.creditEnabled),
+          creditLimit:   Number(fresh.creditLimit   ?? 0),
+          advanceOption: Boolean(fresh.advanceOption),
+        };
+        setUser(refreshed);
+        SessionStorage.saveUser(refreshed);
+      }
+
+      if (ordersRes.status === 'fulfilled') {
+        const orders: any[] = ordersRes.value.data ?? [];
+        const realUsedCredit = orders
+          .filter((o: any) =>
+            o.paymentMethod === 'CREDIT_ORDER' || o.paymentMethod === 'ADVANCE_CREDIT'
+          )
+          .filter((o: any) =>
+            o.orderStatus !== 'CANCELLED' && o.paymentStatus !== 'FAILED'
+          )
+          .reduce((sum: number, o: any) => sum + Number(o.creditAmount ?? 0), 0);
+        setUsedCredit(realUsedCredit);
+      }
+    } catch { /* server unreachable — keep current values */ }
+  }, [user]);
+
   // ── Add to cart ───────────────────────────────────────────────────
   // BUG FIX 3: correct math — cartTotal = pricePerBox * boxes
   const addToCart = useCallback((
@@ -290,6 +330,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       totalItems, totalPcs, cartTotal, cartTotalWithGst,
       creditLimit, usedCredit, duePayments,
       availableCredit, remainingCredit, creditApproved,
+      refreshCredit,
     }}>
       {children}
     </AppContext.Provider>
