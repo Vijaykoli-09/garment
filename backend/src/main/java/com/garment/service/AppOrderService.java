@@ -56,7 +56,7 @@ public class AppOrderService {
                 .orElseThrow(() -> new RuntimeException("Customer not found."));
 
         double subtotal    = req.getItems().stream()
-                .mapToDouble(i -> i.getPricePerPc() * i.getQuantity())
+                .mapToDouble(AppOrderItemRequest::safeItemTotal)
                 .sum();
         double gstAmount   = subtotal * 0.18;
         double totalAmount = subtotal + gstAmount;
@@ -71,8 +71,11 @@ public class AppOrderService {
             double creditNeeded = (method == PaymentMethod.CREDIT_ORDER)
                     ? totalAmount
                     : totalAmount * 0.70;
+            if (creditLimit <= 0) {
+                throw new RuntimeException("No credit limit configured. Contact admin.");
+            }
             if (creditNeeded > creditLimit) {
-                throw new RuntimeException("Order amount exceeds your credit limit of ₹" + creditLimit);
+                throw new RuntimeException("Order ₹" + String.format("%.0f", creditNeeded) + " exceeds credit limit ₹" + String.format("%.0f", creditLimit));
             }
         }
 
@@ -126,7 +129,7 @@ public class AppOrderService {
             item.setSelectedSize(itemReq.getSelectedSize());
             item.setQuantity(itemReq.getQuantity());
             item.setPricePerPc(itemReq.getPricePerPc());
-            item.setItemTotal(itemReq.getPricePerPc() * itemReq.getQuantity());
+            item.setItemTotal(itemReq.safeItemTotal());
             order.getItems().add(item);
         }
 

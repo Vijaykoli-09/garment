@@ -1,21 +1,26 @@
 package com.garment.security;
 
 import com.garment.entity.CustomerRegistration;
+import com.garment.entity.CustomerRegistration.AccountStatus;
 import com.garment.repository.CustomerRegistrationRepository;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.core.userdetails.User;
+import org.springframework.security.core.userdetails.UserDetails;
+import org.springframework.security.core.userdetails.UserDetailsService;
+import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.stereotype.Service;
 
-import java.util.Collections;
+import java.util.List;
 
 /**
  * Loads mobile app customers by PHONE NUMBER for JWT authentication.
- * 
- * The web admin UserDetailsService loads by email/username.
- * Mobile JWT tokens have phone as the subject — so we need a separate
- * service that looks up by phone, not email.
+ *
+ * CHANGE from your version: added APPROVED status check.
+ * If admin rejects a customer AFTER they got a token, their
+ * next API call will correctly return 403 instead of succeeding.
  */
 @Service
-public class CustomerUserDetailsService
-        implements org.springframework.security.core.userdetails.UserDetailsService {
+public class CustomerUserDetailsService implements UserDetailsService {
 
     private final CustomerRegistrationRepository repo;
 
@@ -24,19 +29,23 @@ public class CustomerUserDetailsService
     }
 
     @Override
-    public org.springframework.security.core.userdetails.UserDetails loadUserByUsername(String phone)
-            throws org.springframework.security.core.userdetails.UsernameNotFoundException {
+    public UserDetails loadUserByUsername(String phone) throws UsernameNotFoundException {
 
         CustomerRegistration customer = repo.findByPhone(phone)
-                .orElseThrow(() -> new org.springframework.security.core.userdetails.UsernameNotFoundException(
+                .orElseThrow(() -> new UsernameNotFoundException(
                         "Customer not found with phone: " + phone));
 
-        // Build a Spring Security UserDetails from the CustomerRegistration entity.
-        // We use phone as the username so it matches the JWT subject exactly.
-        return new org.springframework.security.core.userdetails.User(
-                customer.getPhone(),       // username = phone (matches JWT subject)
-                customer.getPassword(),    // BCrypt hashed password
-                Collections.emptyList()    // no roles needed for mobile customers
+        // Block access if customer is not APPROVED
+        // (e.g. admin rejected them after they already logged in)
+        if (customer.getStatus() != AccountStatus.APPROVED) {
+            throw new UsernameNotFoundException(
+                    "Customer account is not approved: " + phone);
+        }
+
+        return new User(
+                customer.getPhone(),
+                customer.getPassword(),
+                List.of(new SimpleGrantedAuthority("ROLE_CUSTOMER"))
         );
     }
 }

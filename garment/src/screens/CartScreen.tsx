@@ -1,373 +1,429 @@
-import React, { useContext } from 'react';
+import React, { useContext, useMemo } from 'react';
 import {
-  View,
-  Text,
-  FlatList,
-  StyleSheet,
-  TouchableOpacity,
-  ScrollView,
-  Alert
+  View, Text, FlatList, StyleSheet, TouchableOpacity,
+  Image, Alert, StatusBar,
 } from 'react-native';
-import { AppContext } from '../context/AppContext';
+import { AppContext, CartItem } from '../context/AppContext';
 
-export default function CartScreen({ navigation }: any) {
-  const { cart, removeFromCart, cartTotal, cartTotalWithGst, updateCartItem } = useContext(AppContext);
+// ── Group flat cart array by productId ───────────────────────────────
+interface ProductGroup {
+  productId:   number;
+  name:        string;
+  images:      string[];
+  pcsPerBox:   number;
+  pricePerPc:  number;  // same for all sizes of same product
+  pricePerBox: number;
+  sizes:       CartItem[];          // all size rows for this product
+  productSubtotal: number;          // sum of (pricePerBox * boxes) for all sizes
+  productGst:      number;          // productSubtotal * 0.18
+  productTotal:    number;          // productSubtotal + productGst
+  totalBoxes:      number;
+  totalPcs:        number;
+}
 
-  const gstAmount = cartTotalWithGst - cartTotal;
-  const grandTotal = cartTotalWithGst;
+function groupCart(cart: CartItem[]): ProductGroup[] {
+  const map = new Map<number, ProductGroup>();
 
-  const handleCheckout = () => {
-    if (cart.length === 0) {
-      Alert.alert('Empty Cart', 'Please add items before checkout');
-      return;
+  for (const item of cart) {
+    if (!map.has(item.productId)) {
+      map.set(item.productId, {
+        productId:       item.productId,
+        name:            item.name,
+        images:          item.images,
+        pcsPerBox:       item.pcsPerBox,
+        pricePerPc:      item.pricePerPc,
+        pricePerBox:     item.pricePerBox,
+        sizes:           [],
+        productSubtotal: 0,
+        productGst:      0,
+        productTotal:    0,
+        totalBoxes:      0,
+        totalPcs:        0,
+      });
     }
-    navigation.navigate('Checkout');
+    const g = map.get(item.productId)!;
+    g.sizes.push(item);
+    g.productSubtotal += item.pricePerBox * item.boxes;
+    g.totalBoxes      += item.boxes;
+    g.totalPcs        += item.quantity;
+  }
+
+  // Calculate GST + total after all sizes are summed
+  for (const g of map.values()) {
+    g.productGst   = g.productSubtotal * 0.18;
+    g.productTotal = g.productSubtotal + g.productGst;
+  }
+
+  return Array.from(map.values());
+}
+
+// ════════════════════════════════════════════════════════════════════
+export default function CartScreen({ navigation }: any) {
+  const {
+    cart, removeFromCart, updateCartItem, clearCart,
+    cartTotal, cartTotalWithGst,
+    creditApproved, availableCredit,
+  } = useContext(AppContext);
+
+  const groups = useMemo(() => groupCart(cart), [cart]);
+  const gstAmount   = cartTotal * 0.18;
+  const totalBoxes  = cart.reduce((s, i) => s + i.boxes, 0);
+
+  const confirmClear = () =>
+    Alert.alert('Clear Cart', 'Remove all items from your cart?', [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Clear All', style: 'destructive', onPress: clearCart },
+    ]);
+
+  const confirmRemoveSize = (item: CartItem) =>
+    Alert.alert(
+      'Remove Size',
+      `Remove ${item.selectedSize} from ${item.name}?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Remove', style: 'destructive',
+          onPress: () => removeFromCart(item.productId, item.selectedSize) },
+      ]
+    );
+
+  // ── Render one size row inside the product card ─────────────────
+  const SizeRow = ({ item }: { item: CartItem }) => {
+    const rowSubtotal = item.pricePerBox * item.boxes;
+
+    return (
+      <View style={s.sizeRow}>
+        {/* Size chip */}
+        <View style={s.sizeChip}>
+          <Text style={s.sizeChipTxt}>{item.selectedSize}</Text>
+        </View>
+
+        {/* Boxes stepper */}
+        <View style={s.stepper}>
+          <TouchableOpacity
+            style={[s.stepBtn, item.boxes <= 1 && s.stepBtnDim]}
+            onPress={() => {
+              if (item.boxes <= 1) confirmRemoveSize(item);
+              else updateCartItem(item.productId, item.selectedSize, item.boxes - 1);
+            }}
+          >
+            <Text style={s.stepBtnTxt}>{item.boxes <= 1 ? '🗑' : '−'}</Text>
+          </TouchableOpacity>
+          <Text style={s.stepVal}>{item.boxes}</Text>
+          <TouchableOpacity
+            style={s.stepBtn}
+            onPress={() => updateCartItem(item.productId, item.selectedSize, item.boxes + 1)}
+          >
+            <Text style={s.stepBtnTxt}>+</Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* Pcs count */}
+        <Text style={s.pcsCell}>{item.quantity} pcs</Text>
+
+        {/* Row subtotal */}
+        <Text style={s.subtotalCell}>
+          ₹{rowSubtotal.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
+        </Text>
+      </View>
+    );
   };
 
+  // ── Render one product card (with all its size rows) ────────────
+  const ProductCard = ({ group }: { group: ProductGroup }) => (
+    <View style={s.productCard}>
+
+      {/* Product header */}
+      <View style={s.productHeader}>
+        {group.images?.[0]
+          ? <Image source={{ uri: group.images[0] }} style={s.productImg} />
+          : <View style={s.productImgPh}><Text style={{ fontSize: 28 }}>👕</Text></View>
+        }
+        <View style={s.productInfo}>
+          <Text style={s.productName} numberOfLines={2}>{group.name}</Text>
+          <Text style={s.productMeta}>
+            ₹{group.pricePerPc.toFixed(2)}/pc  ·  ₹{group.pricePerBox.toLocaleString()}/box
+          </Text>
+          <Text style={s.productMeta}>
+            {group.pcsPerBox} pcs per box
+          </Text>
+        </View>
+        {/* Remove whole product */}
+        <TouchableOpacity
+          style={s.removeAllBtn}
+          onPress={() =>
+            Alert.alert('Remove Product', `Remove all sizes of "${group.name}"?`, [
+              { text: 'Cancel', style: 'cancel' },
+              {
+                text: 'Remove All', style: 'destructive',
+                onPress: () => group.sizes.forEach(i =>
+                  removeFromCart(i.productId, i.selectedSize)),
+              },
+            ])
+          }
+        >
+          <Text style={s.removeAllTxt}>✕</Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* Size table header */}
+      <View style={s.tableHeader}>
+        <Text style={[s.tableHdrCell, { flex: 1 }]}>SIZE</Text>
+        <Text style={[s.tableHdrCell, { flex: 2.2, textAlign: 'center' }]}>BOXES</Text>
+        <Text style={[s.tableHdrCell, { flex: 1.5, textAlign: 'center' }]}>PCS</Text>
+        <Text style={[s.tableHdrCell, { flex: 2, textAlign: 'right' }]}>AMOUNT</Text>
+      </View>
+
+      {/* Size rows */}
+      {group.sizes.map(item => (
+        <SizeRow key={item.selectedSize} item={item} />
+      ))}
+
+      {/* Add another size shortcut */}
+      <TouchableOpacity
+        style={s.addSizeBtn}
+        onPress={() => navigation.navigate('ProductDetail', {
+          product: {
+            id:          group.productId,
+            name:        group.name,
+            images:      group.images,
+            pcsPerBox:   group.pcsPerBox,
+            sizes:       [],          // will be re-fetched or navigated with full product
+            description: '',
+            pricing:     {},
+            minBox:      {},
+          }
+        })}
+      >
+        <Text style={s.addSizeTxt}>+ Add another size</Text>
+      </TouchableOpacity>
+
+      {/* Product price summary */}
+      <View style={s.productSummary}>
+        <View style={s.summaryLine}>
+          <Text style={s.summaryLbl}>
+            {group.totalBoxes} box{group.totalBoxes !== 1 ? 'es' : ''}  ·  {group.totalPcs} pcs
+          </Text>
+        </View>
+        <View style={s.summaryLine}>
+          <Text style={s.summaryLbl}>Subtotal</Text>
+          <Text style={s.summaryVal}>
+            ₹{group.productSubtotal.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
+          </Text>
+        </View>
+        <View style={s.summaryLine}>
+          <Text style={s.summaryLbl}>GST (18%)</Text>
+          <Text style={s.summaryVal}>
+            ₹{group.productGst.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
+          </Text>
+        </View>
+        <View style={[s.summaryLine, s.summaryTotalLine]}>
+          <Text style={s.summaryTotalLbl}>Product Total</Text>
+          <Text style={s.summaryTotalVal}>
+            ₹{group.productTotal.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
+          </Text>
+        </View>
+      </View>
+    </View>
+  );
+
+  // ── Empty state ─────────────────────────────────────────────────
+  if (cart.length === 0) {
+    return (
+      <View style={s.emptyWrap}>
+        <StatusBar backgroundColor="#fff" barStyle="dark-content" />
+        <Text style={{ fontSize: 72 }}>🛒</Text>
+        <Text style={s.emptyTitle}>Your cart is empty</Text>
+        <Text style={s.emptySub}>Browse products and add items to your cart</Text>
+        <TouchableOpacity style={s.browseBtn}
+          onPress={() => navigation.navigate('Category')}>
+          <Text style={s.browseBtnTxt}>Browse Products</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
+  // ── Main render ─────────────────────────────────────────────────
   return (
-    <View style={styles.container}>
-      {cart.length === 0 ? (
-        <ScrollView contentContainerStyle={styles.emptyContainer} showsVerticalScrollIndicator={false}>
-          <Text style={styles.emptyEmoji}>🛒</Text>
-          <Text style={styles.emptyTitle}>Your Cart is Empty</Text>
-          <Text style={styles.emptySubtitle}>Add products from our catalog to get started</Text>
-          <TouchableOpacity style={styles.continueBrowsingBtn}>
-            <Text style={styles.continueBrowsingText}>Continue Shopping</Text>
-          </TouchableOpacity>
-        </ScrollView>
-      ) : (
-        <>
-          <View style={styles.header}>
-            <Text style={styles.headerTitle}>Shopping Cart</Text>
-            <Text style={styles.itemCount}>{cart.length} {cart.length === 1 ? 'item' : 'items'}</Text>
+    <View style={s.container}>
+      <StatusBar backgroundColor="#fff" barStyle="dark-content" />
+
+      <FlatList
+        data={groups}
+        keyExtractor={g => String(g.productId)}
+        renderItem={({ item }) => <ProductCard group={item} />}
+        contentContainerStyle={s.list}
+        showsVerticalScrollIndicator={false}
+
+        ListHeaderComponent={
+          <View style={s.listHeader}>
+            <Text style={s.listHeaderTxt}>
+              {groups.length} product{groups.length !== 1 ? 's' : ''}  ·  {totalBoxes} boxes
+            </Text>
+            <TouchableOpacity onPress={confirmClear}>
+              <Text style={s.clearTxt}>Clear All</Text>
+            </TouchableOpacity>
           </View>
+        }
 
-          <FlatList
-            data={cart}
-            keyExtractor={(item) => `${item.productId}-${item.selectedSize}`}
-            renderItem={({ item }) => (
-              <View style={styles.card}>
-                <View style={styles.cardHeader}>
-                  <View style={styles.imagePlaceholder}>
-                    <Text style={styles.imageEmoji}>👕</Text>
-                  </View>
-                  <View style={styles.cardInfo}>
-                    <Text style={styles.name}>{item.name}</Text>
-                    <Text style={styles.size}>Size: {item.selectedSize}</Text>
-                    <Text style={styles.price}>₹{item.pricePerBox?.toFixed(2) ?? '0.00'}/box  ·  ₹{item.pricePerPc?.toFixed(2) ?? '0.00'}/pc</Text>
-                  </View>
-                </View>
+        ListFooterComponent={
+          <View>
+            {/* ── Grand total summary card ── */}
+            <View style={s.grandSummary}>
+              <Text style={s.grandSummaryTitle}>🧾 Order Summary</Text>
 
-                <View style={styles.qtySection}>
-                  <Text style={styles.label}>Quantity (Boxes)</Text>
-                  <View style={styles.qtyControl}>
-                    <TouchableOpacity
-                      style={styles.qtyBtn}
-                      onPress={() => {
-                        if (item.boxes > 1) {
-                          updateCartItem(item.productId, item.selectedSize, item.boxes - 1);
-                        }
-                      }}
-                    >
-                      <Text style={styles.qtyBtnText}>−</Text>
-                    </TouchableOpacity>
-                    <Text style={styles.qtyValue}>{item.boxes} box{item.boxes > 1 ? 'es' : ''}</Text>
-                    <TouchableOpacity
-                      style={styles.qtyBtn}
-                      onPress={() => updateCartItem(item.productId, item.selectedSize, item.boxes + 1)}
-                    >
-                      <Text style={styles.qtyBtnText}>+</Text>
-                    </TouchableOpacity>
-                  </View>
-                  <Text style={{ fontSize: 12, color: '#6B7280', marginTop: 6 }}>
-                    {item.boxes} box{item.boxes > 1 ? 'es' : ''} × {item.pcsPerBox} pcs = {item.quantity} pcs total
+              {/* Per-product subtotals */}
+              {groups.map(g => (
+                <View key={g.productId} style={s.grandRow}>
+                  <Text style={s.grandRowLbl} numberOfLines={1}>{g.name}</Text>
+                  <Text style={s.grandRowVal}>
+                    ₹{g.productSubtotal.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
                   </Text>
                 </View>
+              ))}
 
-                <View style={styles.totalRow}>
-                  <Text style={styles.totalLabel}>Item Total</Text>
-                  <Text style={styles.totalPrice}>₹{(item.pricePerBox * item.boxes).toFixed(2)}</Text>
-                </View>
+              <View style={s.grandDivider} />
 
-                <TouchableOpacity
-                  onPress={() => removeFromCart(item.productId, item.selectedSize)}
-                  style={styles.removeBtn}
-                >
-                  <Text style={styles.removeBtnText}>🗑️ Remove</Text>
-                </TouchableOpacity>
+              <View style={s.grandRow}>
+                <Text style={s.grandRowLbl}>Subtotal</Text>
+                <Text style={s.grandRowVal}>
+                  ₹{cartTotal.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
+                </Text>
               </View>
-            )}
-            scrollEnabled={true}
-            ListFooterComponent={
-              <>
-                <View style={styles.summaryBox}>
-                  <View style={styles.summaryRow}>
-                    <Text style={styles.summaryLabel}>Subtotal</Text>
-                    <Text style={styles.summaryValue}>₹{cartTotal.toFixed(2)}</Text>
-                  </View>
-                  <View style={styles.summaryRow}>
-                    <Text style={styles.summaryLabel}>GST (18%)</Text>
-                    <Text style={styles.summaryValue}>₹{gstAmount.toFixed(2)}</Text>
-                  </View>
-                  <View style={styles.divider} />
-                  <View style={styles.summaryRow}>
-                    <Text style={styles.grandTotalLabel}>Grand Total</Text>
-                    <Text style={styles.grandTotalValue}>₹{grandTotal.toFixed(2)}</Text>
-                  </View>
-                </View>
+              <View style={s.grandRow}>
+                <Text style={s.grandRowLbl}>GST (18%)</Text>
+                <Text style={s.grandRowVal}>
+                  ₹{gstAmount.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
+                </Text>
+              </View>
 
-                <TouchableOpacity style={styles.checkoutBtn} onPress={handleCheckout}>
-                  <Text style={styles.checkoutBtnText}>Proceed to Checkout</Text>
-                </TouchableOpacity>
-              </>
-            }
-          />
-        </>
-      )}
+              <View style={s.grandDivider} />
+
+              <View style={s.grandRow}>
+                <Text style={s.grandTotalLbl}>Grand Total</Text>
+                <Text style={s.grandTotalVal}>
+                  ₹{cartTotalWithGst.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
+                </Text>
+              </View>
+
+              {/* Credit info */}
+              {creditApproved && (
+                <View style={[
+                  s.creditRow,
+                  cartTotalWithGst > availableCredit && s.creditRowRed,
+                ]}>
+                  <Text style={s.creditLbl}>Available Credit</Text>
+                  <Text style={[
+                    s.creditVal,
+                    { color: cartTotalWithGst <= availableCredit ? '#059669' : '#DC2626' },
+                  ]}>
+                    ₹{availableCredit.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
+                  </Text>
+                </View>
+              )}
+            </View>
+
+            <View style={{ height: 110 }} />
+          </View>
+        }
+      />
+
+      {/* ── Sticky checkout bar ── */}
+      <View style={s.bottomBar}>
+        <View>
+          <Text style={s.bottomTotal}>
+            ₹{cartTotalWithGst.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
+          </Text>
+          <Text style={s.bottomSub}>Total incl. GST</Text>
+        </View>
+        <TouchableOpacity
+          style={s.checkoutBtn}
+          onPress={() => navigation.navigate('Checkout')}
+        >
+          <Text style={s.checkoutTxt}>Proceed to Payment →</Text>
+        </TouchableOpacity>
+      </View>
     </View>
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#F8FAFC',
-  },
-  header: {
-    backgroundColor: '#FFFFFF',
-    paddingHorizontal: 16,
-    paddingTop: 12,
-    paddingBottom: 14,
-    borderBottomWidth: 1,
-    borderBottomColor: '#E2E8F0',
-  },
-  headerTitle: {
-    fontSize: 24,
-    fontWeight: '700',
-    color: '#0F172A',
-  },
-  itemCount: {
-    fontSize: 13,
-    color: '#64748B',
-    marginTop: 4,
-    fontWeight: '500',
-  },
-  emptyContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingVertical: 60,
-  },
-  emptyEmoji: {
-    fontSize: 64,
-    marginBottom: 16,
-  },
-  emptyTitle: {
-    fontSize: 22,
-    fontWeight: '700',
-    color: '#0F172A',
-    textAlign: 'center',
-    marginBottom: 8,
-  },
-  emptySubtitle: {
-    fontSize: 14,
-    color: '#64748B',
-    textAlign: 'center',
-    marginBottom: 24,
-    lineHeight: 20,
-  },
-  continueBrowsingBtn: {
-    backgroundColor: '#2563EB',
-    paddingHorizontal: 24,
-    paddingVertical: 12,
-    borderRadius: 10,
-    shadowColor: '#2563EB',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2,
-    shadowRadius: 8,
-    elevation: 4,
-  },
-  continueBrowsingText: {
-    color: 'white',
-    fontWeight: '700',
-    fontSize: 14,
-  },
-  card: {
-    backgroundColor: '#FFFFFF',
-    marginHorizontal: 12,
-    marginVertical: 8,
-    borderRadius: 12,
-    padding: 12,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 8,
-    elevation: 3,
-  },
-  cardHeader: {
-    flexDirection: 'row',
-    marginBottom: 12,
-  },
-  imagePlaceholder: {
-    width: 80,
-    height: 80,
-    backgroundColor: '#F3F4F6',
-    borderRadius: 8,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 12,
-  },
-  imageEmoji: {
-    fontSize: 36,
-  },
-  cardInfo: {
-    flex: 1,
-    justifyContent: 'center',
-  },
-  name: {
-    fontWeight: '700',
-    fontSize: 14,
-    color: '#0F172A',
-    marginBottom: 4,
-  },
-  size: {
-    fontSize: 12,
-    color: '#64748B',
-    marginBottom: 4,
-  },
-  price: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#2563EB',
-  },
-  qtySection: {
-    marginBottom: 12,
-    paddingVertical: 8,
-    borderTopWidth: 1,
-    borderBottomWidth: 1,
-    borderColor: '#E2E8F0',
-  },
-  label: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#64748B',
-    marginBottom: 8,
-  },
-  qtyControl: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'flex-start',
-    gap: 8,
-  },
-  qtyBtn: {
-    backgroundColor: '#F3F4F6',
-    width: 32,
-    height: 32,
-    borderRadius: 6,
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-  },
-  qtyBtnText: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#2563EB',
-  },
-  qtyValue: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#0F172A',
-    marginLeft: 4,
-  },
-  totalRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 10,
-  },
-  totalLabel: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#64748B',
-  },
-  totalPrice: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: '#10B981',
-  },
-  removeBtn: {
-    backgroundColor: '#FEE2E230',
-    paddingVertical: 8,
-    borderRadius: 6,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#EF4444',
-  },
-  removeBtnText: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#DC2626',
-  },
-  summaryBox: {
-    backgroundColor: '#FFFFFF',
-    marginHorizontal: 12,
-    marginVertical: 12,
-    padding: 14,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-  },
-  summaryRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 8,
-  },
-  summaryLabel: {
-    fontSize: 13,
-    color: '#64748B',
-    fontWeight: '500',
-  },
-  summaryValue: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#0F172A',
-  },
-  divider: {
-    height: 1,
-    backgroundColor: '#E2E8F0',
-    marginVertical: 8,
-  },
-  grandTotalLabel: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: '#0F172A',
-  },
-  grandTotalValue: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#2563EB',
-  },
-  checkoutBtn: {
-    backgroundColor: '#10B981',
-    marginHorizontal: 12,
-    marginBottom: 16,
-    paddingVertical: 14,
-    borderRadius: 10,
-    shadowColor: '#10B981',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.12,
-    shadowRadius: 8,
-    elevation: 4,
-  },
-  checkoutBtnText: {
-    color: 'white',
-    textAlign: 'center',
-    fontWeight: '700',
-    fontSize: 16,
-  },
+// ════════════════════════════════════════════════════════════════════
+const s = StyleSheet.create({
+  container:       { flex: 1, backgroundColor: '#F1F5F9' },
+
+  // Empty state
+  emptyWrap:       { flex: 1, backgroundColor: '#F8FAFC', justifyContent: 'center', alignItems: 'center', gap: 12, padding: 24 },
+  emptyTitle:      { fontSize: 22, fontWeight: '700', color: '#0F172A' },
+  emptySub:        { fontSize: 14, color: '#64748B', textAlign: 'center' },
+  browseBtn:       { marginTop: 6, backgroundColor: '#2563EB', borderRadius: 12, paddingHorizontal: 32, paddingVertical: 14 },
+  browseBtnTxt:    { color: '#fff', fontWeight: '700', fontSize: 15 },
+
+  list:            { padding: 12 },
+
+  listHeader:      { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, paddingHorizontal: 2 },
+  listHeaderTxt:   { fontSize: 13, fontWeight: '600', color: '#475569' },
+  clearTxt:        { fontSize: 13, color: '#DC2626', fontWeight: '600' },
+
+  // Product card
+  productCard:     { backgroundColor: '#fff', borderRadius: 16, marginBottom: 14, overflow: 'hidden', borderWidth: 1, borderColor: '#E2E8F0', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.07, shadowRadius: 8, elevation: 3 },
+
+  productHeader:   { flexDirection: 'row', alignItems: 'center', padding: 12, borderBottomWidth: 1, borderBottomColor: '#F1F5F9', gap: 10 },
+  productImg:      { width: 64, height: 64, borderRadius: 10 },
+  productImgPh:    { width: 64, height: 64, borderRadius: 10, backgroundColor: '#F3F4F6', justifyContent: 'center', alignItems: 'center' },
+  productInfo:     { flex: 1 },
+  productName:     { fontSize: 14, fontWeight: '800', color: '#0F172A', marginBottom: 4, lineHeight: 19 },
+  productMeta:     { fontSize: 11, color: '#64748B', lineHeight: 16 },
+  removeAllBtn:    { width: 28, height: 28, borderRadius: 14, backgroundColor: '#FEE2E2', justifyContent: 'center', alignItems: 'center' },
+  removeAllTxt:    { fontSize: 13, color: '#DC2626', fontWeight: '800' },
+
+  // Table
+  tableHeader:     { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 7, backgroundColor: '#F8FAFC', borderBottomWidth: 1, borderBottomColor: '#E2E8F0' },
+  tableHdrCell:    { fontSize: 10, fontWeight: '800', color: '#94A3B8', letterSpacing: 0.6 },
+
+  // Size row
+  sizeRow:         { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#F1F5F9' },
+  sizeChip:        { flex: 1, backgroundColor: '#EFF6FF', borderRadius: 6, paddingHorizontal: 8, paddingVertical: 4, alignSelf: 'center', alignItems: 'center', marginRight: 4 },
+  sizeChipTxt:     { fontSize: 13, fontWeight: '800', color: '#2563EB' },
+
+  stepper:         { flex: 2.2, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 },
+  stepBtn:         { width: 28, height: 28, borderRadius: 7, backgroundColor: '#2563EB', justifyContent: 'center', alignItems: 'center' },
+  stepBtnDim:      { backgroundColor: '#FCA5A5' },
+  stepBtnTxt:      { color: '#fff', fontSize: 14, fontWeight: '800', lineHeight: 18 },
+  stepVal:         { fontSize: 15, fontWeight: '800', color: '#0F172A', minWidth: 22, textAlign: 'center' },
+
+  pcsCell:         { flex: 1.5, fontSize: 12, color: '#475569', textAlign: 'center' },
+  subtotalCell:    { flex: 2, fontSize: 13, fontWeight: '700', color: '#0F172A', textAlign: 'right' },
+
+  addSizeBtn:      { marginHorizontal: 12, marginTop: 8, paddingVertical: 9, borderRadius: 8, borderWidth: 1.5, borderColor: '#BFDBFE', borderStyle: 'dashed', alignItems: 'center', backgroundColor: '#EFF6FF' },
+  addSizeTxt:      { fontSize: 12, color: '#2563EB', fontWeight: '700' },
+
+  // Product summary
+  productSummary:  { marginHorizontal: 12, marginTop: 10, marginBottom: 12, backgroundColor: '#F8FAFC', borderRadius: 10, padding: 10, borderWidth: 1, borderColor: '#E2E8F0' },
+  summaryLine:     { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 4 },
+  summaryLbl:      { fontSize: 12, color: '#64748B' },
+  summaryVal:      { fontSize: 12, fontWeight: '600', color: '#374151' },
+  summaryTotalLine:{ borderTopWidth: 1, borderTopColor: '#E2E8F0', marginTop: 4, paddingTop: 8 },
+  summaryTotalLbl: { fontSize: 13, fontWeight: '700', color: '#0F172A' },
+  summaryTotalVal: { fontSize: 15, fontWeight: '800', color: '#2563EB' },
+
+  // Grand summary
+  grandSummary:    { backgroundColor: '#fff', borderRadius: 16, marginTop: 4, padding: 16, borderWidth: 1, borderColor: '#E2E8F0' },
+  grandSummaryTitle:{ fontSize: 15, fontWeight: '700', color: '#0F172A', marginBottom: 12 },
+  grandRow:        { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 6 },
+  grandRowLbl:     { fontSize: 13, color: '#64748B', flex: 1, marginRight: 8 },
+  grandRowVal:     { fontSize: 13, fontWeight: '600', color: '#374151' },
+  grandDivider:    { height: 1, backgroundColor: '#E2E8F0', marginVertical: 6 },
+  grandTotalLbl:   { fontSize: 16, fontWeight: '800', color: '#0F172A' },
+  grandTotalVal:   { fontSize: 20, fontWeight: '900', color: '#2563EB' },
+
+  creditRow:       { flexDirection: 'row', justifyContent: 'space-between', marginTop: 10, backgroundColor: '#F0FDF4', borderRadius: 10, padding: 10, borderWidth: 1, borderColor: '#BBF7D0' },
+  creditRowRed:    { backgroundColor: '#FEF2F2', borderColor: '#FECACA' },
+  creditLbl:       { fontSize: 13, fontWeight: '600', color: '#374151' },
+  creditVal:       { fontSize: 14, fontWeight: '800' },
+
+  // Bottom bar
+  bottomBar:       { position: 'absolute', bottom: 0, left: 0, right: 0, backgroundColor: '#fff', padding: 16, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderTopWidth: 1, borderTopColor: '#E2E8F0', shadowColor: '#000', shadowOffset: { width: 0, height: -3 }, shadowOpacity: 0.1, shadowRadius: 8, elevation: 10 },
+  bottomTotal:     { fontSize: 22, fontWeight: '800', color: '#0F172A' },
+  bottomSub:       { fontSize: 11, color: '#6B7280', marginTop: 1 },
+  checkoutBtn:     { backgroundColor: '#2563EB', borderRadius: 12, paddingVertical: 14, paddingHorizontal: 20 },
+  checkoutTxt:     { color: '#fff', fontWeight: '800', fontSize: 14 },
 });

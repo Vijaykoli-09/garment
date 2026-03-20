@@ -8,7 +8,6 @@ import { AppContext } from '../context/AppContext';
 const { width } = Dimensions.get('window');
 const GST = 0.18;
 
-// ── Helpers: pick value for the logged-in user type ──────────────────
 function getMyPrice(pricing: any, type?: string): number {
   if (type === 'Wholesaler')      return pricing?.wholeSeller     ?? 0;
   if (type === 'Semi_Wholesaler') return pricing?.semiWholeSeller ?? 0;
@@ -21,22 +20,19 @@ function getMyMinBox(minBox: any, type?: string): number {
   return minBox?.retailer ?? 5;
 }
 
-// ════════════════════════════════════════════════════════════════════
 export default function ProductDetailScreen({ route, navigation }: any) {
   const { product } = route.params;
   const { addToCart, remainingCredit, creditApproved, user } = useContext(AppContext);
 
-  // Per-user values from backend
   const pricePerBox = getMyPrice(product.pricing, user?.type);
   const minBoxes    = getMyMinBox(product.minBox,  user?.type);
   const pcsPerBox   = product.boxQuantity ?? 12;
 
   const [selectedSize, setSelectedSize] = useState<string>(product.sizes?.[0] ?? '');
-  const [boxes, setBoxes]               = useState(minBoxes);    // start at minimum
+  const [boxes, setBoxes]               = useState(minBoxes);
   const [activeImg, setActiveImg]       = useState(0);
   const [fullScreen, setFullScreen]     = useState(false);
 
-  // ── Calculations — price is per BOX ─────────────────────────────
   const totalPcs   = boxes * pcsPerBox;
   const subtotal   = pricePerBox * boxes;
   const gstAmt     = subtotal * GST;
@@ -70,7 +66,6 @@ export default function ProductDetailScreen({ route, navigation }: any) {
     <>
       <StatusBar backgroundColor="#fff" barStyle="dark-content" />
 
-      {/* Fullscreen image modal */}
       <Modal visible={fullScreen} transparent animationType="fade"
         onRequestClose={() => setFullScreen(false)}>
         <View style={s.fsOverlay}>
@@ -87,7 +82,6 @@ export default function ProductDetailScreen({ route, navigation }: any) {
 
       <ScrollView style={s.container} showsVerticalScrollIndicator={false}>
 
-        {/* Main image */}
         <TouchableOpacity onPress={() => product.images?.length > 0 && setFullScreen(true)}>
           {product.images?.length > 0
             ? <Image source={{ uri: product.images[activeImg] }} style={s.mainImg} resizeMode="cover" />
@@ -98,7 +92,6 @@ export default function ProductDetailScreen({ route, navigation }: any) {
           )}
         </TouchableOpacity>
 
-        {/* Thumbnails */}
         {product.images?.length > 1 && (
           <View style={s.thumbRow}>
             {product.images.map((uri: string, i: number) => (
@@ -112,20 +105,23 @@ export default function ProductDetailScreen({ route, navigation }: any) {
 
         <View style={s.content}>
 
-          {/* Name & description */}
           <Text style={s.name}>{product.name}</Text>
           <Text style={s.desc}>{product.description}</Text>
 
-          {/* ── YOUR PRICE — only this customer type's price shown ── */}
+          {/* ── PRICE CARD — piece is now the hero number ── */}
           <View style={s.myPriceCard}>
             <View style={s.myPriceLeft}>
               <Text style={s.myPriceTier}>Your Price  ({typeLabel})</Text>
+
+              {/* BIG: price per piece */}
               <Text style={s.myPriceBox}>
-                ₹{pricePerBox.toLocaleString()}
-                <Text style={s.myPriceUnit}> / box</Text>
+                ₹{pricePerPc.toFixed(2)}
+                <Text style={s.myPriceUnit}> / piece</Text>
               </Text>
+
+              {/* SMALL: price per box below */}
               <Text style={s.myPricePc}>
-                ₹{pricePerPc.toFixed(2)} per piece  ·  {pcsPerBox} pcs per box
+                ₹{pricePerBox.toLocaleString()} per box  ·  {pcsPerBox} pcs per box
               </Text>
             </View>
             <View style={s.myPriceRight}>
@@ -135,7 +131,6 @@ export default function ProductDetailScreen({ route, navigation }: any) {
             </View>
           </View>
 
-          {/* Size selector */}
           {product.sizes?.length > 0 && (
             <View style={s.section}>
               <Text style={s.secTitle}>Select Size</Text>
@@ -154,7 +149,6 @@ export default function ProductDetailScreen({ route, navigation }: any) {
             </View>
           )}
 
-          {/* Box quantity selector */}
           <View style={s.section}>
             <Text style={s.secTitle}>Number of Boxes</Text>
             <View style={s.qtyRow}>
@@ -173,28 +167,23 @@ export default function ProductDetailScreen({ route, navigation }: any) {
                 <Text style={s.qtyBtnTxt}>+</Text>
               </TouchableOpacity>
             </View>
-
-            {/* Min order hint */}
             <View style={s.minHint}>
               <Text style={s.minHintTxt}>
                 ⚡ Minimum order: <Text style={{ fontWeight: '800' }}>{minBoxes} boxes</Text>
                 {'  '}({minBoxes * pcsPerBox} pcs)
               </Text>
             </View>
-
-            {/* Pcs summary */}
             <View style={s.pcsSummary}>
               <Text style={s.pcsTxt}>{boxes} box{boxes > 1 ? 'es' : ''} × {pcsPerBox} pcs</Text>
               <Text style={s.pcsTotal}>{totalPcs} pcs total</Text>
             </View>
           </View>
 
-          {/* Price breakdown */}
           <View style={s.section}>
             <Text style={s.secTitle}>Price Breakdown</Text>
             {([
-              ['Price per box',   `₹${pricePerBox.toLocaleString()}`],
               ['Price per piece', `₹${pricePerPc.toFixed(2)}`],
+              ['Price per box',   `₹${pricePerBox.toLocaleString()}`],
               ['Boxes ordered',   `${boxes} boxes`],
               ['Total pieces',    `${totalPcs} pcs`],
               ['Subtotal',        `₹${subtotal.toLocaleString()}`],
@@ -213,7 +202,6 @@ export default function ProductDetailScreen({ route, navigation }: any) {
             </View>
           </View>
 
-          {/* Credit status */}
           {creditApproved && (
             <View style={[s.creditBox, !canAfford && s.creditBoxRed]}>
               <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
@@ -232,7 +220,6 @@ export default function ProductDetailScreen({ route, navigation }: any) {
         <View style={{ height: 100 }} />
       </ScrollView>
 
-      {/* Sticky bottom bar */}
       <View style={s.sticky}>
         <View style={s.stickyLeft}>
           <Text style={s.stickyTotal}>
@@ -254,7 +241,6 @@ export default function ProductDetailScreen({ route, navigation }: any) {
   );
 }
 
-// ════════════════════════════════════════════════════════════════════
 const s = StyleSheet.create({
   container:      { flex: 1, backgroundColor: '#F8FAFC' },
   mainImg:        { width, height: 280 },
@@ -266,24 +252,16 @@ const s = StyleSheet.create({
   content:        { padding: 16 },
   name:           { fontSize: 22, fontWeight: '800', color: '#111827', marginBottom: 6 },
   desc:           { fontSize: 14, color: '#6B7280', lineHeight: 20, marginBottom: 14 },
-
-  // MY PRICE CARD — prominent dark blue
-  myPriceCard:    {
-    flexDirection: 'row', backgroundColor: '#1e3a8a', borderRadius: 14,
-    padding: 16, marginBottom: 16, alignItems: 'center',
-    shadowColor: '#1e3a8a', shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.35, shadowRadius: 10, elevation: 6,
-  },
+  myPriceCard:    { flexDirection: 'row', backgroundColor: '#1e3a8a', borderRadius: 14, padding: 16, marginBottom: 16, alignItems: 'center', shadowColor: '#1e3a8a', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.35, shadowRadius: 10, elevation: 6 },
   myPriceLeft:    { flex: 1 },
   myPriceTier:    { fontSize: 11, fontWeight: '700', color: 'rgba(255,255,255,0.65)', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 4 },
-  myPriceBox:     { fontSize: 30, fontWeight: '900', color: '#fff' },
+  myPriceBox:     { fontSize: 30, fontWeight: '900', color: '#fff' },        // ← now shows pricePerPc
   myPriceUnit:    { fontSize: 15, fontWeight: '400', color: 'rgba(255,255,255,0.65)' },
-  myPricePc:      { fontSize: 12, color: 'rgba(255,255,255,0.55)', marginTop: 4 },
+  myPricePc:      { fontSize: 12, color: 'rgba(255,255,255,0.55)', marginTop: 4 }, // ← now shows pricePerBox
   myPriceRight:   { alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.15)', borderRadius: 10, padding: 12, minWidth: 72 },
   myMinLabel:     { fontSize: 9, color: 'rgba(255,255,255,0.6)', fontWeight: '700', textTransform: 'uppercase', marginBottom: 2 },
   myMinNum:       { fontSize: 30, fontWeight: '900', color: '#fff' },
   myMinUnit:      { fontSize: 11, color: 'rgba(255,255,255,0.6)' },
-
   section:        { backgroundColor: '#fff', borderRadius: 12, padding: 14, marginBottom: 12, borderWidth: 1, borderColor: '#E5E7EB' },
   secTitle:       { fontSize: 14, fontWeight: '700', color: '#111827', marginBottom: 12 },
   sizes:          { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
@@ -293,7 +271,6 @@ const s = StyleSheet.create({
   sizeTxtActive:  { color: '#fff' },
   boxInfoBadge:   { marginTop: 10, backgroundColor: '#EFF6FF', borderRadius: 8, padding: 8, borderWidth: 1, borderColor: '#BFDBFE' },
   boxInfoTxt:     { fontSize: 12, color: '#2563EB', fontWeight: '600' },
-
   qtyRow:         { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#F9FAFB', padding: 12, borderRadius: 10, borderWidth: 1, borderColor: '#E5E7EB' },
   qtyBtn:         { width: 46, height: 46, backgroundColor: '#2563EB', borderRadius: 10, justifyContent: 'center', alignItems: 'center' },
   qtyBtnOff:      { backgroundColor: '#CBD5E1' },
@@ -306,20 +283,17 @@ const s = StyleSheet.create({
   pcsSummary:     { flexDirection: 'row', justifyContent: 'space-between', marginTop: 8, backgroundColor: '#F0FDF4', borderRadius: 8, padding: 10, borderWidth: 1, borderColor: '#BBF7D0' },
   pcsTxt:         { fontSize: 13, color: '#374151' },
   pcsTotal:       { fontSize: 14, fontWeight: '800', color: '#059669' },
-
   bRow:           { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: '#F3F4F6' },
   bLbl:           { fontSize: 13, color: '#6B7280' },
   bVal:           { fontSize: 13, fontWeight: '600', color: '#374151' },
   totalRow:       { flexDirection: 'row', justifyContent: 'space-between', paddingTop: 12 },
   totalLbl:       { fontSize: 15, fontWeight: '700', color: '#111827' },
   totalVal:       { fontSize: 20, fontWeight: '800', color: '#2563EB' },
-
   creditBox:      { backgroundColor: '#EFF6FF', borderRadius: 10, padding: 12, marginBottom: 12, borderWidth: 1, borderColor: '#BFDBFE' },
   creditBoxRed:   { backgroundColor: '#FEF2F2', borderColor: '#FECACA' },
   creditLbl:      { fontSize: 13, color: '#1D4ED8', fontWeight: '600' },
   creditAmt:      { fontSize: 16, fontWeight: '800', color: '#2563EB' },
   creditWarn:     { fontSize: 12, color: '#DC2626', fontWeight: '600', marginTop: 6 },
-
   sticky:         { position: 'absolute', bottom: 0, left: 0, right: 0, backgroundColor: '#fff', paddingHorizontal: 16, paddingVertical: 12, flexDirection: 'row', alignItems: 'center', gap: 12, borderTopWidth: 1, borderTopColor: '#E5E7EB', shadowColor: '#000', shadowOffset: { width: 0, height: -3 }, shadowOpacity: 0.1, shadowRadius: 6, elevation: 8 },
   stickyLeft:     { flex: 1 },
   stickyTotal:    { fontSize: 20, fontWeight: '800', color: '#111827' },
@@ -327,7 +301,6 @@ const s = StyleSheet.create({
   cartBtn:        { backgroundColor: '#2563EB', borderRadius: 12, paddingVertical: 14, paddingHorizontal: 22, alignItems: 'center' },
   cartBtnOff:     { backgroundColor: '#CBD5E1' },
   cartBtnTxt:     { color: '#fff', fontSize: 14, fontWeight: '800' },
-
   fsOverlay:      { flex: 1, backgroundColor: '#000', justifyContent: 'center', alignItems: 'center' },
   fsClose:        { position: 'absolute', top: 44, right: 20, zIndex: 10, backgroundColor: 'rgba(255,255,255,0.2)', width: 44, height: 44, borderRadius: 22, justifyContent: 'center', alignItems: 'center' },
   fsCloseTxt:     { color: '#fff', fontSize: 20, fontWeight: '700' },
