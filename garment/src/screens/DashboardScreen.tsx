@@ -132,7 +132,7 @@ export default function DashboardScreen({ navigation }: any) {
           >
             <View style={styles.cardInner}>
               <Text style={styles.cardIcon}>📊</Text>
-              <Text style={styles.cardTitle}>Statements</Text>
+              <Text style={styles.cardTitle}>Orders</Text>
               <Text style={styles.cardDesc}>View order history & details</Text>
               <Text style={styles.arrowText}>→</Text>
             </View>

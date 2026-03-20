@@ -26,7 +26,6 @@ const Dashboard: React.FC<DashboardProps> = ({ children }) => {
   const [openMaster, setOpenMaster] = useState(false);
   const [openKnitting, setOpenKnitting] = useState(false);
   const [openReport, setOpenReport] = useState(false);
-
   const [openCutting, setOpenCutting] = useState(false);
   const [openPayments, setOpenPayments] = useState(false);
   const [dropdownOpen, setDropdownOpen] = useState(false);
@@ -45,13 +44,9 @@ const Dashboard: React.FC<DashboardProps> = ({ children }) => {
     navigate("/login", { replace: true });
   };
 
-  // dropdown outside click close
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
-      if (
-        dropdownRef.current &&
-        !dropdownRef.current.contains(event.target as Node)
-      ) {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
         setDropdownOpen(false);
       }
     };
@@ -59,15 +54,12 @@ const Dashboard: React.FC<DashboardProps> = ({ children }) => {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  // auto open sections based on path
   useEffect(() => {
     if (location.pathname.startsWith("/master")) setOpenMaster(true);
     if (location.pathname.startsWith("/reports")) setOpenReport(true);
     const p = location.pathname;
-    if (p.startsWith("/knitting") && !p.startsWith("/knitting/cutting"))
-      setOpenKnitting(true);
-    if (p.startsWith("/knitting/cutting") || p.startsWith("/cutting"))
-      setOpenCutting(true);
+    if (p.startsWith("/knitting") && !p.startsWith("/knitting/cutting")) setOpenKnitting(true);
+    if (p.startsWith("/knitting/cutting") || p.startsWith("/cutting")) setOpenCutting(true);
   }, [location.pathname]);
 
   useEffect(() => {
@@ -95,10 +87,8 @@ const Dashboard: React.FC<DashboardProps> = ({ children }) => {
       <div
         style={{
           position: "absolute",
-          top: 0,
-          left: 0,
-          width: "100%",
-          height: "100%",
+          top: 0, left: 0,
+          width: "100%", height: "100%",
           backgroundColor: "rgba(0,0,0,0.3)",
           zIndex: 1,
         }}
@@ -110,12 +100,22 @@ const Dashboard: React.FC<DashboardProps> = ({ children }) => {
           height: "100%",
           position: "relative",
           zIndex: 2,
+          overflow: "hidden", // ← prevents the whole layout from growing wider than viewport
         }}
       >
-        {/* Sidebar */}
+        {/* ── Sidebar ────────────────────────────────────────────────
+            FIX: added flexShrink: 0 and minWidth: 220
+            Without these, when ViewSales renders a wide table the browser
+            shrinks flex children to fit — collapsing the sidebar down to
+            just enough space for the first few characters of each label.
+            flexShrink: 0 tells the browser "never shrink this element".
+            minWidth: 220 is a hard floor as a second guard.
+        ─────────────────────────────────────────────────────────── */}
         <div
           style={{
             width: "220px",
+            minWidth: "220px",    // ← FIX: hard minimum — never shrink below this
+            flexShrink: 0,        // ← FIX: don't shrink when content is wide
             backgroundColor: "rgba(31,41,55,0.95)",
             color: "white",
             display: "flex",
@@ -124,177 +124,111 @@ const Dashboard: React.FC<DashboardProps> = ({ children }) => {
             overflowY: "auto",
           }}
         >
-          <h2
-            style={{
-              fontSize: "1.5rem",
-              fontWeight: "bold",
-              marginBottom: "2rem",
-            }}
-          >
+          <h2 style={{ fontSize: "1.5rem", fontWeight: "bold", marginBottom: "2rem" }}>
             Dashboard
           </h2>
 
           {/* MASTER */}
-          <button
-            style={buttonStyle}
-            onClick={() => setOpenMaster(!openMaster)}
-          >
+          <button style={buttonStyle} onClick={() => setOpenMaster(!openMaster)}>
             <HomeIcon style={iconStyle} /> Master
             <span style={{ marginLeft: "auto" }}>
-              {openMaster ? (
-                <ChevronUpIcon style={chevronStyle} />
-              ) : (
-                <ChevronDownIcon style={chevronStyle} />
-              )}
+              {openMaster ? <ChevronUpIcon style={chevronStyle} /> : <ChevronDownIcon style={chevronStyle} />}
             </span>
           </button>
-          {openMaster && (
-            <MasterNavigator onNavigate={(p: string) => navigate(p)} />
-          )}
+          {openMaster && <MasterNavigator onNavigate={(p: string) => navigate(p)} />}
 
           {/* KNITTING */}
-          <button
-            style={buttonStyle}
-            onClick={() => setOpenKnitting(!openKnitting)}
-          >
+          <button style={buttonStyle} onClick={() => setOpenKnitting(!openKnitting)}>
             <HomeIcon style={iconStyle} /> Knitting
             <span style={{ marginLeft: "auto" }}>
-              {openKnitting ? (
-                <ChevronUpIcon style={chevronStyle} />
-              ) : (
-                <ChevronDownIcon style={chevronStyle} />
-              )}
+              {openKnitting ? <ChevronUpIcon style={chevronStyle} /> : <ChevronDownIcon style={chevronStyle} />}
             </span>
           </button>
-          {openKnitting && (
-            <KnittingNavigator onNavigate={(p: string) => navigate(p)} />
-          )}
+          {openKnitting && <KnittingNavigator onNavigate={(p: string) => navigate(p)} />}
 
           {/* CUTTING */}
-          <button
-            style={buttonStyle}
-            onClick={() => setOpenCutting(!openCutting)}
-          >
+          <button style={buttonStyle} onClick={() => setOpenCutting(!openCutting)}>
             <HomeIcon style={iconStyle} /> Cutting
             <span style={{ marginLeft: "auto" }}>
-              {openCutting ? (
-                <ChevronUpIcon style={chevronStyle} />
-              ) : (
-                <ChevronDownIcon style={chevronStyle} />
-              )}
+              {openCutting ? <ChevronUpIcon style={chevronStyle} /> : <ChevronDownIcon style={chevronStyle} />}
             </span>
           </button>
-          {openCutting && (
-            <CuttingNavigator onNavigate={(p: string) => navigate(p)} />
-          )}
+          {openCutting && <CuttingNavigator onNavigate={(p: string) => navigate(p)} />}
 
           {/* PRODUCTION */}
-          <button
-            style={buttonStyle}
-            onClick={() => navigate("/production/receipt")}
-          >
+          <button style={buttonStyle} onClick={() => navigate("/production/receipt")}>
             <HomeIcon style={iconStyle} /> Production
           </button>
 
-          
-
           {/* REPORTS */}
-          <button
-            style={buttonStyle}
-            onClick={() => setOpenReport(!openReport)}
-          >
+          <button style={buttonStyle} onClick={() => setOpenReport(!openReport)}>
             <DocumentTextIcon style={iconStyle} /> Reports
             <span style={{ marginLeft: "auto" }}>
-              {openReport ? (
-                <ChevronUpIcon style={chevronStyle} />
-              ) : (
-                <ChevronDownIcon style={chevronStyle} />
-              )}
+              {openReport ? <ChevronUpIcon style={chevronStyle} /> : <ChevronDownIcon style={chevronStyle} />}
             </span>
           </button>
-          {openReport && (
-            <ReportsNavigator onNavigate={(p: string) => navigate(p)} />
-          )}
+          {openReport && <ReportsNavigator onNavigate={(p: string) => navigate(p)} />}
 
-          {/* Sales */}
+          {/* SALES */}
           <button style={buttonStyle} onClick={() => setOpenSales(!openSales)}>
             <HomeIcon style={iconStyle} /> Sales
             <span style={{ marginLeft: "auto" }}>
-              {openSales ? (
-                <ChevronUpIcon style={{ width: 16, height: 16 }} />
-              ) : (
-                <ChevronDownIcon style={{ width: 16, height: 16 }} />
-              )}
+              {openSales ? <ChevronUpIcon style={chevronStyle} /> : <ChevronDownIcon style={chevronStyle} />}
             </span>
           </button>
-          {openSales && (
-            <SalesNavigator onNavigate={(path) => navigate(path)} />
-          )}
+          {openSales && <SalesNavigator onNavigate={(path) => navigate(path)} />}
 
-          {/* Payments Button */}
-          <button
-            style={buttonStyle}
-            onClick={() => setOpenPayments(!openPayments)}
-          >
+          {/* PAYMENTS */}
+          <button style={buttonStyle} onClick={() => setOpenPayments(!openPayments)}>
             <CreditCardIcon style={iconStyle} /> Payments
             <span style={{ marginLeft: "auto" }}>
-              {openPayments ? (
-                <ChevronUpIcon style={{ width: "16px", height: "16px" }} />
-              ) : (
-                <ChevronDownIcon style={{ width: "16px", height: "16px" }} />
-              )}
+              {openPayments ? <ChevronUpIcon style={chevronStyle} /> : <ChevronDownIcon style={chevronStyle} />}
             </span>
           </button>
-          {openPayments && (
-            <PaymentNavigator onNavigate={(path) => navigate(path)} />
-          )}
-           {/* Administration */}
+          {openPayments && <PaymentNavigator onNavigate={(path) => navigate(path)} />}
+
+          {/* ADMINISTRATION */}
           <button style={buttonStyle} onClick={() => setOpenAdministration(!openAdministration)}>
             <AdminPanelSettingsIcon style={iconStyle} /> Administration
             <span style={{ marginLeft: "auto" }}>
-              {openAdministration ? (
-                <ChevronUpIcon style={{ width: 16, height: 16 }} />
-              ) : (
-                <ChevronDownIcon style={{ width: 16, height: 16 }} />
-              )}
+              {openAdministration ? <ChevronUpIcon style={chevronStyle} /> : <ChevronDownIcon style={chevronStyle} />}
             </span>
           </button>
-          {openAdministration && (
-            <AdministrationNavigator onNavigate={(path) => navigate(path)} />
-          )}
+          {openAdministration && <AdministrationNavigator onNavigate={(path) => navigate(path)} />}
 
+          {/* CUSTOMER REQUESTS */}
+          <button style={buttonStyle} onClick={() => navigate("/app/CustomerRequests")}>
+            <HomeIcon style={iconStyle} /> Customer Requests
+          </button>
 
-          {/* Customer Requests */}
-<button
-  style={buttonStyle}
-  onClick={() => navigate("/app/CustomerRequests")}
->
-  <HomeIcon style={iconStyle} /> Customer Requests
-</button>
+          {/* ADD PRODUCT */}
+          <button style={buttonStyle} onClick={() => navigate("/app/AddProduct")}>
+            <HomeIcon style={iconStyle} /> Add Product
+          </button>
 
-{/* Add Product */}
-<button
-  style={buttonStyle}
-  onClick={() => navigate("/app/AddProduct")}
->
-  <HomeIcon style={iconStyle} /> Add Product
-</button>
-
-{/* View Sales */}
-<button
-  style={buttonStyle}
-  onClick={() => navigate("/app/ViewSales")}
->
-  <HomeIcon style={iconStyle} /> View Sales
-</button>
-
-
-
-
+          {/* VIEW SALES */}
+          <button style={buttonStyle} onClick={() => navigate("/app/ViewSales")}>
+            <HomeIcon style={iconStyle} /> View Sales
+          </button>
         </div>
 
-        {/* Right side */}
-        <div style={{ flex: 1, display: "flex", flexDirection: "column" }}>
+        {/* ── Right side ──────────────────────────────────────────────
+            FIX: added minWidth: 0
+            Without minWidth: 0, a flex child cannot shrink below its
+            content size. Setting it to 0 allows this area to shrink
+            freely while the sidebar holds its fixed width.
+            The content inside (.padding div) uses overflow which keeps
+            wide tables from expanding the layout.
+        ─────────────────────────────────────────────────────────── */}
+        <div
+          style={{
+            flex: 1,
+            minWidth: 0,           // ← FIX: allows this column to shrink without pushing sidebar
+            display: "flex",
+            flexDirection: "column",
+            overflow: "hidden",    // ← content scrolls internally, not the whole page
+          }}
+        >
           {/* Top bar */}
           <div
             style={{
@@ -306,43 +240,21 @@ const Dashboard: React.FC<DashboardProps> = ({ children }) => {
               padding: "0 20px",
               boxShadow: "0px 1px 4px rgba(0,0,0,0.1)",
               position: "relative",
+              flexShrink: 0,       // ← top bar never shrinks vertically
             }}
           >
-            <div
-              style={{
-                fontWeight: "bold",
-                fontSize: "1.1rem",
-                color: "#111827",
-              }}
-            >
+            <div style={{ fontWeight: "bold", fontSize: "1.1rem", color: "#111827" }}>
               {companyName}
             </div>
 
             {/* User dropdown */}
-            <div
-              ref={dropdownRef}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                position: "relative",
-              }}
-            >
+            <div ref={dropdownRef} style={{ display: "flex", alignItems: "center", position: "relative" }}>
               <UserCircleIcon
-                style={{
-                  width: "30px",
-                  height: "30px",
-                  color: "#374151",
-                  cursor: "pointer",
-                }}
+                style={{ width: "30px", height: "30px", color: "#374151", cursor: "pointer" }}
                 onClick={() => setDropdownOpen(!dropdownOpen)}
               />
               <span
-                style={{
-                  marginLeft: "10px",
-                  fontWeight: "bold",
-                  color: "#111827",
-                  cursor: "pointer",
-                }}
+                style={{ marginLeft: "10px", fontWeight: "bold", color: "#111827", cursor: "pointer" }}
                 onClick={() => setDropdownOpen(!dropdownOpen)}
               >
                 {user.name}
@@ -351,32 +263,29 @@ const Dashboard: React.FC<DashboardProps> = ({ children }) => {
               {dropdownOpen && (
                 <div
                   style={{
-                    position: "absolute",
-                    top: "50px",
-                    right: "0",
-                    backgroundColor: "white",
-                    boxShadow: "0px 2px 8px rgba(0,0,0,0.15)",
-                    borderRadius: "8px",
-                    overflow: "hidden",
-                    zIndex: 100,
-                    minWidth: "150px",
+                    position: "absolute", top: "50px", right: "0",
+                    backgroundColor: "white", boxShadow: "0px 2px 8px rgba(0,0,0,0.15)",
+                    borderRadius: "8px", overflow: "hidden", zIndex: 100, minWidth: "150px",
                   }}
                 >
-                  <button
-                    style={dropdownItemStyle}
-                    onClick={() => navigate("/profile")}
-                  >
-                    Profile
-                  </button>
-                  <button style={dropdownItemStyle} onClick={handleLogout}>
-                    Logout
-                  </button>
+                  <button style={dropdownItemStyle} onClick={() => navigate("/profile")}>Profile</button>
+                  <button style={dropdownItemStyle} onClick={handleLogout}>Logout</button>
                 </div>
               )}
             </div>
           </div>
 
-          <div style={{ flex: 1, padding: "20px" }}>{children}</div>
+          {/* Page content — scrollable */}
+          <div
+            style={{
+              flex: 1,
+              padding: "20px",
+              overflowY: "auto",   // ← vertical scroll for tall pages
+              overflowX: "hidden", // ← horizontal overflow stays inside, doesn't push sidebar
+            }}
+          >
+            {children}
+          </div>
         </div>
       </div>
     </div>

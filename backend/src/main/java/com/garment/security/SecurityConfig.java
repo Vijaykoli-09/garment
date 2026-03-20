@@ -53,6 +53,7 @@ public class SecurityConfig {
                 .requestMatchers("/api/admin/customers/**").permitAll()
                 .requestMatchers("/api/admin/products/**").permitAll()
                 .requestMatchers("/api/admin/images/**").permitAll()
+                .requestMatchers("/api/admin/orders/**").permitAll()
 
                 // ── All existing permitted endpoints ──────────────────
                 .requestMatchers("/api/sizes/**").permitAll()

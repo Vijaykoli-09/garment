@@ -21,7 +21,13 @@ public class AppOrderResponse {
     private String paymentMethod;
     private String deliveryAddress;
     private String createdAt;
-    private String paidAt;            // ← new: ISO string, null until credit is paid
+    private String paidAt;
+
+    // ── NEW: customer info — needed by admin ViewSales web page ──────
+    private String customerName;     // customer's full name
+    private String customerType;     // Wholesaler / Semi_Wholesaler / Retailer
+    private String customerPhone;    // customer's phone number
+
     private List<ItemDTO> items;
 
     public static class ItemDTO {
@@ -33,7 +39,7 @@ public class AppOrderResponse {
         private Double  itemTotal;
 
         public static ItemDTO from(AppOrderItem i) {
-            ItemDTO d = new ItemDTO();
+            ItemDTO d      = new ItemDTO();
             d.productId    = i.getProductId();
             d.productName  = i.getProductName();
             d.selectedSize = i.getSelectedSize();
@@ -51,7 +57,7 @@ public class AppOrderResponse {
         public Double  getItemTotal()    { return itemTotal; }
     }
 
-    // Factory: entity → DTO (used for list + detail endpoints)
+    // ── Factory: entity → DTO ────────────────────────────────────────
     public static AppOrderResponse from(AppOrder o) {
         AppOrderResponse r = new AppOrderResponse();
         r.id              = o.getId();
@@ -68,9 +74,19 @@ public class AppOrderResponse {
         r.deliveryAddress = o.getDeliveryAddress();
         r.createdAt       = o.getCreatedAt() != null ? o.getCreatedAt().toString() : null;
         r.paidAt          = o.getPaidAt()    != null ? o.getPaidAt().toString()    : null;
-        r.items           = o.getItems().stream()
-                              .map(ItemDTO::from)
-                              .collect(Collectors.toList());
+
+        // NEW: populate customer info if available (lazy-loaded, guard null)
+        if (o.getCustomer() != null) {
+            r.customerName  = o.getCustomer().getFullName();
+            r.customerType  = o.getCustomer().getCustomerType() != null
+                    ? o.getCustomer().getCustomerType().name()
+                    : null;
+            r.customerPhone = o.getCustomer().getPhone();
+        }
+
+        r.items = o.getItems().stream()
+                    .map(ItemDTO::from)
+                    .collect(Collectors.toList());
         return r;
     }
 
@@ -104,5 +120,8 @@ public class AppOrderResponse {
     public String  getDeliveryAddress() { return deliveryAddress; }
     public String  getCreatedAt()       { return createdAt; }
     public String  getPaidAt()          { return paidAt; }
+    public String  getCustomerName()    { return customerName; }
+    public String  getCustomerType()    { return customerType; }
+    public String  getCustomerPhone()   { return customerPhone; }
     public List<ItemDTO> getItems()     { return items; }
 }

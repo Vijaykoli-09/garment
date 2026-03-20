@@ -1,50 +1,31 @@
-import React, { useCallback, useContext, useEffect, useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
-  View, Text, FlatList, StyleSheet, StatusBar,
-  ActivityIndicator, TouchableOpacity, RefreshControl,
-  Alert,
+  View, Text, FlatList, StyleSheet, TouchableOpacity,
+  ActivityIndicator, RefreshControl, StatusBar, Modal, ScrollView,
 } from 'react-native';
-import RazorpayCheckout from 'react-native-razorpay';
-import { AppContext } from '../context/AppContext';
 import { orderApi } from '../api/api';
 
-// ── Types ─────────────────────────────────────────────────────────────
-interface OrderItem {
-  productId:    number;
-  productName:  string;
-  selectedSize: string;
-  quantity:     number;
-  pricePerPc:   number;
-  itemTotal:    number;
-}
+// ── Status config ────────────────────────────────────────────────────
 
-interface Order {
-  id:             number;
-  totalAmount:    number;
-  subtotal:       number;
-  gstAmount:      number;
-  advanceAmount:  number;
-  creditAmount:   number;
-  orderStatus:    string;
-  paymentStatus:  string;   // 'PAID' | 'PENDING' | 'FAILED' | 'PARTIALLY_PAID'
-  paymentMethod:  string;
-  deliveryAddress:string;
-  createdAt:      string;
-  paidAt:         string | null;   // ← new: set by backend when credit is paid
-  items:          OrderItem[];
-}
-
-// ── Helpers ───────────────────────────────────────────────────────────
-const STATUS_CONFIG: Record<string, { color: string; bg: string; emoji: string }> = {
-  PENDING:    { color: '#D97706', bg: '#FEF3C7', emoji: '⏳' },
-  ACCEPTED:   { color: '#2563EB', bg: '#DBEAFE', emoji: '✅' },
-  PROCESSING: { color: '#7C3AED', bg: '#EDE9FE', emoji: '⚙️' },
-  SHIPPED:    { color: '#0891B2', bg: '#CFFAFE', emoji: '🚚' },
-  DELIVERED:  { color: '#059669', bg: '#D1FAE5', emoji: '📦' },
-  CANCELLED:  { color: '#DC2626', bg: '#FEE2E2', emoji: '❌' },
+// Order status — set by admin (what the customer cares about most)
+const ORDER_STATUS: Record<string, { label: string; color: string; bg: string; emoji: string }> = {
+  PENDING:    { label: 'Pending',    color: '#92400E', bg: '#FEF3C7', emoji: '⏳' },
+  ACCEPTED:   { label: 'Accepted',   color: '#065F46', bg: '#D1FAE5', emoji: '✅' },
+  PROCESSING: { label: 'Processing', color: '#1E40AF', bg: '#DBEAFE', emoji: '⚙️' },
+  SHIPPED:    { label: 'Shipped',    color: '#5B21B6', bg: '#EDE9FE', emoji: '🚚' },
+  DELIVERED:  { label: 'Delivered',  color: '#064E3B', bg: '#ECFDF5', emoji: '📦' },
+  CANCELLED:  { label: 'Cancelled',  color: '#991B1B', bg: '#FEE2E2', emoji: '❌' },
 };
 
-const PAY_METHOD_LABEL: Record<string, string> = {
+// Payment status — whether money was received
+const PAYMENT_STATUS: Record<string, { label: string; color: string; bg: string }> = {
+  PENDING:  { label: 'Payment Pending', color: '#92400E', bg: '#FEF3C7' },
+  PAID:     { label: 'Paid',            color: '#065F46', bg: '#D1FAE5' },
+  FAILED:   { label: 'Failed',          color: '#991B1B', bg: '#FEE2E2' },
+  REFUNDED: { label: 'Refunded',        color: '#5B21B6', bg: '#EDE9FE' },
+};
+
+const PAYMENT_METHOD_LABELS: Record<string, string> = {
   UPI:           '📱 UPI',
   BANK_TRANSFER: '🏦 Bank Transfer',
   DEBIT_CARD:    '🎯 Debit Card',
@@ -53,406 +34,363 @@ const PAY_METHOD_LABEL: Record<string, string> = {
   ADVANCE_CREDIT:'🔀 Advance + Credit',
 };
 
-// Credit orders whose credit portion is still unpaid
-function creditUnpaid(order: Order): boolean {
-  return (
-    (order.paymentMethod === 'CREDIT_ORDER' || order.paymentMethod === 'ADVANCE_CREDIT') &&
-    order.paymentStatus !== 'PAID'
-  );
-}
+// Filter tabs — what the customer wants to track
+const FILTERS = [
+  { key: 'ALL',        label: '📦 All' },
+  { key: 'PENDING',    label: '⏳ Pending' },
+  { key: 'ACCEPTED',   label: '✅ Accepted' },
+  { key: 'PROCESSING', label: '⚙️ Processing' },
+  { key: 'SHIPPED',    label: '🚚 Shipped' },
+  { key: 'DELIVERED',  label: '📦 Delivered' },
+  { key: 'CANCELLED',  label: '❌ Cancelled' },
+];
 
-// Amount still owed on credit
-function creditOwed(order: Order): number {
-  if (order.paymentMethod === 'CREDIT_ORDER')  return order.totalAmount;
-  if (order.paymentMethod === 'ADVANCE_CREDIT') return order.creditAmount ?? order.totalAmount * 0.7;
-  return 0;
-}
-
-function formatDate(iso: string) {
+function formatDate(dateStr: string) {
+  if (!dateStr) return '—';
   try {
-    const d = new Date(iso);
-    return {
-      date: d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }),
-      time: d.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true }),
-    };
-  } catch { return { date: iso, time: '' }; }
+    return new Date(dateStr).toLocaleDateString('en-IN', {
+      day: '2-digit', month: 'short', year: 'numeric',
+    });
+  } catch { return dateStr; }
 }
 
-// ── Order Card ────────────────────────────────────────────────────────
-function OrderCard({
-  order,
-  user,
-  onCreditPaid,
-}: {
-  order: Order;
-  user: any;
-  onCreditPaid: (updatedOrder: Order) => void;
-}) {
-  const [expanded, setExpanded] = useState(false);
-  const [paying, setPaying]     = useState(false);
-
-  const cfg      = STATUS_CONFIG[order.orderStatus] ?? STATUS_CONFIG.PENDING;
-  const { date, time } = formatDate(order.createdAt);
-  const payLabel = PAY_METHOD_LABEL[order.paymentMethod] ?? order.paymentMethod;
-  const showPayBtn = creditUnpaid(order);
-  const owed       = creditOwed(order);
-
-  // ── Pay credit amount via Razorpay ───────────────────────────────
-  const handlePayCredit = async () => {
-    Alert.alert(
-      '💳 Pay Credit Amount',
-      `Pay ₹${owed.toFixed(2)} now to clear this credit order?`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Pay Now',
-          onPress: async () => {
-            setPaying(true);
-            try {
-              // 1. Ask backend to create a Razorpay order for the credit amount
-              const { data } = await orderApi.createCreditPaymentOrder(order.id);
-
-              if (!data.razorpayOrderId || !data.razorpayKeyId) {
-                throw new Error('Server did not return a valid Razorpay order.');
-              }
-
-              // 2. Open Razorpay checkout
-              const options = {
-                description:  `Clearing credit for Order #${order.id}`,
-                currency:     'INR',
-                key:          data.razorpayKeyId,
-                amount:       Math.round(data.creditAmount * 100), // paise
-                name:         'Shriuday Garments',
-                order_id:     data.razorpayOrderId,
-                prefill: {
-                  email:   user?.email   ?? '',
-                  contact: user?.phone   ?? '',
-                  name:    user?.name    ?? '',
-                },
-                theme: { color: '#059669' },
-              };
-
-              const paymentData = await RazorpayCheckout.open(options);
-
-              // 3. Verify with backend — backend marks order PAID and sets paidAt
-              const { data: verified } = await orderApi.verifyCreditPayment({
-                orderId:           order.id,
-                razorpayOrderId:   paymentData.razorpay_order_id,
-                razorpayPaymentId: paymentData.razorpay_payment_id,
-                razorpaySignature: paymentData.razorpay_signature,
-              });
-
-              // 4. Update this card in the list
-              onCreditPaid(verified.order);
-
-              Alert.alert(
-                '✅ Payment Successful!',
-                `₹${owed.toFixed(2)} paid for Order #${order.id}.`,
-              );
-            } catch (error: any) {
-              const cancelled =
-                error?.code === 0 ||
-                error?.code === 'PAYMENT_CANCELLED' ||
-                error?.description === 'Payment Cancelled by user';
-              if (cancelled) {
-                Alert.alert('Cancelled', 'Payment cancelled. You can pay later.');
-              } else {
-                const msg =
-                  error?.response?.data?.error ??
-                  error?.description ??
-                  error?.message ??
-                  'Payment failed. Please try again.';
-                Alert.alert('❌ Payment Failed', msg);
-              }
-            } finally {
-              setPaying(false);
-            }
-          },
-        },
-      ]
-    );
-  };
-
-  return (
-    <View style={s.card}>
-
-      {/* ── Header ── */}
-      <View style={s.cardHeader}>
-        <View style={{ flex: 1 }}>
-          <Text style={s.orderId}>Order #{order.id}</Text>
-          <Text style={s.dateTime}>{date}  ·  {time}</Text>
-        </View>
-        <View style={[s.statusBadge, { backgroundColor: cfg.bg }]}>
-          <Text style={s.statusEmoji}>{cfg.emoji}</Text>
-          <Text style={[s.statusText, { color: cfg.color }]}>{order.orderStatus}</Text>
-        </View>
-      </View>
-
-      <View style={s.divider} />
-
-      {/* ── Payment info ── */}
-      <View style={s.infoRow}>
-        <View style={s.infoItem}>
-          <Text style={s.infoLabel}>Payment</Text>
-          <Text style={s.infoValue}>{payLabel}</Text>
-        </View>
-        <View style={s.infoItem}>
-          <Text style={s.infoLabel}>Status</Text>
-          <Text style={[s.infoValue, {
-            color: order.paymentStatus === 'PAID'           ? '#059669' :
-                   order.paymentStatus === 'FAILED'         ? '#DC2626' :
-                   order.paymentStatus === 'PARTIALLY_PAID' ? '#D97706' : '#D97706',
-          }]}>
-            {order.paymentStatus === 'PAID'           ? '✅ Paid' :
-             order.paymentStatus === 'FAILED'         ? '❌ Failed' :
-             order.paymentStatus === 'PARTIALLY_PAID' ? '🔀 Partial' : '⏳ Pending'}
-          </Text>
-        </View>
-        <View style={s.infoItem}>
-          <Text style={s.infoLabel}>Items</Text>
-          <Text style={s.infoValue}>
-            {order.items?.length ?? 0} product{(order.items?.length ?? 0) !== 1 ? 's' : ''}
-          </Text>
-        </View>
-      </View>
-
-      {/* ── Credit split ── */}
-      {(order.paymentMethod === 'ADVANCE_CREDIT' || order.paymentMethod === 'CREDIT_ORDER') && (
-        <View style={s.creditSplit}>
-          {order.advanceAmount > 0 && (
-            <Text style={s.creditSplitTxt}>💳 Paid now: ₹{order.advanceAmount.toFixed(2)}</Text>
-          )}
-          {order.creditAmount > 0 && (
-            <Text style={s.creditSplitTxt}>📋 On credit: ₹{order.creditAmount.toFixed(2)}</Text>
-          )}
-        </View>
-      )}
-
-      {/* ── PAY NOW button (credit orders only, while unpaid) ── */}
-      {showPayBtn && (
-        <TouchableOpacity
-          style={[s.payNowBtn, paying && s.payNowBtnDisabled]}
-          onPress={handlePayCredit}
-          disabled={paying}
-          activeOpacity={0.8}
-        >
-          {paying ? (
-            <ActivityIndicator color="#fff" size="small" />
-          ) : (
-            <>
-              <Text style={s.payNowEmoji}>💳</Text>
-              <View style={{ flex: 1 }}>
-                <Text style={s.payNowTitle}>Pay Credit Amount</Text>
-                <Text style={s.payNowSub}>₹{owed.toFixed(2)} pending</Text>
-              </View>
-              <Text style={s.payNowArrow}>›</Text>
-            </>
-          )}
-        </TouchableOpacity>
-      )}
-
-      {/* ── Paid timestamp (shown after credit is paid) ── */}
-      {order.paymentStatus === 'PAID' && order.paidAt && (
-        <View style={s.paidBadge}>
-          <Text style={s.paidBadgeTxt}>
-            ✅ Paid on {formatDate(order.paidAt).date} at {formatDate(order.paidAt).time}
-          </Text>
-        </View>
-      )}
-
-      {/* ── Items (expandable) ── */}
-      <TouchableOpacity onPress={() => setExpanded(e => !e)} style={s.expandBtn} activeOpacity={0.7}>
-        <Text style={s.expandTxt}>
-          {expanded ? '▲ Hide products' : `▼ Show ${order.items?.length ?? 0} product(s)`}
-        </Text>
-      </TouchableOpacity>
-
-      {expanded && (
-        <View style={s.itemsList}>
-          {(order.items ?? []).map((item, idx) => (
-            <View key={idx} style={s.itemRow}>
-              <View style={s.itemImg}>
-                <Text style={{ fontSize: 28 }}>👕</Text>
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={s.itemName} numberOfLines={2}>{item.productName}</Text>
-                <Text style={s.itemDetail}>Size: {item.selectedSize}  ·  Qty: {item.quantity} pcs</Text>
-                <Text style={s.itemDetail}>₹{item.pricePerPc?.toFixed(2)}/pc</Text>
-              </View>
-              <Text style={s.itemTotal}>₹{item.itemTotal?.toFixed(2)}</Text>
-            </View>
-          ))}
-        </View>
-      )}
-
-      <View style={s.divider} />
-
-      {/* ── Totals ── */}
-      <View style={s.totalsSection}>
-        <View style={s.totalRow}>
-          <Text style={s.totalLbl}>Subtotal</Text>
-          <Text style={s.totalVal}>₹{order.subtotal?.toFixed(2)}</Text>
-        </View>
-        <View style={s.totalRow}>
-          <Text style={s.totalLbl}>GST (18%)</Text>
-          <Text style={s.totalVal}>₹{order.gstAmount?.toFixed(2)}</Text>
-        </View>
-        <View style={[s.totalRow, s.grandRow]}>
-          <Text style={s.grandLbl}>Grand Total</Text>
-          <Text style={s.grandVal}>₹{order.totalAmount?.toFixed(2)}</Text>
-        </View>
-      </View>
-
-      {order.deliveryAddress ? (
-        <Text style={s.address}>📍 {order.deliveryAddress}</Text>
-      ) : null}
-
-    </View>
-  );
-}
-
-// ── Screen ────────────────────────────────────────────────────────────
-export default function OrderHistoryScreen() {
-  const { user } = useContext(AppContext);
-  const [orders, setOrders]     = useState<Order[]>([]);
+// ════════════════════════════════════════════════════════════════════
+export default function OrderHistoryScreen({ navigation }: any) {
+  const [orders, setOrders]     = useState<any[]>([]);
   const [loading, setLoading]   = useState(true);
-  const [refreshing, setRefresh] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError]       = useState('');
+  const [selected, setSelected] = useState<any | null>(null);
+  const [filter, setFilter]     = useState('ALL');
 
   const fetchOrders = useCallback(async () => {
-    setError('');
     try {
+      setError('');
       const res = await orderApi.getMyOrders();
-      setOrders(res.data ?? []);
-    } catch (e: any) {
-      setError(e?.response?.data?.error ?? 'Failed to load orders.');
+      const sorted = [...(res.data ?? [])].sort(
+        (a, b) => new Date(b.createdAt ?? 0).getTime() - new Date(a.createdAt ?? 0).getTime()
+      );
+      setOrders(sorted);
+    } catch {
+      setError('Could not load orders. Pull to refresh.');
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
     }
   }, []);
 
-  useEffect(() => {
-    (async () => { setLoading(true); await fetchOrders(); setLoading(false); })();
-  }, []);
+  useEffect(() => { fetchOrders(); }, [fetchOrders]);
 
-  const onRefresh = async () => {
-    setRefresh(true); await fetchOrders(); setRefresh(false);
+  const onRefresh = () => { setRefreshing(true); fetchOrders(); };
+
+  const displayed = filter === 'ALL'
+    ? orders
+    : orders.filter(o => o.orderStatus === filter);
+
+  // ── Order card ────────────────────────────────────────────────────
+  const renderOrder = ({ item }: { item: any }) => {
+    const os = ORDER_STATUS[item.orderStatus]   ?? ORDER_STATUS.PENDING;
+    const ps = PAYMENT_STATUS[item.paymentStatus] ?? PAYMENT_STATUS.PENDING;
+
+    return (
+      <TouchableOpacity style={s.card} onPress={() => setSelected(item)} activeOpacity={0.8}>
+
+        {/* Top: order number + ORDER STATUS badge (most important for customer) */}
+        <View style={s.cardTop}>
+          <View>
+            <Text style={s.orderId}>Order #ORD-{String(item.id).padStart(4, '0')}</Text>
+            <Text style={s.orderDate}>{formatDate(item.createdAt)}</Text>
+          </View>
+          {/* ORDER STATUS — big and clear so customer knows admin accepted/shipped */}
+          <View style={[s.orderStatusBadge, { backgroundColor: os.bg }]}>
+            <Text style={[s.orderStatusTxt, { color: os.color }]}>
+              {os.emoji} {os.label}
+            </Text>
+          </View>
+        </View>
+
+        {/* Items preview */}
+        {item.items?.length > 0 && (
+          <View style={s.itemsPreview}>
+            {item.items.slice(0, 2).map((it: any, idx: number) => (
+              <Text key={idx} style={s.itemPreviewTxt} numberOfLines={1}>
+                • {it.productName}  ({it.selectedSize})  ×  {it.quantity} pcs
+              </Text>
+            ))}
+            {item.items.length > 2 && (
+              <Text style={s.itemMore}>+{item.items.length - 2} more items</Text>
+            )}
+          </View>
+        )}
+
+        {/* Bottom: payment method + payment status + total */}
+        <View style={s.cardBottom}>
+          <View>
+            <Text style={s.paymentMethod}>
+              {PAYMENT_METHOD_LABELS[item.paymentMethod] ?? item.paymentMethod}
+            </Text>
+            {/* Payment status — smaller, secondary info */}
+            <View style={[s.paymentStatusBadge, { backgroundColor: ps.bg }]}>
+              <Text style={[s.paymentStatusTxt, { color: ps.color }]}>{ps.label}</Text>
+            </View>
+          </View>
+          <Text style={s.totalAmt}>
+            ₹{item.totalAmount?.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
+          </Text>
+        </View>
+      </TouchableOpacity>
+    );
   };
 
-  // Called by OrderCard after credit payment succeeds — updates just that order in state
-  const handleCreditPaid = useCallback((updatedOrder: Order) => {
-    setOrders(prev => prev.map(o => o.id === updatedOrder.id ? updatedOrder : o));
-  }, []);
+  // ── Detail modal ──────────────────────────────────────────────────
+  const DetailModal = () => {
+    if (!selected) return null;
+    const os = ORDER_STATUS[selected.orderStatus]    ?? ORDER_STATUS.PENDING;
+    const ps = PAYMENT_STATUS[selected.paymentStatus] ?? PAYMENT_STATUS.PENDING;
 
-  if (loading) return (
-    <View style={s.center}>
-      <ActivityIndicator size="large" color="#2563EB" />
-      <Text style={s.loadTxt}>Loading orders...</Text>
-    </View>
-  );
+    return (
+      <Modal visible animationType="slide" transparent onRequestClose={() => setSelected(null)}>
+        <View style={s.overlay}>
+          <View style={s.modal}>
 
-  return (
-    <>
-      <StatusBar backgroundColor="white" barStyle="dark-content" />
-      <FlatList
-        data={orders}
-        keyExtractor={item => item.id.toString()}
-        style={s.container}
-        contentContainerStyle={{ paddingBottom: 24 }}
-        showsVerticalScrollIndicator={false}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
-        ListHeaderComponent={
-          <View style={s.header}>
-            <Text style={s.title}>📦 Order History</Text>
-            <Text style={s.subtitle}>{orders.length} order{orders.length !== 1 ? 's' : ''} placed</Text>
-          </View>
-        }
-        ListEmptyComponent={
-          error ? (
-            <View style={s.center}>
-              <Text style={{ fontSize: 40 }}>⚠️</Text>
-              <Text style={s.errorTxt}>{error}</Text>
+            {/* Modal header */}
+            <View style={s.modalHeader}>
+              <View>
+                <Text style={s.modalTitle}>
+                  Order #ORD-{String(selected.id).padStart(4, '0')}
+                </Text>
+                <Text style={s.modalDate}>{formatDate(selected.createdAt)}</Text>
+              </View>
+              <TouchableOpacity onPress={() => setSelected(null)} style={s.closeBtn}>
+                <Text style={s.closeTxt}>✕</Text>
+              </TouchableOpacity>
             </View>
-          ) : (
+
+            <ScrollView showsVerticalScrollIndicator={false} style={{ flex: 1 }}>
+
+              {/* Status row — ORDER STATUS large, payment status small */}
+              <View style={s.statusRow}>
+                <View style={[s.orderStatusBadge, { backgroundColor: os.bg, paddingHorizontal: 14, paddingVertical: 8 }]}>
+                  <Text style={[s.orderStatusTxt, { color: os.color, fontSize: 14 }]}>
+                    {os.emoji}  {os.label}
+                  </Text>
+                </View>
+                <View style={[s.paymentStatusBadge, { backgroundColor: ps.bg, paddingHorizontal: 10, paddingVertical: 6 }]}>
+                  <Text style={[s.paymentStatusTxt, { color: ps.color }]}>{ps.label}</Text>
+                </View>
+              </View>
+
+              {/* Status timeline hint */}
+              <View style={s.timelineHint}>
+                {['PENDING','ACCEPTED','PROCESSING','SHIPPED','DELIVERED'].map((step, i, arr) => {
+                  const stepOs = ORDER_STATUS[step];
+                  const isActive = selected.orderStatus === step;
+                  const isDone   = arr.indexOf(selected.orderStatus) > i;
+                  const isCancelled = selected.orderStatus === 'CANCELLED';
+                  return (
+                    <React.Fragment key={step}>
+                      <View style={[
+                        s.timelineDot,
+                        isDone && { backgroundColor: '#10B981' },
+                        isActive && { backgroundColor: stepOs.color, transform: [{ scale: 1.2 }] },
+                        isCancelled && { backgroundColor: '#E5E7EB' },
+                      ]}>
+                        <Text style={{ fontSize: 8, color: isDone || isActive ? '#fff' : '#9CA3AF' }}>
+                          {isDone ? '✓' : stepOs.emoji}
+                        </Text>
+                      </View>
+                      {i < arr.length - 1 && (
+                        <View style={[s.timelineLine, isDone && { backgroundColor: '#10B981' }]} />
+                      )}
+                    </React.Fragment>
+                  );
+                })}
+              </View>
+
+              {/* Items */}
+              <Text style={s.detailSection}>🛍️ Items</Text>
+              {selected.items?.map((it: any, idx: number) => (
+                <View key={idx} style={s.detailItem}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={s.detailItemName}>{it.productName}</Text>
+                    <Text style={s.detailItemMeta}>
+                      Size: {it.selectedSize}  ·  {it.quantity} pcs  ·  ₹{it.pricePerPc?.toFixed(2)}/pc
+                    </Text>
+                  </View>
+                  <Text style={s.detailItemAmt}>
+                    ₹{(it.pricePerPc * it.quantity).toLocaleString('en-IN', { maximumFractionDigits: 0 })}
+                  </Text>
+                </View>
+              ))}
+
+              {/* Payment breakdown */}
+              <Text style={s.detailSection}>💰 Payment</Text>
+              <View style={s.detailCard}>
+                {[
+                  ['Subtotal',          `₹${selected.subtotal?.toLocaleString('en-IN', { maximumFractionDigits: 0 }) ?? '—'}`],
+                  ['GST (18%)',         `₹${selected.gstAmount?.toLocaleString('en-IN', { maximumFractionDigits: 0 }) ?? '—'}`],
+                  ['Total',             `₹${selected.totalAmount?.toLocaleString('en-IN', { maximumFractionDigits: 0 }) ?? '—'}`],
+                  ['Payment Method',    PAYMENT_METHOD_LABELS[selected.paymentMethod] ?? selected.paymentMethod],
+                  ...(selected.advanceAmount > 0 ? [
+                    ['Advance Paid (30%)', `₹${selected.advanceAmount?.toLocaleString('en-IN', { maximumFractionDigits: 0 })}`],
+                    ['Credit (70%)',       `₹${selected.creditAmount?.toLocaleString('en-IN', { maximumFractionDigits: 0 })}`],
+                  ] : []),
+                  ...(selected.paymentMethod === 'CREDIT_ORDER' && selected.creditAmount > 0 ? [
+                    ['Credit Amount', `₹${selected.creditAmount?.toLocaleString('en-IN', { maximumFractionDigits: 0 })}`],
+                  ] : []),
+                ].map(([lbl, val]) => (
+                  <View key={lbl} style={s.detailRow}>
+                    <Text style={s.detailLbl}>{lbl}</Text>
+                    <Text style={s.detailVal}>{val}</Text>
+                  </View>
+                ))}
+              </View>
+
+              {/* Delivery */}
+              {selected.deliveryAddress && (
+                <>
+                  <Text style={s.detailSection}>📍 Delivery Address</Text>
+                  <View style={s.detailCard}>
+                    <Text style={s.detailVal}>{selected.deliveryAddress}</Text>
+                  </View>
+                </>
+              )}
+
+              <View style={{ height: 30 }} />
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+    );
+  };
+
+  // ── Main render ───────────────────────────────────────────────────
+  return (
+    <View style={s.container}>
+      <StatusBar backgroundColor="#fff" barStyle="dark-content" />
+
+      {/* Filter tabs */}
+      <ScrollView
+        horizontal showsHorizontalScrollIndicator={false}
+        style={s.filterScroll}
+        contentContainerStyle={s.filterRow}
+      >
+        {FILTERS.map(f => (
+          <TouchableOpacity
+            key={f.key}
+            style={[s.filterChip, filter === f.key && s.filterChipActive]}
+            onPress={() => setFilter(f.key)}
+          >
+            <Text style={[s.filterTxt, filter === f.key && s.filterTxtActive]}>
+              {f.label}
+            </Text>
+          </TouchableOpacity>
+        ))}
+      </ScrollView>
+
+      {loading ? (
+        <View style={s.center}>
+          <ActivityIndicator size="large" color="#2563EB" />
+          <Text style={{ color: '#64748B', marginTop: 12 }}>Loading orders…</Text>
+        </View>
+      ) : error ? (
+        <View style={s.center}>
+          <Text style={{ fontSize: 48 }}>⚠️</Text>
+          <Text style={s.errTxt}>{error}</Text>
+          <TouchableOpacity style={s.retryBtn} onPress={fetchOrders}>
+            <Text style={s.retryTxt}>Retry</Text>
+          </TouchableOpacity>
+        </View>
+      ) : (
+        <FlatList
+          data={displayed}
+          keyExtractor={i => String(i.id)}
+          renderItem={renderOrder}
+          contentContainerStyle={s.list}
+          showsVerticalScrollIndicator={false}
+          refreshControl={
+            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#2563EB']} />
+          }
+          ListEmptyComponent={
             <View style={s.center}>
               <Text style={{ fontSize: 56 }}>📭</Text>
               <Text style={s.emptyTxt}>No orders yet</Text>
-              <Text style={s.emptySub}>Your placed orders will appear here</Text>
+              <TouchableOpacity style={s.shopBtn} onPress={() => navigation.navigate('Category')}>
+                <Text style={s.shopBtnTxt}>Start Shopping</Text>
+              </TouchableOpacity>
             </View>
-          )
-        }
-        renderItem={({ item }) => (
-          <OrderCard order={item} user={user} onCreditPaid={handleCreditPaid} />
-        )}
-      />
-    </>
+          }
+        />
+      )}
+
+      <DetailModal />
+    </View>
   );
 }
 
+// ════════════════════════════════════════════════════════════════════
 const s = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F8FAFC' },
-  center:    { flex: 1, justifyContent: 'center', alignItems: 'center', paddingVertical: 60 },
-  loadTxt:   { marginTop: 12, color: '#64748B', fontSize: 14 },
-  errorTxt:  { color: '#DC2626', fontSize: 14, marginTop: 12, textAlign: 'center', paddingHorizontal: 24 },
-  emptyTxt:  { fontSize: 18, fontWeight: '700', color: '#374151', marginTop: 16 },
-  emptySub:  { fontSize: 13, color: '#9CA3AF', marginTop: 6 },
+  container:          { flex: 1, backgroundColor: '#F8FAFC' },
+  center:             { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24, marginTop: 60, gap: 12 },
+  filterScroll:       { maxHeight: 52, backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#E5E7EB' },
+  filterRow:          { paddingHorizontal: 12, paddingVertical: 10, gap: 8, flexDirection: 'row' },
+  filterChip:         { paddingHorizontal: 14, paddingVertical: 6, borderRadius: 20, backgroundColor: '#F3F4F6', borderWidth: 1, borderColor: '#E5E7EB' },
+  filterChipActive:   { backgroundColor: '#2563EB', borderColor: '#2563EB' },
+  filterTxt:          { fontSize: 12, fontWeight: '600', color: '#6B7280' },
+  filterTxtActive:    { color: '#fff' },
+  list:               { padding: 12 },
 
-  header:   { backgroundColor: '#fff', paddingHorizontal: 16, paddingTop: 12, paddingBottom: 14, borderBottomWidth: 1, borderBottomColor: '#E2E8F0' },
-  title:    { fontSize: 24, fontWeight: '700', color: '#0F172A' },
-  subtitle: { fontSize: 13, color: '#64748B', marginTop: 4 },
+  // Card
+  card:               { backgroundColor: '#fff', borderRadius: 14, padding: 14, marginBottom: 12, borderWidth: 1, borderColor: '#E5E7EB', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.06, shadowRadius: 8, elevation: 2 },
+  cardTop:            { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10 },
+  orderId:            { fontSize: 15, fontWeight: '800', color: '#0F172A' },
+  orderDate:          { fontSize: 12, color: '#64748B', marginTop: 2 },
 
-  card: {
-    backgroundColor: '#fff', marginHorizontal: 12, marginTop: 12,
-    borderRadius: 16, padding: 14, borderWidth: 1, borderColor: '#E2E8F0',
-    shadowColor: '#000', shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.07, shadowRadius: 8, elevation: 3,
-  },
-  cardHeader:  { flexDirection: 'row', alignItems: 'flex-start', marginBottom: 10 },
-  orderId:     { fontSize: 15, fontWeight: '800', color: '#0F172A', marginBottom: 3 },
-  dateTime:    { fontSize: 12, color: '#64748B' },
-  statusBadge: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8, gap: 4 },
-  statusEmoji: { fontSize: 13 },
-  statusText:  { fontSize: 11, fontWeight: '700' },
-  divider:     { height: 1, backgroundColor: '#F1F5F9', marginVertical: 10 },
+  // Order status — prominent on card
+  orderStatusBadge:   { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20 },
+  orderStatusTxt:     { fontSize: 12, fontWeight: '800' },
 
-  infoRow:   { flexDirection: 'row', marginBottom: 6 },
-  infoItem:  { flex: 1 },
-  infoLabel: { fontSize: 10, color: '#94A3B8', fontWeight: '600', textTransform: 'uppercase', marginBottom: 3 },
-  infoValue: { fontSize: 12, fontWeight: '700', color: '#0F172A' },
+  // Payment status — smaller, secondary
+  paymentStatusBadge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 12, alignSelf: 'flex-start', marginTop: 4 },
+  paymentStatusTxt:   { fontSize: 11, fontWeight: '600' },
 
-  creditSplit:    { backgroundColor: '#F0FDF4', borderRadius: 8, padding: 8, marginVertical: 6, gap: 3 },
-  creditSplitTxt: { fontSize: 12, color: '#065F46', fontWeight: '600' },
+  itemsPreview:       { backgroundColor: '#F8FAFC', borderRadius: 8, padding: 10, marginBottom: 10 },
+  itemPreviewTxt:     { fontSize: 12, color: '#374151', lineHeight: 18 },
+  itemMore:           { fontSize: 11, color: '#9CA3AF', marginTop: 2 },
+  cardBottom:         { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', borderTopWidth: 1, borderTopColor: '#F3F4F6', paddingTop: 10 },
+  paymentMethod:      { fontSize: 13, fontWeight: '600', color: '#374151' },
+  totalAmt:           { fontSize: 18, fontWeight: '800', color: '#2563EB' },
 
-  // ── Pay Now button ──────────────────────────────────────────────
-  payNowBtn: {
-    flexDirection: 'row', alignItems: 'center', gap: 10,
-    backgroundColor: '#059669', borderRadius: 12, padding: 12,
-    marginVertical: 8,
-  },
-  payNowBtnDisabled: { opacity: 0.6 },
-  payNowEmoji:       { fontSize: 22 },
-  payNowTitle:       { fontSize: 14, fontWeight: '800', color: '#fff' },
-  payNowSub:         { fontSize: 11, color: '#D1FAE5', marginTop: 1 },
-  payNowArrow:       { fontSize: 22, color: '#fff', fontWeight: '700' },
+  // Error / empty
+  errTxt:             { fontSize: 14, color: '#DC2626', textAlign: 'center' },
+  retryBtn:           { backgroundColor: '#2563EB', borderRadius: 10, paddingHorizontal: 24, paddingVertical: 10 },
+  retryTxt:           { color: '#fff', fontWeight: '700' },
+  emptyTxt:           { fontSize: 16, fontWeight: '600', color: '#64748B' },
+  shopBtn:            { backgroundColor: '#2563EB', borderRadius: 12, paddingHorizontal: 28, paddingVertical: 12, marginTop: 4 },
+  shopBtnTxt:         { color: '#fff', fontWeight: '700', fontSize: 14 },
 
-  // ── Paid timestamp badge ─────────────────────────────────────────
-  paidBadge:    { backgroundColor: '#F0FDF4', borderRadius: 8, padding: 8, marginVertical: 4, borderWidth: 1, borderColor: '#BBF7D0' },
-  paidBadgeTxt: { fontSize: 12, color: '#059669', fontWeight: '700', textAlign: 'center' },
+  // Modal
+  overlay:            { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
+  modal:              { backgroundColor: '#fff', borderTopLeftRadius: 24, borderTopRightRadius: 24, maxHeight: '90%', paddingBottom: 32 },
+  modalHeader:        { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', padding: 20, borderBottomWidth: 1, borderBottomColor: '#E5E7EB' },
+  modalTitle:         { fontSize: 18, fontWeight: '800', color: '#0F172A' },
+  modalDate:          { fontSize: 13, color: '#64748B', marginTop: 3 },
+  closeBtn:           { width: 32, height: 32, borderRadius: 16, backgroundColor: '#F3F4F6', justifyContent: 'center', alignItems: 'center' },
+  closeTxt:           { fontSize: 16, color: '#374151', fontWeight: '700' },
+  statusRow:          { flexDirection: 'row', gap: 8, padding: 16, paddingBottom: 4, flexWrap: 'wrap' },
 
-  expandBtn: { alignItems: 'center', paddingVertical: 8 },
-  expandTxt: { fontSize: 12, color: '#2563EB', fontWeight: '700' },
+  // Timeline
+  timelineHint:       { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, marginBottom: 16 },
+  timelineDot:        { width: 26, height: 26, borderRadius: 13, backgroundColor: '#E5E7EB', justifyContent: 'center', alignItems: 'center' },
+  timelineLine:       { flex: 1, height: 3, backgroundColor: '#E5E7EB', marginHorizontal: 2 },
 
-  itemsList: { borderTopWidth: 1, borderTopColor: '#F1F5F9', paddingTop: 8, gap: 10 },
-  itemRow:   { flexDirection: 'row', alignItems: 'center', gap: 10, paddingBottom: 8, borderBottomWidth: 1, borderBottomColor: '#F8FAFC' },
-  itemImg:   { width: 56, height: 56, backgroundColor: '#F3F4F6', borderRadius: 10, justifyContent: 'center', alignItems: 'center' },
-  itemName:  { fontSize: 13, fontWeight: '700', color: '#0F172A', marginBottom: 3 },
-  itemDetail:{ fontSize: 11, color: '#64748B', marginBottom: 1 },
-  itemTotal: { fontSize: 13, fontWeight: '800', color: '#2563EB' },
-
-  totalsSection: { gap: 4 },
-  totalRow:  { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 3 },
-  totalLbl:  { fontSize: 12, color: '#64748B' },
-  totalVal:  { fontSize: 12, fontWeight: '600', color: '#374151' },
-  grandRow:  { paddingTop: 6, marginTop: 2, borderTopWidth: 1, borderTopColor: '#E2E8F0' },
-  grandLbl:  { fontSize: 14, fontWeight: '800', color: '#0F172A' },
-  grandVal:  { fontSize: 15, fontWeight: '800', color: '#2563EB' },
-  address:   { marginTop: 8, fontSize: 11, color: '#64748B', fontStyle: 'italic' },
+  detailSection:      { fontSize: 14, fontWeight: '700', color: '#374151', paddingHorizontal: 16, paddingTop: 12, paddingBottom: 8 },
+  detailItem:         { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#F3F4F6' },
+  detailItemName:     { fontSize: 13, fontWeight: '700', color: '#0F172A', marginBottom: 3 },
+  detailItemMeta:     { fontSize: 11, color: '#6B7280' },
+  detailItemAmt:      { fontSize: 14, fontWeight: '800', color: '#374151' },
+  detailCard:         { marginHorizontal: 16, backgroundColor: '#F8FAFC', borderRadius: 12, padding: 12, borderWidth: 1, borderColor: '#E5E7EB' },
+  detailRow:          { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 7, borderBottomWidth: 1, borderBottomColor: '#F3F4F6' },
+  detailLbl:          { fontSize: 13, color: '#6B7280' },
+  detailVal:          { fontSize: 13, fontWeight: '600', color: '#0F172A', flex: 1, textAlign: 'right' },
 });
