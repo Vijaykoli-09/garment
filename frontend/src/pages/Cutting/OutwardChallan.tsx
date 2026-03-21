@@ -1,6 +1,5 @@
-//Frontend Code of Job Outward Challan
+"use client";
 
-// OutwardChallan.tsx
 import React, { useEffect, useMemo, useState } from "react";
 import Swal from "sweetalert2";
 import Dashboard from "../Dashboard";
@@ -8,7 +7,7 @@ import api from "../../api/axiosInstance";
 
 interface RowData {
   id: number;
-  cuttinglotNumber: string;
+  cuttinglotNumber: string; // ✅ ONLY cutLotNo
   cuttingDozen: string;
   artNo: string;
   size: string;
@@ -28,71 +27,110 @@ interface OutwardChallanForm {
   rows: RowData[];
 }
 
-interface Party { id: number; partyName: string }
-// <-- changed Process interface to use lowercase serialNo (normalized from API)
-interface Process { processName: string; serialNo: string; }
+interface Party {
+  id: number;
+  partyName: string;
+}
+interface Process {
+  processName: string;
+  serialNo: string;
+}
+
 interface ChallanListItem {
   serialNo: string;
   challanNo: string;
   partyName: string;
   date: string;
   totalPcs: number;
+  lotSummary: string; // ✅ NEW
 }
 
-/** CuttingEntry DTO shape (based on sample you provided) */
+/** CuttingEntry DTO */
 interface CuttingEntryLotRowDTO {
-  id?: number;
-  sno?: number;
   cutLotNo?: string;
   artNo?: string;
   itemName?: string;
-  shade?: string;
-  pcs?: string | number;
-  rate?: string;
-  amount?: string;
 }
 interface CuttingEntryDTO {
   serialNo?: string;
-  date?: string;
   lotRows?: CuttingEntryLotRowDTO[];
 }
 
+/* ---------- Helpers ---------- */
+
+// If old value is "SERIAL-LOT", keep only LOT.
+const normalizeCutLotNoLoose = (raw: any) => {
+  const s = String(raw ?? "").trim();
+  if (!s) return "";
+  const i = s.indexOf("-");
+  if (i > 0 && i < s.length - 1) return s.slice(i + 1).trim();
+  return s;
+};
+
+const buildLotSummary = (rows: any[]) => {
+  const lots = Array.from(
+    new Set(
+      (rows || [])
+        .map((r) => normalizeCutLotNoLoose(r.cutLotNo || r.cuttinglotNumber || r.cuttingLotNumber || ""))
+        .filter(Boolean),
+    ),
+  );
+  if (lots.length === 0) return "-";
+  const first = lots.slice(0, 5).join(", ");
+  return lots.length > 5 ? `${first} (+${lots.length - 5})` : first;
+};
+
 /* ---------- Modals ---------- */
+
+type CuttingLotOption = {
+  key: string; // unique internal key: parentSerial::cutLotNo
+  cutLotNo: string; // ✅ display only this
+  artNo: string;
+  itemName: string;
+  parentSerial?: string;
+};
 
 const CuttingLotModal: React.FC<{
   open: boolean;
-  lots: { displayLotNo: string; artNo: string; itemName: string; cutLotNo: string; parentSerial?: string }[];
+  lots: CuttingLotOption[];
   onClose: () => void;
-  onSelect: (lot: { displayLotNo: string; artNo: string; itemName: string; cutLotNo: string; parentSerial?: string }) => void;
+  onSelect: (lot: CuttingLotOption) => void;
 }> = ({ open, lots, onClose, onSelect }) => {
   const [q, setQ] = useState("");
-  useEffect(() => { if (open) setQ(""); }, [open]);
+  useEffect(() => {
+    if (open) setQ("");
+  }, [open]);
 
   const filtered = useMemo(() => {
     const s = q.trim().toLowerCase();
     if (!s) return lots;
     return lots.filter(
       (x) =>
-        x.displayLotNo.toLowerCase().includes(s) ||
+        (x.cutLotNo || "").toLowerCase().includes(s) ||
         (x.artNo || "").toLowerCase().includes(s) ||
-        (x.itemName || "").toLowerCase().includes(s)
+        (x.itemName || "").toLowerCase().includes(s),
     );
   }, [q, lots]);
 
   if (!open) return null;
+
   return (
     <div className="fixed inset-0 bg-black/50 z-[1200] flex items-center justify-center">
       <div className="bg-white rounded-lg shadow-lg w-full max-w-4xl p-5 flex flex-col max-h-[85vh]">
         <div className="flex items-center justify-between mb-3">
           <h3 className="text-lg font-bold">Select Cutting Lot</h3>
-          <button onClick={onClose} className="px-3 py-1 bg-gray-200 rounded">Close</button>
+          <button onClick={onClose} className="px-3 py-1 bg-gray-200 rounded">
+            Close
+          </button>
         </div>
+
         <input
           value={q}
           onChange={(e) => setQ(e.target.value)}
           placeholder="Search lot no / art no / item…"
           className="border p-2 rounded w-full mb-3"
         />
+
         <div className="overflow-auto border rounded">
           <table className="w-full text-sm">
             <thead className="bg-gray-100">
@@ -106,16 +144,21 @@ const CuttingLotModal: React.FC<{
             <tbody>
               {filtered.length === 0 ? (
                 <tr>
-                  <td className="border p-3 text-center text-gray-500" colSpan={4}>No records</td>
+                  <td className="border p-3 text-center text-gray-500" colSpan={4}>
+                    No records
+                  </td>
                 </tr>
               ) : (
                 filtered.map((x) => (
-                  <tr key={x.displayLotNo} className="hover:bg-gray-50">
+                  <tr key={x.key} className="hover:bg-gray-50">
                     <td className="border p-2">{x.cutLotNo}</td>
                     <td className="border p-2">{x.artNo}</td>
                     <td className="border p-2">{x.itemName}</td>
                     <td className="border p-2 text-center">
-                      <button onClick={() => onSelect(x)} className="px-3 py-1 bg-blue-600 text-white rounded">
+                      <button
+                        onClick={() => onSelect(x)}
+                        className="px-3 py-1 bg-blue-600 text-white rounded"
+                      >
                         Select
                       </button>
                     </td>
@@ -137,7 +180,9 @@ const SizeModal: React.FC<{
   onSelect: (sizeName: string) => void;
 }> = ({ open, sizes, onClose, onSelect }) => {
   const [q, setQ] = useState("");
-  useEffect(() => { if (open) setQ(""); }, [open]);
+  useEffect(() => {
+    if (open) setQ("");
+  }, [open]);
 
   const filtered = useMemo(() => {
     const s = q.trim().toLowerCase();
@@ -146,25 +191,42 @@ const SizeModal: React.FC<{
   }, [q, sizes]);
 
   if (!open) return null;
+
   return (
     <div className="fixed inset-0 bg-black/50 z-[1200] flex items-center justify-center">
       <div className="bg-white rounded-lg shadow-lg w-full max-w-md p-4 max-h-[80vh] overflow-auto">
         <div className="flex items-center justify-between mb-3">
           <h3 className="text-lg font-bold">Select Size</h3>
-          <button onClick={onClose} className="px-3 py-1 bg-gray-200 rounded">Close</button>
+          <button onClick={onClose} className="px-3 py-1 bg-gray-200 rounded">
+            Close
+          </button>
         </div>
-        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search size..." className="border p-2 rounded w-full mb-3" />
+
+        <input
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          placeholder="Search size..."
+          className="border p-2 rounded w-full mb-3"
+        />
+
         <div className="border rounded">
           <table className="w-full text-sm">
             <tbody>
               {filtered.length === 0 ? (
-                <tr><td className="p-3 text-center text-gray-500">No sizes</td></tr>
+                <tr>
+                  <td className="p-3 text-center text-gray-500">No sizes</td>
+                </tr>
               ) : (
                 filtered.map((s) => (
                   <tr key={s.id} className="hover:bg-gray-50">
                     <td className="p-2 border">{s.name}</td>
                     <td className="p-2 border text-right">
-                      <button onClick={() => onSelect(s.name)} className="px-3 py-1 bg-blue-600 text-white rounded">Choose</button>
+                      <button
+                        onClick={() => onSelect(s.name)}
+                        className="px-3 py-1 bg-blue-600 text-white rounded"
+                      >
+                        Choose
+                      </button>
                     </td>
                   </tr>
                 ))
@@ -197,17 +259,12 @@ const OutwardChallan: React.FC = () => {
   const [search, setSearch] = useState("");
 
   const [parties, setParties] = useState<Party[]>([]);
-  // <-- ensure Process state uses the updated Process interface
   const [processes, setProcesses] = useState<Process[]>([]);
-  const [, setArts] = useState<any[]>([]);
 
-  // cutting lot select modal
+  // cutting lot modal
   const [showCuttingLotModal, setShowCuttingLotModal] = useState(false);
-  const [cuttingLotOptions, setCuttingLotOptions] = useState<
-    { displayLotNo: string; artNo: string; itemName: string; cutLotNo: string; parentSerial?: string }[]
-  >([]);
+  const [cuttingLotOptions, setCuttingLotOptions] = useState<CuttingLotOption[]>([]);
   const [activeRowForSelect, setActiveRowForSelect] = useState<number | null>(null);
-  const [, setIsFetchingLots] = useState(false);
 
   // size modal
   const [showSizeModal, setShowSizeModal] = useState(false);
@@ -230,37 +287,35 @@ const OutwardChallan: React.FC = () => {
   useEffect(() => {
     (async () => {
       try {
-        const [partyRes, procRes, artRes] = await Promise.all([
+        const [partyRes, procRes] = await Promise.all([
           api.get("/party/category/Job_Work"),
           api.get("/process/list"),
-          api.get("/arts"), // still fine to keep; optional
         ]);
+
         setParties(partyRes.data || []);
 
-        // Normalize process objects to ensure we always have `serialNo` and `processName`
         const procData: any[] = Array.isArray(procRes.data) ? procRes.data : [];
         const normalized = procData.map((p: any) => ({
           processName: String(p.processName ?? p.name ?? ""),
-          // prefer serialNo, fallback to SerialNo or id
           serialNo: String(p.serialNo ?? p.SerialNo ?? p.id ?? ""),
         }));
         setProcesses(normalized);
-
-        setArts(artRes.data || []);
       } catch (err) {
         console.error("Failed to load masters", err);
       }
     })();
   }, []);
 
-  // load sizes once (GET /sizes)
+  // load sizes
   useEffect(() => {
     (async () => {
       try {
         const res = await api.get("/sizes");
         const data = Array.isArray(res.data) ? res.data : [];
-        // normalize to {id,name}
-        const list = data.map((s: any, i: number) => ({ id: Number(s.id ?? i + 1), name: String(s.sizeName ?? s.name ?? s) }));
+        const list = data.map((s: any, i: number) => ({
+          id: Number(s.id ?? i + 1),
+          name: String(s.sizeName ?? s.name ?? s),
+        }));
         setSizes(list);
       } catch (err) {
         console.error("Failed to load sizes", err);
@@ -269,7 +324,7 @@ const OutwardChallan: React.FC = () => {
     })();
   }, []);
 
-  // next serial / challan no (optional)
+  // next challan no
   useEffect(() => {
     (async () => {
       try {
@@ -277,7 +332,9 @@ const OutwardChallan: React.FC = () => {
           params: { date: form.date || undefined },
         });
         if (r?.data) setForm((p) => ({ ...p, challanNo: r.data }));
-      } catch (e) {/* ignore */ }
+      } catch {
+        /* ignore */
+      }
     })();
   }, [form.date]);
 
@@ -294,19 +351,6 @@ const OutwardChallan: React.FC = () => {
   const addRow = () =>
     setForm((prev) => ({ ...prev, rows: [...prev.rows, emptyRow(prev.rows.length + 1)] }));
 
-  const removeEmptyTailRows = () =>
-    setForm((prev) => ({
-      ...prev,
-      rows:
-        prev.rows.length > 1
-          ? prev.rows.filter(
-              (r, idx) =>
-                idx < prev.rows.length - 1 ||
-                Object.values({ ...r, id: 0 }).join("").trim() !== ""
-            )
-          : prev.rows,
-    }));
-
   const resetForm = () =>
     setForm({
       date: "",
@@ -319,17 +363,29 @@ const OutwardChallan: React.FC = () => {
     });
 
   const validate = (): boolean => {
-    if (!form.challanNo.trim()) { Swal.fire("Missing", "Challan No. is required", "warning"); return false; }
-    if (!form.partyId) { Swal.fire("Missing", "Please select Party Name", "warning"); return false; }
-    if (!form.date) { Swal.fire("Missing", "Please select Date", "warning"); return false; }
-    if (form.rows.length === 0) { Swal.fire("Missing", "Add at least one row", "warning"); return false; }
+    if (!form.challanNo.trim()) {
+      Swal.fire("Missing", "Challan No. is required", "warning");
+      return false;
+    }
+    if (!form.partyId) {
+      Swal.fire("Missing", "Please select Party Name", "warning");
+      return false;
+    }
+    if (!form.date) {
+      Swal.fire("Missing", "Please select Date", "warning");
+      return false;
+    }
+    if (form.rows.length === 0) {
+      Swal.fire("Missing", "Add at least one row", "warning");
+      return false;
+    }
     return true;
   };
 
-  // Save or Update single button
+  // Save or Update
   const saveOrUpdate = async () => {
-    removeEmptyTailRows();
     if (!validate()) return;
+
     setIsSaving(true);
     try {
       const payload = {
@@ -341,7 +397,8 @@ const OutwardChallan: React.FC = () => {
         remarks1: form.remarks1,
         rows: form.rows.map((r) => ({
           sno: r.id,
-          cutLotNo: r.cuttinglotNumber,
+          // ✅ save only lot no
+          cutLotNo: normalizeCutLotNoLoose(r.cuttinglotNumber),
           artNo: r.artNo,
           cuttingDozenPcs: r.cuttingDozen,
           size: r.size,
@@ -363,10 +420,12 @@ const OutwardChallan: React.FC = () => {
     } catch (e: any) {
       console.error(e);
       Swal.fire("Error", e?.response?.data?.message || "Failed to save", "error");
-    } finally { setIsSaving(false); }
+    } finally {
+      setIsSaving(false);
+    }
   };
 
-  // open list & fetch
+  // open list
   const openList = async () => {
     setShowList(true);
     try {
@@ -377,6 +436,8 @@ const OutwardChallan: React.FC = () => {
         partyName: d.partyName || "",
         date: d.date || "",
         totalPcs: (d.rows || []).reduce((s: number, r: any) => s + (Number(r.pcs) || 0), 0),
+        // ✅ show lot numbers summary in list
+        lotSummary: buildLotSummary(d.rows || []),
       }));
       setList(items);
     } catch (err) {
@@ -389,6 +450,7 @@ const OutwardChallan: React.FC = () => {
     try {
       const res = await api.get(`/job-outward-challan/${encodeURIComponent(serialNo)}`);
       const d = res.data;
+
       setForm({
         serialNo: d.serialNo || d.id || undefined,
         date: d.date || "",
@@ -400,7 +462,7 @@ const OutwardChallan: React.FC = () => {
         rows:
           (d.rows || []).map((r: any, idx: number) => ({
             id: idx + 1,
-            cuttinglotNumber: r.cutLotNo || r.cuttinglotNumber || "",
+            cuttinglotNumber: normalizeCutLotNoLoose(r.cutLotNo || r.cuttinglotNumber || ""),
             cuttingDozen: r.cuttingDozenPcs || r.cuttingDozen || "",
             artNo: r.artNo || "",
             size: r.size || "",
@@ -409,6 +471,7 @@ const OutwardChallan: React.FC = () => {
             targetDate: r.targetDate || "",
           })) || [emptyRow(1)],
       });
+
       setShowList(false);
       Swal.fire("Loaded", "Challan loaded for editing.", "success");
     } catch (err) {
@@ -426,6 +489,7 @@ const OutwardChallan: React.FC = () => {
       confirmButtonText: "Yes, delete",
     });
     if (!ask.isConfirmed) return;
+
     try {
       await api.delete(`/job-outward-challan/${encodeURIComponent(serialNo)}`);
       setList((p) => p.filter((x) => x.serialNo !== serialNo));
@@ -438,88 +502,75 @@ const OutwardChallan: React.FC = () => {
 
   const totalPcs = useMemo(
     () => form.rows.reduce((sum, r) => sum + (Number(r.pcs) || 0), 0),
-    [form.rows]
+    [form.rows],
   );
 
-  // ------------------ Cutting Lot Select flow ------------------
-  // build lot list from GET /cutting-entries (uses lotRows)
+  // Build cutting lot options from cutting entries
   useEffect(() => {
     (async () => {
-      setIsFetchingLots(true);
       try {
         const res = await api.get<CuttingEntryDTO[]>("/cutting-entries");
         const docs: CuttingEntryDTO[] = res.data || [];
-        const map = new Map<string, { displayLotNo: string; artNo: string; itemName: string; cutLotNo: string; parentSerial?: string }>();
 
+        const opts: CuttingLotOption[] = [];
         for (const entry of docs) {
-          const parentSerial = entry.serialNo || "";
-          const lotRows = Array.isArray((entry as any).lotRows) ? (entry as any).lotRows : (entry as any).rows || [];
+          const parentSerial = String(entry.serialNo || "").trim();
+          const lotRows = Array.isArray((entry as any).lotRows) ? (entry as any).lotRows : [];
+
           for (const r of lotRows) {
-            const cutLotNo = String(r.cutLotNo || r.cutlotNo || r.cuttingLotNo || "").trim();
+            const cutLotNo = String(r.cutLotNo || "").trim();
             if (!cutLotNo) continue;
-            const display = parentSerial ? `${parentSerial}-${cutLotNo}` : cutLotNo;
-            if (!map.has(display)) {
-              map.set(display, { displayLotNo: display, artNo: String(r.artNo || ""), itemName: String(r.itemName || ""), cutLotNo, parentSerial });
-            }
+
+            opts.push({
+              key: `${parentSerial || "NA"}::${cutLotNo}`,
+              cutLotNo,
+              artNo: String(r.artNo || "").trim(),
+              itemName: String(r.itemName || "").trim(),
+              parentSerial: parentSerial || undefined,
+            });
           }
         }
 
-        setCuttingLotOptions(Array.from(map.values()));
+        setCuttingLotOptions(opts);
       } catch (err) {
-        console.error("Failed to build cutting lot options from /cutting-entries", err);
+        console.error("Failed to build cutting lot options", err);
         setCuttingLotOptions([]);
-      } finally {
-        setIsFetchingLots(false);
       }
     })();
   }, []);
 
-  // open selector (row-level)
   const openCuttingLotSelector = (rowId: number) => {
     setActiveRowForSelect(rowId);
     setShowCuttingLotModal(true);
   };
 
-  // when user chooses a cutting lot from modal -> fetch the parent cutting-entry and find lotRow
-  const chooseCuttingLotForRow = async (displayLotNo: string) => {
+  const chooseCuttingLotForRow = async (lot: CuttingLotOption) => {
     if (activeRowForSelect == null) return;
+
     setShowCuttingLotModal(false);
 
-    const selected = cuttingLotOptions.find((x) => x.displayLotNo === displayLotNo);
-    if (!selected) {
-      Swal.fire("Error", "Selected lot not found.", "error");
-      setActiveRowForSelect(null);
-      return;
-    }
-
-    // patch display lot into the row
-    patchRow(activeRowForSelect, { cuttinglotNumber: selected.displayLotNo });
+    // ✅ show only cutLotNo in row
+    patchRow(activeRowForSelect, { cuttinglotNumber: lot.cutLotNo });
 
     try {
-      if (selected.parentSerial) {
-        const res = await api.get<CuttingEntryDTO>(`/cutting-entries/${encodeURIComponent(selected.parentSerial)}`);
+      if (lot.parentSerial) {
+        const res = await api.get<CuttingEntryDTO>(`/cutting-entries/${encodeURIComponent(lot.parentSerial)}`);
         const entry = res.data;
-        const lotRows = Array.isArray((entry as any).lotRows) ? (entry as any).lotRows : (entry as any).rows || [];
-        const found = lotRows.find((r: any) => String(r.cutLotNo || r.cutlotNo || r.cuttingLotNo || "").trim() === String(selected.cutLotNo).trim());
+        const lotRows = Array.isArray((entry as any).lotRows) ? (entry as any).lotRows : [];
+
+        const found = lotRows.find((r: any) => String(r.cutLotNo || "").trim() === lot.cutLotNo);
+
         if (found) {
-          const artVal = String(found.artNo || found.art_no || "");
-          const pcsVal = String(found.pcs ?? found.pcs ?? found.cuttingDozen ?? "");
-          // set both row art and header art
-          patchRow(activeRowForSelect, {
-            artNo: artVal || "",
-            cuttingDozen: pcsVal || "",
-          });
+          const artVal = String(found.artNo || "").trim();
+          patchRow(activeRowForSelect, { artNo: artVal || "" });
           patchForm({ headerArtNo: artVal || "" });
         } else {
-          // fallback
-          patchRow(activeRowForSelect, { artNo: selected.artNo || "", cuttingDozen: "" });
-          if (selected.artNo) patchForm({ headerArtNo: selected.artNo });
-          Swal.fire("Info", `Selected lot found but row details missing in ${selected.parentSerial}`, "info");
+          patchRow(activeRowForSelect, { artNo: lot.artNo || "" });
+          if (lot.artNo) patchForm({ headerArtNo: lot.artNo });
         }
       } else {
-        // no parentSerial -> use map info
-        patchRow(activeRowForSelect, { artNo: selected.artNo || "", cuttingDozen: "" });
-        if (selected.artNo) patchForm({ headerArtNo: selected.artNo });
+        patchRow(activeRowForSelect, { artNo: lot.artNo || "" });
+        if (lot.artNo) patchForm({ headerArtNo: lot.artNo });
       }
     } catch (err) {
       console.error("Failed to fetch cutting entry", err);
@@ -529,7 +580,7 @@ const OutwardChallan: React.FC = () => {
     }
   };
 
-  // ------------------ Size select flow ------------------
+  // Size select
   const openSizeSelector = (rowId: number) => {
     setActiveRowForSize(rowId);
     setShowSizeModal(true);
@@ -541,17 +592,27 @@ const OutwardChallan: React.FC = () => {
     setShowSizeModal(false);
   };
 
-  // ------------------ UI -------------------------------------
   return (
     <Dashboard>
-      {/* Modals */}
       <CuttingLotModal
         open={showCuttingLotModal}
         lots={cuttingLotOptions}
-        onClose={() => { setShowCuttingLotModal(false); setActiveRowForSelect(null); }}
-        onSelect={(lot) => chooseCuttingLotForRow(lot.displayLotNo)}
+        onClose={() => {
+          setShowCuttingLotModal(false);
+          setActiveRowForSelect(null);
+        }}
+        onSelect={(lot) => chooseCuttingLotForRow(lot)}
       />
-      <SizeModal open={showSizeModal} sizes={sizes} onClose={() => { setShowSizeModal(false); setActiveRowForSize(null); }} onSelect={chooseSizeForRow} />
+
+      <SizeModal
+        open={showSizeModal}
+        sizes={sizes}
+        onClose={() => {
+          setShowSizeModal(false);
+          setActiveRowForSize(null);
+        }}
+        onSelect={chooseSizeForRow}
+      />
 
       <div className="p-6 bg-gray-100 min-h-screen">
         <div className="bg-white p-6 rounded-lg shadow-md">
@@ -566,9 +627,9 @@ const OutwardChallan: React.FC = () => {
                 value={form.challanNo}
                 onChange={(e) => patchForm({ challanNo: e.target.value })}
                 className="border p-2 rounded w-full"
-                placeholder="e.g. JO-2025-0001"
               />
             </div>
+
             <div>
               <label className="block font-semibold">Party Name</label>
               <select
@@ -578,10 +639,13 @@ const OutwardChallan: React.FC = () => {
               >
                 <option value="">Select Party</option>
                 {parties.map((p) => (
-                  <option key={p.id} value={p.id}>{p.partyName}</option>
+                  <option key={p.id} value={p.id}>
+                    {p.partyName}
+                  </option>
                 ))}
               </select>
             </div>
+
             <div>
               <label className="block font-semibold">Date</label>
               <input
@@ -603,22 +667,23 @@ const OutwardChallan: React.FC = () => {
               >
                 <option value="">Select Process</option>
                 {processes.map((p) => (
-                  // use normalized serialNo
-                  <option key={p.serialNo} value={p.serialNo}>{p.processName}</option>
+                  <option key={p.serialNo} value={p.serialNo}>
+                    {p.processName}
+                  </option>
                 ))}
               </select>
             </div>
+
             <div>
               <label className="block font-semibold">Art No. (auto)</label>
               <input
                 type="text"
                 value={form.headerArtNo}
                 readOnly
-                onClick={() => Swal.fire("Info", "Art No auto-filled from Cutting Lot", "info")}
                 className="border p-2 rounded w-full bg-gray-50 cursor-not-allowed"
-                placeholder="Art auto-filled"
               />
             </div>
+
             <div>
               <label className="block font-semibold">Remarks 1</label>
               <input
@@ -626,7 +691,6 @@ const OutwardChallan: React.FC = () => {
                 value={form.remarks1}
                 onChange={(e) => patchForm({ remarks1: e.target.value })}
                 className="border p-2 rounded w-full"
-                placeholder="Any remarks"
               />
             </div>
           </div>
@@ -646,14 +710,16 @@ const OutwardChallan: React.FC = () => {
                   <th className="border p-2">Target Date</th>
                 </tr>
               </thead>
+
               <tbody>
                 {form.rows.map((row, index) => (
                   <tr key={row.id}>
                     <td className="border p-2 text-center">{index + 1}</td>
+
                     <td className="border p-1">
                       <div className="flex gap-2">
                         <input
-                          value={row.cuttinglotNumber}
+                          value={normalizeCutLotNoLoose(row.cuttinglotNumber)}
                           readOnly
                           className="border p-1 rounded w-full bg-yellow-50 cursor-pointer"
                           onClick={() => openCuttingLotSelector(row.id)}
@@ -662,28 +728,24 @@ const OutwardChallan: React.FC = () => {
                         <button
                           onClick={() => openCuttingLotSelector(row.id)}
                           className="px-2 py-1 bg-blue-500 text-white rounded whitespace-nowrap"
-                          title="Select Cutting Lot"
                         >
                           Select
                         </button>
                       </div>
                     </td>
+
                     <td className="border p-1">
                       <input
                         value={row.cuttingDozen}
                         onChange={(e) => patchRow(row.id, { cuttingDozen: e.target.value })}
                         className="border p-1 rounded w-full"
-                        type="text"
                       />
                     </td>
+
                     <td className="border p-1">
-                      <input
-                        value={row.artNo}
-                        readOnly
-                        className="border p-1 rounded w-full bg-gray-50 cursor-not-allowed"
-                        title="Art auto-filled from Cutting Lot"
-                      />
+                      <input value={row.artNo} readOnly className="border p-1 rounded w-full bg-gray-50" />
                     </td>
+
                     <td className="border p-1">
                       <div className="flex gap-2">
                         <input
@@ -693,9 +755,12 @@ const OutwardChallan: React.FC = () => {
                           onClick={() => openSizeSelector(row.id)}
                           placeholder="Click to select"
                         />
-                        <button onClick={() => openSizeSelector(row.id)} className="px-2 py-1 bg-indigo-600 text-white rounded">Size</button>
+                        <button onClick={() => openSizeSelector(row.id)} className="px-2 py-1 bg-indigo-600 text-white rounded">
+                          Size
+                        </button>
                       </div>
                     </td>
+
                     <td className="border p-1">
                       <input
                         value={row.pcs}
@@ -704,14 +769,15 @@ const OutwardChallan: React.FC = () => {
                         type="number"
                       />
                     </td>
+
                     <td className="border p-1">
                       <input
                         value={row.narration}
                         onChange={(e) => patchRow(row.id, { narration: e.target.value })}
                         className="border p-1 rounded w-full"
-                        type="text"
                       />
                     </td>
+
                     <td className="border p-1">
                       <input
                         type="date"
@@ -729,12 +795,18 @@ const OutwardChallan: React.FC = () => {
           {/* Footer */}
           <div className="flex justify-between mt-4">
             <div>
-              <button onClick={addRow} className="px-4 py-2 bg-blue-500 text-white rounded mr-2">Add</button>
+              <button onClick={addRow} className="px-4 py-2 bg-blue-500 text-white rounded mr-2">
+                Add
+              </button>
               <button onClick={saveOrUpdate} disabled={isSaving} className="px-4 py-2 bg-green-500 text-white rounded mr-2 disabled:opacity-70">
                 {isEdit ? "Update" : "Save"}
               </button>
-              <button onClick={resetForm} disabled={isSaving} className="px-4 py-2 bg-gray-600 text-white rounded mr-2 disabled:opacity-70">Cancel</button>
-              <button onClick={openList} className="px-4 py-2 bg-indigo-500 text-white rounded mr-2">View List</button>
+              <button onClick={resetForm} disabled={isSaving} className="px-4 py-2 bg-gray-600 text-white rounded mr-2 disabled:opacity-70">
+                Cancel
+              </button>
+              <button onClick={openList} className="px-4 py-2 bg-indigo-500 text-white rounded mr-2">
+                View List
+              </button>
             </div>
             <div className="text-right">
               <p>Total Pcs: {totalPcs}</p>
@@ -746,9 +818,15 @@ const OutwardChallan: React.FC = () => {
             <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50">
               <div className="bg-white rounded-lg shadow-lg w-11/12 md:w-10/12 lg:w-9/12 xl:w-8/12 p-6 max-h-[90vh] overflow-y-auto">
                 <h2 className="text-2xl font-semibold mb-4 text-center text-blue-600">Outward Challan List</h2>
-                <div className="flex justify-center mb-4">
-                  <input type="text" placeholder="Search by Challan No, Party, or Date" value={search} onChange={(e) => setSearch(e.target.value)} className="border p-2 rounded w-full mb-4" />
-                </div>
+
+                <input
+                  type="text"
+                  placeholder="Search by Challan No, Party, Date, Lot"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  className="border p-2 rounded w-full mb-4"
+                />
+
                 <div className="overflow-x-auto">
                   <table className="min-w-full border border-gray-300">
                     <thead className="bg-blue-100">
@@ -757,35 +835,57 @@ const OutwardChallan: React.FC = () => {
                         <th className="border p-2 text-center">Challan No</th>
                         <th className="border p-2 text-center">Party Name</th>
                         <th className="border p-2 text-center">Date</th>
+                        <th className="border p-2 text-center">Cutting Lot No(s)</th>
                         <th className="border p-2 text-center">Total Pcs</th>
                         <th className="border p-2 text-center">Action</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {list.filter((x) => {
-                        const q = search.toLowerCase();
-                        return (!q || x.challanNo.toLowerCase().includes(q) || x.partyName.toLowerCase().includes(q) || x.date.toLowerCase().includes(q));
-                      }).map((x, i) => (
-                        <tr key={x.serialNo}>
-                          <td className="border p-2 text-center">{i + 1}</td>
-                          <td className="border p-2 text-center">{x.challanNo}</td>
-                          <td className="border p-2 text-center">{x.partyName}</td>
-                          <td className="border p-2 text-center">{x.date}</td>
-                          <td className="border p-2 text-center">{x.totalPcs}</td>
-                          <td className="border p-2 text-center">
-                            <button onClick={() => onEditFromList(x.serialNo)} className="px-3 py-1 bg-green-500 text-white rounded mr-2">Edit</button>
-                            <button onClick={() => onDeleteFromList(x.serialNo)} className="px-3 py-1 bg-red-500 text-white rounded mr-2">Delete</button>
+                      {list
+                        .filter((x) => {
+                          const q = search.toLowerCase();
+                          return (
+                            !q ||
+                            x.challanNo.toLowerCase().includes(q) ||
+                            x.partyName.toLowerCase().includes(q) ||
+                            x.date.toLowerCase().includes(q) ||
+                            x.lotSummary.toLowerCase().includes(q)
+                          );
+                        })
+                        .map((x, i) => (
+                          <tr key={x.serialNo}>
+                            <td className="border p-2 text-center">{i + 1}</td>
+                            <td className="border p-2 text-center">{x.challanNo}</td>
+                            <td className="border p-2 text-center">{x.partyName}</td>
+                            <td className="border p-2 text-center">{x.date}</td>
+                            <td className="border p-2 text-center">{x.lotSummary}</td>
+                            <td className="border p-2 text-center">{x.totalPcs}</td>
+                            <td className="border p-2 text-center">
+                              <button onClick={() => onEditFromList(x.serialNo)} className="px-3 py-1 bg-green-500 text-white rounded mr-2">
+                                Edit
+                              </button>
+                              <button onClick={() => onDeleteFromList(x.serialNo)} className="px-3 py-1 bg-red-500 text-white rounded">
+                                Delete
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+
+                      {list.length === 0 && (
+                        <tr>
+                          <td colSpan={7} className="text-center py-3 text-gray-500">
+                            No data
                           </td>
                         </tr>
-                      ))}
-                      {list.length === 0 && (
-                        <tr><td colSpan={6} className="text-center py-3 text-gray-500">No data</td></tr>
                       )}
                     </tbody>
                   </table>
                 </div>
+
                 <div className="text-center mt-6">
-                  <button onClick={() => setShowList(false)} className="px-5 py-2 bg-gray-600 text-white rounded hover:bg-gray-700 transition-all">Close</button>
+                  <button onClick={() => setShowList(false)} className="px-5 py-2 bg-gray-600 text-white rounded hover:bg-gray-700">
+                    Close
+                  </button>
                 </div>
               </div>
             </div>

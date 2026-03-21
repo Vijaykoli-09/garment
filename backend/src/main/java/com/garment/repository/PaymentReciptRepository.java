@@ -1,4 +1,3 @@
-// src/main/java/com/garment/repository/PaymentReciptRepository.java
 package com.garment.repository;
 
 import com.garment.model.PaymentRecipt;
@@ -27,4 +26,14 @@ public interface PaymentReciptRepository extends JpaRepository<PaymentRecipt, Lo
              and p.employeeName <> ''
            """)
     List<String> findDistinctEmployeeNamesByPaymentTo(@Param("type") String type);
+
+    // NEW (for Broker receipts)
+    @Query("""
+           select distinct p.agentName
+           from PaymentRecipt p
+           where p.paymentTo = :type
+             and p.agentName is not null
+             and p.agentName <> ''
+           """)
+    List<String> findDistinctAgentNamesByPaymentTo(@Param("type") String type);
 }
