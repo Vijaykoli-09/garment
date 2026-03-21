@@ -41,6 +41,9 @@ type SORow = {
   brokerName?: string;
   brokerId?: number;
 
+  // used only for separating rows internally (NOT shown as column)
+  orderRef?: string;
+
   opening: number;
   receipt: number;
   dispatch: number; // BOXES
@@ -56,7 +59,7 @@ const inRange = (dStr: string, from: string, to: string) => {
   return d >= from && d <= to;
 };
 
-// Size sorting helper: XS..5XL first, then numeric, then alpha
+// Size sorting helper
 const sizeSort = (a: string, b: string) => {
   const known = [
     "3XS",
@@ -108,11 +111,35 @@ type GroupedRow = {
   shade?: string;
   brokerId?: number;
   brokerName?: string;
+
+  // internal separation (NOT shown)
+  orderRef?: string;
+
   perSize: Record<string, SizeAgg>;
   openingTotal: number;
   receiptTotal: number;
   dispatchTotal: number;
   pendingTotal: number;
+};
+
+// robust order/challan ref extractor
+const getOrderRef = (x: any) => {
+  const ref = String(
+    x?.orderRef ??
+      x?.saleOrderNo ??
+      x?.saleOrderNumber ??
+      x?.soNo ??
+      x?.soNumber ??
+      x?.orderNo ??
+      x?.orderNumber ??
+      x?.challanNo ??
+      x?.challanNumber ??
+      x?.serialNo ??
+      x?.SerialNo ??
+      x?._id ??
+      ""
+  ).trim();
+  return ref;
 };
 
 const SaleOrderPendencyArtSizeWise: React.FC = () => {
@@ -180,21 +207,15 @@ const SaleOrderPendencyArtSizeWise: React.FC = () => {
           .map((p) => String(p.station || "").trim())
           .filter(Boolean);
         const uniqueStations = Array.from(new Set(stationNames));
-        const mappedDest: Destination[] = uniqueStations.map((name, idx) => ({
-          id: idx + 1,
-          name,
-        }));
-        setDestinations(mappedDest);
+        setDestinations(
+          uniqueStations.map((name, idx) => ({ id: idx + 1, name }))
+        );
 
         const brokerNames = mappedParties
           .map((p) => String(p.broker || "").trim())
           .filter(Boolean);
         const uniqueBrokers = Array.from(new Set(brokerNames));
-        const mappedBrokers: Broker[] = uniqueBrokers.map((name, idx) => ({
-          id: idx + 1,
-          name,
-        }));
-        setBrokers(mappedBrokers);
+        setBrokers(uniqueBrokers.map((name, idx) => ({ id: idx + 1, name })));
       } catch (e) {
         console.error("Error loading parties/brokers:", e);
         setParties([]);
@@ -206,12 +227,13 @@ const SaleOrderPendencyArtSizeWise: React.FC = () => {
       try {
         const { data } = await api.get<any[]>("/arts");
         const list = Array.isArray(data) ? data : [];
-        const mappedArts: Art[] = list.map((a, i) => ({
-          id: Number(a.id ?? i + 1),
-          artNo: String(a.artNo ?? ""),
-          artName: String(a.artName ?? a.artNo ?? ""),
-        }));
-        setArts(mappedArts);
+        setArts(
+          list.map((a, i) => ({
+            id: Number(a.id ?? i + 1),
+            artNo: String(a.artNo ?? ""),
+            artName: String(a.artName ?? a.artNo ?? ""),
+          }))
+        );
       } catch (e) {
         console.error("Error loading arts:", e);
         setArts([]);
@@ -240,23 +262,22 @@ const SaleOrderPendencyArtSizeWise: React.FC = () => {
         setSaleOrders([]);
       }
 
-      // Shades master (COMPLETE FIX: supports wrapped responses)
+      // Shades master (supports wrapped responses)
       try {
         const res = await api.get<any>("/shade/list");
         const d = res.data;
 
-        const list =
-          Array.isArray(d)
-            ? d
-            : Array.isArray(d?.data)
-            ? d.data
-            : Array.isArray(d?.rows)
-            ? d.rows
-            : Array.isArray(d?.result)
-            ? d.result
-            : Array.isArray(d?.shades)
-            ? d.shades
-            : [];
+        const list = Array.isArray(d)
+          ? d
+          : Array.isArray(d?.data)
+          ? d.data
+          : Array.isArray(d?.rows)
+          ? d.rows
+          : Array.isArray(d?.result)
+          ? d.result
+          : Array.isArray(d?.shades)
+          ? d.shades
+          : [];
 
         const mappedShades: Shade[] = list
           .map((s: any, i: number) => ({
@@ -284,10 +305,9 @@ const SaleOrderPendencyArtSizeWise: React.FC = () => {
 
   const availableBrokers = brokers;
 
-  // ==== DESTINATION OPTIONS: broker ke hisab se ====
+  // destinations by broker
   const availableDestinations = useMemo(() => {
     if (!destinations.length) return [];
-
     if (!brokers.length) return destinations;
     if (!selBrokerIds.length) return [];
 
@@ -306,7 +326,7 @@ const SaleOrderPendencyArtSizeWise: React.FC = () => {
     return destinations.filter((d) => stationNormSet.has(norm(d.name)));
   }, [destinations, brokers, selBrokerIds, parties]);
 
-  // Parties: filtered by Destination + Broker
+  // parties by destination + broker
   const availableParties = useMemo(() => {
     if (selDestIds.length === 0 || destinations.length === 0) return [];
 
@@ -330,22 +350,17 @@ const SaleOrderPendencyArtSizeWise: React.FC = () => {
 
     return parties.filter((p) => {
       if (!p.station || !p.broker) return false;
-      const stationOk = selDestNames.has(norm(p.station));
-      const brokerOk = selBrokerNames.has(norm(p.broker));
-      return stationOk && brokerOk;
+      return selDestNames.has(norm(p.station)) && selBrokerNames.has(norm(p.broker));
     });
   }, [selDestIds, destinations, parties, brokers, selBrokerIds]);
 
-  // AVAILABLE ARTS
+  // arts available (from saleOrders)
   const availableArts = useMemo<Art[]>(() => {
     if (selDestIds.length === 0 || selPartyIds.length === 0 || saleOrders.length === 0) return [];
 
     const selPartySet = new Set(selPartyIds.map(Number));
-
     const selDestNames = new Set(
-      destinations
-        .filter((d) => selDestIds.includes(d.id))
-        .map((d) => d.name.trim().toUpperCase())
+      destinations.filter((d) => selDestIds.includes(d.id)).map((d) => d.name.trim().toUpperCase())
     );
 
     const allowedPartyIds = new Set<number>();
@@ -358,19 +373,16 @@ const SaleOrderPendencyArtSizeWise: React.FC = () => {
     if (!allowedPartyIds.size) return [];
 
     const artNoSet = new Set<string>();
-
     saleOrders.forEach((so: any) => {
       const pid = Number(so.partyId ?? 0);
       if (!allowedPartyIds.has(pid)) return;
 
       const dStr = so.dated || so.datedStr || "";
-      if (fromDate && toDate) {
-        const d = String(dStr || "").slice(0, 10);
-        if (!d || d < fromDate || d > toDate) return;
-      }
+      const d = String(dStr || "").slice(0, 10);
+      if (!d || d < fromDate || d > toDate) return;
 
-      const rows = Array.isArray(so.rows) ? so.rows : [];
-      rows.forEach((r: any) => {
+      const rs = Array.isArray(so.rows) ? so.rows : [];
+      rs.forEach((r: any) => {
         const an = String(r.artNo || "").trim();
         if (an) artNoSet.add(an.toLowerCase());
       });
@@ -382,9 +394,7 @@ const SaleOrderPendencyArtSizeWise: React.FC = () => {
     artNoSet.forEach((anLower) => {
       const master = arts.find((a) => a.artNo.trim().toLowerCase() === anLower);
       if (master) result.push(master);
-      else {
-        result.push({ id: result.length + 1, artNo: anLower, artName: anLower });
-      }
+      else result.push({ id: result.length + 1, artNo: anLower, artName: anLower });
     });
 
     result.sort((a, b) => a.artNo.localeCompare(b.artNo));
@@ -398,7 +408,7 @@ const SaleOrderPendencyArtSizeWise: React.FC = () => {
 
   const availableShades = shades;
 
-  // Filtered lists based on search
+  // filtered lists
   const filteredBrokers = useMemo(() => {
     const q = norm(brokerSearch);
     if (!q) return availableBrokers;
@@ -535,7 +545,7 @@ const SaleOrderPendencyArtSizeWise: React.FC = () => {
           partyIds: partyIdsStr,
           artNos,
           sizes: sizesStr,
-          shades: shadesStr, // if backend supports
+          shades: shadesStr,
         },
       });
 
@@ -567,6 +577,8 @@ const SaleOrderPendencyArtSizeWise: React.FC = () => {
           r.shade ?? r.shadeName ?? r.shadeCode ?? r.color ?? r.colour ?? ""
         ).trim();
 
+        const orderRef = getOrderRef(r);
+
         const num = (v: any) => {
           const n = Number(v);
           return Number.isFinite(n) ? n : 0;
@@ -587,6 +599,7 @@ const SaleOrderPendencyArtSizeWise: React.FC = () => {
           shade: shadeVal,
           brokerName,
           brokerId,
+          orderRef,
           opening,
           receipt,
           dispatch: 0,
@@ -599,14 +612,16 @@ const SaleOrderPendencyArtSizeWise: React.FC = () => {
         baseRows = baseRows.filter((r) => selectedArtNosSet.has(r.artNo.trim().toLowerCase()));
       }
 
-      // client-side shade filter (so it works even if backend ignores "shades")
+      // shade filter
       if (selectedShadeNameSet.size > 0) {
         baseRows = baseRows.filter((r) => selectedShadeNameSet.has(norm(r.shade || "")));
       }
 
-      // Dispatch Challan – DISPATCH IN BOXES (shade-aware + fallback)
-      const dispatchMap = new Map<string, number>();
-      const dispatchMapNoShade = new Map<string, number>();
+      // ---------- Dispatch Challan (shade + orderRef aware, with fallbacks) ----------
+      const dispatchMap = new Map<string, number>(); // party|art|order|shade|size
+      const dispatchMapNoShade = new Map<string, number>(); // party|art|order|size
+      const dispatchMapNoOrder = new Map<string, number>(); // party|art|shade|size
+      const dispatchMapNoOrderNoShade = new Map<string, number>(); // party|art|size
 
       try {
         const { data: dcData } = await api.get<any[]>("/dispatch-challan");
@@ -622,42 +637,64 @@ const SaleOrderPendencyArtSizeWise: React.FC = () => {
           const partyMatch = availableParties.some((p) => norm(p.partyName) === norm(pName));
           if (!partyMatch) return;
 
+          const docOrderRef = getOrderRef(ch);
+
           const rowsDc = Array.isArray(ch.rows) ? ch.rows : [];
-          rowsDc.forEach((r: any) => {
-            const artNo = String(r.artNo || "").trim();
-            const size = String(r.size || "").trim();
-            const shade = String(r.shade ?? r.shadeName ?? r.shadeCode ?? "").trim();
+          rowsDc.forEach((rr: any) => {
+            const artNo = String(rr.artNo || "").trim();
+            const size = String(rr.size || "").trim();
+            const shade = String(rr.shade ?? rr.shadeName ?? rr.shadeCode ?? "").trim();
+            const rowOrderRef = getOrderRef(rr) || docOrderRef;
 
             if (!artNo || !size) return;
             if (!selectedArtNosSet.has(artNo.toLowerCase())) return;
             if (!selSizes.map((s) => s.toUpperCase()).includes(size.toUpperCase())) return;
 
             const box =
-              r.box != null
-                ? Number(r.box)
-                : r.pcs != null && r.pcsPerBox
-                ? Number(r.pcs) / Number(r.pcsPerBox)
+              rr.box != null
+                ? Number(rr.box)
+                : rr.pcs != null && rr.pcsPerBox
+                ? Number(rr.pcs) / Number(rr.pcsPerBox)
                 : 0;
 
             if (!box || isNaN(box)) return;
 
-            const keyShade = `${norm(pName)}|${norm(artNo)}|${norm(shade)}|${norm(size)}`;
-            dispatchMap.set(keyShade, (dispatchMap.get(keyShade) || 0) + box);
+            if (rowOrderRef) {
+              const k1 = `${norm(pName)}|${norm(artNo)}|${norm(rowOrderRef)}|${norm(shade)}|${norm(size)}`;
+              dispatchMap.set(k1, (dispatchMap.get(k1) || 0) + box);
 
-            const keyNoShade = `${norm(pName)}|${norm(artNo)}|${norm(size)}`;
-            dispatchMapNoShade.set(keyNoShade, (dispatchMapNoShade.get(keyNoShade) || 0) + box);
+              const k2 = `${norm(pName)}|${norm(artNo)}|${norm(rowOrderRef)}|${norm(size)}`;
+              dispatchMapNoShade.set(k2, (dispatchMapNoShade.get(k2) || 0) + box);
+            }
+
+            const k3 = `${norm(pName)}|${norm(artNo)}|${norm(shade)}|${norm(size)}`;
+            dispatchMapNoOrder.set(k3, (dispatchMapNoOrder.get(k3) || 0) + box);
+
+            const k4 = `${norm(pName)}|${norm(artNo)}|${norm(size)}`;
+            dispatchMapNoOrderNoShade.set(k4, (dispatchMapNoOrderNoShade.get(k4) || 0) + box);
           });
         });
 
         baseRows = baseRows.map((row) => {
-          const keyShade = `${norm(row.partyName)}|${norm(row.artNo)}|${norm(
-            row.shade || ""
-          )}|${norm(row.size)}`;
+          const partyKey = norm(row.partyName);
+          const artKey = norm(row.artNo);
+          const shadeKey = norm(row.shade || "");
+          const sizeKey = norm(row.size);
+          const orderKey = norm(row.orderRef || "");
 
-          const keyNoShade = `${norm(row.partyName)}|${norm(row.artNo)}|${norm(row.size)}`;
+          let disp = 0;
 
-          const disp =
-            dispatchMap.get(keyShade) ?? dispatchMapNoShade.get(keyNoShade) ?? 0;
+          if (row.orderRef) {
+            const k1 = `${partyKey}|${artKey}|${orderKey}|${shadeKey}|${sizeKey}`;
+            const k2 = `${partyKey}|${artKey}|${orderKey}|${sizeKey}`;
+            disp = dispatchMap.get(k1) ?? dispatchMapNoShade.get(k2) ?? 0;
+          }
+
+          if (!disp) {
+            const k3 = `${partyKey}|${artKey}|${shadeKey}|${sizeKey}`;
+            const k4 = `${partyKey}|${artKey}|${sizeKey}`;
+            disp = dispatchMapNoOrder.get(k3) ?? dispatchMapNoOrderNoShade.get(k4) ?? 0;
+          }
 
           const pending = row.opening + row.receipt - disp;
           return { ...row, dispatch: disp, pending };
@@ -666,13 +703,15 @@ const SaleOrderPendencyArtSizeWise: React.FC = () => {
         console.error("Dispatch-challan fetch error:", e);
       }
 
-      // Order Settle minus (shade-aware + fallback)
+      // ---------- Order Settle minus (shade + orderRef aware, with fallbacks) ----------
       try {
         const { data: osData } = await api.get<any[]>("/order-settles");
         const settles = Array.isArray(osData) ? osData : [];
 
-        const settleMap = new Map<string, number>();
-        const settleMapNoShade = new Map<string, number>();
+        const settleMap = new Map<string, number>(); // party|art|order|shade|size
+        const settleMapNoShade = new Map<string, number>(); // party|art|order|size
+        const settleMapNoOrder = new Map<string, number>(); // party|art|shade|size
+        const settleMapNoOrderNoShade = new Map<string, number>(); // party|art|size
 
         settles.forEach((doc: any) => {
           const docDate = doc.dated || doc.date || "";
@@ -684,41 +723,63 @@ const SaleOrderPendencyArtSizeWise: React.FC = () => {
           const partyMatch = availableParties.some((p) => norm(p.partyName) === norm(pName));
           if (!partyMatch) return;
 
+          const docOrderRef = getOrderRef(doc);
+
           const rowsOs = Array.isArray(doc.rows) ? doc.rows : [];
-          rowsOs.forEach((r: any) => {
-            const artNo = String(r.artNo || "").trim();
-            const shade = String(r.shade ?? r.shadeName ?? r.shadeCode ?? "").trim();
+          rowsOs.forEach((rr: any) => {
+            const artNo = String(rr.artNo || "").trim();
+            const shade = String(rr.shade ?? rr.shadeName ?? rr.shadeCode ?? "").trim();
+            const rowOrderRef = getOrderRef(rr) || docOrderRef;
+
             if (!artNo) return;
             if (!selectedArtNosSet.has(artNo.toLowerCase())) return;
 
-            const dets = Array.isArray(r.sizeDetails) ? r.sizeDetails : [];
+            const dets = Array.isArray(rr.sizeDetails) ? rr.sizeDetails : [];
             dets.forEach((sd: any) => {
               const size = String(sd.sizeName || "").trim();
               if (!size) return;
-
               if (!selSizes.map((s) => s.toUpperCase()).includes(size.toUpperCase())) return;
 
               const qty = Number(sd.settleBox ?? sd.box ?? sd.qty ?? 0);
               if (!qty || isNaN(qty)) return;
 
-              const keyShade = `${norm(pName)}|${norm(artNo)}|${norm(shade)}|${norm(size)}`;
-              settleMap.set(keyShade, (settleMap.get(keyShade) || 0) + qty);
+              if (rowOrderRef) {
+                const k1 = `${norm(pName)}|${norm(artNo)}|${norm(rowOrderRef)}|${norm(shade)}|${norm(size)}`;
+                settleMap.set(k1, (settleMap.get(k1) || 0) + qty);
 
-              const keyNoShade = `${norm(pName)}|${norm(artNo)}|${norm(size)}`;
-              settleMapNoShade.set(keyNoShade, (settleMapNoShade.get(keyNoShade) || 0) + qty);
+                const k2 = `${norm(pName)}|${norm(artNo)}|${norm(rowOrderRef)}|${norm(size)}`;
+                settleMapNoShade.set(k2, (settleMapNoShade.get(k2) || 0) + qty);
+              }
+
+              const k3 = `${norm(pName)}|${norm(artNo)}|${norm(shade)}|${norm(size)}`;
+              settleMapNoOrder.set(k3, (settleMapNoOrder.get(k3) || 0) + qty);
+
+              const k4 = `${norm(pName)}|${norm(artNo)}|${norm(size)}`;
+              settleMapNoOrderNoShade.set(k4, (settleMapNoOrderNoShade.get(k4) || 0) + qty);
             });
           });
         });
 
         baseRows = baseRows.map((row) => {
-          const keyShade = `${norm(row.partyName)}|${norm(row.artNo)}|${norm(
-            row.shade || ""
-          )}|${norm(row.size)}`;
+          const partyKey = norm(row.partyName);
+          const artKey = norm(row.artNo);
+          const shadeKey = norm(row.shade || "");
+          const sizeKey = norm(row.size);
+          const orderKey = norm(row.orderRef || "");
 
-          const keyNoShade = `${norm(row.partyName)}|${norm(row.artNo)}|${norm(row.size)}`;
+          let settled = 0;
 
-          const settled =
-            settleMap.get(keyShade) ?? settleMapNoShade.get(keyNoShade) ?? 0;
+          if (row.orderRef) {
+            const k1 = `${partyKey}|${artKey}|${orderKey}|${shadeKey}|${sizeKey}`;
+            const k2 = `${partyKey}|${artKey}|${orderKey}|${sizeKey}`;
+            settled = settleMap.get(k1) ?? settleMapNoShade.get(k2) ?? 0;
+          }
+
+          if (!settled) {
+            const k3 = `${partyKey}|${artKey}|${shadeKey}|${sizeKey}`;
+            const k4 = `${partyKey}|${artKey}|${sizeKey}`;
+            settled = settleMapNoOrder.get(k3) ?? settleMapNoOrderNoShade.get(k4) ?? 0;
+          }
 
           const pending = row.opening + row.receipt - row.dispatch - settled;
           return { ...row, pending };
@@ -743,20 +804,21 @@ const SaleOrderPendencyArtSizeWise: React.FC = () => {
 
   const refresh = () => {
     const brokerOk = brokers.length === 0 || selBrokerIds.length > 0;
-    if (brokerOk && selDestIds.length && selPartyIds.length && selArtIds.length && selSizes.length)
+    if (brokerOk && selDestIds.length && selPartyIds.length && selArtIds.length && selSizes.length) {
       showReport();
-    else
+    } else {
       Swal.fire(
         "Info",
         "Please select Broker (Agent), Destination, Party, Art and Size, then click Show",
         "info"
       );
+    }
   };
 
   const handleBack = () => setShowReportView(false);
   const handleExit = () => window.history.back();
 
-  // === totals ===
+  // totals
   const totals = useMemo(
     () =>
       rows.reduce(
@@ -800,13 +862,20 @@ const SaleOrderPendencyArtSizeWise: React.FC = () => {
     return cols.sort(sizeSort);
   }, [sizeTotals, selSizes]);
 
+  // ✅ group includes orderRef internally so multiple challans show separately
+  // ❌ but we will NOT display orderRef column in report
   const groupedRows = useMemo<GroupedRow[]>(() => {
     const map = new Map<string, GroupedRow>();
 
     rows.forEach((r) => {
-      const key = `${norm(r.brokerName || "")}|${norm(r.partyName)}|${norm(r.artNo)}|${norm(
-        r.shade || ""
-      )}|${r.partyId ?? 0}`;
+      const key = [
+        norm(r.brokerName || ""),
+        String(r.partyId ?? 0),
+        norm(r.partyName),
+        norm(r.artNo),
+        norm(r.shade || ""),
+        norm(r.orderRef || ""), // internal separation
+      ].join("|");
 
       let g = map.get(key);
       if (!g) {
@@ -820,6 +889,7 @@ const SaleOrderPendencyArtSizeWise: React.FC = () => {
           shade: r.shade || "",
           brokerId: r.brokerId,
           brokerName: r.brokerName || "",
+          orderRef: r.orderRef || "",
           perSize: {},
           openingTotal: 0,
           receiptTotal: 0,
@@ -850,6 +920,9 @@ const SaleOrderPendencyArtSizeWise: React.FC = () => {
       if (bcmp !== 0) return bcmp;
       const p = a.partyName.localeCompare(b.partyName);
       if (p !== 0) return p;
+      // still sort by orderRef internally to keep separate groups nicely
+      const o = (a.orderRef || "").localeCompare(b.orderRef || "");
+      if (o !== 0) return o;
       const aCmp = a.artNo.localeCompare(b.artNo);
       if (aCmp !== 0) return aCmp;
       return (a.shade || "").localeCompare(b.shade || "");
@@ -988,17 +1061,22 @@ const SaleOrderPendencyArtSizeWise: React.FC = () => {
     pdfRoot.remove();
   };
 
-  // ===== Fulfill (PER ROW + ALL) =====
+  // fulfill (per row)
   const buildPayloadForGroup = (g: GroupedRow) => {
     const payloadRows: any[] = [];
     sizeColumns.forEach((s) => {
       const cell = g.perSize[s];
       const pending = cell?.pending ?? 0;
       if (!pending) return;
+
       payloadRows.push({
         destination: "",
         partyId: g.partyId,
         partyName: g.partyName,
+
+        // keep for backend if supported (not displayed)
+        orderRef: g.orderRef || "",
+
         artNo: g.artNo,
         artName: g.artName,
         shade: g.shade || "",
@@ -1052,13 +1130,11 @@ const SaleOrderPendencyArtSizeWise: React.FC = () => {
     }
   };
 
-  
-
   return (
     <Dashboard>
       <div className="min-h-screen bg-slate-100/80 pb-10">
         <div className="max-w-7xl mx-auto px-4 pt-6">
-          {/* ---------- FILTER VIEW ---------- */}
+          {/* FILTER VIEW */}
           {!showReportView && (
             <div className="bg-white rounded-2xl shadow-xl shadow-slate-200 border border-slate-200 p-6">
               <div className="flex items-center justify-between mb-5">
@@ -1070,9 +1146,6 @@ const SaleOrderPendencyArtSizeWise: React.FC = () => {
                     Broker (Agent) → Destination → Party → Art → Size → Shade wise pending quantity.
                   </p>
                 </div>
-                <div className="rounded-full bg-indigo-50 px-4 py-1 text-xs font-semibold text-indigo-700 border border-indigo-100">
-                  Report Mode
-                </div>
               </div>
 
               {/* Dates */}
@@ -1083,7 +1156,7 @@ const SaleOrderPendencyArtSizeWise: React.FC = () => {
                     type="date"
                     value={fromDate}
                     onChange={(e) => setFromDate(e.target.value)}
-                    className="border border-slate-300 rounded-lg px-3 py-2 w-full text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                    className="border border-slate-300 rounded-lg px-3 py-2 w-full text-sm"
                   />
                 </div>
                 <div>
@@ -1092,7 +1165,7 @@ const SaleOrderPendencyArtSizeWise: React.FC = () => {
                     type="date"
                     value={toDate}
                     onChange={(e) => setToDate(e.target.value)}
-                    className="border border-slate-300 rounded-lg px-3 py-2 w-full text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                    className="border border-slate-300 rounded-lg px-3 py-2 w-full text-sm"
                   />
                 </div>
               </div>
@@ -1125,25 +1198,14 @@ const SaleOrderPendencyArtSizeWise: React.FC = () => {
                     </div>
                   </div>
 
-                  <div className="relative mb-2">
-                    <input
-                      type="text"
-                      value={brokerSearch}
-                      onChange={(e) => setBrokerSearch(e.target.value)}
-                      placeholder="Search Broker"
-                      className="border border-slate-300 rounded-lg px-2 py-1.5 w-full text-xs pr-6 focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 disabled:bg-slate-100"
-                      disabled={availableBrokers.length === 0}
-                    />
-                    {brokerSearch && availableBrokers.length > 0 && (
-                      <button
-                        type="button"
-                        onClick={() => setBrokerSearch("")}
-                        className="absolute right-1 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700 text-xs px-1"
-                      >
-                        ×
-                      </button>
-                    )}
-                  </div>
+                  <input
+                    type="text"
+                    value={brokerSearch}
+                    onChange={(e) => setBrokerSearch(e.target.value)}
+                    placeholder="Search Broker"
+                    className="border border-slate-300 rounded-lg px-2 py-1.5 w-full text-xs mb-2"
+                    disabled={availableBrokers.length === 0}
+                  />
 
                   <div className="border border-slate-200 rounded-lg h-48 overflow-auto bg-white p-2">
                     {availableBrokers.length === 0 ? (
@@ -1177,10 +1239,7 @@ const SaleOrderPendencyArtSizeWise: React.FC = () => {
                           className="mr-1 align-middle"
                           checked={allDestSelected}
                           onChange={(e) => toggleAllDest(e.target.checked)}
-                          disabled={
-                            availableDestinations.length === 0 ||
-                            (brokers.length > 0 && selBrokerIds.length === 0)
-                          }
+                          disabled={availableDestinations.length === 0 || (brokers.length > 0 && selBrokerIds.length === 0)}
                         />
                         All
                       </label>
@@ -1195,38 +1254,20 @@ const SaleOrderPendencyArtSizeWise: React.FC = () => {
                     </div>
                   </div>
 
-                  <div className="relative mb-2">
-                    <input
-                      type="text"
-                      value={destSearch}
-                      onChange={(e) => setDestSearch(e.target.value)}
-                      placeholder="Search Destination"
-                      className="border border-slate-300 rounded-lg px-2 py-1.5 w-full text-xs pr-6 focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 disabled:bg-slate-100"
-                      disabled={
-                        availableDestinations.length === 0 ||
-                        (brokers.length > 0 && selBrokerIds.length === 0)
-                      }
-                    />
-                    {destSearch &&
-                      availableDestinations.length > 0 &&
-                      !(brokers.length > 0 && selBrokerIds.length === 0) && (
-                        <button
-                          type="button"
-                          onClick={() => setDestSearch("")}
-                          className="absolute right-1 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700 text-xs px-1"
-                        >
-                          ×
-                        </button>
-                      )}
-                  </div>
+                  <input
+                    type="text"
+                    value={destSearch}
+                    onChange={(e) => setDestSearch(e.target.value)}
+                    placeholder="Search Destination"
+                    className="border border-slate-300 rounded-lg px-2 py-1.5 w-full text-xs mb-2"
+                    disabled={availableDestinations.length === 0 || (brokers.length > 0 && selBrokerIds.length === 0)}
+                  />
 
                   <div className="border border-slate-200 rounded-lg h-48 overflow-auto bg-white p-2">
                     {brokers.length > 0 && selBrokerIds.length === 0 ? (
                       <div className="text-xs text-slate-500">Select Broker first</div>
                     ) : availableDestinations.length === 0 ? (
-                      <div className="text-xs text-slate-500">
-                        No stations found for selected broker
-                      </div>
+                      <div className="text-xs text-slate-500">No stations found</div>
                     ) : filteredDestinations.length === 0 ? (
                       <div className="text-xs text-slate-500">No matching destination</div>
                     ) : (
@@ -1271,33 +1312,18 @@ const SaleOrderPendencyArtSizeWise: React.FC = () => {
                     </div>
                   </div>
 
-                  <div className="relative mb-2">
-                    <input
-                      type="text"
-                      value={partySearch}
-                      onChange={(e) => setPartySearch(e.target.value)}
-                      placeholder="Search Party"
-                      className="border border-slate-300 rounded-lg px-2 py-1.5 w-full text-xs pr-6 focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 disabled:bg-slate-100"
-                      disabled={availableParties.length === 0}
-                    />
-                    {partySearch && availableParties.length > 0 && (
-                      <button
-                        type="button"
-                        onClick={() => setPartySearch("")}
-                        className="absolute right-1 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700 text-xs px-1"
-                      >
-                        ×
-                      </button>
-                    )}
-                  </div>
+                  <input
+                    type="text"
+                    value={partySearch}
+                    onChange={(e) => setPartySearch(e.target.value)}
+                    placeholder="Search Party"
+                    className="border border-slate-300 rounded-lg px-2 py-1.5 w-full text-xs mb-2"
+                    disabled={availableParties.length === 0}
+                  />
 
                   <div className="border border-slate-200 rounded-lg h-48 overflow-auto bg-white p-2">
                     {availableParties.length === 0 ? (
-                      <div className="text-xs text-slate-500">
-                        {brokers.length > 0 && selBrokerIds.length === 0
-                          ? "Select Broker first"
-                          : "Select Destination first"}
-                      </div>
+                      <div className="text-xs text-slate-500">Select Destination first</div>
                     ) : filteredParties.length === 0 ? (
                       <div className="text-xs text-slate-500">No matching party</div>
                     ) : (
@@ -1342,25 +1368,14 @@ const SaleOrderPendencyArtSizeWise: React.FC = () => {
                     </div>
                   </div>
 
-                  <div className="relative mb-2">
-                    <input
-                      type="text"
-                      value={artSearch}
-                      onChange={(e) => setArtSearch(e.target.value)}
-                      placeholder="Search Art No"
-                      className="border border-slate-300 rounded-lg px-2 py-1.5 w-full text-xs pr-6 focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 disabled:bg-slate-100"
-                      disabled={availableArts.length === 0}
-                    />
-                    {artSearch && availableArts.length > 0 && (
-                      <button
-                        type="button"
-                        onClick={() => setArtSearch("")}
-                        className="absolute right-1 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700 text-xs px-1"
-                      >
-                        ×
-                      </button>
-                    )}
-                  </div>
+                  <input
+                    type="text"
+                    value={artSearch}
+                    onChange={(e) => setArtSearch(e.target.value)}
+                    placeholder="Search Art"
+                    className="border border-slate-300 rounded-lg px-2 py-1.5 w-full text-xs mb-2"
+                    disabled={availableArts.length === 0}
+                  />
 
                   <div className="border border-slate-200 rounded-lg h-48 overflow-auto bg-white p-2">
                     {availableArts.length === 0 ? (
@@ -1409,25 +1424,14 @@ const SaleOrderPendencyArtSizeWise: React.FC = () => {
                     </div>
                   </div>
 
-                  <div className="relative mb-2">
-                    <input
-                      type="text"
-                      value={sizeSearch}
-                      onChange={(e) => setSizeSearch(e.target.value)}
-                      placeholder="Search Size"
-                      className="border border-slate-300 rounded-lg px-2 py-1.5 w-full text-xs pr-6 focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 disabled:bg-slate-100"
-                      disabled={availableSizes.length === 0}
-                    />
-                    {sizeSearch && availableSizes.length > 0 && (
-                      <button
-                        type="button"
-                        onClick={() => setSizeSearch("")}
-                        className="absolute right-1 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700 text-xs px-1"
-                      >
-                        ×
-                      </button>
-                    )}
-                  </div>
+                  <input
+                    type="text"
+                    value={sizeSearch}
+                    onChange={(e) => setSizeSearch(e.target.value)}
+                    placeholder="Search Size"
+                    className="border border-slate-300 rounded-lg px-2 py-1.5 w-full text-xs mb-2"
+                    disabled={availableSizes.length === 0}
+                  />
 
                   <div className="border border-slate-200 rounded-lg h-48 overflow-auto bg-white p-2">
                     {availableSizes.length === 0 ? (
@@ -1476,25 +1480,14 @@ const SaleOrderPendencyArtSizeWise: React.FC = () => {
                     </div>
                   </div>
 
-                  <div className="relative mb-2">
-                    <input
-                      type="text"
-                      value={shadeSearch}
-                      onChange={(e) => setShadeSearch(e.target.value)}
-                      placeholder="Search Shade"
-                      className="border border-slate-300 rounded-lg px-2 py-1.5 w-full text-xs pr-6 focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 disabled:bg-slate-100"
-                      disabled={availableShades.length === 0}
-                    />
-                    {shadeSearch && availableShades.length > 0 && (
-                      <button
-                        type="button"
-                        onClick={() => setShadeSearch("")}
-                        className="absolute right-1 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700 text-xs px-1"
-                      >
-                        ×
-                      </button>
-                    )}
-                  </div>
+                  <input
+                    type="text"
+                    value={shadeSearch}
+                    onChange={(e) => setShadeSearch(e.target.value)}
+                    placeholder="Search Shade"
+                    className="border border-slate-300 rounded-lg px-2 py-1.5 w-full text-xs mb-2"
+                    disabled={availableShades.length === 0}
+                  />
 
                   <div className="border border-slate-200 rounded-lg h-48 overflow-auto bg-white p-2">
                     {availableShades.length === 0 ? (
@@ -1521,13 +1514,13 @@ const SaleOrderPendencyArtSizeWise: React.FC = () => {
               <div className="mt-6 flex flex-wrap gap-3">
                 <button
                   onClick={showReport}
-                  className="px-6 py-2 rounded-lg bg-indigo-600 text-white text-sm font-semibold shadow-sm hover:bg-indigo-700 transition"
+                  className="px-6 py-2 rounded-lg bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700"
                 >
                   Show Report
                 </button>
                 <button
                   onClick={handleExit}
-                  className="px-6 py-2 rounded-lg bg-slate-500 text-white text-sm font-semibold shadow-sm hover:bg-slate-600 transition"
+                  className="px-6 py-2 rounded-lg bg-slate-500 text-white text-sm font-semibold hover:bg-slate-600"
                 >
                   Exit
                 </button>
@@ -1535,7 +1528,7 @@ const SaleOrderPendencyArtSizeWise: React.FC = () => {
             </div>
           )}
 
-          {/* ---------- REPORT VIEW ---------- */}
+          {/* REPORT VIEW */}
           {showReportView && (
             <div className="bg-white rounded-2xl shadow-xl shadow-slate-200 border border-slate-200 p-5 mt-4">
               <div className="flex items-center justify-between mb-4">
@@ -1575,13 +1568,6 @@ const SaleOrderPendencyArtSizeWise: React.FC = () => {
                   >
                     Export PDF
                   </button>
-                  {/* <button
-                    onClick={handleFulfillAll}
-                    className="bg-red-600 text-white px-4 py-1.5 rounded-lg text-xs font-semibold hover:bg-red-700"
-                    title="Fulfill all pending"
-                  >
-                    Fulfill All
-                  </button> */}
                 </div>
               </div>
 
@@ -1663,6 +1649,7 @@ const SaleOrderPendencyArtSizeWise: React.FC = () => {
 
                     <tfoot>
                       <tr className="bg-slate-100 font-semibold text-slate-800">
+                        {/* ✅ colSpan back to 5 (since challan/order column removed) */}
                         <td className="border border-slate-200 p-1.5 text-right" colSpan={5}>
                           Total
                         </td>

@@ -68,21 +68,12 @@ interface PaymentDoc {
   id: number;
   paymentDate: string;
   date?: string;
-
-  // Party payments => partyName set
   partyName: string;
-
-  // Broker payments => brokerName set (if your backend supports)
   brokerName?: string;
-
-  // Optional: paymentTo from backend
   paymentTo?: string;
-
   amount: number;
   paymentThrough?: string;
   processName?: string;
-
-  // Optional from backend
   agentName?: string;
 }
 
@@ -90,21 +81,12 @@ interface ReceiptDoc {
   id: number;
   receiptDate: string;
   date?: string;
-
-  // Party receipts => partyName set
   partyName: string;
-
-  // Broker receipts => brokerName set (saved in DB as agentName in your Receipt module)
   brokerName?: string;
-
-  // IMPORTANT: receiptTo from backend (Party/Broker/Employee/Other)
   receiptTo?: string;
-
   amount: number;
   paymentThrough?: string;
   processName?: string;
-
-  // Optional from backend
   agentName?: string;
 }
 
@@ -144,12 +126,8 @@ type TxType =
 type BaseTransaction = {
   id: number;
   date: string;
-
-  // For Party docs: partyName filled
-  // For Broker-only docs: partyName may be "", brokerName filled
   partyName: string;
   brokerName?: string;
-
   orderNo?: string;
   mode?: string;
   debit: number;
@@ -475,11 +453,11 @@ const AccountStatement: React.FC = () => {
             .filter((x) => x.partyName && x.date && x.challanNo),
         );
 
-        // ✅ FIX: include Broker payments too (if present)
+        // include Broker payments too (if present)
         setPayments(
           (Array.isArray(payRaw) ? payRaw : [])
             .map((p: any) => {
-              const paymentTo = String(p.paymentTo ?? p.payment_to ?? "").trim(); // tolerant
+              const paymentTo = String(p.paymentTo ?? p.payment_to ?? "").trim();
               const partyName = paymentTo === "Party" ? String(p.partyName ?? "").trim() : "";
               const brokerName =
                 paymentTo === "Broker"
@@ -499,11 +477,10 @@ const AccountStatement: React.FC = () => {
                 processName: String(p.processName ?? "").trim(),
               } as PaymentDoc;
             })
-            // ✅ keep Party payments OR Broker payments
             .filter((p) => p.partyName || p.brokerName),
         );
 
-        // ✅ FIX: include Broker receipts too (receiptTo=Broker)
+        // include Broker receipts too (receiptTo=Broker)
         setReceipts(
           (Array.isArray(recRaw) ? recRaw : [])
             .map((r: any) => {
@@ -512,7 +489,7 @@ const AccountStatement: React.FC = () => {
               const brokerName =
                 receiptTo === "Broker"
                   ? String(r.agentName ?? r.brokerName ?? "").trim()
-                  : String(r.agentName ?? r.brokerName ?? "").trim(); // party receipt also may carry agentName
+                  : String(r.agentName ?? r.brokerName ?? "").trim();
 
               return {
                 id: r.id,
@@ -527,7 +504,6 @@ const AccountStatement: React.FC = () => {
                 processName: String(r.processName ?? "").trim(),
               } as ReceiptDoc;
             })
-            // ✅ keep Party receipts OR Broker receipts
             .filter((r) => r.partyName || r.brokerName),
         );
       } catch (e: any) {
@@ -569,14 +545,41 @@ const AccountStatement: React.FC = () => {
     [getBrokerFromPartyName],
   );
 
-  // Payment => DEBIT, Receipt => CREDIT, JobInward => CREDIT, JobOutward => 0, Others => DEBIT
+  /**
+   * ✅ YOUR REQUIRED DR/CR RULES
+   * - Purchase (PurchaseOrder, PurchaseEntry) => CR
+   * - Payment => DR
+   * - Receipt => CR (all receipts)
+   * - Dispatch Return => CR  (we treat OtherDispatch as Dispatch Return)
+   * - Purchase Return => DR
+   * - Dispatch => DR (kept as normal sale dispatch)
+   * - JobInward => CR
+   * - JobOutward, Opening => 0 effect
+   */
   const getDrCr = useCallback((source: TxType, amount: number) => {
     const amt = toNum(amount);
+
     if (source === "Payment") return { debit: amt, credit: 0 };
+
     if (source === "Receipt") return { debit: 0, credit: amt };
+
+    if (source === "PurchaseOrder") return { debit: 0, credit: amt };
+    if (source === "PurchaseEntry") return { debit: 0, credit: amt };
+
+    // Dispatch Return => CR (mapped to OtherDispatch in your code)
+    if (source === "OtherDispatch") return { debit: 0, credit: amt };
+
+    // Purchase Return => DR
+    if (source === "PurchaseReturn") return { debit: amt, credit: 0 };
+
+    // Job Inward => CR
     if (source === "JobInward") return { debit: 0, credit: amt };
+
+    // No financial effect
     if (source === "JobOutward") return { debit: 0, credit: 0 };
     if (source === "Opening") return { debit: 0, credit: 0 };
+
+    // Default: Dispatch etc => DR
     return { debit: amt, credit: 0 };
   }, []);
 
@@ -600,13 +603,11 @@ const AccountStatement: React.FC = () => {
     jobOutwards.forEach((d) => add(getBrokerFromPartyName(d.partyName), d.partyName));
     jobInwards.forEach((d) => add(getBrokerFromPartyName(d.partyName), d.partyName));
 
-    // ✅ FIX: Payments may be broker-only
     payments.forEach((d) => {
       const b = d.brokerName || (d.partyName ? getBrokerFromPartyName(d.partyName) : "");
       add(b, d.partyName || "");
     });
 
-    // ✅ FIX: Receipts may be broker-only (receiptTo=Broker)
     receipts.forEach((d) => {
       const b = d.brokerName || (d.partyName ? getBrokerFromPartyName(d.partyName) : "");
       add(b, d.partyName || "");
@@ -743,10 +744,8 @@ const AccountStatement: React.FC = () => {
         id: number;
         date: string;
         number: string;
-
         partyName: string;
         brokerName: string;
-
         amount: number;
         mode?: string;
       };
@@ -770,6 +769,7 @@ const AccountStatement: React.FC = () => {
         });
       });
 
+      // OtherDispatch (treated as Dispatch Return for CR as per your rule)
       otherDispatchChallans.forEach((od) => {
         const bName = getBrokerNameForDoc(od);
         if (!brokerOk(bName)) return;
@@ -867,7 +867,7 @@ const AccountStatement: React.FC = () => {
         });
       });
 
-      // ✅ Payments: include party payments + broker payments
+      // Payments
       payments.forEach((p) => {
         const bName =
           (p.brokerName || "").trim() ||
@@ -875,7 +875,6 @@ const AccountStatement: React.FC = () => {
 
         if (!brokerOk(bName)) return;
 
-        // party filter applied only if payment has partyName
         if (targetParty && !partyOk(p.partyName)) return;
         if (targetParty && !p.partyName) return;
 
@@ -893,7 +892,7 @@ const AccountStatement: React.FC = () => {
         });
       });
 
-      // ✅ Receipts: include party receipts + broker receipts (receiptTo=Broker)
+      // Receipts
       receipts.forEach((r) => {
         const bName =
           (r.brokerName || "").trim() ||
@@ -901,7 +900,6 @@ const AccountStatement: React.FC = () => {
 
         if (!brokerOk(bName)) return;
 
-        // party filter applied only if receipt has partyName
         if (targetParty && !partyOk(r.partyName)) return;
         if (targetParty && !r.partyName) return;
 
@@ -1624,7 +1622,9 @@ const AccountStatement: React.FC = () => {
                               <div className="p-3">
                                 <div className="grid grid-cols-12 gap-4 items-center">
                                   <div className="col-span-4">
-                                    <div className="text-sm font-semibold">Totals (All Transactions)</div>
+                                    <div className="text-sm font-semibold">
+                                      Totals (All Transactions)
+                                    </div>
                                     <div className="text-xs text-gray-700 mt-1">
                                       Debit: <strong>{fmtNumber(totalDebit)}</strong>
                                     </div>

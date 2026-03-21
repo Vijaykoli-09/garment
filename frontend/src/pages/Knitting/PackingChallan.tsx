@@ -12,27 +12,26 @@ type LotRecord = {
   lotNo: string;
   artNo: string;
   itemName: string;
-  artGroup?: string; // optional pre-filled artGroup if available in cutting-entries
+  artGroup?: string;
 };
 
 interface RowData {
   id: number; // local key
   cuttinglotNo: string;
   artNo: string;
-  artGroup: string; // shown; saved as artGroupName
+  artGroup: string; // saved as artGroupName
   workOnArt: string;
 
-  // Dynamic per-size maps
-  sizeRate: Record<string, string>; // sizeName -> rate
-  sizeBox: Record<string, string>; // sizeName -> boxes
-  sizePerBox: Record<string, string>; // sizeName -> perBox
-  sizeIdByName: Record<string, number>; // sizeName -> id
+  sizeRate: Record<string, string>;
+  sizeBox: Record<string, string>;
+  sizePerBox: Record<string, string>;
+  sizeIdByName: Record<string, number>;
 
-  shade: string; // shown (shadeName)
-  shadeCode?: string | null; // saved (pk)
+  shade: string; // shadeName
+  shadeCode?: string | null;
 
-  pcs: string; // auto: (sumBox * sumPerBox)
-  amount: string; // auto: (sumRates * pcs)
+  pcs: string; // auto
+  amount: string; // auto
 }
 
 /* =========================
@@ -76,7 +75,7 @@ const sizeSort = (a: string, b: string) => {
   return a.localeCompare(b);
 };
 
-/* ========== Cutting Lot Modal (Sale style) ========== */
+/* ========== Cutting Lot Modal ========== */
 const CuttingLotModal: React.FC<{
   open: boolean;
   lots: LotRecord[];
@@ -109,12 +108,14 @@ const CuttingLotModal: React.FC<{
             Close
           </button>
         </div>
+
         <input
           value={q}
           onChange={(e) => setQ(e.target.value)}
           placeholder="Search lot no / art no / item…"
           className="border p-2 rounded w-full mb-3"
         />
+
         <div className="overflow-auto border rounded">
           <table className="w-full text-sm">
             <thead className="bg-gray-100">
@@ -128,7 +129,10 @@ const CuttingLotModal: React.FC<{
             <tbody>
               {filtered.length === 0 ? (
                 <tr>
-                  <td className="border p-3 text-center text-gray-500" colSpan={4}>
+                  <td
+                    className="border p-3 text-center text-gray-500"
+                    colSpan={4}
+                  >
                     No records
                   </td>
                 </tr>
@@ -157,7 +161,7 @@ const CuttingLotModal: React.FC<{
   );
 };
 
-/* ========== Shade Modal (Sale style) ========== */
+/* ========== Shade Modal ========== */
 const ShadeModal: React.FC<{
   open: boolean;
   shades: ShadeOpt[];
@@ -189,12 +193,14 @@ const ShadeModal: React.FC<{
             Close
           </button>
         </div>
+
         <input
           value={q}
           onChange={(e) => setQ(e.target.value)}
           placeholder="Search shade name / code"
           className="border p-2 rounded w-full mb-3"
         />
+
         <div className="overflow-auto max-h-[70vh] border">
           <table className="w-full text-sm">
             <thead className="bg-gray-100">
@@ -207,13 +213,19 @@ const ShadeModal: React.FC<{
             <tbody>
               {filtered.length === 0 ? (
                 <tr>
-                  <td className="border p-3 text-center text-gray-500" colSpan={3}>
+                  <td
+                    className="border p-3 text-center text-gray-500"
+                    colSpan={3}
+                  >
                     No shades found
                   </td>
                 </tr>
               ) : (
                 filtered.map((sh) => (
-                  <tr key={`${sh.code}-${sh.name}`} className="hover:bg-gray-50">
+                  <tr
+                    key={`${sh.code}-${sh.name}`}
+                    className="hover:bg-gray-50"
+                  >
                     <td className="border p-2">{sh.code}</td>
                     <td className="border p-2">{sh.name}</td>
                     <td className="border p-2 text-center">
@@ -244,7 +256,10 @@ const PackingChallan: React.FC = () => {
   const [parties, setParties] = useState<any[]>([]);
   const [rows, setRows] = useState<RowData[]>([]);
 
-  // ⭐ NEW: defaults from Packing Challan table per ArtNo+Size
+  // ✅ disable Save/Update while saving
+  const [isSaving, setIsSaving] = useState(false);
+
+  // defaults from previous packing challans (ArtNo+Size -> rate/perBox)
   const [artDefaults, setArtDefaults] = useState<{
     [artNo: string]: {
       sizeRate: Record<string, string>;
@@ -264,37 +279,37 @@ const PackingChallan: React.FC = () => {
 
   // Shade modal
   const [shadeModalOpen, setShadeModalOpen] = useState(false);
-  const [shadeModalForRowId, setShadeModalForRowId] = useState<number | null>(null);
+  const [shadeModalForRowId, setShadeModalForRowId] = useState<number | null>(
+    null
+  );
   const [shades, setShades] = useState<ShadeOpt[]>([]);
 
   // editing marker (serialNo) — determines Save vs Update
   const [editingSerial, setEditingSerial] = useState<string | null>(null);
 
-  const addBlankRow = () =>
-    setRows((prev) => [
-      ...prev,
-      {
-        id: Date.now() + Math.floor(Math.random() * 1000),
-        cuttinglotNo: "",
-        artNo: "",
-        artGroup: "",
-        workOnArt: "",
-        sizeRate: {},
-        sizeBox: {},
-        sizePerBox: {},
-        sizeIdByName: {},
-        shade: "",
-        shadeCode: null,
-        pcs: "",
-        amount: "",
-      },
-    ]);
+  const blankRow = (): RowData => ({
+    id: Date.now() + Math.floor(Math.random() * 1000),
+    cuttinglotNo: "",
+    artNo: "",
+    artGroup: "",
+    workOnArt: "",
+    sizeRate: {},
+    sizeBox: {},
+    sizePerBox: {},
+    sizeIdByName: {},
+    shade: "",
+    shadeCode: null,
+    pcs: "",
+    amount: "",
+  });
 
-  // ⭐ NEW: Available cutting lots = all cutting lots - already used in any packing-challan
+  const addBlankRow = () => setRows((prev) => [...prev, blankRow()]);
+
+  // ⭐ Available cutting lots = all cutting lots - already used in any packing-challan
   const fetchAvailableLots = useCallback(async () => {
     try {
-      // 1) Collect all cutting lots that are already used in any packing-challan
       let usedLots = new Set<string>();
+
       try {
         const { data: challansData } = await api.get<any[]>("/packing-challans");
         const challans = Array.isArray(challansData) ? challansData : [];
@@ -311,55 +326,54 @@ const PackingChallan: React.FC = () => {
             if (lotNo) usedLots.add(lotNo);
           });
         });
-      } catch (err) {
+      } catch {
         usedLots = new Set();
       }
 
-      // 2) Load cutting lots with art/item from /cutting-entries, and skip usedLots
+      // try cutting-entries first (with art/item)
       try {
         const { data } = await api.get<any[]>("/cutting-entries");
         const docs = Array.isArray(data) ? data : [];
         const map = new Map<string, LotRecord>();
+
         for (const d of docs) {
           for (const r of d?.lotRows || []) {
             const lotNo = String(
               r.cutLotNo || r.cutlotNo || r.cuttingLotNo || ""
             ).trim();
             if (!lotNo) continue;
-            if (usedLots.has(lotNo)) continue; // skip lots already used in any challan
+            if (usedLots.has(lotNo)) continue;
+
             if (!map.has(lotNo)) {
               map.set(lotNo, {
                 lotNo,
                 artNo: String(r.artNo || ""),
                 itemName: String(r.itemName || ""),
-                artGroup: String(
-                  r.artGroupName || r.artGroup || r.group || ""
-                ),
+                artGroup: String(r.artGroupName || r.artGroup || r.group || ""),
               });
             }
           }
         }
+
         if (map.size > 0) {
           setLots(Array.from(map.values()));
           return;
         }
-      } catch (err) {
-        // ignore, fallback below
+      } catch {
+        // ignore
       }
 
-      // 3) Fallback: get simple lot numbers from /packing-challans/cutting-lots and skip usedLots
+      // fallback endpoint
       try {
-        const { data } = await api.get<string[]>("/packing-challans/cutting-lots");
+        const { data } = await api.get<string[]>(
+          "/packing-challans/cutting-lots"
+        );
         const list: string[] = Array.isArray(data)
           ? data.filter(Boolean).map(String)
           : [];
-        const filtered = list.filter(
-          (x) => !usedLots.has(String(x).trim())
-        );
-        setLots(
-          filtered.map((x) => ({ lotNo: x, artNo: "", itemName: "" }))
-        );
-      } catch (err) {
+        const filtered = list.filter((x) => !usedLots.has(String(x).trim()));
+        setLots(filtered.map((x) => ({ lotNo: x, artNo: "", itemName: "" })));
+      } catch {
         setLots([]);
       }
     } catch {
@@ -367,26 +381,37 @@ const PackingChallan: React.FC = () => {
     }
   }, []);
 
+  // ✅ Reset page/form function (used by Save/Update success + Reset button + Exit)
+  const resetPage = useCallback(async () => {
+    setDate("");
+    setPartyId("");
+    setEditingSerial(null);
+    setRows([blankRow()]);
+    setListOpen(false);
+    setListSearch("");
+    await fetchAvailableLots();
+  }, [fetchAvailableLots]);
+
   useEffect(() => {
-    if (rows.length === 0) addBlankRow();
+    if (rows.length === 0) setRows([blankRow()]);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // initial row
+  }, []);
 
   useEffect(() => {
     (async () => {
       try {
         const res = await api.get("/party/category/Packing");
         setParties(res.data || []);
-      } catch {}
+      } catch {
+        setParties([]);
+      }
     })();
   }, []);
 
-  // Load Cutting Lots with art/item (only lots which are not used in any challan)
   useEffect(() => {
     fetchAvailableLots();
   }, [fetchAvailableLots]);
 
-  // Load shades once
   useEffect(() => {
     (async () => {
       try {
@@ -404,7 +429,7 @@ const PackingChallan: React.FC = () => {
     })();
   }, []);
 
-  // ⭐ NEW: Load stored Rate & Per/Box per ArtNo/Size from Packing Challan table
+  // ⭐ Load defaults from existing packing challans
   useEffect(() => {
     (async () => {
       try {
@@ -428,28 +453,22 @@ const PackingChallan: React.FC = () => {
               ? r.sizeDetails
               : [];
 
-            if (!map[artNo]) {
-              map[artNo] = {
-                sizeRate: {},
-                sizePerBox: {},
-              };
-            }
+            if (!map[artNo]) map[artNo] = { sizeRate: {}, sizePerBox: {} };
             const entry = map[artNo];
 
             details.forEach((sd) => {
               const sizeName = String(sd.sizeName || sd.size || "").trim();
               if (!sizeName) return;
 
-              const rateVal = sd.rate;
-              const perBoxVal = sd.perBox;
-
-              // 👉 ALWAYS overwrite, so the *last* challan row for this Art+Size wins
-              if (rateVal !== null && rateVal !== undefined && rateVal !== "") {
-                entry.sizeRate[sizeName] = String(rateVal);
+              if (sd.rate !== null && sd.rate !== undefined && sd.rate !== "") {
+                entry.sizeRate[sizeName] = String(sd.rate);
               }
-
-              if (perBoxVal !== null && perBoxVal !== undefined && perBoxVal !== "") {
-                entry.sizePerBox[sizeName] = String(perBoxVal);
+              if (
+                sd.perBox !== null &&
+                sd.perBox !== undefined &&
+                sd.perBox !== ""
+              ) {
+                entry.sizePerBox[sizeName] = String(sd.perBox);
               }
             });
           }
@@ -462,11 +481,9 @@ const PackingChallan: React.FC = () => {
     })();
   }, []);
 
-  // Recalc based on per-size Box * PerBox
+  // Recalc row totals
   const recalcRow = (r: RowData): RowData => {
     const next: RowData = { ...r };
-
-    // collect union of all size keys
     const keys = new Set<string>([
       ...Object.keys(next.sizeRate || {}),
       ...Object.keys(next.sizeBox || {}),
@@ -481,8 +498,8 @@ const PackingChallan: React.FC = () => {
       const perBox = toNum(next.sizePerBox?.[k] || 0);
       const rate = toNum(next.sizeRate?.[k] || 0);
 
-      const pcs = box * perBox; // ✅ separate for each size column
-      const amt = pcs * rate; // per-size amount
+      const pcs = box * perBox;
+      const amt = pcs * rate;
 
       totalPcs += pcs;
       totalAmount += amt;
@@ -498,7 +515,6 @@ const PackingChallan: React.FC = () => {
       prev.map((r) => (r.id === rowId ? recalcRow({ ...r, ...patch }) : r))
     );
 
-  // Per-size handlers
   const handleSizeBoxChange = (id: number, sizeName: string, value: string) => {
     setRows((prev) =>
       prev.map((r) => {
@@ -509,7 +525,11 @@ const PackingChallan: React.FC = () => {
       })
     );
   };
-  const handleSizePerBoxChange = (id: number, sizeName: string, value: string) => {
+  const handleSizePerBoxChange = (
+    id: number,
+    sizeName: string,
+    value: string
+  ) => {
     setRows((prev) =>
       prev.map((r) => {
         if (r.id !== id) return r;
@@ -519,7 +539,11 @@ const PackingChallan: React.FC = () => {
       })
     );
   };
-  const handleSizeRateChange = (id: number, sizeName: string, value: string) => {
+  const handleSizeRateChange = (
+    id: number,
+    sizeName: string,
+    value: string
+  ) => {
     setRows((prev) =>
       prev.map((r) => {
         if (r.id !== id) return r;
@@ -530,7 +554,6 @@ const PackingChallan: React.FC = () => {
     );
   };
 
-  // Derived size columns across all rows (union of all keys)
   const sizeColumns = useMemo(() => {
     const s = new Set<string>();
     rows.forEach((r) => {
@@ -541,7 +564,6 @@ const PackingChallan: React.FC = () => {
     return Array.from(s).sort(sizeSort);
   }, [rows]);
 
-  // Totals
   const totalBox = useMemo(
     () =>
       rows.reduce(
@@ -577,7 +599,7 @@ const PackingChallan: React.FC = () => {
     [rows]
   );
 
-  // Cutting Lot selection
+  // Lot
   const openLotModalForRow = (rowId: number) => {
     setLotModalForRowId(rowId);
     setLotModalOpen(true);
@@ -592,6 +614,7 @@ const PackingChallan: React.FC = () => {
         sizeIdByName: {},
         artGroup: "",
       };
+
     try {
       const listRes = await api.get<any[]>("/arts");
       const list = Array.isArray(listRes.data) ? listRes.data : [];
@@ -601,7 +624,6 @@ const PackingChallan: React.FC = () => {
           artNo.trim().toLowerCase()
       );
 
-      // try artGroup from list item first
       let artGroup = String(
         found?.artGroupName ||
           found?.artGroup ||
@@ -611,28 +633,23 @@ const PackingChallan: React.FC = () => {
           ""
       ).trim();
 
-      // If art not found in /arts, still try using defaults from packing challan
       if (!found?.serialNumber) {
-        const defaults = artDefaults[artNo] || {
-          sizeRate: {},
-          sizePerBox: {},
+        const defaults = artDefaults[artNo] || { sizeRate: {}, sizePerBox: {} };
+        return {
+          sizeRate: { ...defaults.sizeRate },
+          sizeBox: {},
+          sizePerBox: { ...defaults.sizePerBox },
+          sizeIdByName: {},
+          artGroup,
         };
-        const sizeRate = { ...defaults.sizeRate };
-        const sizeBox: Record<string, string> = {};
-        const sizePerBox = { ...defaults.sizePerBox };
-        const sizeIdByName: Record<string, number> = {};
-        return { sizeRate, sizeBox, sizePerBox, sizeIdByName, artGroup };
       }
 
       const det = await api
         .get<any>(`/arts/${found.serialNumber}`)
         .catch(() => null);
       const detData = det?.data ?? null;
-
-      // sizes from detail
       const sizes = Array.isArray(detData?.sizes) ? detData.sizes : [];
 
-      // try artGroup from detail if not on list
       if (!artGroup && detData) {
         artGroup = String(
           detData.artGroupName ||
@@ -640,11 +657,6 @@ const PackingChallan: React.FC = () => {
             detData.group ||
             detData.groupName ||
             detData.name ||
-            (Array.isArray(detData) &&
-              detData[0] &&
-              (detData[0].artGroupName ||
-                detData[0].name ||
-                detData[0].artGroup)) ||
             ""
         ).trim();
       }
@@ -659,35 +671,26 @@ const PackingChallan: React.FC = () => {
         const id = Number(s.id || s.sizeId || 0);
         if (name) {
           sizeRate[name] =
-            s?.rate !== undefined && s?.rate !== null
-              ? String(s.rate)
-              : "";
+            s?.rate !== undefined && s?.rate !== null ? String(s.rate) : "";
           sizeBox[name] = "";
           sizePerBox[name] = "";
           if (id) sizeIdByName[name] = id;
         }
       });
 
-      // Overlay stored defaults from Packing Challan table (Rate & Per/Box)
       const defaults = artDefaults[artNo];
       if (defaults) {
-        // override rate where stored
         Object.keys(defaults.sizeRate).forEach((sizeName) => {
           const v = defaults.sizeRate[sizeName];
-          if (v !== undefined && v !== null && v !== "") {
-            sizeRate[sizeName] = v;
-          }
+          if (v !== undefined && v !== null && v !== "") sizeRate[sizeName] = v;
         });
 
-        // override perBox where stored
         Object.keys(defaults.sizePerBox).forEach((sizeName) => {
           const v = defaults.sizePerBox[sizeName];
-          if (v !== undefined && v !== null && v !== "") {
+          if (v !== undefined && v !== null && v !== "")
             sizePerBox[sizeName] = v;
-          }
         });
 
-        // if there is a size only in defaults (not in /arts), still include it
         Object.keys(defaults.sizeRate).forEach((sizeName) => {
           if (!(sizeName in sizeRate)) {
             sizeRate[sizeName] = defaults.sizeRate[sizeName];
@@ -698,7 +701,7 @@ const PackingChallan: React.FC = () => {
       }
 
       return { sizeRate, sizeBox, sizePerBox, sizeIdByName, artGroup };
-    } catch (err) {
+    } catch {
       return {
         sizeRate: {},
         sizeBox: {},
@@ -713,17 +716,13 @@ const PackingChallan: React.FC = () => {
     const rowId = lotModalForRowId;
     setLotModalOpen(false);
     setLotModalForRowId(null);
-    if (rowId == null) return; // allow 0
+    if (rowId == null) return;
 
-    // ✅ Immediately remove this lot from the available list
     setLots((prev) => prev.filter((l) => l.lotNo !== lot.lotNo));
 
     const artNo = (lot.artNo || "").trim();
-
-    // Prefer artGroup already on lot (from cutting-entries) if present
     const lotArtGroup = String((lot as any).artGroup || "").trim();
 
-    // Load sizes AND artGroup together
     const sizesRes = await loadSizesByArtNo(artNo);
     const {
       sizeRate,
@@ -731,22 +730,19 @@ const PackingChallan: React.FC = () => {
       sizePerBox,
       sizeIdByName,
       artGroup: artGroupFromSizes,
-    } =
-      sizesRes || {
-        sizeRate: {},
-        sizeBox: {},
-        sizePerBox: {},
-        sizeIdByName: {},
-        artGroup: "",
-      };
+    } = sizesRes || {
+      sizeRate: {},
+      sizeBox: {},
+      sizePerBox: {},
+      sizeIdByName: {},
+      artGroup: "",
+    };
 
-    // Final artGroup prefers lot -> sizes -> (fallback empty)
-    const finalArtGroup = lotArtGroup || (artGroupFromSizes || "");
+    const finalArtGroup = lotArtGroup || artGroupFromSizes || "";
 
-    // Patch row with everything
     patchRow(rowId, {
       cuttinglotNo: lot.lotNo,
-      artNo: artNo,
+      artNo,
       workOnArt: lot.itemName || "",
       artGroup: finalArtGroup,
       sizeRate,
@@ -758,20 +754,21 @@ const PackingChallan: React.FC = () => {
     });
   };
 
-  // Shade select
+  // Shade
   const openShadeModalForRow = (rowId: number) => {
     setShadeModalForRowId(rowId);
     setShadeModalOpen(true);
   };
+
   const handleShadePicked = (shade: ShadeOpt) => {
     const rowId = shadeModalForRowId;
     setShadeModalOpen(false);
     setShadeModalForRowId(null);
-    if (!rowId) return;
+    if (rowId == null) return;
     patchRow(rowId, { shade: shade.name, shadeCode: shade.code });
   };
 
-  // -------- Save / Delete / Print --------
+  // -------- Save / Update --------
   const buildPayload = () => ({
     date,
     partyId: partyId ? parseInt(partyId) : null,
@@ -787,10 +784,9 @@ const PackingChallan: React.FC = () => {
         const sizeDetails = Array.from(keys).map((k) => {
           const box = toNum(r.sizeBox?.[k] || 0);
           const perBox = toNum(r.sizePerBox?.[k] || 0);
-          const pcs = box * perBox; // ✅ per-size pcs
+          const pcs = box * perBox;
           const rate = toNum(r.sizeRate?.[k] || 0);
-          const amount = Number((pcs * rate).toFixed(2)); // per-size amount
-
+          const amount = Number((pcs * rate).toFixed(2));
           return {
             sizeId: r.sizeIdByName?.[k] || null,
             sizeName: k,
@@ -802,7 +798,6 @@ const PackingChallan: React.FC = () => {
           };
         });
 
-        // ✅ row totals = sum of per-size values
         const rowPcs = sizeDetails.reduce((sum, d) => sum + d.pcs, 0);
         const rowAmount = sizeDetails.reduce((sum, d) => sum + d.amount, 0);
 
@@ -813,7 +808,7 @@ const PackingChallan: React.FC = () => {
           workOnArt: (r.workOnArt || "").trim(),
           artGroupName: (r.artGroup || "").trim(),
           shadeCode: r.shadeCode ?? null,
-          pcs: rowPcs, // ✅ 120 + 50 = 170, etc.
+          pcs: rowPcs,
           amount: Number(rowAmount.toFixed(2)),
           sizeDetails,
         };
@@ -821,7 +816,10 @@ const PackingChallan: React.FC = () => {
   });
 
   const handleSave = async () => {
+    if (isSaving) return;
+
     const payload = buildPayload();
+
     if (!payload.partyId || !date) {
       return Swal.fire("Validation", "Date and Party are required.", "warning");
     }
@@ -842,22 +840,29 @@ const PackingChallan: React.FC = () => {
     }
 
     try {
+      setIsSaving(true);
+
       if (editingSerial) {
-        // Update flow
         await api.put(
           `/packing-challans/${encodeURIComponent(editingSerial)}`,
           payload
         );
+
+        // ✅ after Update reset page
+        await resetPage();
+
         Swal.fire({
           icon: "success",
           title: "Updated!",
           timer: 2000,
           showConfirmButton: false,
         });
-        setEditingSerial(null);
       } else {
-        // Create flow
         await api.post("/packing-challans", payload);
+
+        // ✅ after Save reset page
+        await resetPage();
+
         Swal.fire({
           icon: "success",
           title: "Saved!",
@@ -865,153 +870,168 @@ const PackingChallan: React.FC = () => {
           showConfirmButton: false,
         });
       }
-
-      // ✅ After save, re-calculate available lots from server
-      await fetchAvailableLots();
     } catch (e: any) {
       Swal.fire(
         "Error",
         e?.response?.data?.message || "Failed to save challan.",
         "error"
       );
+    } finally {
+      setIsSaving(false);
     }
   };
 
-  //Print Function
+  // ✅ Reset button
+  const handleReset = async () => {
+    const ask = await Swal.fire({
+      title: "Reset?",
+      text: "This will clear the form. Continue?",
+      icon: "question",
+      showCancelButton: true,
+      confirmButtonText: "Yes, Reset",
+      cancelButtonText: "Cancel",
+    });
+    if (!ask.isConfirmed) return;
+
+    await resetPage();
+    Swal.fire({
+      icon: "success",
+      title: "Reset Done",
+      timer: 1000,
+      showConfirmButton: false,
+    });
+  };
+
+  // ✅ Exit button (same as reset; you can change to navigation if you want)
+  const handleExit = async () => {
+    const ask = await Swal.fire({
+      title: "Exit?",
+      text: "Are you sure you want to exit/reset this form?",
+      icon: "question",
+      showCancelButton: true,
+      confirmButtonText: "Yes",
+      cancelButtonText: "No",
+    });
+    if (!ask.isConfirmed) return;
+
+    await resetPage();
+  };
+
+  // Print
   const handlePrint = () => {
     const w = window.open("", "_blank")!;
-
-    // get party name
     const party = parties.find((p) => String(p.id) === String(partyId));
     const partyName = party ? party.partyName : "";
 
-    // only non-empty rows
     const printableRows = rows.filter(
       (r) => r.cuttinglotNo || r.artNo || r.workOnArt
     );
 
     const html = `
-    <html>
-    <head>
-      <title>Packing Challan</title>
-      <style>
-        * { box-sizing: border-box; }
-        body { font-family: Arial, sans-serif; padding: 8px; }
-        h2 { text-align:center; margin: 0 0 4px; }
-        .subtitle { text-align:center; margin: 0 0 10px; font-size: 12px; }
-
-        table { 
-          width: 100%;
-          border-collapse: collapse;
-          table-layout: fixed;         /* keeps layout stable for A4 & A5 */
-        }
-        th, td {
-          border: 1px solid #333;
-          padding: 4px 3px;
-          font-size: 10px;             /* a bit smaller so A5 is OK */
-          text-align: center;
-          word-wrap: break-word;
-        }
-        thead th { background: #eee; }
-        tfoot td { background: #fff59d; font-weight: 600; }
-
-        th.col-sr,   td.col-sr   { width: 9%;  }
-        th.col-cl,   td.col-cl   { width: 15%; }
-        th.col-art,  td.col-art  { width: 15%; }
-        th.col-ag,   td.col-ag   { width: 15%; }
-        th.col-woa,  td.col-woa  { width: 15%; }
-        th.col-size, td.col-size { width: 50%; text-align: left; }
-        th.col-sh,   td.col-sh   { width: 13%;  }
-        th.col-pcs,  td.col-pcs  { width: 9%;  }
-        th.col-amt,  td.col-amt  { width: 20%; }
-
-        @media print {
-          @page { margin: 10mm; }      /* user can choose A4 or A5 */
-        }
-      </style>
-    </head>
-    <body>
-      <h2>Packing Challan</h2>
-      <p class="subtitle">
-        ${date ? `Date: ${date}` : ""}${date && partyName ? " | " : ""}${
+      <html>
+      <head>
+        <title>Packing Challan</title>
+        <style>
+          * { box-sizing: border-box; }
+          body { font-family: Arial, sans-serif; padding: 8px; }
+          h2 { text-align:center; margin: 0 0 4px; }
+          .subtitle { text-align:center; margin: 0 0 10px; font-size: 12px; }
+          table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+          th, td { border: 1px solid #333; padding: 4px 3px; font-size: 10px; text-align: center; word-wrap: break-word; }
+          thead th { background: #eee; }
+          tfoot td { background: #fff59d; font-weight: 600; }
+          th.col-sr, td.col-sr { width: 9%; }
+          th.col-cl, td.col-cl { width: 15%; }
+          th.col-art, td.col-art { width: 15%; }
+          th.col-ag, td.col-ag { width: 15%; }
+          th.col-woa, td.col-woa { width: 15%; }
+          th.col-size, td.col-size { width: 50%; text-align: left; }
+          th.col-sh, td.col-sh { width: 13%; }
+          th.col-pcs, td.col-pcs { width: 9%; }
+          th.col-amt, td.col-amt { width: 20%; }
+          @media print { @page { margin: 10mm; } }
+        </style>
+      </head>
+      <body>
+        <h2>Packing Challan</h2>
+        <p class="subtitle">
+          ${date ? `Date: ${date}` : ""}${date && partyName ? " | " : ""}${
       partyName ? `Party: ${partyName}` : ""
     }
-      </p>
+        </p>
 
-      <table>
-        <thead>
-          <tr>
-            <th class="col-sr">Sr.No</th>
-            <th class="col-cl">Cutting Lot No</th>
-            <th class="col-art">Art No</th>
-            <th class="col-ag">Art Group</th>
-            <th class="col-woa">Work on Art</th>
-            <th class="col-size">Size</th>
-            <th class="col-sh">Shade</th>
-            <th class="col-pcs">Pcs</th>
-            <th class="col-amt">Amount</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${printableRows
-            .map((r, idx) => {
-              // only show sizes which have any value (box / perBox / rate)
-              const sizeParts = sizeColumns
-                .map((s) => {
-                  const box = Number(r.sizeBox?.[s] || 0);
-                  const perBox = Number(r.sizePerBox?.[s] || 0);
-                  const rate = Number(r.sizeRate?.[s] || 0);
-                  if (!box && !perBox && !rate) return null; // skip empty size
-                  return `${s}: Box ${box || ""}, PB ${perBox || ""}, ₹${
-                    rate ? rate.toFixed(2) : ""
-                  }`;
-                })
-                .filter(Boolean) as string[];
+        <table>
+          <thead>
+            <tr>
+              <th class="col-sr">Sr.No</th>
+              <th class="col-cl">Cutting Lot No</th>
+              <th class="col-art">Art No</th>
+              <th class="col-ag">Art Group</th>
+              <th class="col-woa">Work on Art</th>
+              <th class="col-size">Size</th>
+              <th class="col-sh">Shade</th>
+              <th class="col-pcs">Pcs</th>
+              <th class="col-amt">Amount</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${printableRows
+              .map((r, idx) => {
+                const sizeParts = sizeColumns
+                  .map((s) => {
+                    const box = Number(r.sizeBox?.[s] || 0);
+                    const perBox = Number(r.sizePerBox?.[s] || 0);
+                    const rate = Number(r.sizeRate?.[s] || 0);
+                    if (!box && !perBox && !rate) return null;
+                    return `${s}: Box ${box || ""}, PB ${
+                      perBox || ""
+                    }, ₹${rate ? rate.toFixed(2) : ""}`;
+                  })
+                  .filter(Boolean) as string[];
 
-              const sizeHtml = sizeParts.length ? sizeParts.join("<br/>") : "";
+                const sizeHtml = sizeParts.length ? sizeParts.join("<br/>") : "";
 
-              return `
-                <tr>
-                  <td class="col-sr">${idx + 1}</td>
-                  <td class="col-cl">${r.cuttinglotNo || ""}</td>
-                  <td class="col-art">${r.artNo || ""}</td>
-                  <td class="col-ag">${r.artGroup || ""}</td>
-                  <td class="col-woa">${r.workOnArt || ""}</td>
-                  <td class="col-size">${sizeHtml}</td>
-                  <td class="col-sh">${r.shade || ""}</td>
-                  <td class="col-pcs">${r.pcs || ""}</td>
-                  <td class="col-amt">${r.amount || ""}</td>
-                </tr>`;
-            })
-            .join("")}
-        </tbody>
-        <tfoot>
-          <tr>
-            <td colspan="5" style="text-align:right">Totals</td>
-            <td class="col-size">
-              Box: ${totalBox} <br/> Per/Box: ${totalPerBox}
-            </td>
-            <td></td>
-            <td class="col-pcs">${totalPcs}</td>
-            <td class="col-amt">₹${totalAmount.toFixed(2)}</td>
-          </tr>
-        </tfoot>
-      </table>
-    </body>
-    </html>
-  `;
+                return `
+                  <tr>
+                    <td class="col-sr">${idx + 1}</td>
+                    <td class="col-cl">${r.cuttinglotNo || ""}</td>
+                    <td class="col-art">${r.artNo || ""}</td>
+                    <td class="col-ag">${r.artGroup || ""}</td>
+                    <td class="col-woa">${r.workOnArt || ""}</td>
+                    <td class="col-size">${sizeHtml}</td>
+                    <td class="col-sh">${r.shade || ""}</td>
+                    <td class="col-pcs">${r.pcs || ""}</td>
+                    <td class="col-amt">${r.amount || ""}</td>
+                  </tr>`;
+              })
+              .join("")}
+          </tbody>
+          <tfoot>
+            <tr>
+              <td colspan="5" style="text-align:right">Totals</td>
+              <td class="col-size">
+                Box: ${totalBox} <br/> Per/Box: ${totalPerBox}
+              </td>
+              <td></td>
+              <td class="col-pcs">${totalPcs}</td>
+              <td class="col-amt">₹${totalAmount.toFixed(2)}</td>
+            </tr>
+          </tfoot>
+        </table>
+      </body>
+      </html>
+    `;
 
     w.document.write(html);
     w.document.close();
     w.print();
   };
 
-  // -------- View List --------
+  // View List
   const openList = async () => {
     try {
       const { data } = await api.get<any[]>("/packing-challans");
-      const list = Array.isArray(data) ? data : [];
-      setListData(list);
+      setListData(Array.isArray(data) ? data : []);
       setListOpen(true);
     } catch {
       setListData([]);
@@ -1019,7 +1039,6 @@ const PackingChallan: React.FC = () => {
     }
   };
 
-  // map listData -> flatRows for display (and include serialNo so we can edit/delete)
   const flatRows = useMemo(() => {
     const out: any[] = [];
     for (const ch of listData) {
@@ -1029,8 +1048,6 @@ const PackingChallan: React.FC = () => {
 
       rows.forEach((r: any, i: number) => {
         const details: any[] = Array.isArray(r.sizeDetails) ? r.sizeDetails : [];
-
-        // sort sizes like main table
         const sortedDetails = [...details].sort((a, b) =>
           sizeSort(
             String(a.sizeName || a.size || ""),
@@ -1038,7 +1055,6 @@ const PackingChallan: React.FC = () => {
           )
         );
 
-        // ✅ keep only sizes that have some value (box / perBox / rate)
         const nonEmptyDetails = sortedDetails.filter((sd: any) => {
           const box = Number(sd.boxCount ?? sd.box ?? 0);
           const perBox = Number(sd.perBox ?? 0);
@@ -1052,22 +1068,18 @@ const PackingChallan: React.FC = () => {
                 (sd: any) =>
                   `${sd.sizeName ?? sd.size ?? ""}: Box ${
                     sd.boxCount ?? 0
-                  }, PB ${sd.perBox ?? 0}, ₹${Number(
-                    sd.rate ?? 0
-                  ).toFixed(2)}`
+                  }, PB ${sd.perBox ?? 0}, ₹${Number(sd.rate ?? 0).toFixed(2)}`
               )
-              .join("\n") // each size on a new line
-          : ""; // nothing if all sizes are empty
+              .join("\n")
+          : "";
 
         out.push({
           serialNo: ch.serialNo ?? ch.serialNo,
-          sno: i + 1,
           date,
           partyName,
           cuttingLotNo: r.cuttingLotNo || r.cutLotNo || "",
           artGroup: r.artGroupName || "",
-          artNo: r.artNo || "", // show Art No in view list
-          workOnArt: r.workOnArt || "",
+          artNo: r.artNo || "",
           size: sizeLabel,
           shade: r.shadeName || "",
           box: details.length
@@ -1077,11 +1089,6 @@ const PackingChallan: React.FC = () => {
               )
             : r.box || r.boxCount || 0,
           pcs: r.pcs || 0,
-          rate: nonEmptyDetails.length
-            ? nonEmptyDetails
-                .map((sd: any) => Number(sd.rate || 0).toFixed(2))
-                .join(", ")
-            : r.rate || 0,
           amount: r.amount || 0,
         });
       });
@@ -1094,23 +1101,23 @@ const PackingChallan: React.FC = () => {
     );
   }, [listData, listSearch]);
 
-  // Edit from modal: load challan DTO, map to local form (rows etc.)
   const handleEditFromList = async (serialNo: string) => {
     try {
       const res = await api.get(
         `/packing-challans/${encodeURIComponent(serialNo)}`
       );
       const dto = res.data;
-      // Map dto -> form fields (date, partyId, rows)
+
       setDate(dto.date || "");
       setPartyId(dto.partyId != null ? String(dto.partyId) : "");
-      // Build rows array
+
       const mappedRows: RowData[] = (Array.isArray(dto.rows) ? dto.rows : []).map(
         (r: any, idx: number) => {
           const sizeRate: Record<string, string> = {};
           const sizeBox: Record<string, string> = {};
           const sizePerBox: Record<string, string> = {};
           const sizeIdByName: Record<string, number> = {};
+
           if (Array.isArray(r.sizeDetails)) {
             r.sizeDetails.forEach((sd: any) => {
               const name = (sd.sizeName || sd.size || "") as string;
@@ -1120,12 +1127,8 @@ const PackingChallan: React.FC = () => {
               sizePerBox[name] = sd.perBox != null ? String(sd.perBox) : "";
               if (sd.sizeId) sizeIdByName[name] = sd.sizeId;
             });
-          } else if (r.sizeName) {
-            // fallback single size field
-            sizeRate[r.sizeName] = r.rate != null ? String(r.rate) : "";
-            sizeBox[r.sizeName] = r.box != null ? String(r.box) : "";
-            sizePerBox[r.sizeName] = r.perBox != null ? String(r.perBox) : "";
           }
+
           return recalcRow({
             id: Date.now() + idx,
             cuttinglotNo: r.cuttingLotNo || r.cutLotNo || "",
@@ -1143,30 +1146,11 @@ const PackingChallan: React.FC = () => {
           });
         }
       );
-      setRows(
-        mappedRows.length
-          ? mappedRows
-          : [
-              /* keep one blank row */ {
-                id: Date.now(),
-                cuttinglotNo: "",
-                artNo: "",
-                artGroup: "",
-                workOnArt: "",
-                sizeRate: {},
-                sizeBox: {},
-                sizePerBox: {},
-                sizeIdByName: {},
-                shade: "",
-                shadeCode: null,
-                pcs: "",
-                amount: "",
-              },
-            ]
-      );
 
+      setRows(mappedRows.length ? mappedRows : [blankRow()]);
       setEditingSerial(serialNo);
       setListOpen(false);
+
       Swal.fire("Loaded", "Challan loaded for editing.", "success");
     } catch (e) {
       console.error(e);
@@ -1174,7 +1158,6 @@ const PackingChallan: React.FC = () => {
     }
   };
 
-  // Delete from modal (by serialNo)
   const handleDeleteFromList = async (serialNo: string) => {
     const ask = await Swal.fire({
       title: "Delete?",
@@ -1184,15 +1167,12 @@ const PackingChallan: React.FC = () => {
       confirmButtonText: "Yes, delete",
     });
     if (!ask.isConfirmed) return;
+
     try {
       await api.delete(`/packing-challans/${encodeURIComponent(serialNo)}`);
-      // refresh list
       const { data } = await api.get<any[]>("/packing-challans");
       setListData(Array.isArray(data) ? data : []);
-
-      // ✅ After delete, recalc available lots (freed lots will re-appear)
       await fetchAvailableLots();
-
       Swal.fire("Deleted", "Challan deleted.", "success");
     } catch (e) {
       console.error(e);
@@ -1247,7 +1227,6 @@ const PackingChallan: React.FC = () => {
                     <th className="border p-2 text-center">Shade</th>
                     <th className="border p-2 text-center">Box</th>
                     <th className="border p-2 text-center">Pcs</th>
-                    {/* <th className="border p-2 text-center">Rate</th> */}
                     <th className="border p-2 text-center">Amount</th>
                     <th className="border p-2 text-center">Action</th>
                   </tr>
@@ -1262,16 +1241,13 @@ const PackingChallan: React.FC = () => {
                         {r.cuttingLotNo}
                       </td>
                       <td className="border p-2 text-center">{r.artGroup}</td>
-                      <td className="border p-2 text-center">
-                        {r.artNo}
-                      </td>
+                      <td className="border p-2 text-center">{r.artNo}</td>
                       <td className="border p-2 text-center whitespace-pre-line min-w-[260px]">
                         {r.size}
                       </td>
                       <td className="border p-2 text-center">{r.shade}</td>
                       <td className="border p-2 text-center">{r.box}</td>
                       <td className="border p-2 text-center">{r.pcs}</td>
-                      {/* <td className="border p-2 text-center">{r.rate}</td> */}
                       <td className="border p-2 text-center">
                         {Number(r.amount).toFixed(2)}
                       </td>
@@ -1293,11 +1269,12 @@ const PackingChallan: React.FC = () => {
                       </td>
                     </tr>
                   ))}
+
                   {flatRows.length === 0 && (
                     <tr>
                       <td
                         className="border p-3 text-center text-gray-500"
-                        colSpan={13}
+                        colSpan={12}
                       >
                         No records
                       </td>
@@ -1337,6 +1314,7 @@ const PackingChallan: React.FC = () => {
                 className="border p-2 rounded w-full"
               />
             </div>
+
             <div>
               <label className="block font-semibold">Party Name</label>
               <select
@@ -1364,7 +1342,7 @@ const PackingChallan: React.FC = () => {
                   <th className="border p-2 text-center">Art No</th>
                   <th className="border p-2 text-center">Art Group</th>
                   <th className="border p-2 text-center">Work on Art</th>
-                  {/* Dynamic Size Columns → Box / Rate / PerBox (stacked) */}
+
                   {sizeColumns.map((s) => (
                     <th key={s} className="border p-2 text-center">
                       <div className="flex flex-col items-center">
@@ -1375,17 +1353,18 @@ const PackingChallan: React.FC = () => {
                       </div>
                     </th>
                   ))}
+
                   <th className="border p-2 text-center">Shade</th>
                   <th className="border p-2 text-center">Pcs</th>
                   <th className="border p-2 text-center">Amount</th>
                 </tr>
               </thead>
+
               <tbody>
                 {rows.map((r, idx) => (
                   <tr key={r.id}>
                     <td className="border p-1 text-center">{idx + 1}</td>
 
-                    {/* Cutting Lot: input opens modal (no button) */}
                     <td className="border p-1">
                       <input
                         className="border p-1 rounded w-full bg-yellow-50 cursor-pointer hover:bg-yellow-100"
@@ -1397,18 +1376,14 @@ const PackingChallan: React.FC = () => {
                       />
                     </td>
 
-                    {/* Art No */}
                     <td className="border p-1">
                       <input
                         className="border p-1 rounded w-full"
                         value={r.artNo}
-                        onChange={(e) =>
-                          patchRow(r.id, { artNo: e.target.value })
-                        }
+                        onChange={(e) => patchRow(r.id, { artNo: e.target.value })}
                       />
                     </td>
 
-                    {/* Art Group */}
                     <td className="border p-1">
                       <input
                         className="border p-1 rounded w-full"
@@ -1419,7 +1394,6 @@ const PackingChallan: React.FC = () => {
                       />
                     </td>
 
-                    {/* Work on Art */}
                     <td className="border p-1">
                       <input
                         className="border p-1 rounded w-full"
@@ -1430,21 +1404,15 @@ const PackingChallan: React.FC = () => {
                       />
                     </td>
 
-                    {/* Size-wise cells: Box / Rate / PerBox stacked vertically */}
                     {sizeColumns.map((s) => {
                       const enabled =
-                        Object.prototype.hasOwnProperty.call(
-                          r.sizeRate || {},
-                          s
-                        ) ||
-                        Object.prototype.hasOwnProperty.call(
-                          r.sizeBox || {},
-                          s
-                        ) ||
+                        Object.prototype.hasOwnProperty.call(r.sizeRate || {}, s) ||
+                        Object.prototype.hasOwnProperty.call(r.sizeBox || {}, s) ||
                         Object.prototype.hasOwnProperty.call(
                           r.sizePerBox || {},
                           s
                         );
+
                       return (
                         <td key={s} className="border p-1">
                           <div className={`${enabled ? "" : "opacity-60"}`}>
@@ -1453,11 +1421,7 @@ const PackingChallan: React.FC = () => {
                                 type="text"
                                 value={r.sizeBox[s] || ""}
                                 onChange={(e) =>
-                                  handleSizeBoxChange(
-                                    r.id,
-                                    s,
-                                    e.target.value
-                                  )
+                                  handleSizeBoxChange(r.id, s, e.target.value)
                                 }
                                 disabled={!enabled}
                                 className={`border p-1 rounded w-full text-right ${
@@ -1466,17 +1430,12 @@ const PackingChallan: React.FC = () => {
                                     : "bg-gray-100 text-gray-400 cursor-not-allowed"
                                 }`}
                                 placeholder="Box"
-                                title="Boxes"
                               />
                               <input
                                 type="text"
                                 value={r.sizeRate[s] || ""}
                                 onChange={(e) =>
-                                  handleSizeRateChange(
-                                    r.id,
-                                    s,
-                                    e.target.value
-                                  )
+                                  handleSizeRateChange(r.id, s, e.target.value)
                                 }
                                 disabled={!enabled}
                                 className={`border p-1 rounded w-full text-right ${
@@ -1485,17 +1444,12 @@ const PackingChallan: React.FC = () => {
                                     : "bg-gray-100 text-gray-400 cursor-not-allowed"
                                 }`}
                                 placeholder="Rate"
-                                title="Rate"
                               />
                               <input
                                 type="text"
                                 value={r.sizePerBox[s] || ""}
                                 onChange={(e) =>
-                                  handleSizePerBoxChange(
-                                    r.id,
-                                    s,
-                                    e.target.value
-                                  )
+                                  handleSizePerBoxChange(r.id, s, e.target.value)
                                 }
                                 disabled={!enabled}
                                 className={`border p-1 rounded w-full text-right ${
@@ -1504,7 +1458,6 @@ const PackingChallan: React.FC = () => {
                                     : "bg-gray-100 text-gray-400 cursor-not-allowed"
                                 }`}
                                 placeholder="Per/Box"
-                                title="Per Box"
                               />
                             </div>
                           </div>
@@ -1512,7 +1465,6 @@ const PackingChallan: React.FC = () => {
                       );
                     })}
 
-                    {/* Shade: input opens modal (no button) */}
                     <td className="border p-1">
                       <input
                         className="border p-1 rounded w-full bg-yellow-50 cursor-pointer hover:bg-yellow-100"
@@ -1524,17 +1476,14 @@ const PackingChallan: React.FC = () => {
                       />
                     </td>
 
-                    {/* Pcs (auto) */}
                     <td className="border p-1">
                       <input
                         readOnly
                         className="border p-1 rounded w-full bg-gray-100 text-right"
                         value={r.pcs}
-                        title="Auto: (Total Box × Total Per/Box)"
                       />
                     </td>
 
-                    {/* Amount (auto) */}
                     <td className="border p-1">
                       <input
                         readOnly
@@ -1548,7 +1497,7 @@ const PackingChallan: React.FC = () => {
             </table>
           </div>
 
-          {/* Totals + Buttons */}
+          {/* Totals */}
           <div className="flex flex-wrap items-center justify-end gap-6 mt-4 font-semibold">
             <p>Total Box: {totalBox}</p>
             <p>Total Per/Box: {totalPerBox}</p>
@@ -1556,6 +1505,7 @@ const PackingChallan: React.FC = () => {
             <p>Total Amount: ₹{totalAmount.toFixed(2)}</p>
           </div>
 
+          {/* Buttons */}
           <div className="mt-4 flex flex-wrap gap-2">
             <button
               onClick={addBlankRow}
@@ -1564,12 +1514,27 @@ const PackingChallan: React.FC = () => {
               Add Row
             </button>
 
-            {/* Single Save/Update button — label changes with editingSerial */}
+            {/* ✅ Save/Update disabled while saving */}
             <button
               onClick={handleSave}
-              className="px-4 py-2 bg-green-600 text-white rounded"
+              disabled={isSaving}
+              className="px-4 py-2 bg-green-600 text-white rounded disabled:opacity-60 disabled:cursor-not-allowed"
             >
-              {editingSerial ? "Update" : "Save"}
+              {isSaving
+                ? editingSerial
+                  ? "Updating..."
+                  : "Saving..."
+                : editingSerial
+                ? "Update"
+                : "Save"}
+            </button>
+
+            {/* ✅ Reset button */}
+            <button
+              onClick={handleReset}
+              className="px-4 py-2 bg-gray-500 text-white rounded"
+            >
+              Reset
             </button>
 
             <button
@@ -1578,11 +1543,20 @@ const PackingChallan: React.FC = () => {
             >
               Print
             </button>
+
             <button
               onClick={openList}
-              className="px-4 py-2 bg-gray-600 text-white rounded"
+              className="px-4 py-2 bg-slate-700 text-white rounded"
             >
               View List
+            </button>
+
+            {/* ✅ Exit button */}
+            <button
+              onClick={handleExit}
+              className="px-4 py-2 bg-red-600 text-white rounded"
+            >
+              Exit
             </button>
           </div>
         </div>
