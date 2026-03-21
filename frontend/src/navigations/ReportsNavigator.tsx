@@ -70,7 +70,7 @@ const ReportsNavigator: React.FC<ReportsNavigatorProps> = ({ onNavigate }) => {
       key: "paymentMod-report",
       label: "PaymentMod Report",
       path: "/reports/paymentmod-report",
-    },
+    }
   ];
 
   return (
