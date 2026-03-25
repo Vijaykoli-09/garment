@@ -66,8 +66,8 @@ type PRRow = {
 
 type PaymentRow = {
   id: string;
-  dateISO: string; // YYYY-MM-DD
-  dateTS: number;
+  dateISO: string; // YYYY-MM-DD (LOCAL)
+  dateTS: number; // LOCAL day start timestamp
   employeeName: string;
   employeeCode: string;
   process: string;
@@ -75,13 +75,73 @@ type PaymentRow = {
   remarks: string;
 };
 
-const fmtDateHeader = (iso: string) => {
-  const d = new Date(iso);
-  if (isNaN(d.getTime())) return "";
-  return `${String(d.getDate()).padStart(2, "0")}/${String(d.getMonth() + 1).padStart(
-    2,
-    "0"
-  )}/${d.getFullYear()}`;
+// ================= Date helpers (FIX: timezone + format safe) =================
+const pad2 = (n: number) => String(n).padStart(2, "0");
+
+const toLocalISODateFromTS = (ts: number) => {
+  const d = new Date(ts);
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+};
+
+const parseYMDLocalToTS = (ymd: string) => {
+  // "YYYY-MM-DD" -> local midnight (NOT UTC)
+  const m = String(ymd || "").trim().match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return NaN;
+  const y = Number(m[1]);
+  const mo = Number(m[2]);
+  const da = Number(m[3]);
+  const dt = new Date(y, mo - 1, da);
+  return dt.getTime();
+};
+
+const parseDMYLocalToTS = (dmy: string) => {
+  // "DD/MM/YYYY" -> local midnight
+  const m = String(dmy || "").trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (!m) return NaN;
+  const da = Number(m[1]);
+  const mo = Number(m[2]);
+  const y = Number(m[3]);
+  const dt = new Date(y, mo - 1, da);
+  return dt.getTime();
+};
+
+const parseAnyDateToLocalDayTS = (value: any) => {
+  if (!value) return NaN;
+
+  // Date object / timestamp
+  if (value instanceof Date) {
+    if (isNaN(value.getTime())) return NaN;
+    // convert to local day start (ignore time)
+    return new Date(value.getFullYear(), value.getMonth(), value.getDate()).getTime();
+  }
+  if (typeof value === "number") {
+    const d = new Date(value);
+    if (isNaN(d.getTime())) return NaN;
+    return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  }
+
+  const s = String(value).trim();
+  if (!s) return NaN;
+
+  // If ISO datetime like "2025-01-31T..." -> take only date part to avoid timezone shifting
+  const isoDateMatch = s.match(/^(\d{4}-\d{2}-\d{2})/);
+  if (isoDateMatch) return parseYMDLocalToTS(isoDateMatch[1]);
+
+  // If "DD/MM/YYYY"
+  const dmyTS = parseDMYLocalToTS(s);
+  if (Number.isFinite(dmyTS)) return dmyTS;
+
+  // last fallback
+  const d = new Date(s);
+  if (isNaN(d.getTime())) return NaN;
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+};
+
+const fmtDateHeader = (anyDate: string) => {
+  const ts = parseAnyDateToLocalDayTS(anyDate);
+  if (!Number.isFinite(ts)) return "";
+  const d = new Date(ts);
+  return `${pad2(d.getDate())}/${pad2(d.getMonth() + 1)}/${d.getFullYear()}`;
 };
 
 const fmtNumber = (n: number) =>
@@ -90,11 +150,14 @@ const fmtNumber = (n: number) =>
 const fmtRate = (n: number) =>
   Number(n || 0).toLocaleString(undefined, { minimumFractionDigits: 3, maximumFractionDigits: 3 });
 
-const getTodayIso = () => new Date().toISOString().slice(0, 10);
+const getTodayIso = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+};
 const getFirstOfMonthIso = () => {
   const d = new Date();
   d.setDate(1);
-  return d.toISOString().slice(0, 10);
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
 };
 
 const SalaryReport: React.FC = () => {
@@ -116,19 +179,6 @@ const SalaryReport: React.FC = () => {
 
   const [showModal, setShowModal] = useState(false);
   const [fullScreen, setFullScreen] = useState(false);
-
-  // ---------- helpers ----------
-  const toTime = (iso: string) => {
-    const d = new Date(iso);
-    return isNaN(d.getTime()) ? NaN : d.getTime();
-  };
-
-  const toISODate = (value: any) => {
-    if (!value) return "";
-    const d = new Date(value);
-    if (isNaN(d.getTime())) return "";
-    return d.toISOString().slice(0, 10);
-  };
 
   // ---------- Load all data ----------
   useEffect(() => {
@@ -153,9 +203,7 @@ const SalaryReport: React.FC = () => {
           : prodRes.data?.data || [];
 
         const empList: Employee[] = Array.isArray(empRes.data) ? empRes.data : empRes.data?.data || [];
-
         const payList: any[] = Array.isArray(payRes.data) ? payRes.data : payRes.data?.data || [];
-
         const procList: any[] = Array.isArray(procRes.data) ? procRes.data : procRes.data?.data || [];
 
         setCuttingEntries(cuttingList);
@@ -290,14 +338,14 @@ const SalaryReport: React.FC = () => {
    * - Process filter apply only when employee not selected
    */
   const filtered = useMemo(() => {
-    const f = toTime(fromDate);
-    const t = toTime(toDate) + 24 * 60 * 60 * 1000 - 1;
+    const f = parseYMDLocalToTS(fromDate);
+    const t = parseYMDLocalToTS(toDate) + 24 * 60 * 60 * 1000 - 1;
 
     const pSel = processName.trim().toLowerCase();
     const eSel = employeeName.trim().toLowerCase();
 
     return allRows.filter((r) => {
-      const tt = toTime(r.date);
+      const tt = parseAnyDateToLocalDayTS(r.date);
       if (!Number.isFinite(tt) || tt < f || tt > t) return false;
 
       if (eSel && r.employee.trim().toLowerCase() !== eSel) return false;
@@ -313,7 +361,7 @@ const SalaryReport: React.FC = () => {
     switch (sorting) {
       case "Date Wise":
         data.sort((a, b) => {
-          const dc = toTime(a.date) - toTime(b.date);
+          const dc = parseAnyDateToLocalDayTS(a.date) - parseAnyDateToLocalDayTS(b.date);
           if (dc !== 0) return dc;
           const lc = a.lotNo.localeCompare(b.lotNo);
           if (lc !== 0) return lc;
@@ -325,7 +373,7 @@ const SalaryReport: React.FC = () => {
         data.sort((a, b) => {
           const ac = a.artNo.localeCompare(b.artNo);
           if (ac !== 0) return ac;
-          const dc = toTime(a.date) - toTime(b.date);
+          const dc = parseAnyDateToLocalDayTS(a.date) - parseAnyDateToLocalDayTS(b.date);
           if (dc !== 0) return dc;
           return a.lotNo.localeCompare(b.lotNo);
         });
@@ -335,7 +383,7 @@ const SalaryReport: React.FC = () => {
         data.sort((a, b) => {
           const lc = a.lotNo.localeCompare(b.lotNo);
           if (lc !== 0) return lc;
-          const dc = toTime(a.date) - toTime(b.date);
+          const dc = parseAnyDateToLocalDayTS(a.date) - parseAnyDateToLocalDayTS(b.date);
           if (dc !== 0) return dc;
           return a.artNo.localeCompare(b.artNo);
         });
@@ -366,8 +414,8 @@ const SalaryReport: React.FC = () => {
 
         const process = String(p.processName ?? p.process ?? "").trim();
 
-        const dateISO = toISODate(p.paymentDate ?? p.date ?? p.dated ?? p.createdAt ?? "");
-        const dateTS = dateISO ? toTime(dateISO) : NaN;
+        const dateTS = parseAnyDateToLocalDayTS(p.paymentDate ?? p.date ?? p.dated ?? p.createdAt ?? "");
+        const dateISO = Number.isFinite(dateTS) ? toLocalISODateFromTS(dateTS) : "";
 
         const amount = Number(
           parseFloat(String(p.amount ?? p.paidAmount ?? p.paymentAmount ?? p.amt ?? 0)) || 0
@@ -389,18 +437,24 @@ const SalaryReport: React.FC = () => {
       .filter((p) => p.employeeName && p.dateISO && Number.isFinite(p.dateTS) && p.amount !== 0);
   }, [payments]);
 
+  // ---------- Employees set used for ADV list + (important for wrong opening fix) ----------
+  const employeeKeysForCurrentReport = useMemo(() => {
+    const eSel = employeeName.trim().toLowerCase();
+    if (eSel) return [eSel]; // ✅ even if no rows, still keep selected employee
+    return Array.from(
+      new Set(sorted.map((r) => (r.employee || "").trim().toLowerCase()).filter(Boolean))
+    );
+  }, [sorted, employeeName]);
+
   const paymentRowsForSelection = useMemo(() => {
-    const fromT = toTime(fromDate);
-    const toT = toTime(toDate) + 24 * 60 * 60 * 1000 - 1;
+    const fromT = parseYMDLocalToTS(fromDate);
+    const toT = parseYMDLocalToTS(toDate) + 24 * 60 * 60 * 1000 - 1;
 
     const selectedEmpLower = employeeName.trim().toLowerCase();
     const selectedEmp = selectedEmpLower ? employeeByNameLower.get(selectedEmpLower) : undefined;
     const selectedEmpCode = selectedEmp?.code ? String(selectedEmp.code).trim() : "";
 
-    // employees present in current sorted rows
-    const employeeNamesInReport = new Set(
-      sorted.map((r) => (r.employee || "").trim().toLowerCase()).filter(Boolean)
-    );
+    const employeeNamesInReport = new Set(employeeKeysForCurrentReport);
 
     const shouldFilterByProcess = !employeeName && !!processName;
     const selectedProcLower = processName.trim().toLowerCase();
@@ -415,21 +469,22 @@ const SalaryReport: React.FC = () => {
         return false;
       }
 
-      // if no employee selected: show payments of employees included in current report (better UX)
-      return employeeNamesInReport.size ? employeeNamesInReport.has(payNameLower) : true;
+      // ✅ FIX: agar report me koi employee hi nahi (empty rows) to "ALL payments" mat dikhao
+      if (employeeNamesInReport.size === 0) return false;
+
+      return employeeNamesInReport.has(payNameLower);
     };
 
     const filteredPayments = normalizedPayments.filter((p) => {
       if (!matchEmployee(p)) return false;
 
       // process filter only when employee not selected.
-      // if payment process missing, we DO NOT block it (so payment still shows).
       if (shouldFilterByProcess) {
         const pProc = (p.process || "").trim().toLowerCase();
-        if (pProc && pProc !== selectedProcLower) return false;
+        if (!pProc) return false; // ✅ strict, warna wrong opening/ADV ho jata
+        if (pProc !== selectedProcLower) return false;
       }
 
-      // keep both ranges
       return true;
     });
 
@@ -437,38 +492,41 @@ const SalaryReport: React.FC = () => {
       .filter((p) => p.dateTS >= fromT && p.dateTS <= toT)
       .sort((a, b) => a.dateTS - b.dateTS);
 
-    const beforePayments = filteredPayments
-      .filter((p) => p.dateTS < fromT)
-      .sort((a, b) => a.dateTS - b.dateTS);
+    const beforePayments = filteredPayments.filter((p) => p.dateTS < fromT).sort((a, b) => a.dateTS - b.dateTS);
 
     return { inRangePayments, beforePayments };
-  }, [normalizedPayments, fromDate, toDate, processName, employeeName, sorted, employeeByNameLower]);
+  }, [
+    normalizedPayments,
+    fromDate,
+    toDate,
+    processName,
+    employeeName,
+    employeeByNameLower,
+    employeeKeysForCurrentReport,
+  ]);
 
   // ---------- Payment summary (Gross, ADV, Opening, Net) ----------
   const paymentSummary = useMemo(() => {
     const grossCurrent = totals.amount;
+    const fromT = parseYMDLocalToTS(fromDate);
 
-    const fromT = toTime(fromDate);
-
-    // ✅ ADV totals now come from normalized payment rows (so they surely show)
+    // ADV totals
     const advBefore = paymentRowsForSelection.beforePayments.reduce((s, p) => s + (p.amount || 0), 0);
     const advCurrent = paymentRowsForSelection.inRangePayments.reduce((s, p) => s + (p.amount || 0), 0);
 
-    // GrossBefore (allRows, employee, date < from)
-    const employeeKeysInRows = Array.from(
-      new Set(
-        sorted.map((r) => (r.employee || "").trim().toLowerCase()).filter((n) => n.length > 0)
-      )
-    );
+    // ✅ FIX (Opening galt issue):
+    // Pehle code me "sorted empty" hone par employees list empty ho jati thi,
+    // phir grossBefore = 0 le leta tha, lekin ADV before minus kar deta tha => opening galt.
+    // Ab:
+    // - Employee selected hai to employeeKeysForCurrentReport me woh employee hamesha rahega (even if no rows).
+    // - Employee not selected & report empty => opening/adv = 0 (no ALL-payments mistake).
+    const relevantEmployeeKeys = employeeKeysForCurrentReport;
 
-    if (employeeKeysInRows.length === 0) {
-      const opening = Number((0 - advBefore).toFixed(2));
+    if (relevantEmployeeKeys.length === 0) {
+      const opening = 0;
       const net = Number((grossCurrent - advCurrent + opening).toFixed(2));
       return { advances: advCurrent, grossPayment: grossCurrent, opening, net };
     }
-
-    let relevantEmployeeKeys = employeeKeysInRows;
-    if (employeeName) relevantEmployeeKeys = [employeeName.trim().toLowerCase()];
 
     const empMatch = (nameLower: string) => relevantEmployeeKeys.includes(nameLower);
 
@@ -484,7 +542,7 @@ const SalaryReport: React.FC = () => {
         if (r.process.trim().toLowerCase() !== selectedProcLower) return sum;
       }
 
-      const tt = toTime(r.date);
+      const tt = parseAnyDateToLocalDayTS(r.date);
       if (!Number.isFinite(tt) || tt >= fromT) return sum;
 
       return sum + (r.amount || 0);
@@ -494,7 +552,15 @@ const SalaryReport: React.FC = () => {
     const net = Number((grossCurrent - advCurrent + opening).toFixed(2));
 
     return { advances: advCurrent, grossPayment: grossCurrent, opening, net };
-  }, [totals.amount, paymentRowsForSelection, sorted, allRows, fromDate, processName, employeeName]);
+  }, [
+    totals.amount,
+    paymentRowsForSelection,
+    employeeKeysForCurrentReport,
+    allRows,
+    fromDate,
+    processName,
+    employeeName,
+  ]);
 
   // ---------- UI handlers ----------
   function resetAll() {
@@ -944,9 +1010,7 @@ const SalaryReport: React.FC = () => {
                                   <td colSpan={4} className="border px-2 py-1 text-right">
                                     Total ADV
                                   </td>
-                                  <td className="border px-2 py-1 text-right">
-                                    {fmtNumber(paymentSummary.advances)}
-                                  </td>
+                                  <td className="border px-2 py-1 text-right">{fmtNumber(paymentSummary.advances)}</td>
                                   <td className="border px-2 py-1" />
                                 </tr>
                               </tfoot>

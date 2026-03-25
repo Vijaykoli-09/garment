@@ -6,6 +6,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.math.BigDecimal;
 import java.util.List;
 
 @Service
@@ -18,6 +19,11 @@ public class AgentService {
     }
 
     public Agent save(Agent agent) {
+        // defaults (optional safety)
+        if (agent.getOpeningBalance() == null) agent.setOpeningBalance(BigDecimal.ZERO);
+        if (agent.getOpeningBalanceType() == null || agent.getOpeningBalanceType().isBlank())
+            agent.setOpeningBalanceType("DR");
+
         return repository.save(agent);
     }
 
@@ -31,6 +37,14 @@ public class AgentService {
                     agent.setCity(updatedAgent.getCity());
                     agent.setState(updatedAgent.getState());
                     agent.setZipCode(updatedAgent.getZipCode());
+
+                    agent.setOpeningBalance(updatedAgent.getOpeningBalance() == null ? BigDecimal.ZERO : updatedAgent.getOpeningBalance());
+                    agent.setOpeningBalanceType(
+                            (updatedAgent.getOpeningBalanceType() == null || updatedAgent.getOpeningBalanceType().isBlank())
+                                    ? "DR"
+                                    : updatedAgent.getOpeningBalanceType()
+                    );
+
                     return repository.save(agent);
                 })
                 .orElseThrow(() ->
