@@ -1306,7 +1306,7 @@ const PaymentReceiptForm: React.FC = () => {
     <Dashboard>
       <div className="min-h-screen bg-gray-100 p-6">
         <div className="bg-white shadow-md rounded-lg w-full max-w-4xl mx-auto p-6 border">
-          <h2 className="text-2xl font-bold text-center mb-6">Payment Receipt</h2>
+          <h2 className="text-2xl font-bold text-center mb-6">Receipt</h2>
 
           <div className="grid grid-cols-2 gap-4">
             <div>
