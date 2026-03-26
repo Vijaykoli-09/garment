@@ -5,6 +5,22 @@ import Swal from "sweetalert2";
 
 type BalanceType = "CR" | "DR";
 
+/** API/List type (openingBalance comes as number from backend) */
+interface Agent {
+  serialNo: string;
+  agentName: string;
+  contactNo: string;
+  email: string;
+  address: string;
+  city: string;
+  state: string;
+  zipCode: string;
+
+  openingBalance: number | null;
+  openingBalanceType: BalanceType;
+}
+
+/** Form type (keep openingBalance as string so it can be EMPTY, not 0) */
 interface AgentFormData {
   serialNo: string;
   agentName: string;
@@ -15,7 +31,7 @@ interface AgentFormData {
   state: string;
   zipCode: string;
 
-  openingBalance: number;
+  openingBalance: string; // <-- empty allowed
   openingBalanceType: BalanceType;
 }
 
@@ -29,15 +45,15 @@ const AgentCreation = () => {
     city: "",
     state: "",
     zipCode: "",
-    openingBalance: 0,
+    openingBalance: "", // <-- NOT 0 (blank by default)
     openingBalanceType: "DR",
   });
 
-  const [agents, setAgents] = useState<AgentFormData[]>([]);
+  const [agents, setAgents] = useState<Agent[]>([]);
   const [showListModal, setShowListModal] = useState(false);
   const [isEditMode, setIsEditMode] = useState(false);
 
-  // NEW: search
+  // search
   const [searchTerm, setSearchTerm] = useState("");
 
   // Fetch all agents
@@ -53,7 +69,7 @@ const AgentCreation = () => {
 
   useEffect(() => {
     if (showListModal) loadAllAgents();
-    if (!showListModal) setSearchTerm(""); // reset search when modal closed
+    if (!showListModal) setSearchTerm("");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showListModal]);
 
@@ -71,8 +87,13 @@ const AgentCreation = () => {
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
 
+    // Opening balance: allow only numeric + decimal, AND allow empty (so no default 0)
     if (name === "openingBalance") {
-      setFormData((prev) => ({ ...prev, openingBalance: value === "" ? 0 : Number(value) }));
+      // allows: "", "1", "12", "12.", "12.3", "12.34"
+      const ok = /^(\d+(\.\d{0,2})?)?$/.test(value);
+      if (!ok) return;
+
+      setFormData((prev) => ({ ...prev, openingBalance: value }));
       return;
     }
 
@@ -89,7 +110,7 @@ const AgentCreation = () => {
       city: "",
       state: "",
       zipCode: "",
-      openingBalance: 0,
+      openingBalance: "", // <-- reset to blank
       openingBalanceType: "DR",
     });
     setIsEditMode(false);
@@ -102,19 +123,28 @@ const AgentCreation = () => {
     if (!formData.agentName?.trim()) {
       return Swal.fire("Validation Error", "Please fill the agentName field", "warning");
     }
-    if (Number.isNaN(formData.openingBalance) || formData.openingBalance < 0) {
+
+    const openingBalanceNumber =
+      formData.openingBalance.trim() === "" ? 0 : Number(formData.openingBalance);
+
+    if (Number.isNaN(openingBalanceNumber) || openingBalanceNumber < 0) {
       return Swal.fire("Validation Error", "Opening Balance must be 0 or greater", "warning");
     }
     if (formData.openingBalanceType !== "CR" && formData.openingBalanceType !== "DR") {
       return Swal.fire("Validation Error", "Please select CR or DR", "warning");
     }
 
+    const payload = {
+      ...formData,
+      openingBalance: openingBalanceNumber, // backend gets number
+    };
+
     try {
       if (isEditMode) {
-        await api.put(`/agent/update/${formData.serialNo}`, formData);
+        await api.put(`/agent/update/${formData.serialNo}`, payload);
         Swal.fire("Updated!", "Agent updated successfully", "success");
       } else {
-        await api.post("/agent/save", formData);
+        await api.post("/agent/save", payload);
         Swal.fire("Added!", "Agent saved successfully", "success");
       }
       resetForm();
@@ -125,10 +155,17 @@ const AgentCreation = () => {
     }
   };
 
-  const handleEdit = (agent: AgentFormData) => {
+  const handleEdit = (agent: Agent) => {
     setFormData({
-      ...agent,
-      openingBalance: agent.openingBalance ?? 0,
+      serialNo: agent.serialNo,
+      agentName: agent.agentName || "",
+      contactNo: agent.contactNo || "",
+      email: agent.email || "",
+      address: agent.address || "",
+      city: agent.city || "",
+      state: agent.state || "",
+      zipCode: agent.zipCode || "",
+      openingBalance: agent.openingBalance == null ? "" : String(agent.openingBalance), // <-- show blank if null
       openingBalanceType: (agent.openingBalanceType as BalanceType) ?? "DR",
     });
     setIsEditMode(true);
@@ -155,7 +192,7 @@ const AgentCreation = () => {
     }
   };
 
-  // NEW: filtered agents for search
+  // filtered agents for search
   const filteredAgents = useMemo(() => {
     const q = searchTerm.trim().toLowerCase();
     if (!q) return agents;
@@ -199,7 +236,12 @@ const AgentCreation = () => {
     marginBottom: 10,
   };
   const labelStyle: React.CSSProperties = { width: "160px", fontWeight: "bold" };
-  const inputStyle: React.CSSProperties = { flex: 1, padding: 6, borderRadius: 4, border: "1px solid #ccc" };
+  const inputStyle: React.CSSProperties = {
+    flex: 1,
+    padding: 6,
+    borderRadius: 4,
+    border: "1px solid #ccc",
+  };
   const buttonStyle: React.CSSProperties = {
     padding: "6px 12px",
     border: "none",
@@ -272,17 +314,17 @@ const AgentCreation = () => {
             <input style={inputStyle} name="zipCode" value={formData.zipCode} onChange={handleChange} />
           </div>
 
-          {/* Opening Balance + CR/DR */}
+          {/* Opening Balance (blank by default, numeric input without type="number") */}
           <div style={formRowStyle}>
             <label style={labelStyle}>Opening Balance</label>
             <input
               style={inputStyle}
-              type="number"
+              type="text" // <-- so it won't show 0 by default + no number spinner
+              inputMode="decimal" // <-- mobile numeric keypad
               name="openingBalance"
               value={formData.openingBalance}
               onChange={handleChange}
-              min={0}
-              step="0.01"
+              placeholder="Enter opening balance"
             />
           </div>
 
@@ -371,7 +413,7 @@ const AgentCreation = () => {
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
                 <h3 style={{ margin: 0 }}>Agent List</h3>
 
-                {/* NEW: Search Bar */}
+                {/* Search Bar */}
                 <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
                   <input
                     type="text"
@@ -426,7 +468,7 @@ const AgentCreation = () => {
                       <td style={{ border: "1px solid #ccc", padding: "8px" }}>{agent.state}</td>
                       <td style={{ border: "1px solid #ccc", padding: "8px" }}>{agent.zipCode}</td>
                       <td style={{ border: "1px solid #ccc", padding: "8px" }}>
-                        {Number(agent.openingBalance ?? 0).toFixed(2)}
+                        {agent.openingBalance == null ? "" : Number(agent.openingBalance).toFixed(2)}
                       </td>
                       <td style={{ border: "1px solid #ccc", padding: "8px" }}>{agent.openingBalanceType}</td>
                       <td style={{ border: "1px solid #ccc", padding: "8px" }}>
