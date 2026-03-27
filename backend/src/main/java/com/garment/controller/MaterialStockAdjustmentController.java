@@ -15,7 +15,7 @@ import java.util.Map;
 @RestController
 @RequestMapping("/api/material-stock-adjustments")
 @RequiredArgsConstructor
-@CrossOrigin(origins = "http://localhost:3000")
+@CrossOrigin(origins = "http://localhost:3000", allowCredentials = "true")
 public class MaterialStockAdjustmentController {
 
     private final MaterialStockAdjustmentRepository repo;
