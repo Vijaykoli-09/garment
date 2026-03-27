@@ -91,6 +91,7 @@ import RateList from "./pages/Reports/RateList";
 
 import OtherDispatchChallan from "./pages/Knitting/OtherDispatchChallan";
 import AccountStatement from "./pages/Reports/AccountStatement";
+import StockAdjustment from "./pages/Reports/adjustment/StockAdjustment";
 
 
 
@@ -193,6 +194,7 @@ function App() {
           <Route path="rate-list-report" element={<RateList />} />
           <Route path="account-report" element={<AccountStatement />} />
           <Route path="paymentmod-report" element={<PaymentModeReport />} />
+          <Route path="stock-adjustment" element={<StockAdjustment />} />
         </Route>
 
  

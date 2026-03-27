@@ -185,6 +185,9 @@ const SaleOrderPendencyArtSizeWise: React.FC = () => {
   // Per-row fulfill loading
   const [fulfillingKey, setFulfillingKey] = useState<string | null>(null);
 
+  // ✅ Fulfill-all loading
+  const [fulfillingAll, setFulfillingAll] = useState(false);
+
   const reportRef = useRef<HTMLDivElement | null>(null);
 
   // Load Masters + Sale Orders
@@ -1130,6 +1133,54 @@ const SaleOrderPendencyArtSizeWise: React.FC = () => {
     }
   };
 
+  // ✅ fulfill all (all groups in report)
+  const handleFulfillAll = async () => {
+    const allPayloadRows = groupedRows.flatMap((g) => buildPayloadForGroup(g));
+
+    if (!allPayloadRows.length) {
+      return Swal.fire("Info", "No pending quantity to fulfill.", "info");
+    }
+
+    const totalPending = groupedRows.reduce((sum, g) => sum + (g.pendingTotal || 0), 0);
+
+    const confirm = await Swal.fire({
+      title: "Fulfill ALL pending?",
+      html: `
+        <div style="text-align:left;font-size:13px">
+          <div><b>Total Groups:</b> ${groupedRows.length}</div>
+          <div><b>Total Lines (party/art/size):</b> ${allPayloadRows.length}</div>
+          <div style="margin-top:6px"><b>Total Pending Boxes:</b> ${fmt(totalPending)}</div>
+        </div>
+      `,
+      icon: "warning",
+      showCancelButton: true,
+      confirmButtonText: "Yes, Fulfill All",
+      cancelButtonText: "Cancel",
+    });
+
+    if (!confirm.isConfirmed) return;
+
+    try {
+      setFulfillingAll(true);
+      setLoading(true);
+
+      await api.post("/sale-orders/pendency/fulfill", {
+        fromDate,
+        toDate,
+        rows: allPayloadRows,
+      });
+
+      Swal.fire("Done", "All pending rows fulfilled successfully.", "success");
+      await showReport();
+    } catch (e: any) {
+      console.error("Fulfill all error:", e?.response?.data || e?.message);
+      Swal.fire("Error", "Could not fulfill all. Please try again.", "error");
+    } finally {
+      setFulfillingAll(false);
+      setLoading(false);
+    }
+  };
+
   return (
     <Dashboard>
       <div className="min-h-screen bg-slate-100/80 pb-10">
@@ -1239,7 +1290,10 @@ const SaleOrderPendencyArtSizeWise: React.FC = () => {
                           className="mr-1 align-middle"
                           checked={allDestSelected}
                           onChange={(e) => toggleAllDest(e.target.checked)}
-                          disabled={availableDestinations.length === 0 || (brokers.length > 0 && selBrokerIds.length === 0)}
+                          disabled={
+                            availableDestinations.length === 0 ||
+                            (brokers.length > 0 && selBrokerIds.length === 0)
+                          }
                         />
                         All
                       </label>
@@ -1260,7 +1314,10 @@ const SaleOrderPendencyArtSizeWise: React.FC = () => {
                     onChange={(e) => setDestSearch(e.target.value)}
                     placeholder="Search Destination"
                     className="border border-slate-300 rounded-lg px-2 py-1.5 w-full text-xs mb-2"
-                    disabled={availableDestinations.length === 0 || (brokers.length > 0 && selBrokerIds.length === 0)}
+                    disabled={
+                      availableDestinations.length === 0 ||
+                      (brokers.length > 0 && selBrokerIds.length === 0)
+                    }
                   />
 
                   <div className="border border-slate-200 rounded-lg h-48 overflow-auto bg-white p-2">
@@ -1555,6 +1612,22 @@ const SaleOrderPendencyArtSizeWise: React.FC = () => {
                   >
                     Back
                   </button>
+
+                  {/* ✅ Fulfill All */}
+                  <button
+                    type="button"
+                    onClick={handleFulfillAll}
+                    disabled={loading || fulfillingAll || groupedRows.length === 0}
+                    className={`px-4 py-1.5 rounded-lg text-xs font-semibold no-print ${
+                      loading || fulfillingAll || groupedRows.length === 0
+                        ? "bg-red-300 text-white cursor-not-allowed"
+                        : "bg-red-600 text-white hover:bg-red-700"
+                    }`}
+                    title="Fulfill all pending rows in this report"
+                  >
+                    {fulfillingAll ? "Fulfilling All..." : "Fulfill All"}
+                  </button>
+
                   <button
                     onClick={handlePrint}
                     className="bg-emerald-600 text-white px-4 py-1.5 rounded-lg text-xs font-semibold hover:bg-emerald-700"
@@ -1630,12 +1703,17 @@ const SaleOrderPendencyArtSizeWise: React.FC = () => {
                           <td className="border border-slate-200 p-1.5 no-print">
                             <button
                               type="button"
-                              disabled={g.pendingTotal === 0 || fulfillingKey === g.key || loading}
+                              disabled={
+                                g.pendingTotal === 0 ||
+                                fulfillingKey === g.key ||
+                                loading ||
+                                fulfillingAll
+                              }
                               onClick={() => handleFulfillGroup(g)}
                               className={`px-3 py-1 rounded-md text-xs font-semibold ${
                                 g.pendingTotal === 0
                                   ? "bg-slate-300 text-white cursor-not-allowed"
-                                  : fulfillingKey === g.key || loading
+                                  : fulfillingKey === g.key || loading || fulfillingAll
                                   ? "bg-red-400 text-white cursor-wait"
                                   : "bg-red-600 text-white hover:bg-red-700"
                               }`}
@@ -1649,7 +1727,6 @@ const SaleOrderPendencyArtSizeWise: React.FC = () => {
 
                     <tfoot>
                       <tr className="bg-slate-100 font-semibold text-slate-800">
-                        {/* ✅ colSpan back to 5 (since challan/order column removed) */}
                         <td className="border border-slate-200 p-1.5 text-right" colSpan={5}>
                           Total
                         </td>
