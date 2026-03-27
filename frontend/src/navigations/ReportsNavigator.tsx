@@ -1,6 +1,5 @@
 // src/navigations/ReportsNavigator.tsx
 import { ChevronDownIcon, ChevronUpIcon } from "@heroicons/react/24/solid";
-import path from "path";
 import React, { useState } from "react";
 
 interface ReportsNavigatorProps {
@@ -71,11 +70,6 @@ const ReportsNavigator: React.FC<ReportsNavigatorProps> = ({ onNavigate }) => {
       key: "paymentMod-report",
       label: "PaymentMod Report",
       path: "/reports/paymentmod-report",
-    },
-    {
-      key: "Item-wise-report",
-      label: "Itemwise Report",
-      path: "/reports/itemwise-report"
     }
   ];
 
