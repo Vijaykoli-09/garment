@@ -88,6 +88,8 @@ public class SecurityConfig {
                         .requestMatchers("/api/dispatch-challan/**").permitAll()
                         .requestMatchers("/api/other-dispatch-challan/**").permitAll()
                         .requestMatchers("/api/order-settles/**").permitAll()
+                        .requestMatchers("/api/art-stock-adjustments/**").permitAll()
+                        .requestMatchers("/api/material-stock-adjustments/**").permitAll()
                         .anyRequest().authenticated()
                 )
                 .userDetailsService(customUserDetailsService)
