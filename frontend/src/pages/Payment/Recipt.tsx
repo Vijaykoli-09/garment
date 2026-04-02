@@ -1,10 +1,62 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import Swal from "sweetalert2";
 import Dashboard from "../Dashboard";
 import api from "../../api/axiosInstance";
 
 type ReceiptToType = "Party" | "Employee" | "Broker" | "Other" | "";
+
+// ---------- Utils (module scope => no hook deps warnings) ----------
+const norm = (s: any) => (s ?? "").toString().trim().toLowerCase();
+
+const toNum = (v: any) => {
+  const n = parseFloat(v);
+  return Number.isFinite(n) ? n : 0;
+};
+
+const toTime = (val: any) => {
+  const d = new Date(val);
+  return isNaN(d.getTime()) ? -Infinity : d.getTime();
+};
+
+const endOfDayTime = (iso: string) => {
+  const t = toTime(iso);
+  if (t === -Infinity) return -Infinity;
+  return t + 24 * 60 * 60 * 1000 - 1;
+};
+
+// Ledger DR/CR rules (as per your requirement)
+type TxType =
+  | "Dispatch"
+  | "OtherDispatch" // Dispatch Return => CR
+  | "PurchaseOrder"
+  | "PurchaseEntry"
+  | "PurchaseReturn"
+  | "JobOutward"
+  | "JobInward"
+  | "Payment"
+  | "Receipt";
+
+const ledgerDrCr = (source: TxType, amount: number) => {
+  const amt = toNum(amount);
+
+  if (source === "Payment") return { debit: amt, credit: 0 };
+  if (source === "Receipt") return { debit: 0, credit: amt };
+
+  if (source === "PurchaseOrder") return { debit: 0, credit: amt };
+  if (source === "PurchaseEntry") return { debit: 0, credit: amt };
+
+  if (source === "OtherDispatch") return { debit: 0, credit: amt }; // Dispatch Return => CR
+
+  if (source === "PurchaseReturn") return { debit: amt, credit: 0 };
+
+  if (source === "JobInward") return { debit: 0, credit: amt };
+
+  if (source === "JobOutward") return { debit: 0, credit: 0 };
+
+  // Default: Dispatch => DR
+  return { debit: amt, credit: 0 };
+};
 
 // from backend
 interface PaymentMode {
@@ -52,8 +104,73 @@ interface ReceiptRecord {
   amount: number | null;
   balance: number | null; // (+) Dr, (-) Cr
   remarks: string;
-  agentName?: string; // NOW coming from DB
+  agentName?: string; // from DB
   date?: string;
+}
+
+// ------- Account source shapes -------
+interface DispatchChallan {
+  id: number;
+  challanNo: string;
+  date?: string;
+  dated?: string;
+  partyName: string;
+  brokerName?: string;
+  agentName?: string;
+  netAmt?: number | string;
+}
+
+interface OtherDispatchChallan {
+  id: number;
+  challanNo: string;
+  date?: string;
+  partyName: string;
+  brokerName?: string;
+  agentName?: string;
+  netAmt?: number | string;
+}
+
+interface PurchaseOrderDoc {
+  id: number;
+  orderNo: string;
+  date?: string;
+  partyName: string;
+  amount: number;
+}
+
+interface PurchaseEntryDoc {
+  id: number;
+  challanNo: string;
+  date?: string;
+  partyName: string;
+  amount: number;
+}
+
+interface PurchaseReturnDoc {
+  id: number;
+  challanNo: string;
+  date?: string;
+  partyName: string;
+  amount: number;
+}
+
+interface JobInwardChallanDoc {
+  id: string | number;
+  challanNo: string;
+  date: string;
+  partyName: string;
+  amount: number;
+}
+
+interface PaymentDoc {
+  id: number;
+  paymentTo?: string;
+  partyName?: string;
+  brokerName?: string;
+  agentName?: string;
+  paymentDate?: string;
+  date?: string;
+  amount?: number | string;
 }
 
 const routesReceipt = {
@@ -69,7 +186,16 @@ const routesReceipt = {
   productionReceiptList: "/production-receipt",
   partyPaymentList: "/payment/list",
   parties: "/party/all",
+
+  // ledger sources:
   dispatchChallans: "/dispatch-challan",
+  otherDispatchChallans: "/other-dispatch-challan",
+  purchaseOrders: "/purchase-orders",
+  purchaseEntries: "/purchase-entry",
+  purchaseReturns: "/purchase-returns",
+  payments: "/payment",
+  paymentsFallback: "/payment/list",
+  jobInward: "/job-inward-challan",
 };
 
 type FormData = {
@@ -77,17 +203,12 @@ type FormData = {
   receiptTo: ReceiptToType;
   receiptDate: string;
   processName: string;
-  name: string; // Party / Employee / Broker / Other Name (UI)
+  name: string;
   paymentThrough: string;
   amount: number | "";
   balance: number | "";
   remarks: string;
-
-  // For PARTY: agentName auto (broker)
-  // For EMPLOYEE/OTHER: selectable agent
-  // For BROKER: will be hidden/unused (broker is in name)
   agentName: string;
-
   date: string;
 };
 
@@ -148,54 +269,51 @@ const PaymentReceiptForm: React.FC = () => {
   const [, setProductionReceipts] = useState<any[]>([]);
   const [productionRows, setProductionRows] = useState<any[]>([]);
 
-  // Cache of dispatch challans
-  const [dispatchChallans, setDispatchChallans] = useState<any[]>([]);
-
-  // Base balance (Party/Broker)
+  // Base balance (Party/Broker) from ACCOUNT LEDGER
   const [baseBalance, setBaseBalance] = useState<number | null>(null);
   const [baseBalanceFor, setBaseBalanceFor] = useState<"Party" | "Broker" | null>(
     null,
   );
 
-  useEffect(() => {
-    loadProcesses();
-    loadEmployees();
-    loadAgents();
-    loadSavedRecords();
-    loadPaymentModes();
-    loadParties();
-    loadDispatchChallans();
-  }, []);
+  // Account sources (ledger)
+  const [accDispatch, setAccDispatch] = useState<DispatchChallan[]>([]);
+  const [accOtherDispatch, setAccOtherDispatch] = useState<OtherDispatchChallan[]>([]);
+  const [accPurchaseOrders, setAccPurchaseOrders] = useState<PurchaseOrderDoc[]>([]);
+  const [accPurchaseEntries, setAccPurchaseEntries] = useState<PurchaseEntryDoc[]>([]);
+  const [accPurchaseReturns, setAccPurchaseReturns] = useState<PurchaseReturnDoc[]>([]);
+  const [accJobInwards, setAccJobInwards] = useState<JobInwardChallanDoc[]>([]);
+  const [accPayments, setAccPayments] = useState<PaymentDoc[]>([]);
 
-  const loadProcesses = () => {
+  // ---------- Loaders (useCallback => no deps warnings) ----------
+  const loadProcesses = useCallback(() => {
     api
       .get(routesReceipt.processes)
       .then((r) => setProcessList(Array.isArray(r.data) ? r.data : []))
       .catch(() => Swal.fire("Error", "Failed to load processes", "error"));
-  };
+  }, []);
 
-  const loadEmployees = () => {
+  const loadEmployees = useCallback(() => {
     api
       .get(routesReceipt.employees)
       .then((r) => setEmployeeList(Array.isArray(r.data) ? r.data : []))
       .catch(() => Swal.fire("Error", "Failed to load employees", "error"));
-  };
+  }, []);
 
-  const loadParties = () => {
+  const loadParties = useCallback(() => {
     api
       .get(routesReceipt.parties)
       .then((r) => setPartyList(Array.isArray(r.data) ? r.data : []))
       .catch(() => Swal.fire("Error", "Failed to load parties", "error"));
-  };
+  }, []);
 
-  const loadAgents = () => {
+  const loadAgents = useCallback(() => {
     api
       .get(routesReceipt.agents)
       .then((r) => setAgentList(Array.isArray(r.data) ? r.data : []))
       .catch(() => Swal.fire("Error", "Failed to load agents", "error"));
-  };
+  }, []);
 
-  const loadSavedRecords = async () => {
+  const loadSavedRecords = useCallback(async () => {
     try {
       const res = await api.get(routesReceipt.list);
       const data = Array.isArray(res.data) ? res.data : [];
@@ -203,9 +321,9 @@ const PaymentReceiptForm: React.FC = () => {
     } catch (err) {
       console.error("Error loading saved records:", err);
     }
-  };
+  }, []);
 
-  const loadPaymentModes = async () => {
+  const loadPaymentModes = useCallback(async () => {
     try {
       const res = await api.get(routesReceipt.paymentModes);
       setPaymentModes(Array.isArray(res.data) ? res.data : []);
@@ -213,22 +331,197 @@ const PaymentReceiptForm: React.FC = () => {
       console.error("Error loading payment modes:", err);
       Swal.fire("Error", "Failed to load payment modes", "error");
     }
-  };
+  }, []);
 
-  const loadDispatchChallans = async () => {
+  const loadAccountSources = useCallback(async () => {
+    const safeGetArray = async (url: string) => {
+      try {
+        const res = await api.get(url);
+        return Array.isArray(res.data) ? res.data : [];
+      } catch {
+        return [];
+      }
+    };
+
     try {
-      const res = await api.get(routesReceipt.dispatchChallans);
-      const list = Array.isArray(res.data) ? res.data : [];
-      setDispatchChallans(list);
+      const [
+        dcRaw,
+        odRaw,
+        poRaw,
+        peRaw,
+        prRaw,
+        jobInRaw,
+        payRaw1,
+      ] = await Promise.all([
+        safeGetArray(routesReceipt.dispatchChallans),
+        safeGetArray(routesReceipt.otherDispatchChallans),
+        safeGetArray(routesReceipt.purchaseOrders),
+        safeGetArray(routesReceipt.purchaseEntries),
+        safeGetArray(routesReceipt.purchaseReturns),
+        safeGetArray(routesReceipt.jobInward),
+        safeGetArray(routesReceipt.payments),
+      ]);
+
+      const payRaw =
+        Array.isArray(payRaw1) && payRaw1.length > 0
+          ? payRaw1
+          : await safeGetArray(routesReceipt.paymentsFallback);
+
+      setAccDispatch(
+        (Array.isArray(dcRaw) ? dcRaw : []).map((dc: any) => ({
+          id: dc.id,
+          challanNo: String(dc.challanNo ?? ""),
+          date: dc.date || dc.dated || "",
+          dated: dc.dated,
+          partyName: String(dc.partyName ?? "").trim(),
+          brokerName: String(dc.brokerName ?? "").trim(),
+          agentName: String(dc.agentName ?? "").trim(),
+          netAmt: dc.netAmt,
+        })),
+      );
+
+      setAccOtherDispatch(
+        (Array.isArray(odRaw) ? odRaw : []).map((od: any) => ({
+          id: od.id,
+          challanNo: String(od.challanNo ?? ""),
+          date: od.date || "",
+          partyName: String(od.partyName ?? "").trim(),
+          brokerName: String(od.brokerName ?? "").trim(),
+          agentName: String(od.agentName ?? "").trim(),
+          netAmt: od.netAmt,
+        })),
+      );
+
+      setAccPurchaseOrders(
+        (Array.isArray(poRaw) ? poRaw : []).map((po: any) => {
+          const items: any[] = Array.isArray(po.items) ? po.items : [];
+          const amount = items.reduce((s, it) => s + (parseFloat(it.amount ?? 0) || 0), 0);
+          return {
+            id: po.id,
+            orderNo: String(po.orderNo ?? ""),
+            date: po.date || "",
+            partyName: String(po.partyName ?? po.party?.partyName ?? "").trim(),
+            amount,
+          };
+        }),
+      );
+
+      setAccPurchaseEntries(
+        (Array.isArray(peRaw) ? peRaw : []).map((e: any) => {
+          const items: any[] = Array.isArray(e.items) ? e.items : [];
+          const amount = items.reduce((s, it) => s + (parseFloat(it.amount ?? 0) || 0), 0);
+          return {
+            id: e.id,
+            challanNo: String(e.challanNo ?? ""),
+            date: e.date || "",
+            partyName: String(e.partyName ?? e.party?.partyName ?? "").trim(),
+            amount,
+          };
+        }),
+      );
+
+      setAccPurchaseReturns(
+        (Array.isArray(prRaw) ? prRaw : []).map((r: any) => {
+          const items: any[] = Array.isArray(r.items) ? r.items : [];
+          const amount = items.reduce((s, it) => s + (parseFloat(it.amount ?? 0) || 0), 0);
+          return {
+            id: r.id,
+            challanNo: String(r.challanNo ?? ""),
+            date: r.date || "",
+            partyName: String(r.partyName ?? r.party?.partyName ?? "").trim(),
+            amount,
+          };
+        }),
+      );
+
+      setAccJobInwards(
+        (Array.isArray(jobInRaw) ? jobInRaw : [])
+          .map((d: any) => {
+            const rows: any[] = Array.isArray(d.rows) ? d.rows : [];
+            const amount = rows.reduce((s, r) => s + (Number(r.amount) || 0), 0);
+            return {
+              id: d.id ?? "",
+              challanNo: String(d.challanNo ?? ""),
+              date: String(d.date ?? ""),
+              partyName: String(d.partyName ?? "").trim(),
+              amount,
+            } as JobInwardChallanDoc;
+          })
+          .filter((x) => x.partyName && x.date && x.challanNo),
+      );
+
+      setAccPayments(
+        (Array.isArray(payRaw) ? payRaw : [])
+          .map((p: any) => {
+            const paymentTo = String(p.paymentTo ?? p.payment_to ?? "").trim();
+            const partyName = String(p.partyName ?? "").trim();
+            const brokerName = String(p.brokerName ?? "").trim();
+            const agentName = String(p.agentName ?? "").trim();
+
+            return {
+              id: p.id,
+              paymentTo,
+              partyName,
+              brokerName,
+              agentName,
+              paymentDate: p.paymentDate || p.date || "",
+              date: p.date || "",
+              amount: p.amount,
+            } as PaymentDoc;
+          }),
+      );
     } catch (err) {
-      console.error("Error loading dispatch challans:", err);
-      // balance will remain empty if not available
+      console.error("Error loading account sources:", err);
     }
-  };
+  }, []);
 
-  const norm = (s: any) => (s ?? "").toString().trim().toLowerCase();
+  // Initial load
+  useEffect(() => {
+    loadProcesses();
+    loadEmployees();
+    loadAgents();
+    loadSavedRecords();
+    loadPaymentModes();
+    loadParties();
+    loadAccountSources();
+  }, [
+    loadProcesses,
+    loadEmployees,
+    loadAgents,
+    loadSavedRecords,
+    loadPaymentModes,
+    loadParties,
+    loadAccountSources,
+  ]);
 
-  // -------- Dr/Cr helpers ----------
+  // Party->Broker mapping
+  const partyByName = useMemo(() => {
+    const m = new Map<string, Party>();
+    partyList.forEach((p) => {
+      const key = norm(p.partyName);
+      if (key) m.set(key, p);
+    });
+    return m;
+  }, [partyList]);
+
+  const getBrokerFromPartyName = useCallback(
+    (partyName: string) => {
+      const p = partyByName.get(norm(partyName));
+      return String(p?.agent?.agentName ?? "").trim();
+    },
+    [partyByName],
+  );
+
+  const getBrokerNameForDispatch = useCallback(
+    (doc: { brokerName?: string; agentName?: string; partyName: string }) => {
+      const direct = String(doc.brokerName ?? "").trim() || String(doc.agentName ?? "").trim();
+      if (direct) return direct;
+      return getBrokerFromPartyName(doc.partyName);
+    },
+    [getBrokerFromPartyName],
+  );
+
+  // -------- Dr/Cr helpers (UI labels) ----------
   const getDrCr = (val: number | "" | null | undefined) => {
     if (val === "" || val === null || val === undefined) return "";
     const n = Number(val);
@@ -245,72 +538,251 @@ const PaymentReceiptForm: React.FC = () => {
 
   const balanceDrCr = useMemo(() => getDrCr(formData.balance), [formData.balance]);
   const baseBalDrCr = useMemo(() => getDrCr(baseBalance ?? null), [baseBalance]);
-  // --------------------------------
 
-  // PARTY base balance (from dispatch challans)
-  const computePartyBaseBalance = (partyName: string) => {
-    if (!partyName || dispatchChallans.length === 0) {
-      setBaseBalance(null);
-      setBaseBalanceFor(null);
-      setFormData((prev) => ({ ...prev, balance: "" }));
-      return;
-    }
-
-    const matches = dispatchChallans.filter(
-      (ch: any) => norm(ch.partyName) === norm(partyName),
-    );
-
-    const totalNet = matches.reduce(
-      (sum: number, ch: any) => sum + Number(ch.netAmt ?? 0),
-      0,
-    );
-
-    setBaseBalance(totalNet);
-    setBaseBalanceFor("Party");
-    setFormData((prev) => ({ ...prev, balance: totalNet }));
-  };
-
-  // BROKER base balance (from dispatch challans of all parties under this broker)
-  const computeBrokerBaseBalance = (brokerName: string) => {
-    if (!brokerName || dispatchChallans.length === 0 || partyList.length === 0) {
-      setBaseBalance(null);
-      setBaseBalanceFor(null);
-      setFormData((prev) => ({ ...prev, balance: "" }));
-      return;
-    }
-
-    // find all parties of this broker
-    const brokerPartyNames = partyList
-      .filter((p) => norm(p.agent?.agentName) === norm(brokerName))
-      .map((p) => p.partyName)
-      .filter(Boolean);
-
-    if (brokerPartyNames.length === 0) {
-      setBaseBalance(0);
-      setBaseBalanceFor("Broker");
-      setFormData((prev) => ({ ...prev, balance: 0 }));
-      return;
-    }
-
-    const matches = dispatchChallans.filter((ch: any) =>
-      brokerPartyNames.some((pn) => norm(ch.partyName) === norm(pn)),
-    );
-
-    const totalNet = matches.reduce(
-      (sum: number, ch: any) => sum + Number(ch.netAmt ?? 0),
-      0,
-    );
-
-    setBaseBalance(totalNet);
-    setBaseBalanceFor("Broker");
-    setFormData((prev) => ({ ...prev, balance: totalNet }));
-  };
-
-  const clearBaseBalance = () => {
+  const clearBaseBalance = useCallback(() => {
     setBaseBalance(null);
     setBaseBalanceFor(null);
-  };
+  }, []);
 
+  // ✅ Party base balance from LEDGER (as on receiptDate)
+  const computePartyBaseBalanceFromAccount = useCallback(
+    (partyName: string, asOfDateIso: string) => {
+      if (!partyName) {
+        clearBaseBalance();
+        setFormData((prev) => ({ ...prev, balance: "" }));
+        return;
+      }
+
+      const asOfT = endOfDayTime(asOfDateIso || today);
+      if (asOfT === -Infinity) {
+        clearBaseBalance();
+        setFormData((prev) => ({ ...prev, balance: "" }));
+        return;
+      }
+
+      let bal = 0;
+      const add = (source: TxType, amount: number) => {
+        const { debit, credit } = ledgerDrCr(source, amount);
+        bal += debit - credit;
+      };
+
+      accDispatch.forEach((dc) => {
+        if (norm(dc.partyName) !== norm(partyName)) return;
+        const d = dc.date || dc.dated || "";
+        if (toTime(d) <= asOfT) add("Dispatch", toNum(dc.netAmt));
+      });
+
+      accOtherDispatch.forEach((od) => {
+        if (norm(od.partyName) !== norm(partyName)) return;
+        const d = od.date || "";
+        if (toTime(d) <= asOfT) add("OtherDispatch", toNum(od.netAmt));
+      });
+
+      accPurchaseOrders.forEach((po) => {
+        if (norm(po.partyName) !== norm(partyName)) return;
+        if (toTime(po.date) <= asOfT) add("PurchaseOrder", toNum(po.amount));
+      });
+
+      accPurchaseEntries.forEach((pe) => {
+        if (norm(pe.partyName) !== norm(partyName)) return;
+        if (toTime(pe.date) <= asOfT) add("PurchaseEntry", toNum(pe.amount));
+      });
+
+      accPurchaseReturns.forEach((pr) => {
+        if (norm(pr.partyName) !== norm(partyName)) return;
+        if (toTime(pr.date) <= asOfT) add("PurchaseReturn", toNum(pr.amount));
+      });
+
+      accJobInwards.forEach((ji) => {
+        if (norm(ji.partyName) !== norm(partyName)) return;
+        if (toTime(ji.date) <= asOfT) add("JobInward", toNum(ji.amount));
+      });
+
+      // Party payments => DR
+      accPayments.forEach((p) => {
+        const paymentTo = String(p.paymentTo ?? "").trim();
+        const isPartyPayment = paymentTo ? paymentTo === "Party" : true;
+        if (!isPartyPayment) return;
+
+        if (norm(p.partyName ?? "") !== norm(partyName)) return;
+        const d = p.paymentDate || p.date || "";
+        if (toTime(d) <= asOfT) add("Payment", toNum(p.amount));
+      });
+
+      // Party receipts => CR (from receipt module list)
+      savedRecords.forEach((r) => {
+        if (r.receiptTo !== "Party") return;
+        if (norm(r.partyName ?? "") !== norm(partyName)) return;
+        const d = r.receiptDate || r.date || "";
+        if (toTime(d) <= asOfT) add("Receipt", toNum(r.amount ?? 0));
+      });
+
+      setBaseBalance(bal);
+      setBaseBalanceFor("Party");
+
+      setFormData((prev) => {
+        if (prev.receiptTo !== "Party" || norm(prev.name) !== norm(partyName)) return prev;
+        const amt = prev.amount === "" ? 0 : Number(prev.amount || 0);
+        const nextBal = prev.amount === "" ? bal : bal - amt;
+        return { ...prev, balance: nextBal };
+      });
+    },
+    [
+      accDispatch,
+      accOtherDispatch,
+      accPurchaseOrders,
+      accPurchaseEntries,
+      accPurchaseReturns,
+      accJobInwards,
+      accPayments,
+      savedRecords,
+      clearBaseBalance,
+      today,
+    ],
+  );
+
+  // ✅ Broker base balance from LEDGER (as on receiptDate)
+  const computeBrokerBaseBalanceFromAccount = useCallback(
+    (brokerName: string, asOfDateIso: string) => {
+      if (!brokerName) {
+        clearBaseBalance();
+        setFormData((prev) => ({ ...prev, balance: "" }));
+        return;
+      }
+
+      const asOfT = endOfDayTime(asOfDateIso || today);
+      if (asOfT === -Infinity) {
+        clearBaseBalance();
+        setFormData((prev) => ({ ...prev, balance: "" }));
+        return;
+      }
+
+      const brokerKey = norm(brokerName);
+      let bal = 0;
+
+      const add = (source: TxType, amount: number) => {
+        const { debit, credit } = ledgerDrCr(source, amount);
+        bal += debit - credit;
+      };
+
+      const partyBelongsToBroker = (partyName: string) =>
+        brokerKey && norm(getBrokerFromPartyName(partyName)) === brokerKey;
+
+      accDispatch.forEach((dc) => {
+        const b = getBrokerNameForDispatch(dc);
+        if (norm(b) !== brokerKey) return;
+        const d = dc.date || dc.dated || "";
+        if (toTime(d) <= asOfT) add("Dispatch", toNum(dc.netAmt));
+      });
+
+      accOtherDispatch.forEach((od) => {
+        const b = getBrokerNameForDispatch(od);
+        if (norm(b) !== brokerKey) return;
+        const d = od.date || "";
+        if (toTime(d) <= asOfT) add("OtherDispatch", toNum(od.netAmt));
+      });
+
+      accPurchaseOrders.forEach((po) => {
+        if (!partyBelongsToBroker(po.partyName)) return;
+        if (toTime(po.date) <= asOfT) add("PurchaseOrder", toNum(po.amount));
+      });
+
+      accPurchaseEntries.forEach((pe) => {
+        if (!partyBelongsToBroker(pe.partyName)) return;
+        if (toTime(pe.date) <= asOfT) add("PurchaseEntry", toNum(pe.amount));
+      });
+
+      accPurchaseReturns.forEach((pr) => {
+        if (!partyBelongsToBroker(pr.partyName)) return;
+        if (toTime(pr.date) <= asOfT) add("PurchaseReturn", toNum(pr.amount));
+      });
+
+      accJobInwards.forEach((ji) => {
+        if (!partyBelongsToBroker(ji.partyName)) return;
+        if (toTime(ji.date) <= asOfT) add("JobInward", toNum(ji.amount));
+      });
+
+      // Payments: Broker-only + Party payments under broker
+      accPayments.forEach((p) => {
+        const paymentTo = String(p.paymentTo ?? "").trim();
+        const d = p.paymentDate || p.date || "";
+        if (toTime(d) > asOfT) return;
+
+        if (paymentTo === "Broker") {
+          const b = String(p.brokerName ?? p.agentName ?? "").trim();
+          if (norm(b) === brokerKey) add("Payment", toNum(p.amount));
+          return;
+        }
+
+        if (partyBelongsToBroker(String(p.partyName ?? "").trim())) {
+          add("Payment", toNum(p.amount));
+        }
+      });
+
+      // Receipts: Broker receipts + Party receipts under broker
+      savedRecords.forEach((r) => {
+        const d = r.receiptDate || r.date || "";
+        if (toTime(d) > asOfT) return;
+
+        if (r.receiptTo === "Broker") {
+          const b = String(r.agentName ?? "").trim();
+          if (norm(b) === brokerKey) add("Receipt", toNum(r.amount ?? 0));
+          return;
+        }
+
+        if (r.receiptTo === "Party") {
+          if (partyBelongsToBroker(String(r.partyName ?? "").trim())) {
+            add("Receipt", toNum(r.amount ?? 0));
+          }
+        }
+      });
+
+      setBaseBalance(bal);
+      setBaseBalanceFor("Broker");
+
+      setFormData((prev) => {
+        if (prev.receiptTo !== "Broker" || norm(prev.name) !== brokerKey) return prev;
+        const amt = prev.amount === "" ? 0 : Number(prev.amount || 0);
+        const nextBal = prev.amount === "" ? bal : bal - amt;
+        return { ...prev, balance: nextBal };
+      });
+    },
+    [
+      accDispatch,
+      accOtherDispatch,
+      accPurchaseOrders,
+      accPurchaseEntries,
+      accPurchaseReturns,
+      accJobInwards,
+      accPayments,
+      savedRecords,
+      getBrokerFromPartyName,
+      getBrokerNameForDispatch,
+      clearBaseBalance,
+      today,
+    ],
+  );
+
+  // Auto-recompute base balance when receiptDate/name changes (only new entry)
+  useEffect(() => {
+    if (editingId) return;
+
+    if (formData.receiptTo === "Party" && formData.name) {
+      computePartyBaseBalanceFromAccount(formData.name, formData.receiptDate || today);
+    } else if (formData.receiptTo === "Broker" && formData.name) {
+      computeBrokerBaseBalanceFromAccount(formData.name, formData.receiptDate || today);
+    }
+  }, [
+    editingId,
+    formData.receiptTo,
+    formData.name,
+    formData.receiptDate,
+    computePartyBaseBalanceFromAccount,
+    computeBrokerBaseBalanceFromAccount,
+    today,
+  ]);
+
+  // ---------------- Handlers ----------------
   const handleChange = (
     e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>,
   ) => {
@@ -319,7 +791,6 @@ const PaymentReceiptForm: React.FC = () => {
     if (name === "receiptTo") {
       const newType = value as ReceiptToType;
 
-      // Broker mode => disable/clear process & agentName, name will be broker
       setFormData((prev) => ({
         ...prev,
         receiptTo: newType,
@@ -339,9 +810,7 @@ const PaymentReceiptForm: React.FC = () => {
       setFormData((prev) => {
         const fromDate = value;
         let toDate = prev.date;
-        if (!toDate || toDate < fromDate) {
-          toDate = fromDate;
-        }
+        if (!toDate || toDate < fromDate) toDate = fromDate;
         return { ...prev, receiptDate: fromDate, date: toDate };
       });
       setShowData([]);
@@ -352,9 +821,7 @@ const PaymentReceiptForm: React.FC = () => {
       setFormData((prev) => {
         const fromDate = prev.receiptDate;
         let toDate = value;
-        if (fromDate && toDate < fromDate) {
-          toDate = fromDate;
-        }
+        if (fromDate && toDate < fromDate) toDate = fromDate;
         return { ...prev, date: toDate };
       });
       setShowData([]);
@@ -381,7 +848,6 @@ const PaymentReceiptForm: React.FC = () => {
     }
 
     if (name === "balance") {
-      // Allow manual editing only for non-Party & non-Broker
       if (formData.receiptTo !== "Party" && formData.receiptTo !== "Broker") {
         setFormData((prev) => ({
           ...prev,
@@ -392,7 +858,6 @@ const PaymentReceiptForm: React.FC = () => {
     }
 
     if (name === "name") {
-      // Only "Other" is editable; selecting changes should clear show data
       setShowData([]);
       setFormData((prev) => ({ ...prev, name: value }));
       return;
@@ -402,7 +867,7 @@ const PaymentReceiptForm: React.FC = () => {
   };
 
   const isProcessSelectable = formData.receiptTo !== "Broker";
-  const isNameReadOnly = formData.receiptTo !== "Other"; // Other => manual typing allowed
+  const isNameReadOnly = formData.receiptTo !== "Other";
 
   const openProcessModal = () => {
     if (!isProcessSelectable) return;
@@ -410,7 +875,6 @@ const PaymentReceiptForm: React.FC = () => {
     setProcessSearchText("");
   };
 
-  // Name modal: depends on receiptTo
   const openNameModal = async () => {
     if (!formData.receiptTo) {
       Swal.fire("Info", "Please select Receipt To first", "info");
@@ -432,7 +896,6 @@ const PaymentReceiptForm: React.FC = () => {
     }
 
     if (formData.receiptTo === "Broker") {
-      // Broker list = Agent list
       setAgentModalTarget("brokerName");
       setAgentSearchText("");
       setShowAgentModal(true);
@@ -441,8 +904,8 @@ const PaymentReceiptForm: React.FC = () => {
   };
 
   const openAgentModal = () => {
-    if (formData.receiptTo === "Party") return; // auto-filled
-    if (formData.receiptTo === "Broker") return; // broker is selected in name
+    if (formData.receiptTo === "Party") return;
+    if (formData.receiptTo === "Broker") return;
     setAgentModalTarget("agentName");
     setAgentSearchText("");
     setShowAgentModal(true);
@@ -469,7 +932,6 @@ const PaymentReceiptForm: React.FC = () => {
     setShowEmployeeModal(false);
   };
 
-  // Party select => auto-fill broker(agentName) + compute party base balance
   const selectParty = (p: Party) => {
     const partyName = p.partyName || "";
     setFormData((prev) => ({
@@ -480,7 +942,8 @@ const PaymentReceiptForm: React.FC = () => {
       balance: "",
     }));
     setShowPartyModal(false);
-    computePartyBaseBalance(partyName);
+
+    computePartyBaseBalanceFromAccount(partyName, formData.receiptDate || today);
   };
 
   const selectAgentOrBroker = (a: any) => {
@@ -490,21 +953,19 @@ const PaymentReceiptForm: React.FC = () => {
     if (agentModalTarget === "agentName") {
       setFormData((prev) => ({ ...prev, agentName: selected }));
     } else {
-      // brokerName target => store in name + compute broker base balance
       setFormData((prev) => ({
         ...prev,
         name: selected,
-        processName: "", // broker mode no process
-        agentName: "", // hidden in broker mode
+        processName: "",
+        agentName: "",
         amount: "",
         balance: "",
       }));
-      computeBrokerBaseBalance(selected);
+      computeBrokerBaseBalanceFromAccount(selected, formData.receiptDate || today);
     }
     setShowAgentModal(false);
   };
 
-  // Filter employees: by search + selected process (optional)
   const filteredEmployees = useMemo(() => {
     const search = employeeSearchText.toLowerCase();
     const processFilter = formData.processName.toLowerCase();
@@ -521,63 +982,57 @@ const PaymentReceiptForm: React.FC = () => {
     });
   }, [employeeList, employeeSearchText, formData.processName]);
 
-  // Filter parties: by search (and process if present)
   const filteredParties = useMemo(() => {
     const search = partySearchText.toLowerCase();
     const processFilter = formData.processName.toLowerCase();
 
     return partyList.filter((p) => {
       const name = (p.partyName || "").toLowerCase();
-      const partyProcess = p.process?.processName
-        ? p.process.processName.toLowerCase()
-        : "";
+      const partyProcess = p.process?.processName ? p.process.processName.toLowerCase() : "";
 
       const matchesSearch = !search || name.includes(search);
-      const matchesProcess =
-        !processFilter || !partyProcess || partyProcess === processFilter;
+      const matchesProcess = !processFilter || !partyProcess || partyProcess === processFilter;
 
       return matchesSearch && matchesProcess;
     });
   }, [partyList, partySearchText, formData.processName]);
 
-  const filteredProcesses = processList.filter((p) =>
-    (p.processName || "").toLowerCase().includes(processSearchText.toLowerCase()),
-  );
+  const filteredProcesses = useMemo(() => {
+    return processList.filter((p) =>
+      (p.processName || "").toLowerCase().includes(processSearchText.toLowerCase()),
+    );
+  }, [processList, processSearchText]);
 
-  const filteredAgents = agentList.filter((a) =>
-    (a.name || a.agentName || "")
-      .toLowerCase()
-      .includes(agentSearchText.toLowerCase()),
-  );
+  const filteredAgents = useMemo(() => {
+    return agentList.filter((a) =>
+      (a.name || a.agentName || "").toLowerCase().includes(agentSearchText.toLowerCase()),
+    );
+  }, [agentList, agentSearchText]);
 
-  const filteredList = Array.isArray(receiptList)
-    ? receiptList.filter((x) => {
-        const s = searchText.toLowerCase();
+  const filteredList = useMemo(() => {
+    if (!Array.isArray(receiptList)) return [];
+    const s = searchText.toLowerCase();
 
-        const displayName =
-          x.receiptTo === "Employee"
-            ? x.employeeName
-            : x.receiptTo === "Broker"
-              ? x.agentName
-              : x.partyName;
+    return receiptList.filter((x) => {
+      const displayName =
+        x.receiptTo === "Employee"
+          ? x.employeeName
+          : x.receiptTo === "Broker"
+            ? x.agentName
+            : x.partyName;
 
-        return (
-          !searchText ||
-          (x.entryType || "").toLowerCase().includes(s) ||
-          (x.receiptTo || "").toLowerCase().includes(s) ||
-          (x.processName || "").toLowerCase().includes(s) ||
-          (displayName || "").toLowerCase().includes(s) ||
-          (x.agentName || "").toLowerCase().includes(s)
-        );
-      })
-    : [];
+      return (
+        !searchText ||
+        (x.entryType || "").toLowerCase().includes(s) ||
+        (x.receiptTo || "").toLowerCase().includes(s) ||
+        (x.processName || "").toLowerCase().includes(s) ||
+        (displayName || "").toLowerCase().includes(s) ||
+        (x.agentName || "").toLowerCase().includes(s)
+      );
+    });
+  }, [receiptList, searchText]);
 
   const handleSave = async () => {
-    // Payload mapping (IMPORTANT):
-    // - Party => partyName = name, agentName = broker
-    // - Employee => employeeName = name
-    // - Broker => agentName = name (broker), partyName/employeeName blank
-    // - Other => store name in partyName (so it doesn't get lost)
     const payload: any = {
       entryType: formData.entryType,
       receiptTo: formData.receiptTo,
@@ -598,10 +1053,9 @@ const PaymentReceiptForm: React.FC = () => {
 
       employeeName: formData.receiptTo === "Employee" ? formData.name || "" : "",
 
-      // Persist in DB now:
       agentName:
         formData.receiptTo === "Broker"
-          ? formData.name || "" // broker name stored in agentName
+          ? formData.name || ""
           : formData.agentName || "",
     };
 
@@ -616,7 +1070,7 @@ const PaymentReceiptForm: React.FC = () => {
 
       setEditingId(null);
       handleAddNew(false);
-      loadSavedRecords();
+      await loadSavedRecords(); // refresh receipts for ledger balance
     } catch (error: any) {
       console.error("Error saving receipt:", error);
       Swal.fire("Error", error.response?.data?.message || "Failed to save", "error");
@@ -660,19 +1114,15 @@ const PaymentReceiptForm: React.FC = () => {
         amount: rec.amount === null || rec.amount === undefined ? "" : Number(rec.amount),
         balance: rec.balance === null || rec.balance === undefined ? "" : Number(rec.balance),
         remarks: rec.remarks || "",
-        agentName:
-          rec.receiptTo === "Broker"
-            ? "" // broker is in name
-            : rec.agentName || "",
+        agentName: rec.receiptTo === "Broker" ? "" : rec.agentName || "",
         date: toDate,
       });
 
-      // For Party/Broker, approximate baseBalance = amount + balance
+      // Edit mode: baseBalance approx = amount + balance (same as your old behavior)
       if (rec.receiptTo === "Party" || rec.receiptTo === "Broker") {
         const amt = Number(rec.amount ?? 0);
         const bal = Number(rec.balance ?? 0);
         const base = !isNaN(amt) && !isNaN(bal) ? amt + bal : null;
-
         setBaseBalance(base);
         setBaseBalanceFor(rec.receiptTo === "Party" ? "Party" : "Broker");
       } else {
@@ -713,7 +1163,7 @@ const PaymentReceiptForm: React.FC = () => {
           handleAddNew(false);
         }
         Swal.fire("Deleted!", "Record deleted successfully", "success");
-        loadSavedRecords();
+        await loadSavedRecords();
       } catch (err) {
         console.error("Delete Error:", err);
         Swal.fire("Error", "Delete failed", "error");
@@ -747,7 +1197,6 @@ const PaymentReceiptForm: React.FC = () => {
       return;
     }
 
-    // EMPLOYEE -> production receipts
     if (formData.receiptTo === "Employee") {
       setShowLoading(true);
       setProductionReceipts([]);
@@ -842,8 +1291,7 @@ const PaymentReceiptForm: React.FC = () => {
     }
   };
 
-  const isAgentSelectable =
-    formData.receiptTo !== "Party" && formData.receiptTo !== "Broker";
+  const isAgentSelectable = formData.receiptTo !== "Party" && formData.receiptTo !== "Broker";
 
   const nameLabel =
     formData.receiptTo === "Party"
@@ -858,7 +1306,7 @@ const PaymentReceiptForm: React.FC = () => {
     <Dashboard>
       <div className="min-h-screen bg-gray-100 p-6">
         <div className="bg-white shadow-md rounded-lg w-full max-w-4xl mx-auto p-6 border">
-          <h2 className="text-2xl font-bold text-center mb-6">Payment Receipt</h2>
+          <h2 className="text-2xl font-bold text-center mb-6">Receipt</h2>
 
           <div className="grid grid-cols-2 gap-4">
             <div>
@@ -938,15 +1386,9 @@ const PaymentReceiptForm: React.FC = () => {
                 value={formData.name}
                 onClick={isNameReadOnly ? openNameModal : undefined}
                 readOnly={isNameReadOnly}
-                placeholder={
-                  formData.receiptTo === "Other"
-                    ? "Type name"
-                    : "Click to select"
-                }
+                placeholder={formData.receiptTo === "Other" ? "Type name" : "Click to select"}
                 className={`border p-2 w-full rounded ${
-                  isNameReadOnly
-                    ? "cursor-pointer bg-gray-50 hover:bg-gray-100"
-                    : ""
+                  isNameReadOnly ? "cursor-pointer bg-gray-50 hover:bg-gray-100" : ""
                 }`}
                 onChange={handleChange}
               />
@@ -1018,9 +1460,9 @@ const PaymentReceiptForm: React.FC = () => {
                   readOnly={formData.receiptTo === "Party" || formData.receiptTo === "Broker"}
                   placeholder={
                     formData.receiptTo === "Party"
-                      ? "Base from Dispatch - Amount"
+                      ? "Auto (Ledger Balance - Amount)"
                       : formData.receiptTo === "Broker"
-                        ? "Broker Base from Dispatch - Amount"
+                        ? "Auto (Broker Ledger Balance - Amount)"
                         : ""
                   }
                   className={`border p-2 w-full rounded ${
@@ -1043,7 +1485,8 @@ const PaymentReceiptForm: React.FC = () => {
               {(formData.receiptTo === "Party" || formData.receiptTo === "Broker") &&
                 baseBalance !== null && (
                   <div className="text-xs text-gray-600 mt-1">
-                    Base ({baseBalanceFor || "Auto"}): {absVal(baseBalance)} {baseBalDrCr}
+                    Base ({baseBalanceFor || "Auto"} as on {formData.receiptDate}):{" "}
+                    {absVal(baseBalance)} {baseBalDrCr}
                     {formData.amount !== "" && (
                       <>
                         {" "}
@@ -1459,7 +1902,7 @@ const PaymentReceiptForm: React.FC = () => {
         </div>
       )}
 
-      {/* Production Receipt detailed list modal (Employee Show) */}
+      {/* Production Receipt modal */}
       {showProductionModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg shadow-lg w-full max-w-6xl p-5 flex flex-col max-h-[90vh]">

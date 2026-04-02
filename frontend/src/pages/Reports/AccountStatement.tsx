@@ -68,21 +68,12 @@ interface PaymentDoc {
   id: number;
   paymentDate: string;
   date?: string;
-
-  // Party payments => partyName set
   partyName: string;
-
-  // Broker payments => brokerName set (if your backend supports)
   brokerName?: string;
-
-  // Optional: paymentTo from backend
   paymentTo?: string;
-
   amount: number;
   paymentThrough?: string;
   processName?: string;
-
-  // Optional from backend
   agentName?: string;
 }
 
@@ -90,21 +81,12 @@ interface ReceiptDoc {
   id: number;
   receiptDate: string;
   date?: string;
-
-  // Party receipts => partyName set
   partyName: string;
-
-  // Broker receipts => brokerName set (saved in DB as agentName in your Receipt module)
   brokerName?: string;
-
-  // IMPORTANT: receiptTo from backend (Party/Broker/Employee/Other)
   receiptTo?: string;
-
   amount: number;
   paymentThrough?: string;
   processName?: string;
-
-  // Optional from backend
   agentName?: string;
 }
 
@@ -144,12 +126,8 @@ type TxType =
 type BaseTransaction = {
   id: number;
   date: string;
-
-  // For Party docs: partyName filled
-  // For Broker-only docs: partyName may be "", brokerName filled
   partyName: string;
   brokerName?: string;
-
   orderNo?: string;
   mode?: string;
   debit: number;
@@ -475,11 +453,11 @@ const AccountStatement: React.FC = () => {
             .filter((x) => x.partyName && x.date && x.challanNo),
         );
 
-        // ✅ FIX: include Broker payments too (if present)
+        // include Broker payments too (if present)
         setPayments(
           (Array.isArray(payRaw) ? payRaw : [])
             .map((p: any) => {
-              const paymentTo = String(p.paymentTo ?? p.payment_to ?? "").trim(); // tolerant
+              const paymentTo = String(p.paymentTo ?? p.payment_to ?? "").trim();
               const partyName = paymentTo === "Party" ? String(p.partyName ?? "").trim() : "";
               const brokerName =
                 paymentTo === "Broker"
@@ -499,11 +477,10 @@ const AccountStatement: React.FC = () => {
                 processName: String(p.processName ?? "").trim(),
               } as PaymentDoc;
             })
-            // ✅ keep Party payments OR Broker payments
             .filter((p) => p.partyName || p.brokerName),
         );
 
-        // ✅ FIX: include Broker receipts too (receiptTo=Broker)
+        // include Broker receipts too (receiptTo=Broker)
         setReceipts(
           (Array.isArray(recRaw) ? recRaw : [])
             .map((r: any) => {
@@ -512,7 +489,7 @@ const AccountStatement: React.FC = () => {
               const brokerName =
                 receiptTo === "Broker"
                   ? String(r.agentName ?? r.brokerName ?? "").trim()
-                  : String(r.agentName ?? r.brokerName ?? "").trim(); // party receipt also may carry agentName
+                  : String(r.agentName ?? r.brokerName ?? "").trim();
 
               return {
                 id: r.id,
@@ -527,7 +504,6 @@ const AccountStatement: React.FC = () => {
                 processName: String(r.processName ?? "").trim(),
               } as ReceiptDoc;
             })
-            // ✅ keep Party receipts OR Broker receipts
             .filter((r) => r.partyName || r.brokerName),
         );
       } catch (e: any) {
@@ -569,14 +545,40 @@ const AccountStatement: React.FC = () => {
     [getBrokerFromPartyName],
   );
 
-  // Payment => DEBIT, Receipt => CREDIT, JobInward => CREDIT, JobOutward => 0, Others => DEBIT
+  /**
+   * ✅ YOUR REQUIRED DR/CR RULES
+   * - Purchase (PurchaseOrder, PurchaseEntry) => CR
+   * - Payment => DR
+   * - Receipt => CR (all receipts)
+   * - Dispatch Return => CR  (we treat OtherDispatch as Dispatch Return)
+   * - Purchase Return => DR
+   * - Dispatch => DR (kept as normal sale dispatch)
+   * - JobInward => CR
+   * - JobOutward, Opening => 0 effect
+   */
   const getDrCr = useCallback((source: TxType, amount: number) => {
     const amt = toNum(amount);
+
     if (source === "Payment") return { debit: amt, credit: 0 };
     if (source === "Receipt") return { debit: 0, credit: amt };
+
+    if (source === "PurchaseOrder") return { debit: 0, credit: amt };
+    if (source === "PurchaseEntry") return { debit: 0, credit: amt };
+
+    // Dispatch Return => CR (mapped to OtherDispatch in your code)
+    if (source === "OtherDispatch") return { debit: 0, credit: amt };
+
+    // Purchase Return => DR
+    if (source === "PurchaseReturn") return { debit: amt, credit: 0 };
+
+    // Job Inward => CR
     if (source === "JobInward") return { debit: 0, credit: amt };
+
+    // No financial effect
     if (source === "JobOutward") return { debit: 0, credit: 0 };
     if (source === "Opening") return { debit: 0, credit: 0 };
+
+    // Default: Dispatch etc => DR
     return { debit: amt, credit: 0 };
   }, []);
 
@@ -600,13 +602,11 @@ const AccountStatement: React.FC = () => {
     jobOutwards.forEach((d) => add(getBrokerFromPartyName(d.partyName), d.partyName));
     jobInwards.forEach((d) => add(getBrokerFromPartyName(d.partyName), d.partyName));
 
-    // ✅ FIX: Payments may be broker-only
     payments.forEach((d) => {
       const b = d.brokerName || (d.partyName ? getBrokerFromPartyName(d.partyName) : "");
       add(b, d.partyName || "");
     });
 
-    // ✅ FIX: Receipts may be broker-only (receiptTo=Broker)
     receipts.forEach((d) => {
       const b = d.brokerName || (d.partyName ? getBrokerFromPartyName(d.partyName) : "");
       add(b, d.partyName || "");
@@ -743,10 +743,8 @@ const AccountStatement: React.FC = () => {
         id: number;
         date: string;
         number: string;
-
         partyName: string;
         brokerName: string;
-
         amount: number;
         mode?: string;
       };
@@ -770,6 +768,7 @@ const AccountStatement: React.FC = () => {
         });
       });
 
+      // OtherDispatch (treated as Dispatch Return for CR)
       otherDispatchChallans.forEach((od) => {
         const bName = getBrokerNameForDoc(od);
         if (!brokerOk(bName)) return;
@@ -867,7 +866,7 @@ const AccountStatement: React.FC = () => {
         });
       });
 
-      // ✅ Payments: include party payments + broker payments
+      // Payments
       payments.forEach((p) => {
         const bName =
           (p.brokerName || "").trim() ||
@@ -875,7 +874,6 @@ const AccountStatement: React.FC = () => {
 
         if (!brokerOk(bName)) return;
 
-        // party filter applied only if payment has partyName
         if (targetParty && !partyOk(p.partyName)) return;
         if (targetParty && !p.partyName) return;
 
@@ -893,7 +891,7 @@ const AccountStatement: React.FC = () => {
         });
       });
 
-      // ✅ Receipts: include party receipts + broker receipts (receiptTo=Broker)
+      // Receipts
       receipts.forEach((r) => {
         const bName =
           (r.brokerName || "").trim() ||
@@ -901,7 +899,6 @@ const AccountStatement: React.FC = () => {
 
         if (!brokerOk(bName)) return;
 
-        // party filter applied only if receipt has partyName
         if (targetParty && !partyOk(r.partyName)) return;
         if (targetParty && !r.partyName) return;
 
@@ -1113,14 +1110,24 @@ const AccountStatement: React.FC = () => {
     return rowsWithDays.filter((r) => r.type === transactionFilter);
   }, [rowsWithDays, transactionFilter]);
 
-  // ---------- Totals ----------
-  const totalDebit = useMemo(
+  // ---------- Totals (FIX: totals/net must react to transaction type filter) ----------
+  const totalDebitAll = useMemo(
     () => transactions.reduce((s, t) => s + (t.debit || 0), 0),
     [transactions],
   );
-  const totalCredit = useMemo(
+  const totalCreditAll = useMemo(
     () => transactions.reduce((s, t) => s + (t.credit || 0), 0),
     [transactions],
+  );
+
+  // ✅ These change when you change Transaction Type filter
+  const totalDebitFiltered = useMemo(
+    () => filteredRows.reduce((s, r) => s + (r.debit || 0), 0),
+    [filteredRows],
+  );
+  const totalCreditFiltered = useMemo(
+    () => filteredRows.reduce((s, r) => s + (r.credit || 0), 0),
+    [filteredRows],
   );
 
   const openingBalance = useMemo(() => {
@@ -1129,14 +1136,25 @@ const AccountStatement: React.FC = () => {
     return op.debit > 0 ? op.debit : -op.credit;
   }, [transactions]);
 
-  const closingBalance = useMemo(() => {
+  const closingBalanceAll = useMemo(() => {
     if (!sortedRowsAll.length) return 0;
     return sortedRowsAll[sortedRowsAll.length - 1].balance;
   }, [sortedRowsAll]);
 
+  // Net movement for current filter (this is what most users expect to change on filter change)
+  const netMovementFiltered = useMemo(
+    () => totalDebitFiltered - totalCreditFiltered,
+    [totalDebitFiltered, totalCreditFiltered],
+  );
+
   const totals = useMemo(
-    () => ({ rows: filteredRows.length, debit: totalDebit, credit: totalCredit }),
-    [filteredRows.length, totalDebit, totalCredit],
+    () => ({
+      rows: filteredRows.length,
+      debit: totalDebitFiltered,
+      credit: totalCreditFiltered,
+      net: netMovementFiltered,
+    }),
+    [filteredRows.length, totalDebitFiltered, totalCreditFiltered, netMovementFiltered],
   );
 
   // ✅ PRINT
@@ -1181,6 +1199,9 @@ const AccountStatement: React.FC = () => {
       })
       .join("");
 
+    const filterLine =
+      transactionFilter === "all" ? "All" : `Only: ${typeLabel(transactionFilter)}`;
+
     const html = `<!doctype html>
 <html>
   <head>
@@ -1206,13 +1227,24 @@ const AccountStatement: React.FC = () => {
     <div class="info">
       <div><strong>Broker:</strong> ${selectedBroker || "All"} ${partyLine}</div>
       <div><strong>From:</strong> ${fmtDateHeader(fromDate)} &nbsp; <strong>To:</strong> ${fmtDateHeader(toDate)}</div>
+      <div><strong>Transaction Filter:</strong> ${filterLine}</div>
+
       <div style="margin-top:8px;">
         <strong>Rows (Filtered):</strong> ${filteredRows.length}
         &nbsp; | &nbsp;
-        <strong>Total Debit (All):</strong> ${fmtNumber(totalDebit)}
+        <strong>Total Debit (Filtered):</strong> ${fmtNumber(totalDebitFiltered)}
         &nbsp; | &nbsp;
-        <strong>Total Credit (All):</strong> ${fmtNumber(totalCredit)}
+        <strong>Total Credit (Filtered):</strong> ${fmtNumber(totalCreditFiltered)}
+        &nbsp; | &nbsp;
+        <strong>Net (Filtered):</strong> ${fmtNumber(netMovementFiltered)}
       </div>
+
+      <div style="margin-top:6px; color:#444;">
+        (Reference) Total Debit (All): ${fmtNumber(totalDebitAll)} | Total Credit (All): ${fmtNumber(
+          totalCreditAll,
+        )}
+      </div>
+
       <div style="margin-top:6px; color:#444;">
         Overdue rule: Days ≥ ${OVERDUE_DAYS} highlighted in red.
       </div>
@@ -1239,10 +1271,11 @@ const AccountStatement: React.FC = () => {
     </table>
 
     <div class="totals">
-      <div>Total Debit (All): ${fmtNumber(totalDebit)}</div>
-      <div>Total Credit (All): ${fmtNumber(totalCredit)}</div>
-      <div>Opening Balance: ${fmtNumber(openingBalance)}</div>
-      <div>Closing Balance: ${fmtNumber(closingBalance)}</div>
+      <div>Total Debit (Filtered): ${fmtNumber(totalDebitFiltered)}</div>
+      <div>Total Credit (Filtered): ${fmtNumber(totalCreditFiltered)}</div>
+      <div>Net (Filtered): ${fmtNumber(netMovementFiltered)}</div>
+      <div style="margin-top:8px;">Opening Balance (All): ${fmtNumber(openingBalance)}</div>
+      <div>Closing Balance (All): ${fmtNumber(closingBalanceAll)}</div>
     </div>
 
     <script>
@@ -1452,10 +1485,12 @@ const AccountStatement: React.FC = () => {
               Reset
             </button>
 
+            {/* ✅ FIX: show FILTERED totals so it changes when transaction type changes */}
             <div className="ml-auto text-sm text-gray-600">
-              Rows (Filtered): <strong>{totals.rows}</strong> | Debit (All):{" "}
-              <strong>{fmtNumber(totalDebit)}</strong> | Credit (All):{" "}
-              <strong>{fmtNumber(totalCredit)}</strong>
+              Rows (Filtered): <strong>{totals.rows}</strong> | Debit (Filtered):{" "}
+              <strong>{fmtNumber(totals.debit)}</strong> | Credit (Filtered):{" "}
+              <strong>{fmtNumber(totals.credit)}</strong> | Net (Filtered):{" "}
+              <strong>{fmtNumber(totals.net)}</strong>
             </div>
           </div>
         </div>
@@ -1487,9 +1522,15 @@ const AccountStatement: React.FC = () => {
                     <strong>To:</strong> {fmtDateHeader(toDate)}
                   </div>
 
+                  {/* ✅ FIX: show FILTERED totals here */}
                   <div className="text-xs text-gray-600 mt-1">
-                    Rows (Filtered): {totals.rows} | Debit (All): {fmtNumber(totalDebit)} | Credit
-                    (All): {fmtNumber(totalCredit)}
+                    Rows (Filtered): {totals.rows} | Debit (Filtered): {fmtNumber(totals.debit)} |
+                    Credit (Filtered): {fmtNumber(totals.credit)} | Net (Filtered):{" "}
+                    {fmtNumber(totals.net)}
+                    <span className="text-gray-400">
+                      {" "}
+                      (All: Dr {fmtNumber(totalDebitAll)} / Cr {fmtNumber(totalCreditAll)})
+                    </span>
                   </div>
 
                   {transactions.length > 0 && (
@@ -1624,17 +1665,25 @@ const AccountStatement: React.FC = () => {
                               <div className="p-3">
                                 <div className="grid grid-cols-12 gap-4 items-center">
                                   <div className="col-span-4">
-                                    <div className="text-sm font-semibold">Totals (All Transactions)</div>
+                                    <div className="text-sm font-semibold">Totals (Filtered)</div>
                                     <div className="text-xs text-gray-700 mt-1">
-                                      Debit: <strong>{fmtNumber(totalDebit)}</strong>
+                                      Debit: <strong>{fmtNumber(totals.debit)}</strong>
                                     </div>
                                     <div className="text-xs text-gray-700">
-                                      Credit: <strong>{fmtNumber(totalCredit)}</strong>
+                                      Credit: <strong>{fmtNumber(totals.credit)}</strong>
+                                    </div>
+                                    <div className="text-xs text-gray-700">
+                                      Net: <strong>{fmtNumber(totals.net)}</strong>
+                                    </div>
+
+                                    <div className="text-xs text-gray-500 mt-2">
+                                      (All Tx) Dr: {fmtNumber(totalDebitAll)} | Cr:{" "}
+                                      {fmtNumber(totalCreditAll)}
                                     </div>
                                   </div>
 
                                   <div className="col-span-5">
-                                    <div className="text-sm font-semibold">Balance Summary</div>
+                                    <div className="text-sm font-semibold">Balance Summary (All)</div>
                                     <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
                                       <div className="text-gray-700">Opening Balance:</div>
                                       <div className="text-right text-gray-900">
@@ -1642,15 +1691,22 @@ const AccountStatement: React.FC = () => {
                                       </div>
                                       <div className="text-gray-700">Closing Balance:</div>
                                       <div className="text-right text-gray-900">
-                                        {fmtNumber(closingBalance)}
+                                        {fmtNumber(closingBalanceAll)}
                                       </div>
                                     </div>
                                   </div>
 
                                   <div className="col-span-3 text-right">
-                                    <div className="text-sm font-semibold">Net Position</div>
+                                    {/* ✅ FIX: Net box now changes with filter */}
+                                    <div className="text-sm font-semibold">
+                                      {transactionFilter === "all"
+                                        ? "Net Position (All)"
+                                        : "Net (Filtered)"}
+                                    </div>
                                     <div className="text-lg text-black font-bold bg-yellow-200 inline-block px-3 py-1 rounded mt-2">
-                                      {fmtNumber(closingBalance)}
+                                      {transactionFilter === "all"
+                                        ? fmtNumber(closingBalanceAll)
+                                        : fmtNumber(totals.net)}
                                     </div>
                                   </div>
                                 </div>

@@ -235,6 +235,38 @@ interface StockAgg {
   pcs: number; // net pcs (Opening + Packing - Dispatch)
 }
 
+/* ------------------- FIX: Move these components OUTSIDE -------------------
+   Reason: When components are declared inside ArtReport, React treats them as
+   a new component type on every render (new function reference), so input
+   can lose focus on every keypress. This is why you were able to type only
+   one letter at a time.
+-------------------------------------------------------------------------- */
+const SectionHeader: React.FC<{ title: string; right?: React.ReactNode }> = ({
+  title,
+  right,
+}) => (
+  <div className="flex items-center justify-between px-2 pb-1">
+    <div className="text-sm font-semibold text-gray-700">{title}</div>
+    {right}
+  </div>
+);
+
+const ListSearch: React.FC<{
+  value: string;
+  onChange: (v: string) => void;
+  placeholder: string;
+}> = ({ value, onChange, placeholder }) => (
+  <div className="px-2 pb-2">
+    <input
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      placeholder={placeholder}
+      className="w-full border rounded px-2 py-1 text-sm"
+      autoComplete="off"
+    />
+  </div>
+);
+
 /* --------------------------------- UI ------------------------------------ */
 const ArtReport: React.FC = () => {
   const [asOn, setAsOn] = useState<string>(todayStr());
@@ -261,7 +293,7 @@ const ArtReport: React.FC = () => {
     new Set()
   );
 
-  // NEW: search bars for all lists
+  // search bars
   const [searchGroup, setSearchGroup] = useState("");
   const [searchArtNo, setSearchArtNo] = useState("");
   const [searchArtName, setSearchArtName] = useState("");
@@ -750,16 +782,16 @@ const ArtReport: React.FC = () => {
       /* ---------- 4) Convert aggregation -> DetailRows ---------- */
       const out: DetailRow[] = [];
 
+      // build once (avoid re-creating in loop)
+      const shadeNameToCodeLocal = new Map<string, string>();
+      shades.forEach((s) => shadeNameToCodeLocal.set(s.shadeName.trim(), s.shadeCode));
+
       for (const agg of Array.from(aggMap.values())) {
         if (Math.abs(agg.pcs) < 1e-6) continue;
 
         // Shade filter
         if (selectedShadeCodes.size > 0) {
-          const shadeNameToCode = new Map<string, string>();
-          shades.forEach((s) =>
-            shadeNameToCode.set(s.shadeName.trim(), s.shadeCode)
-          );
-          const code = shadeNameToCode.get(agg.shadeName.trim());
+          const code = shadeNameToCodeLocal.get(agg.shadeName.trim());
           if (!code || !selectedShadeCodes.has(code)) continue;
         }
 
@@ -859,6 +891,11 @@ const ArtReport: React.FC = () => {
       );
 
       lines.push(row.join(","));
+    });
+
+    const sizeTotalAmount: Record<string, number> = {};
+    detailRows.forEach((r) => {
+      sizeTotalAmount[r.sizeName] = (sizeTotalAmount[r.sizeName] || 0) + toNum(r.amount);
     });
 
     const totalRow: (string | number)[] = ["", "Total", "", ""];
@@ -994,6 +1031,11 @@ const ArtReport: React.FC = () => {
       })
       .join("");
 
+    const sizeTotalAmountLocal: Record<string, number> = {};
+    detailRows.forEach((r) => {
+      sizeTotalAmountLocal[r.sizeName] = (sizeTotalAmountLocal[r.sizeName] || 0) + toNum(r.amount);
+    });
+
     const totalRowHtml = `
       <tr class="total-row">
         <td style="border:1px solid #000;padding:4px"></td>
@@ -1003,7 +1045,7 @@ const ArtReport: React.FC = () => {
         <td style="border:1px solid #000;padding:4px"></td>
         ${sizeNames
           .map((sz) => {
-            const amt = sizeTotalAmount[sz] || 0;
+            const amt = sizeTotalAmountLocal[sz] || 0;
             return `<td style="border:1px solid #000;padding:4px;text-align:right">${
               amt ? amt.toFixed(2) : ""
             }</td>`;
@@ -1058,32 +1100,6 @@ const ArtReport: React.FC = () => {
     w.print();
     w.close();
   };
-
-  /* ----------------------------- RENDER HELPERS --------------------------- */
-  const SectionHeader: React.FC<{ title: string; right?: React.ReactNode }> = ({
-    title,
-    right,
-  }) => (
-    <div className="flex items-center justify-between px-2 pb-1">
-      <div className="text-sm font-semibold text-gray-700">{title}</div>
-      {right}
-    </div>
-  );
-
-  const ListSearch: React.FC<{
-    value: string;
-    onChange: (v: string) => void;
-    placeholder: string;
-  }> = ({ value, onChange, placeholder }) => (
-    <div className="px-2 pb-2">
-      <input
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder={placeholder}
-        className="w-full border rounded px-2 py-1 text-sm"
-      />
-    </div>
-  );
 
   /* -------------------------------- RENDER -------------------------------- */
   return (
@@ -1501,9 +1517,7 @@ const ArtReport: React.FC = () => {
                     const bgClass = isYellowBlock ? "bg-sky-50" : "bg-white";
 
                     return (
-                      <React.Fragment
-                        key={`${g.artSerial}-${g.shadeName}-${idx}`}
-                      >
+                      <React.Fragment key={`${g.artSerial}-${g.shadeName}-${idx}`}>
                         {[0, 1, 2, 3].map((line) => {
                           const label =
                             line === 0
