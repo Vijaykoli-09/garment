@@ -1,8 +1,8 @@
-// src/components/Reports/MaterialStockReport.tsx
+// src/pages/Knitting/MaterialStockReport.tsx
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
-import Dashboard from "../Dashboard";
+import Dashboard from "../Dashboard"; // adjust path if needed
 import api from "../../api/axiosInstance";
 import Swal from "sweetalert2";
 import { useNavigate } from "react-router-dom";
@@ -40,7 +40,7 @@ interface StockData {
   balance: number;
 }
 
-/** ---------- Helpers (same behavior as DispatchReport) ---------- */
+/** ---------------- Helpers (same UI behavior as DispatchReport) ---------------- */
 
 const uniqueBy = <T, K extends string | number>(arr: T[], getKey: (t: T) => K) => {
   const map = new Map<K, T>();
@@ -99,13 +99,26 @@ function removeSomeNumbers(
   });
 }
 
-/** ---------- Date: DD-MM-YYYY input + validation + API conversion ---------- */
+/** ---------------- Date: DD-MM-YYYY input + validation + API conversion ---------------- */
 
 const dateRegex = /^\d{2}-\d{2}-\d{4}$/;
 
+const todayDMY = () => {
+  const d = new Date();
+  const dd = String(d.getDate()).padStart(2, "0");
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const yyyy = d.getFullYear();
+  return `${dd}-${mm}-${yyyy}`;
+};
+
 const isValidDMY = (dmy: string) => {
   if (!dmy || !dateRegex.test(dmy)) return false;
-  const [dd, mm, yyyy] = dmy.split("-").map((x) => Number(x));
+
+  const [ddStr, mmStr, yyyyStr] = dmy.split("-");
+  const dd = Number(ddStr);
+  const mm = Number(mmStr);
+  const yyyy = Number(yyyyStr);
+
   if (!dd || !mm || !yyyy) return false;
 
   const dt = new Date(yyyy, mm - 1, dd);
@@ -117,18 +130,10 @@ const isValidDMY = (dmy: string) => {
 };
 
 const convertDMYToISO = (dmy: string) => {
-  if (!dmy || !dmy.trim()) return null; // allow empty
+  if (!dmy || !dmy.trim()) return null;
   if (!isValidDMY(dmy)) return null;
   const [dd, mm, yyyy] = dmy.split("-");
   return `${yyyy}-${mm}-${dd}`; // YYYY-MM-DD
-};
-
-const todayDMY = () => {
-  const d = new Date();
-  const dd = String(d.getDate()).padStart(2, "0");
-  const mm = String(d.getMonth() + 1).padStart(2, "0");
-  const yyyy = d.getFullYear();
-  return `${dd}-${mm}-${yyyy}`;
 };
 
 const MaterialStockReport: React.FC = () => {
@@ -137,14 +142,14 @@ const MaterialStockReport: React.FC = () => {
   const [allGroups, setAllGroups] = useState<MaterialGroup[]>([]);
   const [allItems, setAllItems] = useState<MaterialItem[]>([]);
 
-  // DD-MM-YYYY (as you asked)
-  const [fromDate, setFromDate] = useState<string>("");
-  const [toDate, setToDate] = useState<string>("");
+  // ✅ FIX for CI ESLint: initialize dates here (no need to set in useEffect)
+  const [fromDate, setFromDate] = useState<string>(() => todayDMY());
+  const [toDate, setToDate] = useState<string>(() => todayDMY());
 
   const [selectedGroups, setSelectedGroups] = useState<Set<number>>(new Set());
   const [selectedItems, setSelectedItems] = useState<Set<number>>(new Set());
 
-  // Search options + Select All / Unselect buttons
+  // Search states
   const [groupSearch, setGroupSearch] = useState("");
   const [itemSearch, setItemSearch] = useState("");
 
@@ -157,7 +162,7 @@ const MaterialStockReport: React.FC = () => {
   const [loadingReport, setLoadingReport] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  /** Load Groups + Items */
+  /** Load Material Groups + Items */
   useEffect(() => {
     const load = async () => {
       try {
@@ -169,38 +174,31 @@ const MaterialStockReport: React.FC = () => {
         const gData: MaterialGroup[] = Array.isArray(gRes.data) ? gRes.data : [];
         const iData: MaterialItem[] = Array.isArray(iRes.data) ? iRes.data : [];
 
-        // keep your original: unique by materialGroup name
+        // keep your earlier behavior: unique by materialGroup name
         const uniqueGroups = uniqueBy(gData, (g) => g.materialGroup);
         setAllGroups(uniqueGroups);
 
         setAllItems(iData);
-
-        // optional default dates = today (DD-MM-YYYY)
-        if (!fromDate) setFromDate(todayDMY());
-        if (!toDate) setToDate(todayDMY());
       } catch (err) {
         Swal.fire("Error", "Failed to load material groups/items", "error");
       }
     };
 
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     load();
   }, []);
 
-  /** Group options */
+  /** Options for selection boxes */
   const groupOptions = useMemo(() => {
     return allGroups
       .map((g) => ({ id: g.id, label: g.materialGroup || "" }))
       .filter((x) => x.label);
   }, [allGroups]);
 
-  /** Items filtered by selected groups */
   const itemsBySelectedGroups = useMemo(() => {
     if (!selectedGroups.size) return [];
     return allItems.filter((m) => selectedGroups.has(m.materialGroupId));
   }, [allItems, selectedGroups]);
 
-  /** Item options */
   const itemOptions = useMemo(() => {
     return itemsBySelectedGroups
       .map((m) => ({ id: m.id, label: m.materialName || "" }))
@@ -218,9 +216,10 @@ const MaterialStockReport: React.FC = () => {
     [itemOptions, itemSearch]
   );
 
-  /** If groups change, remove selected items that are no longer in those groups */
+  /** When groups change, drop selected items not in those groups */
   useEffect(() => {
     if (!selectedItems.size) return;
+
     const allowed = new Set(itemsBySelectedGroups.map((x) => x.id));
     setSelectedItems((prev) => {
       const next = new Set<number>();
@@ -242,7 +241,7 @@ const MaterialStockReport: React.FC = () => {
     };
   }, [reportData]);
 
-  /** Select All / Unselect (search-aware, like DispatchReport) */
+  /** Select All / Unselect (search-aware) */
   const handleSelectAllGroups = () => {
     const allValues = groupOptions.map((x) => x.id);
     const filteredValues = groupOptionsFiltered.map((x) => x.id);
@@ -282,7 +281,7 @@ const MaterialStockReport: React.FC = () => {
     setShowModal(false);
   };
 
-  /** Show (fetch report) */
+  /** Fetch report */
   const handleShow = async () => {
     if (!selectedGroups.size) {
       return Swal.fire("Warning", "Please select at least one Material Group.", "warning");
@@ -291,18 +290,17 @@ const MaterialStockReport: React.FC = () => {
       return Swal.fire("Warning", "Please select at least one Material Item.", "warning");
     }
 
-    // Date format validation (DD-MM-YYYY)
-    if (fromDate && fromDate.trim() && !isValidDMY(fromDate)) {
+    // DD-MM-YYYY validation
+    if (fromDate?.trim() && !isValidDMY(fromDate)) {
       return Swal.fire("Invalid Date", "Enter From Date in DD-MM-YYYY format", "warning");
     }
-    if (toDate && toDate.trim() && !isValidDMY(toDate)) {
+    if (toDate?.trim() && !isValidDMY(toDate)) {
       return Swal.fire("Invalid Date", "Enter To Date in DD-MM-YYYY format", "warning");
     }
 
     const apiFromDate = convertDMYToISO(fromDate);
     const apiToDate = convertDMYToISO(toDate);
 
-    // If user typed something but conversion failed (extra safety)
     if (fromDate?.trim() && !apiFromDate) {
       return Swal.fire("Invalid Date", "From Date is invalid", "warning");
     }
@@ -338,17 +336,12 @@ const MaterialStockReport: React.FC = () => {
     }
   };
 
-  /** Print (same hidden-iframe approach as DispatchReport) */
+  /** Print (hidden iframe) */
   const handlePrint = () => {
-    if (typeof window === "undefined" || typeof document === "undefined") return;
-
     if (!reportData.length) {
       alert("No records to print for the selected filters.");
       return;
     }
-
-    const periodFrom = fromDate?.trim() ? fromDate : "-";
-    const periodTo = toDate?.trim() ? toDate : "-";
 
     const html = `<!doctype html>
 <html>
@@ -370,7 +363,7 @@ const MaterialStockReport: React.FC = () => {
 <body>
   <h2>Material Stock Report</h2>
   <div class="info">
-    <div><strong>Period:</strong> ${periodFrom} to ${periodTo}</div>
+    <div><strong>Period:</strong> ${fromDate || "-"} to ${toDate || "-"}</div>
     <div style="margin-top:4px;">
       <strong>Rows:</strong> ${totals.rows}
       &nbsp; | &nbsp;
@@ -449,10 +442,10 @@ const MaterialStockReport: React.FC = () => {
       return;
     }
 
-    const printDoc = printWindow.document;
-    printDoc.open();
-    printDoc.write(html);
-    printDoc.close();
+    const doc = printWindow.document;
+    doc.open();
+    doc.write(html);
+    doc.close();
   };
 
   return (
@@ -488,9 +481,9 @@ const MaterialStockReport: React.FC = () => {
             <div className="hidden md:block" />
           </div>
 
-          {/* Selectors (with Search + Select All + Unselect) */}
+          {/* Selection boxes (with Search + Select All + Unselect) */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
-            {/* Material Group */}
+            {/* Groups */}
             <div className="border p-2 rounded">
               <div className="flex justify-between items-center mb-1">
                 <strong>Material Group</strong>
@@ -550,7 +543,7 @@ const MaterialStockReport: React.FC = () => {
               </div>
             </div>
 
-            {/* Material Item */}
+            {/* Items */}
             <div className="border p-2 rounded">
               <div className="flex justify-between items-center mb-1">
                 <strong>Material Item</strong>
@@ -622,7 +615,7 @@ const MaterialStockReport: React.FC = () => {
             </div>
           </div>
 
-          {/* Actions row */}
+          {/* Actions */}
           <div className="flex items-center gap-3 mb-2">
             <button
               className="px-4 py-2 bg-blue-600 text-white rounded"
@@ -645,7 +638,7 @@ const MaterialStockReport: React.FC = () => {
             </div>
           </div>
 
-          {/* Modal (DispatchReport style) */}
+          {/* Modal (DispatchReport UI) */}
           {showModal && (
             <div className="fixed inset-0 z-[60] flex items-center justify-center">
               <div
@@ -753,7 +746,7 @@ const MaterialStockReport: React.FC = () => {
                             </tr>
                           ))}
 
-                          {/* Totals bar */}
+                          {/* Totals bar (same style as DispatchReport) */}
                           <tr>
                             <td colSpan={8} className="p-0">
                               <div className="w-full bg-blue-700 text-white text-sm font-semibold">
@@ -780,7 +773,10 @@ const MaterialStockReport: React.FC = () => {
 
                           {!reportData.length && !loadingReport && (
                             <tr>
-                              <td colSpan={8} className="border p-3 text-center text-gray-500">
+                              <td
+                                colSpan={8}
+                                className="border p-3 text-center text-gray-500"
+                              >
                                 No records for the selected filters / dates
                               </td>
                             </tr>
