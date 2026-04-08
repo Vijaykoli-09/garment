@@ -64,38 +64,105 @@ type PRRow = {
   remarks?: string;
 };
 
-const fmtDateHeader = (iso: string) => {
-  const d = new Date(iso);
-  if (isNaN(d.getTime())) return "Invalid Date";
-  return `${String(d.getDate()).padStart(2, "0")}/${String(
-    d.getMonth() + 1
-  ).padStart(2, "0")}/${d.getFullYear()}`;
+type PaymentRow = {
+  id: string;
+  dateISO: string; // YYYY-MM-DD (LOCAL)
+  dateTS: number; // LOCAL day start timestamp
+  employeeName: string;
+  employeeCode: string;
+  process: string;
+  amount: number;
+  remarks: string;
+};
+
+// ================= Date helpers (FIX: timezone + format safe) =================
+const pad2 = (n: number) => String(n).padStart(2, "0");
+
+const toLocalISODateFromTS = (ts: number) => {
+  const d = new Date(ts);
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+};
+
+const parseYMDLocalToTS = (ymd: string) => {
+  // "YYYY-MM-DD" -> local midnight (NOT UTC)
+  const m = String(ymd || "").trim().match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return NaN;
+  const y = Number(m[1]);
+  const mo = Number(m[2]);
+  const da = Number(m[3]);
+  const dt = new Date(y, mo - 1, da);
+  return dt.getTime();
+};
+
+const parseDMYLocalToTS = (dmy: string) => {
+  // "DD/MM/YYYY" -> local midnight
+  const m = String(dmy || "").trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (!m) return NaN;
+  const da = Number(m[1]);
+  const mo = Number(m[2]);
+  const y = Number(m[3]);
+  const dt = new Date(y, mo - 1, da);
+  return dt.getTime();
+};
+
+const parseAnyDateToLocalDayTS = (value: any) => {
+  if (!value) return NaN;
+
+  // Date object / timestamp
+  if (value instanceof Date) {
+    if (isNaN(value.getTime())) return NaN;
+    // convert to local day start (ignore time)
+    return new Date(value.getFullYear(), value.getMonth(), value.getDate()).getTime();
+  }
+  if (typeof value === "number") {
+    const d = new Date(value);
+    if (isNaN(d.getTime())) return NaN;
+    return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  }
+
+  const s = String(value).trim();
+  if (!s) return NaN;
+
+  // If ISO datetime like "2025-01-31T..." -> take only date part to avoid timezone shifting
+  const isoDateMatch = s.match(/^(\d{4}-\d{2}-\d{2})/);
+  if (isoDateMatch) return parseYMDLocalToTS(isoDateMatch[1]);
+
+  // If "DD/MM/YYYY"
+  const dmyTS = parseDMYLocalToTS(s);
+  if (Number.isFinite(dmyTS)) return dmyTS;
+
+  // last fallback
+  const d = new Date(s);
+  if (isNaN(d.getTime())) return NaN;
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+};
+
+const fmtDateHeader = (anyDate: string) => {
+  const ts = parseAnyDateToLocalDayTS(anyDate);
+  if (!Number.isFinite(ts)) return "";
+  const d = new Date(ts);
+  return `${pad2(d.getDate())}/${pad2(d.getMonth() + 1)}/${d.getFullYear()}`;
 };
 
 const fmtNumber = (n: number) =>
-  n.toLocaleString(undefined, {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  });
+  Number(n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 const fmtRate = (n: number) =>
-  n.toLocaleString(undefined, {
-    minimumFractionDigits: 3,
-    maximumFractionDigits: 3,
-  });
+  Number(n || 0).toLocaleString(undefined, { minimumFractionDigits: 3, maximumFractionDigits: 3 });
 
-const getTodayIso = () => new Date().toISOString().slice(0, 10);
+const getTodayIso = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+};
 const getFirstOfMonthIso = () => {
   const d = new Date();
   d.setDate(1);
-  return d.toISOString().slice(0, 10);
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
 };
 
 const SalaryReport: React.FC = () => {
   const [cuttingEntries, setCuttingEntries] = useState<CuttingEntryDTO[]>([]);
-  const [productionReceipts, setProductionReceipts] = useState<
-    ProductionReceiptDTO[]
-  >([]);
+  const [productionReceipts, setProductionReceipts] = useState<ProductionReceiptDTO[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [payments, setPayments] = useState<any[]>([]);
   const [processList, setProcessList] = useState<any[]>([]);
@@ -108,9 +175,7 @@ const SalaryReport: React.FC = () => {
 
   const [fromDate, setFromDate] = useState<string>(getFirstOfMonthIso());
   const [toDate, setToDate] = useState<string>(getTodayIso());
-  const [sorting, setSorting] = useState<
-    "Date Wise" | "Art No Wise" | "Lot Wise"
-  >("Date Wise");
+  const [sorting, setSorting] = useState<"Date Wise" | "Art No Wise" | "Lot Wise">("Date Wise");
 
   const [showModal, setShowModal] = useState(false);
   const [fullScreen, setFullScreen] = useState(false);
@@ -121,14 +186,13 @@ const SalaryReport: React.FC = () => {
       setLoading(true);
       setError(null);
       try {
-        const [cuttingRes, prodRes, empRes, payRes, procRes] =
-          await Promise.all([
-            api.get("/cutting-entries"),
-            api.get("/production-receipt"),
-            api.get("/employees"),
-            api.get("/payment"),
-            api.get("/process/list"),
-          ]);
+        const [cuttingRes, prodRes, empRes, payRes, procRes] = await Promise.all([
+          api.get("/cutting-entries"),
+          api.get("/production-receipt"),
+          api.get("/employees"),
+          api.get("/payment"),
+          api.get("/process/list"),
+        ]);
 
         const cuttingList: CuttingEntryDTO[] = Array.isArray(cuttingRes.data)
           ? cuttingRes.data
@@ -138,17 +202,9 @@ const SalaryReport: React.FC = () => {
           ? prodRes.data
           : prodRes.data?.data || [];
 
-        const empList: Employee[] = Array.isArray(empRes.data)
-          ? empRes.data
-          : empRes.data?.data || [];
-
-        const payList: any[] = Array.isArray(payRes.data)
-          ? payRes.data
-          : payRes.data?.data || [];
-
-        const procList: any[] = Array.isArray(procRes.data)
-          ? procRes.data
-          : procRes.data?.data || [];
+        const empList: Employee[] = Array.isArray(empRes.data) ? empRes.data : empRes.data?.data || [];
+        const payList: any[] = Array.isArray(payRes.data) ? payRes.data : payRes.data?.data || [];
+        const procList: any[] = Array.isArray(procRes.data) ? procRes.data : procRes.data?.data || [];
 
         setCuttingEntries(cuttingList);
         setProductionReceipts(prodList);
@@ -171,12 +227,15 @@ const SalaryReport: React.FC = () => {
   }, []);
 
   const allEmployees = useMemo(
-    () =>
-      employees.filter(
-        (emp) => emp.employeeName && emp.employeeName.trim().length > 0
-      ),
+    () => employees.filter((emp) => emp.employeeName && emp.employeeName.trim().length > 0),
     [employees]
   );
+
+  const employeeByNameLower = useMemo(() => {
+    const m = new Map<string, Employee>();
+    allEmployees.forEach((e) => m.set(e.employeeName.trim().toLowerCase(), e));
+    return m;
+  }, [allEmployees]);
 
   // ---------- Flatten Cutting + Production into common rows ----------
   const allRows: PRRow[] = useMemo(() => {
@@ -191,13 +250,12 @@ const SalaryReport: React.FC = () => {
       (entry.lotRows || []).forEach((r, idx) => {
         const piece = Number.parseFloat(r.pcs) || 0;
         const rate = Number.parseFloat(r.rate) || 0;
-        const amount =
-          Number.parseFloat(r.amount) || Number(piece * rate) || 0;
+        const amount = Number.parseFloat(r.amount) || Number(piece * rate) || 0;
+
         const uniqueIdBase = entry.serialNo
-          ? entry.serialNo
-              .split("")
-              .reduce((acc, char) => acc + char.charCodeAt(0), 0)
+          ? entry.serialNo.split("").reduce((acc, char) => acc + char.charCodeAt(0), 0)
           : Math.random() * 100000;
+
         const id = uniqueIdBase * 1000 + (idx + 1);
 
         rows.push({
@@ -224,10 +282,8 @@ const SalaryReport: React.FC = () => {
       (rec.rows || []).forEach((r, idx) => {
         const piece = Number.parseFloat(r.pcs || r.piece || "0") || 0;
         const rate = Number.parseFloat(r.rate || "0") || 0;
-        const amount =
-          Number.parseFloat(r.amount || "0") ||
-          Number(piece * rate) ||
-          0;
+        const amount = Number.parseFloat(r.amount || "0") || Number(piece * rate) || 0;
+
         const uniqueIdBase = rec.id ? Number(rec.id) : Math.random() * 100000;
         const id = uniqueIdBase * 1000 + (idx + 1);
 
@@ -251,63 +307,51 @@ const SalaryReport: React.FC = () => {
 
   // ---------- Process dropdown ----------
   const processes = useMemo(() => {
-    const fromData = allRows
-      .map((r) => r.process)
-      .filter((p) => p && p.trim().length > 0);
+    const fromData = allRows.map((r) => r.process).filter((p) => p && p.trim().length > 0);
     const fromMaster = processList
       .map((p) => p.processName)
       .filter((p: string) => p && p.trim().length > 0);
 
     const combined = Array.from(new Set([...fromData, ...fromMaster]));
-    return combined.sort((a, b) =>
-      a.localeCompare(b, undefined, { sensitivity: "base" })
-    );
+    return combined.sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }));
   }, [allRows, processList]);
 
-  // ---------- Employee dropdown ----------
+  // ---------- Employee dropdown (process select se list filter hoti rahegi) ----------
   const employeesForProcess = useMemo(() => {
     let filteredEmployees = allEmployees;
     if (processName) {
       const pLower = processName.trim().toLowerCase();
       filteredEmployees = allEmployees.filter(
-        (e) =>
-          (e.process?.processName || "")
-            .trim()
-            .toLowerCase() === pLower
+        (e) => (e.process?.processName || "").trim().toLowerCase() === pLower
       );
     }
     const names = filteredEmployees
       .map((e) => (e.employeeName || "").trim())
       .filter((n) => n.length > 0);
-    return Array.from(new Set(names)).sort((a, b) =>
-      a.localeCompare(b, undefined, { sensitivity: "base" })
-    );
+
+    return Array.from(new Set(names)).sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }));
   }, [allEmployees, processName]);
 
-  // ---------- Filtering & sorting ----------
-  const toTime = (iso: string) => {
-    const d = new Date(iso);
-    return isNaN(d.getTime()) ? -Infinity : d.getTime();
-  };
-
+  /**
+   * ✅ Filter rule:
+   * - Employee select = employee ke ALL processes show
+   * - Process filter apply only when employee not selected
+   */
   const filtered = useMemo(() => {
-    const f = toTime(fromDate);
-    const t = toTime(toDate) + 24 * 60 * 60 * 1000 - 1;
+    const f = parseYMDLocalToTS(fromDate);
+    const t = parseYMDLocalToTS(toDate) + 24 * 60 * 60 * 1000 - 1;
+
+    const pSel = processName.trim().toLowerCase();
+    const eSel = employeeName.trim().toLowerCase();
 
     return allRows.filter((r) => {
-      const tt = toTime(r.date);
-      if (isNaN(tt) || tt < f || tt > t) return false;
+      const tt = parseAnyDateToLocalDayTS(r.date);
+      if (!Number.isFinite(tt) || tt < f || tt > t) return false;
 
-      if (
-        processName &&
-        r.process.trim().toLowerCase() !== processName.trim().toLowerCase()
-      )
-        return false;
-      if (
-        employeeName &&
-        r.employee.trim().toLowerCase() !== employeeName.trim().toLowerCase()
-      )
-        return false;
+      if (eSel && r.employee.trim().toLowerCase() !== eSel) return false;
+
+      if (!eSel && pSel && r.process.trim().toLowerCase() !== pSel) return false;
+
       return true;
     });
   }, [allRows, fromDate, toDate, processName, employeeName]);
@@ -317,27 +361,29 @@ const SalaryReport: React.FC = () => {
     switch (sorting) {
       case "Date Wise":
         data.sort((a, b) => {
-          const dc = toTime(a.date) - toTime(b.date);
+          const dc = parseAnyDateToLocalDayTS(a.date) - parseAnyDateToLocalDayTS(b.date);
           if (dc !== 0) return dc;
           const lc = a.lotNo.localeCompare(b.lotNo);
           if (lc !== 0) return lc;
           return a.artNo.localeCompare(b.artNo);
         });
         break;
+
       case "Art No Wise":
         data.sort((a, b) => {
           const ac = a.artNo.localeCompare(b.artNo);
           if (ac !== 0) return ac;
-          const dc = toTime(a.date) - toTime(b.date);
+          const dc = parseAnyDateToLocalDayTS(a.date) - parseAnyDateToLocalDayTS(b.date);
           if (dc !== 0) return dc;
           return a.lotNo.localeCompare(b.lotNo);
         });
         break;
+
       case "Lot Wise":
         data.sort((a, b) => {
           const lc = a.lotNo.localeCompare(b.lotNo);
           if (lc !== 0) return lc;
-          const dc = toTime(a.date) - toTime(b.date);
+          const dc = parseAnyDateToLocalDayTS(a.date) - parseAnyDateToLocalDayTS(b.date);
           if (dc !== 0) return dc;
           return a.artNo.localeCompare(b.artNo);
         });
@@ -348,124 +394,170 @@ const SalaryReport: React.FC = () => {
 
   const totals = useMemo(() => {
     const pieces = sorted.reduce((s, r) => s + r.piece, 0);
-    const amount = Number(
-      sorted.reduce((s, r) => s + r.amount, 0).toFixed(2)
-    );
+    const amount = Number(sorted.reduce((s, r) => s + r.amount, 0).toFixed(2));
     return { rows: sorted.length, pieces, amount };
   }, [sorted]);
 
+  // ---------- ✅ Normalize payments (so employee payment + payment date always show) ----------
+  const normalizedPayments = useMemo<PaymentRow[]>(() => {
+    const list = Array.isArray(payments) ? payments : [];
+
+    return list
+      .map((p: any, idx: number) => {
+        const employeeName = String(
+          p.employeeName ?? p.employee ?? p.empName ?? p.partyName ?? p.name ?? ""
+        ).trim();
+
+        const employeeCode = String(
+          p.employeeCode ?? p.empCode ?? p.employeeId ?? p.empId ?? p.code ?? ""
+        ).trim();
+
+        const process = String(p.processName ?? p.process ?? "").trim();
+
+        const dateTS = parseAnyDateToLocalDayTS(p.paymentDate ?? p.date ?? p.dated ?? p.createdAt ?? "");
+        const dateISO = Number.isFinite(dateTS) ? toLocalISODateFromTS(dateTS) : "";
+
+        const amount = Number(
+          parseFloat(String(p.amount ?? p.paidAmount ?? p.paymentAmount ?? p.amt ?? 0)) || 0
+        );
+
+        const remarks = String(p.remarks ?? p.remark ?? p.note ?? "").trim();
+
+        return {
+          id: String(p.id ?? p.serialNo ?? p._id ?? idx + 1),
+          dateISO,
+          dateTS,
+          employeeName,
+          employeeCode,
+          process,
+          amount,
+          remarks,
+        };
+      })
+      .filter((p) => p.employeeName && p.dateISO && Number.isFinite(p.dateTS) && p.amount !== 0);
+  }, [payments]);
+
+  // ---------- Employees set used for ADV list + (important for wrong opening fix) ----------
+  const employeeKeysForCurrentReport = useMemo(() => {
+    const eSel = employeeName.trim().toLowerCase();
+    if (eSel) return [eSel]; // ✅ even if no rows, still keep selected employee
+    return Array.from(
+      new Set(sorted.map((r) => (r.employee || "").trim().toLowerCase()).filter(Boolean))
+    );
+  }, [sorted, employeeName]);
+
+  const paymentRowsForSelection = useMemo(() => {
+    const fromT = parseYMDLocalToTS(fromDate);
+    const toT = parseYMDLocalToTS(toDate) + 24 * 60 * 60 * 1000 - 1;
+
+    const selectedEmpLower = employeeName.trim().toLowerCase();
+    const selectedEmp = selectedEmpLower ? employeeByNameLower.get(selectedEmpLower) : undefined;
+    const selectedEmpCode = selectedEmp?.code ? String(selectedEmp.code).trim() : "";
+
+    const employeeNamesInReport = new Set(employeeKeysForCurrentReport);
+
+    const shouldFilterByProcess = !employeeName && !!processName;
+    const selectedProcLower = processName.trim().toLowerCase();
+
+    const matchEmployee = (p: PaymentRow) => {
+      const payNameLower = p.employeeName.trim().toLowerCase();
+      const payCode = (p.employeeCode || "").trim();
+
+      if (selectedEmpLower) {
+        if (payNameLower === selectedEmpLower) return true;
+        if (selectedEmpCode && payCode && payCode === selectedEmpCode) return true;
+        return false;
+      }
+
+      // ✅ FIX: agar report me koi employee hi nahi (empty rows) to "ALL payments" mat dikhao
+      if (employeeNamesInReport.size === 0) return false;
+
+      return employeeNamesInReport.has(payNameLower);
+    };
+
+    const filteredPayments = normalizedPayments.filter((p) => {
+      if (!matchEmployee(p)) return false;
+
+      // process filter only when employee not selected.
+      if (shouldFilterByProcess) {
+        const pProc = (p.process || "").trim().toLowerCase();
+        if (!pProc) return false; // ✅ strict, warna wrong opening/ADV ho jata
+        if (pProc !== selectedProcLower) return false;
+      }
+
+      return true;
+    });
+
+    const inRangePayments = filteredPayments
+      .filter((p) => p.dateTS >= fromT && p.dateTS <= toT)
+      .sort((a, b) => a.dateTS - b.dateTS);
+
+    const beforePayments = filteredPayments.filter((p) => p.dateTS < fromT).sort((a, b) => a.dateTS - b.dateTS);
+
+    return { inRangePayments, beforePayments };
+  }, [
+    normalizedPayments,
+    fromDate,
+    toDate,
+    processName,
+    employeeName,
+    employeeByNameLower,
+    employeeKeysForCurrentReport,
+  ]);
+
   // ---------- Payment summary (Gross, ADV, Opening, Net) ----------
-  // Opening = (GrossBefore - AdvBefore)
-  // GrossPayment = amount for current date-range
-  // ADV = AdvCurrent (isin date-range)
-  // Net = GrossPayment - ADV + Opening
   const paymentSummary = useMemo(() => {
     const grossCurrent = totals.amount;
+    const fromT = parseYMDLocalToTS(fromDate);
 
-    // Jo employees abhi grid me dikh rahe hain:
-    const employeeKeysInRows = Array.from(
-      new Set(
-        sorted
-          .map((r) => (r.employee || "").trim().toLowerCase())
-          .filter((n) => n.length > 0)
-      )
-    );
+    // ADV totals
+    const advBefore = paymentRowsForSelection.beforePayments.reduce((s, p) => s + (p.amount || 0), 0);
+    const advCurrent = paymentRowsForSelection.inRangePayments.reduce((s, p) => s + (p.amount || 0), 0);
 
-    if (employeeKeysInRows.length === 0) {
-      return { advances: 0, grossPayment: grossCurrent, opening: 0, net: grossCurrent };
+    // ✅ FIX (Opening galt issue):
+    // Pehle code me "sorted empty" hone par employees list empty ho jati thi,
+    // phir grossBefore = 0 le leta tha, lekin ADV before minus kar deta tha => opening galt.
+    // Ab:
+    // - Employee selected hai to employeeKeysForCurrentReport me woh employee hamesha rahega (even if no rows).
+    // - Employee not selected & report empty => opening/adv = 0 (no ALL-payments mistake).
+    const relevantEmployeeKeys = employeeKeysForCurrentReport;
+
+    if (relevantEmployeeKeys.length === 0) {
+      const opening = 0;
+      const net = Number((grossCurrent - advCurrent + opening).toFixed(2));
+      return { advances: advCurrent, grossPayment: grossCurrent, opening, net };
     }
 
-    let relevantEmployeeKeys = employeeKeysInRows;
-    if (employeeName) {
-      relevantEmployeeKeys = [employeeName.trim().toLowerCase()];
-    }
+    const empMatch = (nameLower: string) => relevantEmployeeKeys.includes(nameLower);
 
-    const fromT = toTime(fromDate);
-    const toT = toTime(toDate) + 24 * 60 * 60 * 1000 - 1;
+    // same rule: if employee selected -> ignore process filter (all processes)
+    const shouldFilterByProcess = !employeeName && !!processName;
+    const selectedProcLower = processName.trim().toLowerCase();
 
-    const empMatch = (name: string) =>
-      relevantEmployeeKeys.includes(name.trim().toLowerCase());
-
-    // ----- GrossBefore (allRows, employee + process filtered, date < from) -----
     const grossBefore = allRows.reduce((sum, r) => {
       const nm = (r.employee || "").trim().toLowerCase();
       if (!empMatch(nm)) return sum;
-      if (
-        processName &&
-        r.process.trim().toLowerCase() !== processName.trim().toLowerCase()
-      )
-        return sum;
-      const tt = toTime(r.date);
-      if (isNaN(tt) || tt >= fromT) return sum;
-      return sum + r.amount;
+
+      if (shouldFilterByProcess) {
+        if (r.process.trim().toLowerCase() !== selectedProcLower) return sum;
+      }
+
+      const tt = parseAnyDateToLocalDayTS(r.date);
+      if (!Number.isFinite(tt) || tt >= fromT) return sum;
+
+      return sum + (r.amount || 0);
     }, 0);
-
-    // ----- ADV Before + ADV Current (payments se) -----
-    let advBefore = 0;
-    let advCurrent = 0;
-
-    payments.forEach((p: any) => {
-      const nm = (
-        p.employeeName ||
-        p.partyName ||
-        p.name ||
-        p.employee ||
-        ""
-      )
-        .toString()
-        .trim()
-        .toLowerCase();
-      if (!empMatch(nm)) return;
-
-      const paymentTo = (p.paymentTo || p.type || "")
-        .toString()
-        .trim()
-        .toLowerCase();
-      if (
-        paymentTo &&
-        !["employee", "cutting employee", "cutting", "worker"].includes(
-          paymentTo
-        )
-      ) {
-        return;
-      }
-
-      if (processName) {
-        const pProc = (p.processName || p.process || "")
-          .toString()
-          .trim()
-          .toLowerCase();
-        if (pProc && pProc !== processName.trim().toLowerCase()) {
-          return;
-        }
-      }
-
-      const dstr = p.paymentDate || p.date || p.dated;
-      if (!dstr) return;
-      const tt = new Date(dstr).getTime();
-      if (isNaN(tt)) return;
-
-      const amt = Number.parseFloat(String(p.amount)) || 0;
-      if (tt < fromT) advBefore += amt;
-      else if (tt <= toT) advCurrent += amt;
-    });
 
     const opening = Number((grossBefore - advBefore).toFixed(2));
     const net = Number((grossCurrent - advCurrent + opening).toFixed(2));
 
-    return {
-      advances: advCurrent,
-      grossPayment: grossCurrent,
-      opening,
-      net,
-    };
+    return { advances: advCurrent, grossPayment: grossCurrent, opening, net };
   }, [
     totals.amount,
-    sorted,
+    paymentRowsForSelection,
+    employeeKeysForCurrentReport,
     allRows,
-    payments,
     fromDate,
-    toDate,
     processName,
     employeeName,
   ]);
@@ -485,14 +577,28 @@ const SalaryReport: React.FC = () => {
     setShowModal(true);
   }
 
+  // Print (Process + Employee columns removed from PRINT TABLE only)
   function handlePrintReport() {
-    if (typeof window === "undefined" || typeof document === "undefined") {
-      return;
-    }
-    try {
-      const totalPieces = totals.pieces;
-      const totalAmount = totals.amount;
-      const html = `<!doctype html>
+    if (typeof window === "undefined" || typeof document === "undefined") return;
+
+    const totalPieces = totals.pieces;
+    const totalAmount = totals.amount;
+
+    const paymentLines = paymentRowsForSelection.inRangePayments
+      .map(
+        (p, i) => `
+        <tr>
+          <td>${i + 1}</td>
+          <td>${fmtDateHeader(p.dateISO)}</td>
+          <td class="text-right">${fmtNumber(p.amount)}</td>
+          <td>${p.process || ""}</td>
+          <td>${p.remarks || ""}</td>
+        </tr>
+      `
+      )
+      .join("");
+
+    const html = `<!doctype html>
 <html>
   <head>
     <meta charset="utf-8" />
@@ -506,19 +612,18 @@ const SalaryReport: React.FC = () => {
       th { background: #eee; }
       .text-right { text-align: right; }
       .totals { margin-top: 12px; font-weight: bold; }
-      @media print {
-        button { display: none; }
-      }
+      .section-title { margin-top: 14px; font-weight: 700; }
+      @media print { button { display: none; } }
     </style>
   </head>
   <body>
     <h2>Salary Report</h2>
     <div class="info">
-      <div><strong>Process:</strong> ${processName || "All"}</div>
+      <div><strong>Process:</strong> ${processName || "All"} ${
+      employeeName ? "(Employee selected: showing ALL processes)" : ""
+    }</div>
       <div><strong>Employee:</strong> ${employeeName || "All"}</div>
-      <div><strong>From:</strong> ${fmtDateHeader(
-        fromDate
-      )} &nbsp; <strong>To:</strong> ${fmtDateHeader(toDate)}</div>
+      <div><strong>From:</strong> ${fmtDateHeader(fromDate)} &nbsp; <strong>To:</strong> ${fmtDateHeader(toDate)}</div>
       <div style="margin-top:8px;">
         <strong>Rows:</strong> ${totals.rows}
         &nbsp; | &nbsp;
@@ -527,6 +632,7 @@ const SalaryReport: React.FC = () => {
         <strong>Amount:</strong> ${fmtNumber(totalAmount)}
       </div>
     </div>
+
     <table>
       <thead>
         <tr>
@@ -537,8 +643,6 @@ const SalaryReport: React.FC = () => {
           <th class="text-right">Piece</th>
           <th class="text-right">Rate</th>
           <th class="text-right">Amount</th>
-          <th>Process</th>
-          <th>Employee</th>
         </tr>
       </thead>
       <tbody>
@@ -553,33 +657,42 @@ const SalaryReport: React.FC = () => {
           <td class="text-right">${r.piece.toLocaleString()}</td>
           <td class="text-right">${fmtRate(r.rate)}</td>
           <td class="text-right">${fmtNumber(r.amount)}</td>
-          <td>${r.process}</td>
-          <td>${r.employee}</td>
         </tr>
         `
           )
           .join("")}
       </tbody>
     </table>
+
     <div class="totals">
       <div>Total Pieces: ${totalPieces.toLocaleString()}</div>
       <div>Total Amount: ${fmtNumber(totalAmount)}</div>
       <div style="margin-top:8px;">
         Net Salary: ${fmtNumber(paymentSummary.net)} (Gross ${fmtNumber(
-        paymentSummary.grossPayment
-      )} - ADV ${fmtNumber(paymentSummary.advances)} + Opening ${fmtNumber(
-        paymentSummary.opening
-      )})
+      paymentSummary.grossPayment
+    )} - ADV ${fmtNumber(paymentSummary.advances)} + Opening ${fmtNumber(paymentSummary.opening)})
       </div>
     </div>
+
+    <div class="section-title">Payments (ADV) in Selected Date Range</div>
+    <table>
+      <thead>
+        <tr>
+          <th>S No</th>
+          <th>Payment Date</th>
+          <th class="text-right">Amount</th>
+          <th>Process</th>
+          <th>Remarks</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${paymentLines || `<tr><td colspan="5" style="text-align:center;color:#666">No payments found in range</td></tr>`}
+      </tbody>
+    </table>
+
     <script>
       window.onload = function () {
-        try {
-          window.focus();
-          window.print();
-        } catch (e) {
-          console.error('Print error', e);
-        }
+        try { window.focus(); window.print(); } catch (e) {}
         setTimeout(function () {
           try {
             if (window.frameElement && window.frameElement.parentNode) {
@@ -591,44 +704,39 @@ const SalaryReport: React.FC = () => {
     </script>
   </body>
 </html>`;
-      const iframe = document.createElement("iframe");
-      iframe.style.position = "fixed";
-      iframe.style.right = "0";
-      iframe.style.bottom = "0";
-      iframe.style.width = "0";
-      iframe.style.height = "0";
-      iframe.style.border = "0";
-      iframe.style.visibility = "hidden";
-      document.body.appendChild(iframe);
-      const printWindow = iframe.contentWindow;
-      if (!printWindow) {
-        document.body.removeChild(iframe);
-        alert("Unable to open print preview.");
-        return;
-      }
-      const printDoc = printWindow.document;
-      printDoc.open();
-      printDoc.write(html);
-      printDoc.close();
-    } catch (err) {
-      console.error("Print generation failed:", err);
-      alert("Failed to generate print preview. See console for details.");
+
+    const iframe = document.createElement("iframe");
+    iframe.style.position = "fixed";
+    iframe.style.right = "0";
+    iframe.style.bottom = "0";
+    iframe.style.width = "0";
+    iframe.style.height = "0";
+    iframe.style.border = "0";
+    iframe.style.visibility = "hidden";
+    document.body.appendChild(iframe);
+
+    const printWindow = iframe.contentWindow;
+    if (!printWindow) {
+      document.body.removeChild(iframe);
+      alert("Unable to open print preview.");
+      return;
     }
+
+    const printDoc = printWindow.document;
+    printDoc.open();
+    printDoc.write(html);
+    printDoc.close();
   }
 
   return (
     <Dashboard>
       <div className="p-6 bg-gray-100">
         <div className="bg-white p-4 rounded shadow">
-          <h2 className="text-xl font-bold mb-3">
-            Salary Details (Employee Wise)
-          </h2>
-          {loading && (
-            <div className="text-sm text-gray-600 mb-2">Loading data...</div>
-          )}
-          {error && (
-            <div className="text-sm text-red-600 mb-2">Error: {error}</div>
-          )}
+          <h2 className="text-xl font-bold mb-3">Salary Details (Employee Wise)</h2>
+
+          {loading && <div className="text-sm text-gray-600 mb-2">Loading data...</div>}
+          {error && <div className="text-sm text-red-600 mb-2">Error: {error}</div>}
+
           <div className="grid grid-cols-12 gap-3 items-end">
             <div className="col-span-3">
               <label className="block text-sm">Process Name</label>
@@ -647,7 +755,13 @@ const SalaryReport: React.FC = () => {
                   </option>
                 ))}
               </select>
+              {employeeName && (
+                <div className="text-[11px] text-gray-600 mt-1">
+                  Note: Employee selected → report shows ALL processes for that employee.
+                </div>
+              )}
             </div>
+
             <div className="col-span-3">
               <label className="block text-sm">Employee Name</label>
               <select
@@ -656,9 +770,7 @@ const SalaryReport: React.FC = () => {
                 className="mt-1 p-2 border rounded w-full"
               >
                 <option value="">
-                  {processName
-                    ? `-- All ${processName} Employees --`
-                    : "-- All Employees --"}
+                  {processName ? `-- All ${processName} Employees --` : "-- All Employees --"}
                 </option>
                 {employeesForProcess.map((e) => (
                   <option key={e} value={e}>
@@ -667,6 +779,7 @@ const SalaryReport: React.FC = () => {
                 ))}
               </select>
             </div>
+
             <div className="col-span-2">
               <label className="block text-sm">From</label>
               <input
@@ -676,6 +789,7 @@ const SalaryReport: React.FC = () => {
                 className="mt-1 p-2 border rounded w-full"
               />
             </div>
+
             <div className="col-span-2">
               <label className="block text-sm">To</label>
               <input
@@ -685,15 +799,12 @@ const SalaryReport: React.FC = () => {
                 className="mt-1 p-2 border rounded w-full"
               />
             </div>
+
             <div className="col-span-2">
               <label className="block text-sm">Sorting</label>
               <select
                 value={sorting}
-                onChange={(e) =>
-                  setSorting(
-                    e.target.value as "Date Wise" | "Art No Wise" | "Lot Wise"
-                  )
-                }
+                onChange={(e) => setSorting(e.target.value as "Date Wise" | "Art No Wise" | "Lot Wise")}
                 className="mt-1 p-2 border rounded w-full"
               >
                 <option>Date Wise</option>
@@ -702,19 +813,16 @@ const SalaryReport: React.FC = () => {
               </select>
             </div>
           </div>
+
           <div className="flex items-center gap-3 mt-4">
-            <button
-              className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
-              onClick={handleShow}
-            >
+            <button className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700" onClick={handleShow}>
               Show
             </button>
-            <button
-              className="px-4 py-2 border rounded hover:bg-gray-100"
-              onClick={resetAll}
-            >
+
+            <button className="px-4 py-2 border rounded hover:bg-gray-100" onClick={resetAll}>
               Reset
             </button>
+
             <div className="ml-auto text-sm text-gray-600">
               Rows: <strong>{totals.rows}</strong> | Pieces:{" "}
               <strong>{totals.pieces.toLocaleString()}</strong> | Amount:{" "}
@@ -726,10 +834,8 @@ const SalaryReport: React.FC = () => {
         {/* Modal */}
         {showModal && (
           <div className="fixed inset-0 z-50 flex items-start justify-center pt-8">
-            <div
-              className="absolute inset-0 bg-black opacity-30"
-              onClick={() => setShowModal(false)}
-            />
+            <div className="absolute inset-0 bg-black opacity-30" onClick={() => setShowModal(false)} />
+
             <div
               className={`relative bg-white rounded shadow overflow-hidden ${
                 fullScreen ? "w-full h-full m-0" : "w-[95%] lg:w-[90%] m-4"
@@ -739,18 +845,18 @@ const SalaryReport: React.FC = () => {
               <div className="flex items-center justify-between p-3 border-b">
                 <div>
                   <div className="text-sm text-gray-700">
-                    <strong>Process:</strong> {processName || "All"} &nbsp; |
-                    &nbsp; <strong>Employee:</strong> {employeeName || "All"}{" "}
-                    &nbsp; | &nbsp; <strong>From:</strong>{" "}
-                    {fmtDateHeader(fromDate)} &nbsp; | &nbsp;{" "}
+                    <strong>Process:</strong> {processName || "All"}{" "}
+                    {employeeName ? "(Employee selected: ALL processes shown)" : ""} &nbsp; | &nbsp;
+                    <strong>Employee:</strong> {employeeName || "All"} &nbsp; | &nbsp;
+                    <strong>From:</strong> {fmtDateHeader(fromDate)} &nbsp; | &nbsp;
                     <strong>To:</strong> {fmtDateHeader(toDate)}
                   </div>
                   <div className="text-xs text-gray-600 mt-1">
-                    Rows: {totals.rows} | Pieces:{" "}
-                    {totals.pieces.toLocaleString()} | Amount:{" "}
+                    Rows: {totals.rows} | Pieces: {totals.pieces.toLocaleString()} | Amount:{" "}
                     {fmtNumber(totals.amount)} | Sort: {sorting}
                   </div>
                 </div>
+
                 <div className="flex items-center gap-2">
                   <button
                     className="px-2 py-1 border rounded text-sm hover:bg-gray-100"
@@ -758,10 +864,7 @@ const SalaryReport: React.FC = () => {
                   >
                     {fullScreen ? "Exit Fullscreen" : "Fullscreen"}
                   </button>
-                  <button
-                    className="px-2 py-1 border rounded text-sm hover:bg-gray-100"
-                    onClick={handlePrintReport}
-                  >
+                  <button className="px-2 py-1 border rounded text-sm hover:bg-gray-100" onClick={handlePrintReport}>
                     Print
                   </button>
                   <button
@@ -772,11 +875,10 @@ const SalaryReport: React.FC = () => {
                   </button>
                 </div>
               </div>
-              <div
-                className="p-2 overflow-auto"
-                style={{ height: fullScreen ? "calc(100vh - 72px)" : "78vh" }}
-              >
+
+              <div className="p-2 overflow-auto" style={{ height: fullScreen ? "calc(100vh - 72px)" : "78vh" }}>
                 <div className="min-w-max">
+                  {/* Main Table */}
                   <table className="w-full table-auto text-sm border-collapse">
                     <thead className="bg-gray-50 sticky top-0">
                       <tr>
@@ -791,111 +893,134 @@ const SalaryReport: React.FC = () => {
                         <th className="px-2 py-1 border">Employee</th>
                       </tr>
                     </thead>
+
                     <tbody>
                       {sorted.map((r, idx) => (
-                        <tr
-                          key={r.id}
-                          className={idx % 2 === 0 ? "bg-white" : "bg-gray-50"}
-                        >
+                        <tr key={r.id} className={idx % 2 === 0 ? "bg-white" : "bg-gray-50"}>
                           <td className="px-2 py-1 border">{idx + 1}</td>
-                          <td className="px-2 py-1 border">
-                            {fmtDateHeader(r.date)}
-                          </td>
+                          <td className="px-2 py-1 border">{fmtDateHeader(r.date)}</td>
                           <td className="px-2 py-1 border">{r.artNo}</td>
                           <td className="px-2 py-1 border">{r.lotNo}</td>
-                          <td className="px-2 py-1 border text-right">
-                            {r.piece.toLocaleString()}
-                          </td>
-                          <td className="px-2 py-1 border text-right">
-                            {fmtRate(r.rate)}
-                          </td>
-                          <td className="px-2 py-1 border text-right">
-                            {fmtNumber(r.amount)}
-                          </td>
+                          <td className="px-2 py-1 border text-right">{r.piece.toLocaleString()}</td>
+                          <td className="px-2 py-1 border text-right">{fmtRate(r.rate)}</td>
+                          <td className="px-2 py-1 border text-right">{fmtNumber(r.amount)}</td>
                           <td className="px-2 py-1 border">{r.process}</td>
                           <td className="px-2 py-1 border">{r.employee}</td>
                         </tr>
                       ))}
 
-                      {/* Totals + payment summary row */}
-                      <tr>
-                        <td colSpan={9} className="p-0">
-                          <div className="w-full bg-white border-t">
-                            <div className="p-3">
-                              <div className="grid grid-cols-12 gap-4 items-center">
-                                <div className="col-span-4">
-                                  <div className="text-sm font-semibold">
-                                    Totals
-                                  </div>
-                                  <div className="text-xs text-gray-700 mt-1">
-                                    Pieces:{" "}
-                                    <strong>
-                                      {totals.pieces.toLocaleString()}
-                                    </strong>
-                                  </div>
-                                  <div className="text-xs text-gray-700">
-                                    Amount:{" "}
-                                    <strong>{fmtNumber(totals.amount)}</strong>
-                                  </div>
-                                </div>
-                                <div className="col-span-5">
-                                  <div className="text-sm font-semibold">
-                                    Payment Details
-                                  </div>
-                                  <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
-                                    <div className="text-gray-700">ADV:</div>
-                                    <div className="text-right text-gray-900">
-                                      {fmtNumber(paymentSummary.advances)}
-                                    </div>
-                                    <div className="text-gray-700">
-                                      Gross Payment:
-                                    </div>
-                                    <div className="text-right text-gray-900">
-                                      {fmtNumber(
-                                        paymentSummary.grossPayment
-                                      )}
-                                    </div>
-                                    <div className="text-gray-700">
-                                      Opening:
-                                    </div>
-                                    <div className="text-right text-gray-900">
-                                      {fmtNumber(paymentSummary.opening)}
-                                    </div>
-                                  </div>
-                                </div>
-                                <div className="col-span-3 text-right">
-                                  <div className="text-sm font-semibold">
-                                    Net Salary
-                                  </div>
-                                  <div className="text-lg text-black font-bold bg-yellow-200 inline-block px-3 py-1 rounded mt-2">
-                                    {fmtNumber(paymentSummary.net)}
-                                  </div>
-                                </div>
-                              </div>
-                              <div className="mt-3 text-xs text-gray-600">
-                                <div>
-                                  Calculation:{" "}
-                                  <strong>
-                                    Net Salary = Gross Payment - ADV + Opening
-                                  </strong>
-                                </div>
-                                <div>
-                                  = {fmtNumber(
-                                    paymentSummary.grossPayment
-                                  )}{" "}
-                                  - {fmtNumber(paymentSummary.advances)} +{" "}
-                                  {fmtNumber(paymentSummary.opening)} ={" "}
-                                  <strong>
-                                    {fmtNumber(paymentSummary.net)}
-                                  </strong>
-                                </div>
-                              </div>
-                            </div>
-                          </div>
-                        </td>
-                      </tr>
+                      {sorted.length === 0 && (
+                        <tr>
+                          <td colSpan={9} className="px-2 py-3 border text-center text-gray-500">
+                            No rows found for selected filters.
+                          </td>
+                        </tr>
+                      )}
                     </tbody>
                   </table>
+
+                  {/* Totals + Payment Summary */}
+                  <div className="mt-4 border rounded bg-white">
+                    <div className="p-3">
+                      <div className="grid grid-cols-12 gap-4 items-start">
+                        <div className="col-span-4">
+                          <div className="text-sm font-semibold">Totals</div>
+                          <div className="text-xs text-gray-700 mt-1">
+                            Rows: <strong>{totals.rows}</strong>
+                          </div>
+                          <div className="text-xs text-gray-700">
+                            Pieces: <strong>{totals.pieces.toLocaleString()}</strong>
+                          </div>
+                          <div className="text-xs text-gray-700">
+                            Amount: <strong>{fmtNumber(totals.amount)}</strong>
+                          </div>
+                        </div>
+
+                        <div className="col-span-5">
+                          <div className="text-sm font-semibold">Payment Details</div>
+
+                          <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
+                            <div className="text-gray-700">ADV (Selected Range):</div>
+                            <div className="text-right text-gray-900">{fmtNumber(paymentSummary.advances)}</div>
+
+                            <div className="text-gray-700">Gross Payment:</div>
+                            <div className="text-right text-gray-900">{fmtNumber(paymentSummary.grossPayment)}</div>
+
+                            <div className="text-gray-700">Opening:</div>
+                            <div className="text-right text-gray-900">{fmtNumber(paymentSummary.opening)}</div>
+                          </div>
+
+                          <div className="mt-3 text-[11px] text-gray-600">
+                            Calculation: <strong>Net = Gross - ADV + Opening</strong>
+                          </div>
+                        </div>
+
+                        <div className="col-span-3 text-right">
+                          <div className="text-sm font-semibold">Net Salary</div>
+                          <div className="text-lg text-black font-bold bg-yellow-200 inline-block px-3 py-1 rounded mt-2">
+                            {fmtNumber(paymentSummary.net)}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* ✅ Payment list with Payment Date */}
+                      <div className="mt-4">
+                        <div className="text-sm font-semibold mb-2">Payments (ADV) - Date Wise</div>
+                        <div className="border rounded overflow-auto max-h-56">
+                          <table className="w-full text-xs border-collapse">
+                            <thead className="bg-gray-50 sticky top-0">
+                              <tr>
+                                <th className="border px-2 py-1">S No</th>
+                                <th className="border px-2 py-1">Payment Date</th>
+                                <th className="border px-2 py-1">Employee</th>
+                                <th className="border px-2 py-1">Process</th>
+                                <th className="border px-2 py-1 text-right">Amount</th>
+                                <th className="border px-2 py-1">Remarks</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {paymentRowsForSelection.inRangePayments.map((p, i) => (
+                                <tr key={p.id} className={i % 2 === 0 ? "bg-white" : "bg-gray-50"}>
+                                  <td className="border px-2 py-1 text-center">{i + 1}</td>
+                                  <td className="border px-2 py-1">{fmtDateHeader(p.dateISO)}</td>
+                                  <td className="border px-2 py-1">{p.employeeName}</td>
+                                  <td className="border px-2 py-1">{p.process}</td>
+                                  <td className="border px-2 py-1 text-right">{fmtNumber(p.amount)}</td>
+                                  <td className="border px-2 py-1">{p.remarks}</td>
+                                </tr>
+                              ))}
+
+                              {paymentRowsForSelection.inRangePayments.length === 0 && (
+                                <tr>
+                                  <td colSpan={6} className="border px-2 py-3 text-center text-gray-500">
+                                    No payments found in selected date range.
+                                    {!employeeName && (
+                                      <div className="mt-1">
+                                        Tip: Select an employee to see only that employee payments.
+                                      </div>
+                                    )}
+                                  </td>
+                                </tr>
+                              )}
+                            </tbody>
+
+                            {paymentRowsForSelection.inRangePayments.length > 0 && (
+                              <tfoot>
+                                <tr className="bg-gray-100 font-semibold">
+                                  <td colSpan={4} className="border px-2 py-1 text-right">
+                                    Total ADV
+                                  </td>
+                                  <td className="border px-2 py-1 text-right">{fmtNumber(paymentSummary.advances)}</td>
+                                  <td className="border px-2 py-1" />
+                                </tr>
+                              </tfoot>
+                            )}
+                          </table>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  {/* End Summary */}
                 </div>
               </div>
             </div>

@@ -116,7 +116,7 @@ export default function DashboardScreen({ navigation }: any) {
         <View style={styles.cardsContainer}>
 
           <TouchableOpacity style={[styles.cardLarge, { backgroundColor: '#EF4444' }]}
-            onPress={() => navigation.navigate('Category')} activeOpacity={0.85}>
+            onPress={() => navigation.navigate('ProductList')} activeOpacity={0.85}>
             <View style={styles.cardInner}>
               <Text style={styles.cardIcon}>🛍️</Text>
               <Text style={styles.cardTitle}>Buy Products</Text>

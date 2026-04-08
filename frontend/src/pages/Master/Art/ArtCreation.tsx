@@ -1,172 +1,188 @@
-import type React from "react"
-import { useState, useEffect, useMemo } from "react"
-import Dashboard from "../../Dashboard"
+// ArtCreationForm.tsx
+import type React from "react";
+import { useState, useEffect, useMemo } from "react";
+import Dashboard from "../../Dashboard";
 import api from "../../../api/axiosInstance";
-import Swal from "sweetalert2"
+import Swal from "sweetalert2";
 
 interface FormData {
-  serialNumber: string
-  artGroup: string
-  artName: string
-  artNo: string
-  copyFromArtName: string
-  styleRate: string
-  saleRate: string
-  styleName: string
-  openingBalance: string
-  brandName: string
-  workOnArt: string
+  serialNumber: string;
+  artGroup: string;
+  artName: string;
+  artNo: string;
+  copyFromArtName: string;
+  styleRate: string;
+  saleRate: string;
+  styleName: string;
+  openingBalance: string;
+  brandName: string;
+  workOnArt: string;
 }
 
 interface ArtListView {
-  serialNumber: string
-  artGroup: string
-  artName: string
-  artNo: string
-  styleName: string
-  season: string
-  brandName: string
-  saleRate: string
+  serialNumber: string;
+  artGroup: string;
+  artName: string;
+  artNo: string;
+  styleName: string;
+  season: string;
+  brandName: string;
+  saleRate: string;
 }
 
 interface ArtDetailView {
-  serialNumber: string
-  artGroup: string
-  artName: string
-  artNo: string
-  styleRate: string
-  saleRate: string
-  styleName: string
-  season: string
-  copyFromArtName: string
-  openingBalance: string
-  wtPcs: string
-  reference: string
-  brandName: string
-  workOnArt: string
-  processes: ProcessDetail[]
-  shades: ShadeDetail[]
-  sizes: SizeDetail[]
-  sizeDetails?: SizeDetailWithBoxPcsRate[]
-  accessories: AccessoryDetail[]
+  serialNumber: string;
+  artGroup: string;
+  artName: string;
+  artNo: string;
+  styleRate: string;
+  saleRate: string;
+  styleName: string;
+  season: string;
+  copyFromArtName: string;
+  openingBalance: string;
+  wtPcs: string;
+  reference: string;
+  brandName: string;
+  workOnArt: string;
+  processes: ProcessDetail[];
+  shades: ShadeDetail[];
+  sizes: SizeDetail[];
+  sizeDetails?: SizeDetailWithBoxPcsRate[];
+  accessories: AccessoryDetail[];
+
+  accessoryDetails?: AccessoryDetailModalResponseDTO[];
 }
 
 interface ProcessDetail {
-  id: number
-  sno: number
-  processName: string
-  rate: string
-  rate1: string
-  sizeWid: string
-  sizeWidAct: string
-  itemRef: string
-  process: string
+  id: number;
+  sno: number;
+  processName: string;
+  rate: string;
+  rate1: string;
+  sizeWid: string;
+  sizeWidAct: string;
+  itemRef: string;
+  process: string;
 }
 
 interface ShadeDetail {
-  id: number
-  shadeCode: string
-  shadeName: string
-  colorFamily: string
+  id: number;
+  shadeCode: string;
+  shadeName: string;
+  colorFamily: string;
 }
 
 interface SizeDetail {
-  id: number
-  serialNo: string
-  sizeName: string
-  orderNo: string
-  artGroup: string
+  id: number;
+  serialNo: string;
+  sizeName: string;
+  orderNo: string;
+  artGroup: string;
 }
 
 interface AccessoryDetail {
-  id: number
-  materialId: number
-  serialNumber: string
-  materialGroupId: number
-  materialGroupName: string
-  materialName: string
-  code: string
-  materialUnit: string
-  minimumStock: string
-  maximumStock: string
+  id: number;
+  materialId: number;
+  serialNumber: string;
+  materialGroupId: number;
+  materialGroupName: string;
+  materialName: string;
+  code: string;
+  materialUnit: string;
+  minimumStock: string;
+  maximumStock: string;
 }
 
 interface ProcessRow {
-  sno: number
-  processName: string
-  rate: string
-  rate1: string
-  sizeWid: string
-  sizeWidAct: string
-  itemRef: string
-  process: string
+  sno: number;
+  processName: string;
+  rate: string;
+  rate1: string;
+  sizeWid: string;
+  sizeWidAct: string;
+  itemRef: string;
+  process: string;
 }
 
 interface ProcessFromCreation {
-  serialNo: string
-  processName: string
-  category: string
+  serialNo: string;
+  processName: string;
+  category: string;
 }
 
 interface ShadeFromCreation {
-  shadeCode: string
-  shadeName: string
-  colorFamily: string
+  shadeCode: string;
+  shadeName: string;
+  colorFamily: string;
 }
 
 interface SizeFromCreation {
-  id?: number
-  serialNo: string
-  sizeName: string
-  orderNo: string
-  artGroup?: string | { artGroupName?: string; [key: string]: any }
-  box?: string
-  pcs?: string
-  rate?: string
+  id?: number;
+  serialNo: string;
+  sizeName: string;
+  orderNo: string;
+  artGroup?: string | { artGroupName?: string; [key: string]: any };
+  box?: string;
+  pcs?: string;
+  rate?: string;
 }
 
 interface MaterialFromCreation {
-  id: number
-  serialNumber: string
-  materialGroupId: number
-  materialGroupName: string
-  materialName: string
-  code: string
-  materialUnit: string
-  minimumStock: string
-  maximumStock: string
+  id: number;
+  serialNumber: string;
+  materialGroupId: number;
+  materialGroupName: string;
+  materialName: string;
+  code: string;
+  materialUnit: string;
+  minimumStock: string;
+  maximumStock: string;
 }
 
 interface ArtGroupFromCreation {
-  serialNo: number
-  artGroupName: string
-  yearsToleranceFrom: string
-  yearsToleranceTo: string
-  seriesRangeStart: string
-  seriesRangeEnd: string
+  serialNo: number;
+  artGroupName: string;
+  yearsToleranceFrom: string;
+  yearsToleranceTo: string;
+  seriesRangeStart: string;
+  seriesRangeEnd: string;
 }
 
 interface AccessoryFromCreation {
-  serialNumber: string
-  processName: string
-  materialName: string
+  serialNumber: string;
+  processName: string;
+  materialName: string;
 }
 
+// ✅ FIX: keep backend id in modal row so delete/update works reliably
 interface AccessoryRowInModal {
-  sno: number
-  accessoryName: string
-  qty: string
-  rate: string
-  amount: string
+  id?: number;
+  sno: number;
+  accessoryName: string;
+  qty: string;
+  rate: string;
+  amount: string;
 }
+
 interface SizeDetailWithBoxPcsRate {
-  id: number
-  serialNo: string
-  sizeName: string
-  orderNo: string
-  box: string
-  pcs: string
-  rate: string
+  id: number;
+  serialNo: string;
+  sizeName: string;
+  orderNo: string;
+  box: string;
+  pcs: string;
+  rate: string;
+}
+
+interface AccessoryDetailModalResponseDTO {
+  id?: number;
+  processName: string;
+  sno: number;
+  accessoryName: string;
+  qty: string;
+  rate: string;
+  amount: string;
 }
 
 const ArtCreationForm: React.FC = () => {
@@ -182,129 +198,153 @@ const ArtCreationForm: React.FC = () => {
     openingBalance: "",
     brandName: "",
     workOnArt: "",
-  })
+  });
 
-  const [isModalOpen, setIsModalOpen] = useState<boolean>(false)
-  const [editingArt, setEditingArt] = useState<ArtDetailView | null>(null)
-  const [loading, setLoading] = useState<boolean>(false)
-  const [artList, setArtList] = useState<ArtListView[]>([])
-  const [artListForCopy, setArtListForCopy] = useState<ArtListView[]>([])
-  const [processRows, setProcessRows] = useState<ProcessRow[]>([])
-  const [availableProcesses, setAvailableProcesses] = useState<ProcessFromCreation[]>([])
-  const [availableShades, setAvailableShades] = useState<ShadeFromCreation[]>([])
-  const [selectedShades, setSelectedShades] = useState<ShadeFromCreation[]>([])
-  const [availableSizes, setAvailableSizes] = useState<SizeFromCreation[]>([])
-  const [selectedSizes, setSelectedSizes] = useState<SizeFromCreation[]>([])
-  const [availableMaterials, setAvailableMaterials] = useState<MaterialFromCreation[]>([])
-  const [selectedAccessories, setSelectedAccessories] = useState<MaterialFromCreation[]>([])
-  const [availableArtGroups, setAvailableArtGroups] = useState<ArtGroupFromCreation[]>([])
-  const [isAccessoriesModalOpen, setIsAccessoriesModalOpen] = useState<boolean>(false)
-  const [searchQuery, setSearchQuery] = useState<string>("")
-  const [selectedProcessForAccessories, setSelectedProcessForAccessories] = useState<string>("")
-  const [, setAccessoriesByProcess] = useState<AccessoryFromCreation[]>([])
-  const [filteredMaterialsForProcess, setFilteredMaterialsForProcess] = useState<string[]>([])
-  const [accessoryRowsInModal, setAccessoryRowsInModal] = useState<AccessoryRowInModal[]>([])
-  const [isSizeModalOpen, setIsSizeModalOpen] = useState<boolean>(false)
-const [currentSizeSelection, setCurrentSizeSelection] = useState<string>("")
-const [sizeDetails, setSizeDetails] = useState({
-  box: "",
-  pcs: "",
-  rate: ""
-})
-const [manualAccessoryInput, setManualAccessoryInput] = useState({
-  name: "",
-  qty: "",
-  rate: ""
-})
+  const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
+  const [editingArt, setEditingArt] = useState<ArtDetailView | null>(null);
+  const [loading, setLoading] = useState<boolean>(false);
+  const [artList, setArtList] = useState<ArtListView[]>([]);
+  const [artListForCopy, setArtListForCopy] = useState<ArtListView[]>([]);
+  const [processRows, setProcessRows] = useState<ProcessRow[]>([]);
+  const [availableProcesses, setAvailableProcesses] = useState<
+    ProcessFromCreation[]
+  >([]);
+  const [availableShades, setAvailableShades] = useState<ShadeFromCreation[]>(
+    []
+  );
+  const [selectedShades, setSelectedShades] = useState<ShadeFromCreation[]>([]);
+  const [availableSizes, setAvailableSizes] = useState<SizeFromCreation[]>([]);
+  const [selectedSizes, setSelectedSizes] = useState<SizeFromCreation[]>([]);
+  const [availableMaterials, setAvailableMaterials] = useState<
+    MaterialFromCreation[]
+  >([]);
+  const [selectedAccessories, setSelectedAccessories] = useState<
+    MaterialFromCreation[]
+  >([]);
+  const [availableArtGroups, setAvailableArtGroups] = useState<
+    ArtGroupFromCreation[]
+  >([]);
+  const [isAccessoriesModalOpen, setIsAccessoriesModalOpen] =
+    useState<boolean>(false);
+  const [searchQuery, setSearchQuery] = useState<string>("");
+  const [selectedProcessForAccessories, setSelectedProcessForAccessories] =
+    useState<string>("");
+  const [, setAccessoriesByProcess] = useState<AccessoryFromCreation[]>([]);
+  const [filteredMaterialsForProcess, setFilteredMaterialsForProcess] =
+    useState<string[]>([]);
+  const [accessoryRowsInModal, setAccessoryRowsInModal] = useState<
+    AccessoryRowInModal[]
+  >([]);
+
+  // ✅ FIX: store process-wise accessory detail rows here
+  const [accessoryDetails, setAccessoryDetails] = useState<
+    AccessoryDetailModalResponseDTO[]
+  >([]);
+
+  const [isSizeModalOpen, setIsSizeModalOpen] = useState<boolean>(false);
+  const [currentSizeSelection, setCurrentSizeSelection] =
+    useState<string>("");
+  const [sizeDetails, setSizeDetails] = useState({
+    box: "",
+    pcs: "",
+    rate: "",
+  });
+  const [manualAccessoryInput, setManualAccessoryInput] = useState({
+    name: "",
+    qty: "",
+    rate: "",
+  });
 
   useEffect(() => {
-    loadArts()
-    loadAvailableProcesses()
-    loadAvailableShades()
-    loadAvailableSizes()
-    loadAvailableArtGroups()
-    loadAvailableMaterials()
-  }, [])
+    loadArts();
+    loadAvailableProcesses();
+    loadAvailableShades();
+    loadAvailableSizes();
+    loadAvailableArtGroups();
+    loadAvailableMaterials();
+  }, []);
 
   useEffect(() => {
     if (!editingArt) {
-      generateSerialNumber()
+      generateSerialNumber();
     }
-  }, [editingArt])
+  }, [editingArt]);
 
   const totals = useMemo(() => {
-    const totalRate = processRows.reduce((sum, row) => sum + (parseFloat(row.rate) || 0), 0)
-    return { totalRate }
-  }, [processRows])
+    const totalRate = processRows.reduce(
+      (sum, row) => sum + (parseFloat(row.rate) || 0),
+      0
+    );
+    return { totalRate };
+  }, [processRows]);
 
   const filteredArtList = useMemo(() => {
-  if (!searchQuery.trim()) {
-    return artList
-  }
-  
-  const query = searchQuery.toLowerCase().trim()
-  return artList.filter(art => 
-    art.artNo?.toLowerCase().includes(query) ||
-    art.artName?.toLowerCase().includes(query) ||
-    art.serialNumber?.toLowerCase().includes(query) ||
-    art.artGroup?.toLowerCase().includes(query)
-  )
-}, [artList, searchQuery])
+    if (!searchQuery.trim()) return artList;
+    const query = searchQuery.toLowerCase().trim();
+    return artList.filter(
+      (art) =>
+        art.artNo?.toLowerCase().includes(query) ||
+        art.artName?.toLowerCase().includes(query) ||
+        art.serialNumber?.toLowerCase().includes(query) ||
+        art.artGroup?.toLowerCase().includes(query)
+    );
+  }, [artList, searchQuery]);
 
   const loadArts = async () => {
     try {
-      setLoading(true)
-      const response = await api.get<ArtListView[]>("/arts")
-      setArtList(response.data)
-      setArtListForCopy(response.data)
-      console.log("Loaded arts (ListView):", response.data)
+      setLoading(true);
+      const response = await api.get<ArtListView[]>("/arts");
+      setArtList(response.data);
+      setArtListForCopy(response.data);
     } catch (error) {
-      console.error("Failed to load arts:", error)
-      setArtList([])
-      setArtListForCopy([])
+      console.error("Failed to load arts:", error);
+      setArtList([]);
+      setArtListForCopy([]);
       Swal.fire({
         icon: "error",
         title: "Error",
         text: "Failed to load arts list",
-      })
+      });
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }
+  };
 
-  const loadArtDetail = async (serialNumber: string): Promise<ArtDetailView | null> => {
+  const loadArtDetail = async (
+    serialNumber: string
+  ): Promise<ArtDetailView | null> => {
     try {
-      setLoading(true)
-      const response = await api.get<ArtDetailView>(`/arts/${serialNumber}`)
-      console.log("Loaded art detail:", response.data)
-      return response.data
+      setLoading(true);
+      const response = await api.get<ArtDetailView>(`/arts/${serialNumber}`);
+      return response.data;
     } catch (error) {
-      console.error("Failed to load art detail:", error)
+      console.error("Failed to load art detail:", error);
       Swal.fire({
         icon: "error",
         title: "Error",
         text: "Failed to load art details",
-      })
-      return null
+      });
+      return null;
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }
+  };
 
   const handleCopyFromArtChange = async (selectedArtName: string) => {
     if (!selectedArtName) {
-      setFormData((prev) => ({ ...prev, copyFromArtName: "" }))
-      return
+      setFormData((prev) => ({ ...prev, copyFromArtName: "" }));
+      return;
     }
-    console.log("========== COPY FROM ART SELECTED ==========")
-    console.log("Selected Art Name:", selectedArtName)
-    const selectedArt = artListForCopy.find((art) => art.artName === selectedArtName)
+
+    const selectedArt = artListForCopy.find(
+      (art) => art.artName === selectedArtName
+    );
+
     if (selectedArt) {
-      console.log("Found Art:", selectedArt)
-      setFormData((prev) => ({ ...prev, copyFromArtName: selectedArtName }))
-      const artDetail = await loadArtDetail(selectedArt.serialNumber)
-      if (artDetail && artDetail.processes && artDetail.processes.length > 0) {
-        console.log("Copying processes from art:", artDetail.processes.length)
+      setFormData((prev) => ({ ...prev, copyFromArtName: selectedArtName }));
+      const artDetail = await loadArtDetail(selectedArt.serialNumber);
+
+      if (artDetail?.processes?.length) {
         const copiedProcesses = artDetail.processes.map((p, index) => ({
           sno: index + 1,
           processName: p.processName || "",
@@ -314,155 +354,179 @@ const [manualAccessoryInput, setManualAccessoryInput] = useState({
           sizeWidAct: p.sizeWidAct || "",
           itemRef: p.itemRef || "",
           process: p.process || "",
-        }))
-        setProcessRows(copiedProcesses)
-        console.log("Copied processes:", copiedProcesses)
+        }));
+        setProcessRows(copiedProcesses);
+
         Swal.fire({
           icon: "success",
           title: "Success",
           text: `Copied ${copiedProcesses.length} processes from ${selectedArtName}`,
           timer: 2000,
           showConfirmButton: false,
-        })
+        });
       } else {
-        console.log("No processes found in selected art")
         Swal.fire({
           icon: "info",
           title: "No Processes",
           text: "No processes found in the selected art",
-        })
+        });
       }
-    } else {
-      console.log("Art not found in list")
     }
-  }
+  };
 
   const loadAvailableProcesses = async () => {
     try {
-      const response = await api.get("/process/list")
-      setAvailableProcesses(response.data)
+      const response = await api.get("/process/list");
+      setAvailableProcesses(response.data);
     } catch (error) {
-      console.error("Failed to load available processes:", error)
-      setAvailableProcesses([])
+      console.error("Failed to load available processes:", error);
+      setAvailableProcesses([]);
     }
-  }
+  };
 
   const loadAvailableShades = async () => {
     try {
-      const response = await api.get("/shade/list")
-      setAvailableShades(response.data)
+      const response = await api.get("/shade/list");
+      setAvailableShades(response.data);
     } catch (error) {
-      console.error("Failed to load available shades:", error)
-      setAvailableShades([])
+      console.error("Failed to load available shades:", error);
+      setAvailableShades([]);
     }
-  }
+  };
 
   const loadAvailableSizes = async () => {
     try {
-      const response = await api.get("/sizes")
-      setAvailableSizes(response.data)
+      const response = await api.get("/sizes");
+      setAvailableSizes(response.data);
     } catch (error) {
-      console.error("Failed to load available sizes:", error)
-      setAvailableSizes([])
+      console.error("Failed to load available sizes:", error);
+      setAvailableSizes([]);
     }
-  }
+  };
 
   const loadAvailableMaterials = async () => {
     try {
-      const response = await api.get("/materials")
-      setAvailableMaterials(response.data)
+      const response = await api.get("/materials");
+      setAvailableMaterials(response.data);
     } catch (error) {
-      console.error("Failed to load available materials:", error)
-      setAvailableMaterials([])
+      console.error("Failed to load available materials:", error);
+      setAvailableMaterials([]);
     }
-  }
+  };
 
   const loadAvailableArtGroups = async () => {
     try {
-      const response = await api.get("/artgroup/list")
-      setAvailableArtGroups(response.data)
+      const response = await api.get("/artgroup/list");
+      setAvailableArtGroups(response.data);
     } catch (error) {
-      console.error("Failed to load available art groups:", error)
-      setAvailableArtGroups([])
+      console.error("Failed to load available art groups:", error);
+      setAvailableArtGroups([]);
     }
-  }
+  };
 
   const loadAccessoriesByProcess = async (processName: string) => {
     try {
-      const response = await api.get<AccessoryFromCreation[]>("/accessories/list")
-      const filtered = response.data.filter((acc) => acc.processName === processName)
-      setAccessoriesByProcess(filtered)
-      const materialNames = filtered.map((acc) => acc.materialName)
-      setFilteredMaterialsForProcess(materialNames)
+      const response = await api.get<AccessoryFromCreation[]>(
+        "/accessories/list"
+      );
+      const filtered = response.data.filter(
+        (acc) => acc.processName === processName
+      );
+      setAccessoriesByProcess(filtered);
+      setFilteredMaterialsForProcess(filtered.map((acc) => acc.materialName));
     } catch (error) {
-      console.error("Failed to load accessories by process:", error)
-      setAccessoriesByProcess([])
-      setFilteredMaterialsForProcess([])
+      console.error("Failed to load accessories by process:", error);
+      setAccessoriesByProcess([]);
+      setFilteredMaterialsForProcess([]);
     }
-  }
+  };
 
   const saveArt = async (artData: any) => {
     try {
-      setLoading(true)
-      const response = await api.post<ArtDetailView>("/arts", artData)
-      console.log("Art saved:", response.data)
-      return response.data
+      setLoading(true);
+      const response = await api.post<ArtDetailView>("/arts", artData);
+      return response.data;
     } catch (error) {
-      console.error("Failed to save art:", error)
-      throw error
+      console.error("Failed to save art:", error);
+      throw error;
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }
+  };
 
   const updateArt = async (serialNumber: string, artData: any) => {
     try {
-      setLoading(true)
-      const response = await api.put<ArtDetailView>(`/arts/${serialNumber}`, artData)
-      console.log("Art updated:", response.data)
-      return response.data
+      setLoading(true);
+      const response = await api.put<ArtDetailView>(
+        `/arts/${serialNumber}`,
+        artData
+      );
+      return response.data;
     } catch (error) {
-      console.error("Failed to update art:", error)
-      throw error
+      console.error("Failed to update art:", error);
+      throw error;
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }
+  };
 
   const deleteArtFromBackend = async (serialNumber: string) => {
     try {
-      setLoading(true)
-      await api.delete(`/arts/${serialNumber}`)
-      console.log("Art deleted:", serialNumber)
+      setLoading(true);
+      await api.delete(`/arts/${serialNumber}`);
     } catch (error) {
-      console.error("Failed to delete art:", error)
-      throw error
+      console.error("Failed to delete art:", error);
+      throw error;
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }
+  };
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const { name, value, type, checked } = e.target
+    const { name, value, type, checked } = e.target;
     setFormData((prev) => ({
       ...prev,
       [name]: type === "checkbox" ? (checked as any) : value,
-    }))
-  }
+    }));
+  };
+
+  // ✅ FIX: upsert accessoryDetails per process; if rows empty, it removes that process details
+  const upsertAccessoryDetailsForProcess = (
+    processName: string,
+    rows: AccessoryRowInModal[]
+  ) => {
+    const proc = (processName || "").trim();
+    if (!proc) return;
+
+    const normalized: AccessoryDetailModalResponseDTO[] = rows
+      .filter((r) => (r.accessoryName || "").trim())
+      .map((r, idx) => ({
+        id: r.id,
+        processName: proc,
+        sno: idx + 1,
+        accessoryName: r.accessoryName,
+        qty: r.qty || "0",
+        rate: r.rate || "0",
+        amount: r.amount || "0.00",
+      }));
+
+    setAccessoryDetails((prev) => [
+      ...prev.filter((d) => (d.processName || "").trim() !== proc),
+      ...normalized,
+    ]);
+  };
 
   const handleSubmit = async () => {
     try {
-      console.log("========== FRONTEND SUBMIT START ==========")
       if (!formData.serialNumber || !formData.artName) {
         Swal.fire({
           icon: "warning",
           title: "Validation Error",
           text: "Please fill in required fields: Serial Number and Art Name",
-        })
-        return
+        });
+        return;
       }
-      console.log("Form Data:", formData)
-      console.log("Process Rows Count:", processRows.length)
+
       const requestPayload = {
         ...formData,
         processes: processRows.map((row) => ({
@@ -480,19 +544,19 @@ const [manualAccessoryInput, setManualAccessoryInput] = useState({
           shadeName: shade.shadeName,
           colorFamily: shade.colorFamily,
         })),
-  sizes: selectedSizes.map((size) => ({
-  serialNo: size.serialNo,
-  sizeName: size.sizeName,
-  orderNo: size.orderNo,
-})),
-sizeDetails: selectedSizes.map((size) => ({
-  serialNo: size.serialNo,
-  sizeName: size.sizeName,
-  orderNo: size.orderNo,
-  box: size.box || "",
-  pcs: size.pcs || "",
-  rate: size.rate || "",
-})),
+        sizes: selectedSizes.map((size) => ({
+          serialNo: size.serialNo,
+          sizeName: size.sizeName,
+          orderNo: size.orderNo,
+        })),
+        sizeDetails: selectedSizes.map((size) => ({
+          serialNo: size.serialNo,
+          sizeName: size.sizeName,
+          orderNo: size.orderNo,
+          box: size.box || "",
+          pcs: size.pcs || "",
+          rate: size.rate || "",
+        })),
         accessories: selectedAccessories.map((accessory) => ({
           materialId: accessory.id,
           serialNumber: accessory.serialNumber,
@@ -504,28 +568,41 @@ sizeDetails: selectedSizes.map((size) => ({
           minimumStock: accessory.minimumStock,
           maximumStock: accessory.maximumStock,
         })),
-      }
-      console.log("Request Payload:", JSON.stringify(requestPayload, null, 2))
+
+        // ✅ FIX: send accessoryDetails (include id)
+        accessoryDetails: accessoryDetails.map((d) => ({
+          id: d.id,
+          processName: d.processName,
+          sno: d.sno,
+          accessoryName: d.accessoryName,
+          qty: d.qty,
+          rate: d.rate,
+          amount: d.amount,
+        })),
+      };
+
       if (editingArt) {
-        await updateArt(editingArt.serialNumber, requestPayload)
+        await updateArt(editingArt.serialNumber, requestPayload);
         Swal.fire({
           icon: "success",
           title: "Updated!",
           text: "Art updated successfully!",
           timer: 2000,
           showConfirmButton: false,
-        })
+        });
       } else {
-        await saveArt(requestPayload)
+        await saveArt(requestPayload);
         Swal.fire({
           icon: "success",
           title: "Created!",
           text: "Art created successfully!",
           timer: 2000,
           showConfirmButton: false,
-        })
+        });
       }
-      await loadArts()
+
+      await loadArts();
+
       setFormData({
         serialNumber: "",
         artGroup: "",
@@ -538,51 +615,52 @@ sizeDetails: selectedSizes.map((size) => ({
         openingBalance: "",
         brandName: "",
         workOnArt: "",
-      })
-      setProcessRows([])
-      setSelectedShades([])
-      setSelectedSizes([])
-      setSelectedAccessories([])
-      setEditingArt(null)
-      console.log("========== FRONTEND SUBMIT END ==========")
+      });
+      setProcessRows([]);
+      setSelectedShades([]);
+      setSelectedSizes([]);
+      setSelectedAccessories([]);
+      setAccessoryDetails([]);
+      setEditingArt(null);
     } catch (error) {
-      console.error("Error saving art:", error)
+      console.error("Error saving art:", error);
       Swal.fire({
         icon: "error",
         title: "Error",
         text: "Failed to save art. Please try again.",
-      })
+      });
     }
-  }
+  };
 
   const handleArtListClick = async () => {
-    await loadArts()
-    setIsModalOpen(true)
-  }
+    await loadArts();
+    setIsModalOpen(true);
+  };
 
-  const handleCloseModal = () => {
-    setIsModalOpen(false)
-  }
+  const handleCloseModal = () => setIsModalOpen(false);
 
   const handleEditArt = async (art: ArtListView) => {
-    const artDetail = await loadArtDetail(art.serialNumber)
-    if (artDetail) {
-      setEditingArt(artDetail)
-      setFormData({
-        serialNumber: artDetail.serialNumber,
-        artGroup: artDetail.artGroup,
-        artName: artDetail.artName,
-        artNo: artDetail.artNo,
-        copyFromArtName: artDetail.copyFromArtName,
-        styleRate: artDetail.styleRate,
-        saleRate: artDetail.saleRate,
-        styleName: artDetail.styleName,
-        openingBalance: artDetail.openingBalance,
-        brandName: artDetail.brandName,
-        workOnArt: artDetail.workOnArt,
-      })
-      if (artDetail.processes && artDetail.processes.length > 0) {
-        const loadedProcesses = artDetail.processes.map((p) => ({
+    const artDetail = await loadArtDetail(art.serialNumber);
+    if (!artDetail) return;
+
+    setEditingArt(artDetail);
+    setFormData({
+      serialNumber: artDetail.serialNumber,
+      artGroup: artDetail.artGroup,
+      artName: artDetail.artName,
+      artNo: artDetail.artNo,
+      copyFromArtName: artDetail.copyFromArtName,
+      styleRate: artDetail.styleRate,
+      saleRate: artDetail.saleRate,
+      styleName: artDetail.styleName,
+      openingBalance: artDetail.openingBalance,
+      brandName: artDetail.brandName,
+      workOnArt: artDetail.workOnArt,
+    });
+
+    if (artDetail.processes?.length) {
+      setProcessRows(
+        artDetail.processes.map((p) => ({
           sno: p.sno,
           processName: p.processName || "",
           rate: p.rate || "",
@@ -592,50 +670,49 @@ sizeDetails: selectedSizes.map((size) => ({
           itemRef: p.itemRef || "",
           process: p.process || "",
         }))
-        setProcessRows(loadedProcesses)
-      } else {
-        setProcessRows([])
-      }
-      if (artDetail.shades && artDetail.shades.length > 0) {
-        const loadedShades = artDetail.shades.map((s) => ({
+      );
+    } else setProcessRows([]);
+
+    if (artDetail.shades?.length) {
+      setSelectedShades(
+        artDetail.shades.map((s) => ({
           shadeCode: s.shadeCode,
           shadeName: s.shadeName,
           colorFamily: s.colorFamily,
         }))
-        setSelectedShades(loadedShades)
-      } else {
-        setSelectedShades([])
-      }
-      // Load size details (box, pcs, rate) instead of just sizes
-if (artDetail.sizeDetails && artDetail.sizeDetails.length > 0) {
-  const loadedSizeDetails = artDetail.sizeDetails.map((s) => ({
-    id: s.id,
-    serialNo: s.serialNo,
-    sizeName: s.sizeName,
-    orderNo: s.orderNo,
-    box: s.box || "",
-    pcs: s.pcs || "",
-    rate: s.rate || "",
-  }))
-  setSelectedSizes(loadedSizeDetails)
-} else if (artDetail.sizes && artDetail.sizes.length > 0) {
-  // Fallback to old sizes format if sizeDetails doesn't exist
-  const loadedSizes = artDetail.sizes.map((s) => ({
-    id: s.id,
-    serialNo: s.serialNo,
-    sizeName: s.sizeName,
-    orderNo: s.orderNo,
-    artGroup: s.artGroup,
-    box: (s as any).box || "",
-    pcs: (s as any).pcs || "",
-    rate: (s as any).rate || "",
-  }))
-  setSelectedSizes(loadedSizes)
-} else {
-  setSelectedSizes([])
-}
-      if (artDetail.accessories && artDetail.accessories.length > 0) {
-        const loadedAccessories = artDetail.accessories.map((a) => ({
+      );
+    } else setSelectedShades([]);
+
+    if (artDetail.sizeDetails?.length) {
+      setSelectedSizes(
+        artDetail.sizeDetails.map((s) => ({
+          id: s.id,
+          serialNo: s.serialNo,
+          sizeName: s.sizeName,
+          orderNo: s.orderNo,
+          box: s.box || "",
+          pcs: s.pcs || "",
+          rate: s.rate || "",
+        }))
+      );
+    } else if (artDetail.sizes?.length) {
+      setSelectedSizes(
+        artDetail.sizes.map((s) => ({
+          id: s.id,
+          serialNo: s.serialNo,
+          sizeName: s.sizeName,
+          orderNo: s.orderNo,
+          artGroup: s.artGroup,
+          box: (s as any).box || "",
+          pcs: (s as any).pcs || "",
+          rate: (s as any).rate || "",
+        }))
+      );
+    } else setSelectedSizes([]);
+
+    if (artDetail.accessories?.length) {
+      setSelectedAccessories(
+        artDetail.accessories.map((a) => ({
           id: a.materialId,
           serialNumber: a.serialNumber,
           materialGroupId: a.materialGroupId,
@@ -646,13 +723,26 @@ if (artDetail.sizeDetails && artDetail.sizeDetails.length > 0) {
           minimumStock: a.minimumStock,
           maximumStock: a.maximumStock,
         }))
-        setSelectedAccessories(loadedAccessories)
-      } else {
-        setSelectedAccessories([])
-      }
-      setIsModalOpen(false)
-    }
-  }
+      );
+    } else setSelectedAccessories([]);
+
+    // ✅ FIX: load accessoryDetails for edit
+    if (artDetail.accessoryDetails?.length) {
+      setAccessoryDetails(
+        artDetail.accessoryDetails.map((d) => ({
+          id: d.id,
+          processName: d.processName,
+          sno: d.sno,
+          accessoryName: d.accessoryName,
+          qty: d.qty,
+          rate: d.rate,
+          amount: d.amount,
+        }))
+      );
+    } else setAccessoryDetails([]);
+
+    setIsModalOpen(false);
+  };
 
   const handleDeleteArt = async (artToDelete: ArtListView) => {
     const result = await Swal.fire({
@@ -663,27 +753,27 @@ if (artDetail.sizeDetails && artDetail.sizeDetails.length > 0) {
       confirmButtonColor: "#d33",
       cancelButtonColor: "#3085d6",
       confirmButtonText: "Yes, delete it!",
-    })
-    if (result.isConfirmed) {
-      try {
-        await deleteArtFromBackend(artToDelete.serialNumber)
-        await loadArts()
-        Swal.fire({
-          icon: "success",
-          title: "Deleted!",
-          text: "Art deleted successfully!",
-          timer: 2000,
-          showConfirmButton: false,
-        })
-      } catch (error) {
-        Swal.fire({
-          icon: "error",
-          title: "Error",
-          text: "Failed to delete art. Please try again.",
-        })
-      }
+    });
+    if (!result.isConfirmed) return;
+
+    try {
+      await deleteArtFromBackend(artToDelete.serialNumber);
+      await loadArts();
+      Swal.fire({
+        icon: "success",
+        title: "Deleted!",
+        text: "Art deleted successfully!",
+        timer: 2000,
+        showConfirmButton: false,
+      });
+    } catch {
+      Swal.fire({
+        icon: "error",
+        title: "Error",
+        text: "Failed to delete art. Please try again.",
+      });
     }
-  }
+  };
 
   const handleEdit = () => {
     if (!editingArt) {
@@ -691,11 +781,9 @@ if (artDetail.sizeDetails && artDetail.sizeDetails.length > 0) {
         icon: "info",
         title: "No Art Selected",
         text: "No art selected for editing",
-      })
-      return
+      });
     }
-    console.log("Editing mode for:", editingArt.artName)
-  }
+  };
 
   const handleDelete = async () => {
     if (!editingArt) {
@@ -703,9 +791,10 @@ if (artDetail.sizeDetails && artDetail.sizeDetails.length > 0) {
         icon: "info",
         title: "No Art Selected",
         text: "No art selected for deletion",
-      })
-      return
+      });
+      return;
     }
+
     const result = await Swal.fire({
       title: "Are you sure?",
       text: `Do you want to delete ${editingArt.artName}?`,
@@ -714,256 +803,381 @@ if (artDetail.sizeDetails && artDetail.sizeDetails.length > 0) {
       confirmButtonColor: "#d33",
       cancelButtonColor: "#3085d6",
       confirmButtonText: "Yes, delete it!",
-    })
-    if (result.isConfirmed) {
-      try {
-        await deleteArtFromBackend(editingArt.serialNumber)
-        await loadArts()
-        setFormData({
-          serialNumber: "",
-          artGroup: "",
-          artName: "",
-          artNo: "",
-          copyFromArtName: "",
-          styleRate: "",
-          saleRate: "",
-          styleName: "",
-          openingBalance: "",
-          brandName: "",
-          workOnArt: "",
-        })
-        setProcessRows([])
-        setSelectedShades([])
-        setSelectedSizes([])
-        setSelectedAccessories([])
-        setEditingArt(null)
-        Swal.fire({
-          icon: "success",
-          title: "Deleted!",
-          text: "Art deleted successfully!",
-          timer: 2000,
-          showConfirmButton: false,
-        })
-      } catch (error) {
-        Swal.fire({
-          icon: "error",
-          title: "Error",
-          text: "Failed to delete art. Please try again.",
-        })
-      }
-    }
-  }
+    });
 
-  const handleRemoveShade = (shadeCodeToRemove: string) => {
-    setSelectedShades(selectedShades.filter((shade) => shade.shadeCode !== shadeCodeToRemove))
-  }
+    if (!result.isConfirmed) return;
 
-  const handleRemoveSize = (serialNoToRemove: string) => {
-    setSelectedSizes(selectedSizes.filter((size) => size.serialNo !== serialNoToRemove))
-  }
+    try {
+      await deleteArtFromBackend(editingArt.serialNumber);
+      await loadArts();
+      setFormData({
+        serialNumber: "",
+        artGroup: "",
+        artName: "",
+        artNo: "",
+        copyFromArtName: "",
+        styleRate: "",
+        saleRate: "",
+        styleName: "",
+        openingBalance: "",
+        brandName: "",
+        workOnArt: "",
+      });
+      setProcessRows([]);
+      setSelectedShades([]);
+      setSelectedSizes([]);
+      setSelectedAccessories([]);
+      setAccessoryDetails([]);
+      setEditingArt(null);
 
-  const handleRemoveAccessory = (idToRemove: number) => {
-    setSelectedAccessories(selectedAccessories.filter((accessory) => accessory.id !== idToRemove))
-  }
-
-  const handleRemoveProcessRow = (index: number) => {
-    const updatedRows = processRows.filter((_, i) => i !== index)
-    const reindexedRows = updatedRows.map((row, i) => ({
-      ...row,
-      sno: i + 1,
-    }))
-    setProcessRows(reindexedRows)
-  }
-
-  const handleProcessRowChange = (index: number, field: keyof ProcessRow, value: string) => {
-    const updatedRows = processRows.map((row, i) => (i === index ? { ...row, [field]: value } : row))
-    setProcessRows(updatedRows)
-  }
-
-  const generateSerialNumber = () => {
-    const prefix = "ART"
-    const year = new Date().getFullYear()
-    const unique = Math.floor(10000 + Math.random() * 90000).toString()
-    const serial = `${prefix}${year}${unique}`
-    setFormData((prev) => ({ ...prev, serialNumber: serial }))
-    console.log("Generated Serial Number:", serial)
-  }
-
-  const handleOpenAccessoriesModal = () => {
-  setIsAccessoriesModalOpen(true)
-  setSelectedProcessForAccessories("")
-  setAccessoriesByProcess([])
-  setFilteredMaterialsForProcess([])
-  setAccessoryRowsInModal([])
-  setManualAccessoryInput({ name: "", qty: "", rate: "" }) // ADD THIS LINE
-}
-
-  const handleCloseAccessoriesModal = () => {
-  setIsAccessoriesModalOpen(false)
-  setSelectedProcessForAccessories("")
-  setAccessoriesByProcess([])
-  setFilteredMaterialsForProcess([])
-  setAccessoryRowsInModal([])
-  setManualAccessoryInput({ name: "", qty: "", rate: "" }) // ADD THIS LINE
-}
-
-  const handleProcessSelectionForAccessories = async (processName: string) => {
-  setSelectedProcessForAccessories(processName)
-  if (processName) {
-    await loadAccessoriesByProcess(processName)
-    setAccessoryRowsInModal([])
-    setManualAccessoryInput({ name: "", qty: "", rate: "" }) // ADD THIS LINE
-  } else {
-    setAccessoriesByProcess([])
-    setFilteredMaterialsForProcess([])
-    setAccessoryRowsInModal([])
-    setManualAccessoryInput({ name: "", qty: "", rate: "" }) // ADD THIS LINE
-  }
-}
-  const handleAccessoryRowChange = (index: number, field: "qty" | "rate" | "amount", value: string) => {
-    const updatedRows = accessoryRowsInModal.map((row, i) => {
-      if (i === index) {
-        const newRow = { ...row, [field]: value }
-        if (field === "qty" || field === "rate") {
-          const qty = Number.parseFloat(field === "qty" ? value : row.qty) || 0
-          const rate = Number.parseFloat(field === "rate" ? value : row.rate) || 0
-          newRow.amount = (qty * rate).toFixed(2)
-        }
-        return newRow
-      }
-      return row
-    })
-    setAccessoryRowsInModal(updatedRows)
-  }
-
-  const handleRemoveAccessoryRow = (index: number) => {
-    const updatedRows = accessoryRowsInModal.filter((_, i) => i !== index)
-    const reindexedRows = updatedRows.map((row, i) => ({
-      ...row,
-      sno: i + 1,
-    }))
-    setAccessoryRowsInModal(reindexedRows)
-  }
-
-  const handleSaveAccessoryFromModal = () => {
-    let added = 0
-    accessoryRowsInModal.forEach((row) => {
-      const material = availableMaterials.find((m) => m.materialName === row.accessoryName)
-      if (material && !selectedAccessories.find((acc) => acc.id === material.id)) {
-        added += 1
-        setSelectedAccessories((prev) => [...prev, material])
-      } else if (!material) {
-        // Handle manual entry (not in availableMaterials)
-        const manualMaterial: MaterialFromCreation = {
-          id: Date.now() + Math.random(), // Generate unique ID
-          serialNumber: `MANUAL-${Date.now()}`,
-          materialGroupId: 0,
-          materialGroupName: "Manual Entry",
-          materialName: row.accessoryName,
-          code: "MANUAL",
-          materialUnit: "PCS",
-          minimumStock: "0",
-          maximumStock: "0",
-        }
-        if (!selectedAccessories.find((acc) => acc.materialName === row.accessoryName)) {
-          added += 1
-          setSelectedAccessories((prev) => [...prev, manualMaterial])
-        }
-      }
-    })
-    if (added > 0) {
       Swal.fire({
         icon: "success",
-        title: "Saved!",
-        text: `Saved ${added} accessories.`,
-        timer: 1500,
+        title: "Deleted!",
+        text: "Art deleted successfully!",
+        timer: 2000,
         showConfirmButton: false,
-      })
-    } else {
+      });
+    } catch {
       Swal.fire({
-        icon: "info",
-        title: "No Changes",
-        text: "No new accessories to save.",
-        timer: 1200,
-        showConfirmButton: false,
-      })
+        icon: "error",
+        title: "Error",
+        text: "Failed to delete art. Please try again.",
+      });
     }
-  }
+  };
 
-  const handleAddAccessoryFromModal = () => {
-    accessoryRowsInModal.forEach((row) => {
-      const material = availableMaterials.find((m) => m.materialName === row.accessoryName)
-      if (material && !selectedAccessories.find((acc) => acc.id === material.id)) {
-        setSelectedAccessories((prev) => [...prev, material])
-      } else if (!material) {
-        // Handle manual entry (not in availableMaterials)
-        const manualMaterial: MaterialFromCreation = {
-          id: Date.now() + Math.random(), // Generate unique ID
-          serialNumber: `MANUAL-${Date.now()}`,
-          materialGroupId: 0,
-          materialGroupName: "Manual Entry",
-          materialName: row.accessoryName,
-          code: "MANUAL",
-          materialUnit: "PCS",
-          minimumStock: "0",
-          maximumStock: "0",
+  const handleRemoveShade = (shadeCodeToRemove: string) => {
+    setSelectedShades(
+      selectedShades.filter((shade) => shade.shadeCode !== shadeCodeToRemove)
+    );
+  };
+
+  const handleRemoveSize = (serialNoToRemove: string) => {
+    setSelectedSizes(
+      selectedSizes.filter((size) => size.serialNo !== serialNoToRemove)
+    );
+  };
+
+  const handleRemoveAccessory = (idToRemove: number) => {
+    setSelectedAccessories(
+      selectedAccessories.filter((accessory) => accessory.id !== idToRemove)
+    );
+  };
+
+  const handleRemoveProcessRow = (index: number) => {
+    const updatedRows = processRows.filter((_, i) => i !== index);
+    setProcessRows(updatedRows.map((row, i) => ({ ...row, sno: i + 1 })));
+  };
+
+  const handleProcessRowChange = (
+    index: number,
+    field: keyof ProcessRow,
+    value: string
+  ) => {
+    setProcessRows((prev) =>
+      prev.map((row, i) => (i === index ? { ...row, [field]: value } : row))
+    );
+  };
+
+  const generateSerialNumber = () => {
+    const prefix = "ART";
+    const year = new Date().getFullYear();
+    const unique = Math.floor(10000 + Math.random() * 90000).toString();
+    const serial = `${prefix}${year}${unique}`;
+    setFormData((prev) => ({ ...prev, serialNumber: serial }));
+  };
+
+  const handleOpenAccessoriesModal = () => {
+    setIsAccessoriesModalOpen(true);
+    setSelectedProcessForAccessories("");
+    setAccessoriesByProcess([]);
+    setFilteredMaterialsForProcess([]);
+    setAccessoryRowsInModal([]);
+    setManualAccessoryInput({ name: "", qty: "", rate: "" });
+  };
+
+  const handleCloseAccessoriesModal = () => {
+    setIsAccessoriesModalOpen(false);
+    setSelectedProcessForAccessories("");
+    setAccessoriesByProcess([]);
+    setFilteredMaterialsForProcess([]);
+    setAccessoryRowsInModal([]);
+    setManualAccessoryInput({ name: "", qty: "", rate: "" });
+  };
+
+  // ✅ FIX: process change par current process rows save + next process rows load
+  const handleProcessSelectionForAccessories = async (processName: string) => {
+    if (selectedProcessForAccessories?.trim()) {
+      upsertAccessoryDetailsForProcess(
+        selectedProcessForAccessories,
+        accessoryRowsInModal
+      );
+    }
+
+    setSelectedProcessForAccessories(processName);
+
+    if (processName) {
+      await loadAccessoriesByProcess(processName);
+
+      const existing = accessoryDetails
+        .filter((d) => (d.processName || "").trim() === processName.trim())
+        .slice()
+        .sort((a, b) => (a.sno || 0) - (b.sno || 0))
+        .map((d) => ({
+          id: d.id,
+          sno: d.sno,
+          accessoryName: d.accessoryName,
+          qty: d.qty,
+          rate: d.rate,
+          amount: d.amount,
+        }));
+
+      setAccessoryRowsInModal(existing);
+      setManualAccessoryInput({ name: "", qty: "", rate: "" });
+    } else {
+      setAccessoriesByProcess([]);
+      setFilteredMaterialsForProcess([]);
+      setAccessoryRowsInModal([]);
+      setManualAccessoryInput({ name: "", qty: "", rate: "" });
+    }
+  };
+
+  const handleAccessoryRowChange = (
+    index: number,
+    field: "qty" | "rate" | "amount",
+    value: string
+  ) => {
+    setAccessoryRowsInModal((prev) =>
+      prev.map((row, i) => {
+        if (i !== index) return row;
+        const newRow: AccessoryRowInModal = { ...row, [field]: value };
+
+        if (field === "qty" || field === "rate") {
+          const qty =
+            Number.parseFloat(field === "qty" ? value : row.qty) || 0;
+          const rate =
+            Number.parseFloat(field === "rate" ? value : row.rate) || 0;
+          newRow.amount = (qty * rate).toFixed(2);
         }
-        if (!selectedAccessories.find((acc) => acc.materialName === row.accessoryName)) {
-          setSelectedAccessories((prev) => [...prev, manualMaterial])
-        }
-      }
-    })
+        return newRow;
+      })
+    );
+  };
+
+  // ✅ FIX: delete row should still allow Save even when list becomes empty
+  const handleRemoveAccessoryRow = (index: number) => {
+    const updatedRows = accessoryRowsInModal.filter((_, i) => i !== index);
+    setAccessoryRowsInModal(updatedRows.map((row, i) => ({ ...row, sno: i + 1 })));
+  };
+
+  const calculateTotal = () => {
+    return accessoryRowsInModal
+      .reduce((sum, row) => sum + (Number.parseFloat(row.amount) || 0), 0)
+      .toFixed(2);
+  };
+
+  const handleAddManualAccessory = () => {
+    if (!manualAccessoryInput.name.trim()) {
+      Swal.fire({
+        icon: "warning",
+        title: "Missing Name",
+        text: "Please enter accessory name",
+        timer: 2000,
+        showConfirmButton: false,
+      });
+      return;
+    }
+
+    const qty = parseFloat(manualAccessoryInput.qty) || 0;
+    const rate = parseFloat(manualAccessoryInput.rate) || 0;
+    const amount = (qty * rate).toFixed(2);
+
+    const newRow: AccessoryRowInModal = {
+      sno: accessoryRowsInModal.length + 1,
+      accessoryName: manualAccessoryInput.name.trim(),
+      qty: manualAccessoryInput.qty || "0",
+      rate: manualAccessoryInput.rate || "0",
+      amount,
+    };
+
+    setAccessoryRowsInModal([...accessoryRowsInModal, newRow]);
+    setManualAccessoryInput({ name: "", qty: "", rate: "" });
+
     Swal.fire({
       icon: "success",
       title: "Added!",
-      text: `Added ${accessoryRowsInModal.length} accessories successfully!`,
-      timer: 2000,
+      text: "Manual accessory added successfully!",
+      timer: 1200,
       showConfirmButton: false,
-    })
-    handleCloseAccessoriesModal()
-  }
+    });
+  };
 
-  const calculateTotal = () => {
-    return accessoryRowsInModal.reduce((sum, row) => sum + (Number.parseFloat(row.amount) || 0), 0).toFixed(2)
-  }
- const handleAddManualAccessory = () => {
-  if (!manualAccessoryInput.name.trim()) {
+  // ✅ FIX: SAVE should work even when all rows deleted (0 rows)
+  const handleSaveAccessoryFromModal = () => {
+    // ✅ persist current modal rows into accessoryDetails (even if empty => delete)
+    upsertAccessoryDetailsForProcess(
+      selectedProcessForAccessories,
+      accessoryRowsInModal
+    );
+
+    // keep your old behavior: update selectedAccessories too (single batched update)
+    setSelectedAccessories((prev) => {
+      const byName = new Map<string, MaterialFromCreation>(
+        prev.map((m) => [m.materialName, m])
+      );
+
+      for (const row of accessoryRowsInModal) {
+        const name = (row.accessoryName || "").trim();
+        if (!name) continue;
+
+        const material = availableMaterials.find((m) => m.materialName === name);
+
+        if (material) {
+          if (!byName.has(material.materialName)) byName.set(material.materialName, material);
+        } else {
+          if (!byName.has(name)) {
+            byName.set(name, {
+              id: Date.now() + Math.random(),
+              serialNumber: `MANUAL-${Date.now()}`,
+              materialGroupId: 0,
+              materialGroupName: "Manual Entry",
+              materialName: name,
+              code: "MANUAL",
+              materialUnit: "PCS",
+              minimumStock: "0",
+              maximumStock: "0",
+            });
+          }
+        }
+      }
+
+      return Array.from(byName.values());
+    });
+
     Swal.fire({
-      icon: "warning",
-      title: "Missing Name",
-      text: "Please enter accessory name",
-      timer: 2000,
+      icon: "success",
+      title: "Saved!",
+      text:
+        accessoryRowsInModal.length === 0
+          ? "All accessory rows removed and saved."
+          : "Accessory details saved.",
+      timer: 1200,
       showConfirmButton: false,
-    })
-    return
-  }
+    });
+  };
 
-  const qty = parseFloat(manualAccessoryInput.qty) || 0
-  const rate = parseFloat(manualAccessoryInput.rate) || 0
-  const amount = (qty * rate).toFixed(2)
+  // ✅ FIX: CLOSE should also save deletions
+  const handleAddAccessoryFromModal = () => {
+    upsertAccessoryDetailsForProcess(
+      selectedProcessForAccessories,
+      accessoryRowsInModal
+    );
 
-  const newRow: AccessoryRowInModal = {
-    sno: accessoryRowsInModal.length + 1,
-    accessoryName: manualAccessoryInput.name,
-    qty: manualAccessoryInput.qty || "0",
-    rate: manualAccessoryInput.rate || "0",
-    amount: amount,
-  }
+    setSelectedAccessories((prev) => {
+      const byName = new Map<string, MaterialFromCreation>(
+        prev.map((m) => [m.materialName, m])
+      );
 
-  setAccessoryRowsInModal([...accessoryRowsInModal, newRow])
-  setManualAccessoryInput({ name: "", qty: "", rate: "" })
-  
-  Swal.fire({
-    icon: "success",
-    title: "Added!",
-    text: "Manual accessory added successfully!",
-    timer: 1500,
-    showConfirmButton: false,
-  })
-}
+      for (const row of accessoryRowsInModal) {
+        const name = (row.accessoryName || "").trim();
+        if (!name) continue;
 
-  // ... (rest of your component JSX remains the same)
-  
+        const material = availableMaterials.find((m) => m.materialName === name);
+
+        if (material) {
+          if (!byName.has(material.materialName)) byName.set(material.materialName, material);
+        } else {
+          if (!byName.has(name)) {
+            byName.set(name, {
+              id: Date.now() + Math.random(),
+              serialNumber: `MANUAL-${Date.now()}`,
+              materialGroupId: 0,
+              materialGroupName: "Manual Entry",
+              materialName: name,
+              code: "MANUAL",
+              materialUnit: "PCS",
+              minimumStock: "0",
+              maximumStock: "0",
+            });
+          }
+        }
+      }
+
+      return Array.from(byName.values());
+    });
+
+    Swal.fire({
+      icon: "success",
+      title: "Done!",
+      text:
+        accessoryRowsInModal.length === 0
+          ? "All accessory rows removed."
+          : "Accessory details saved.",
+      timer: 1000,
+      showConfirmButton: false,
+    });
+
+    handleCloseAccessoriesModal();
+  };
+
+  // ----------------- SIZE modal (same) -----------------
+  const handleSizeSelect = (serialNo: string) => {
+    if (!serialNo) return;
+
+    const selectedSize = availableSizes.find((size) => size.serialNo === serialNo);
+    if (!selectedSize) return;
+
+    if (selectedSizes.find((size) => size.serialNo === selectedSize.serialNo)) {
+      Swal.fire({
+        icon: "info",
+        title: "Already Selected",
+        text: "This size is already selected!",
+        timer: 2000,
+        showConfirmButton: false,
+      });
+      return;
+    }
+
+    setCurrentSizeSelection(serialNo);
+    setIsSizeModalOpen(true);
+    setSizeDetails({ box: "", pcs: "", rate: "" });
+  };
+
+  const handleSaveSize = () => {
+    const selectedSize = availableSizes.find((size) => size.serialNo === currentSizeSelection);
+    if (!selectedSize) return;
+
+    if (!sizeDetails.box || !sizeDetails.pcs || !sizeDetails.rate) {
+      Swal.fire({
+        icon: "warning",
+        title: "Incomplete Data",
+        text: "Please fill all fields: Box, Pcs, and Rate",
+      });
+      return;
+    }
+
+    const newSize: SizeFromCreation = {
+      ...selectedSize,
+      box: sizeDetails.box,
+      pcs: sizeDetails.pcs,
+      rate: sizeDetails.rate,
+    };
+
+    setSelectedSizes([...selectedSizes, newSize]);
+    setIsSizeModalOpen(false);
+    setCurrentSizeSelection("");
+    setSizeDetails({ box: "", pcs: "", rate: "" });
+
+    Swal.fire({
+      icon: "success",
+      title: "Added!",
+      text: `Size ${selectedSize.sizeName} added successfully!`,
+      timer: 1200,
+      showConfirmButton: false,
+    });
+  };
+
+  // ----------------- STYLES (same) -----------------
   const containerStyle: React.CSSProperties = {
     maxWidth: "1200px",
     margin: "30px auto",
@@ -972,11 +1186,11 @@ if (artDetail.sizeDetails && artDetail.sizeDetails.length > 0) {
     borderRadius: "8px",
     boxShadow: "0 0 10px rgba(0,0,0,0.1)",
     fontFamily: "Arial, sans-serif",
-  }
+  };
 
-  const layoutStyle: React.CSSProperties = { display: "flex", gap: "20px" }
-  const leftStyle: React.CSSProperties = { flex: 1 }
-  const rightStyle: React.CSSProperties = { width: "260px" }
+  const layoutStyle: React.CSSProperties = { display: "flex", gap: "20px" };
+  const leftStyle: React.CSSProperties = { flex: 1 };
+  const rightStyle: React.CSSProperties = { width: "260px" };
 
   const formRowStyle: React.CSSProperties = {
     display: "flex",
@@ -984,9 +1198,9 @@ if (artDetail.sizeDetails && artDetail.sizeDetails.length > 0) {
     alignItems: "center",
     marginBottom: "10px",
     flexWrap: "wrap" as const,
-  }
+  };
 
-  const labelStyle: React.CSSProperties = { width: "180px", fontWeight: "bold" }
+  const labelStyle: React.CSSProperties = { width: "180px", fontWeight: "bold" };
 
   const inputStyle: React.CSSProperties = {
     flex: 1,
@@ -995,7 +1209,7 @@ if (artDetail.sizeDetails && artDetail.sizeDetails.length > 0) {
     borderRadius: "4px",
     fontSize: "14px",
     minWidth: "200px",
-  }
+  };
 
   const buttonStyle: React.CSSProperties = {
     padding: "8px 16px",
@@ -1006,7 +1220,7 @@ if (artDetail.sizeDetails && artDetail.sizeDetails.length > 0) {
     backgroundColor: loading ? "#ccc" : "#007bff",
     color: "white",
     opacity: loading ? 0.6 : 1,
-  }
+  };
 
   const smallButtonStyle: React.CSSProperties = {
     width: "100%",
@@ -1015,19 +1229,19 @@ if (artDetail.sizeDetails && artDetail.sizeDetails.length > 0) {
     border: "1px solid #ccc",
     background: "#f7f7f7",
     cursor: "pointer",
-  }
+  };
 
   const tableStyle: React.CSSProperties = {
     width: "100%",
     borderCollapse: "collapse" as const,
     fontSize: "13px",
-  }
+  };
 
   const thtd: React.CSSProperties = {
     border: "1px solid #ccc",
     padding: "6px",
     textAlign: "left" as const,
-  }
+  };
 
   const tableInputStyle: React.CSSProperties = {
     width: "100%",
@@ -1035,7 +1249,7 @@ if (artDetail.sizeDetails && artDetail.sizeDetails.length > 0) {
     background: "transparent",
     fontSize: "12px",
     padding: "2px",
-  }
+  };
 
   const removeButtonStyle: React.CSSProperties = {
     backgroundColor: "#dc3545",
@@ -1045,7 +1259,7 @@ if (artDetail.sizeDetails && artDetail.sizeDetails.length > 0) {
     cursor: "pointer",
     fontSize: "10px",
     padding: "2px 6px",
-  }
+  };
 
   const modalOverlayStyle: React.CSSProperties = {
     position: "fixed" as const,
@@ -1058,7 +1272,7 @@ if (artDetail.sizeDetails && artDetail.sizeDetails.length > 0) {
     alignItems: "center",
     justifyContent: "center",
     zIndex: 1000,
-  }
+  };
 
   const modalStyle: React.CSSProperties = {
     backgroundColor: "white",
@@ -1069,7 +1283,7 @@ if (artDetail.sizeDetails && artDetail.sizeDetails.length > 0) {
     maxHeight: "80vh",
     overflow: "auto",
     boxShadow: "0 4px 20px rgba(0, 0, 0, 0.3)",
-  }
+  };
 
   const modalHeaderStyle: React.CSSProperties = {
     display: "flex",
@@ -1078,7 +1292,7 @@ if (artDetail.sizeDetails && artDetail.sizeDetails.length > 0) {
     marginBottom: "20px",
     borderBottom: "1px solid #eee",
     paddingBottom: "10px",
-  }
+  };
 
   const closeButtonStyle: React.CSSProperties = {
     background: "none",
@@ -1086,7 +1300,7 @@ if (artDetail.sizeDetails && artDetail.sizeDetails.length > 0) {
     fontSize: "24px",
     cursor: "pointer",
     color: "#666",
-  }
+  };
 
   const actionButtonStyle: React.CSSProperties = {
     padding: "4px 8px",
@@ -1096,82 +1310,35 @@ if (artDetail.sizeDetails && artDetail.sizeDetails.length > 0) {
     cursor: "pointer",
     fontSize: "12px",
     fontWeight: "bold",
-  }
+  };
 
   const editButtonStyle: React.CSSProperties = {
     ...actionButtonStyle,
     backgroundColor: "#28a745",
     color: "white",
-  }
+  };
 
   const deleteButtonStyle: React.CSSProperties = {
     ...actionButtonStyle,
     backgroundColor: "#dc3545",
     color: "white",
-  }
-  const handleSizeSelect = (serialNo: string) => {
-  if (!serialNo) return
-  
-  const selectedSize = availableSizes.find((size) => size.serialNo === serialNo)
-  if (!selectedSize) return
-
-  if (selectedSizes.find((size) => size.serialNo === selectedSize.serialNo)) {
-    Swal.fire({
-      icon: "info",
-      title: "Already Selected",
-      text: "This size is already selected!",
-      timer: 2000,
-      showConfirmButton: false,
-    })
-    return
-  }
-
-  setCurrentSizeSelection(serialNo)
-  setIsSizeModalOpen(true)
-  setSizeDetails({ box: "", pcs: "", rate: "" })
-}
-
-const handleSaveSize = () => {
-  const selectedSize = availableSizes.find((size) => size.serialNo === currentSizeSelection)
-  if (!selectedSize) return
-
-  if (!sizeDetails.box || !sizeDetails.pcs || !sizeDetails.rate) {
-    Swal.fire({
-      icon: "warning",
-      title: "Incomplete Data",
-      text: "Please fill all fields: Box, Pcs, and Rate",
-    })
-    return
-  }
-
-  const newSize: SizeFromCreation = {
-    ...selectedSize,
-    box: sizeDetails.box,
-    pcs: sizeDetails.pcs,
-    rate: sizeDetails.rate
-  }
-
-  setSelectedSizes([...selectedSizes, newSize])
-  setIsSizeModalOpen(false)
-  setCurrentSizeSelection("")
-  setSizeDetails({ box: "", pcs: "", rate: "" })
-  
-  Swal.fire({
-    icon: "success",
-    title: "Added!",
-    text: `Size ${selectedSize.sizeName} added successfully!`,
-    timer: 1500,
-    showConfirmButton: false,
-  })
-}
+  };
 
   return (
     <Dashboard>
       <div style={containerStyle}>
         <h2 style={{ textAlign: "center", marginBottom: "15px" }}>
           ART CREATION{" "}
-          {editingArt && <span style={{ fontSize: "14px", color: "#666" }}>(Editing: {editingArt.artName})</span>}
-          {loading && <span style={{ fontSize: "12px", color: "#007bff", marginLeft: "10px" }}>Loading...</span>}
+          {editingArt && (
+            <span style={{ fontSize: "14px", color: "#666" }}>
+              (Editing: {editingArt.artName})
+            </span>
+          )}
+          {loading && (
+            <span style={{ fontSize: "12px", color: "#007bff", marginLeft: "10px" }}>
+              Loading...
+            </span>
+          )}
         </h2>
 
         <div style={layoutStyle}>
@@ -1186,7 +1353,11 @@ const handleSaveSize = () => {
                   onChange={handleInputChange}
                   style={{ ...inputStyle, maxWidth: "400px" }}
                   disabled={loading || !!editingArt}
-                  title={editingArt ? "Serial Number cannot be changed during edit." : undefined}
+                  title={
+                    editingArt
+                      ? "Serial Number cannot be changed during edit."
+                      : undefined
+                  }
                 />
               </div>
 
@@ -1199,7 +1370,7 @@ const handleSaveSize = () => {
                     setFormData((prev) => ({
                       ...prev,
                       artGroup: e.target.value,
-                    }))
+                    }));
                   }}
                   style={inputStyle}
                   disabled={loading}
@@ -1207,17 +1378,18 @@ const handleSaveSize = () => {
                   <option value="">Select Art Group...</option>
                   {Array.isArray(availableArtGroups) &&
                     availableArtGroups.map((artGroup) => {
-                      if (!artGroup || typeof artGroup !== "object" || !artGroup.artGroupName) {
-                        return null
-                      }
+                      if (!artGroup?.artGroupName) return null;
                       return (
                         <option
-                          key={artGroup.serialNo || Math.random().toString(36).substr(2, 9)}
+                          key={
+                            artGroup.serialNo ||
+                            Math.random().toString(36).substr(2, 9)
+                          }
                           value={artGroup.artGroupName}
                         >
                           {artGroup.artGroupName}
                         </option>
-                      )
+                      );
                     })}
                 </select>
               </div>
@@ -1324,17 +1496,7 @@ const handleSaveSize = () => {
                 />
               </div>
 
-              <div style={formRowStyle}>
-                {/* <label style={labelStyle}>Description.</label> */}
-                {/* <input
-                  type="text"
-                  name="workOnArt"
-                  value={formData.workOnArt}
-                  onChange={handleInputChange}
-                  style={inputStyle}
-                  disabled={loading}
-                /> */}
-              </div>
+              <div style={formRowStyle}></div>
             </div>
 
             <div
@@ -1348,13 +1510,25 @@ const handleSaveSize = () => {
             >
               <div style={{ fontWeight: "bold" }}>Supplier</div>
               {formData.copyFromArtName && (
-                <div style={{ fontSize: "12px", color: "#4caf50", fontWeight: "bold" }}>
+                <div
+                  style={{
+                    fontSize: "12px",
+                    color: "#4caf50",
+                    fontWeight: "bold",
+                  }}
+                >
                   Processes copied from: {formData.copyFromArtName}
                 </div>
               )}
             </div>
 
-            <div style={{ border: "1px solid #ccc", borderRadius: 6, overflow: "hidden" }}>
+            <div
+              style={{
+                border: "1px solid #ccc",
+                borderRadius: 6,
+                overflow: "hidden",
+              }}
+            >
               <table style={tableStyle}>
                 <thead>
                   <tr>
@@ -1376,7 +1550,13 @@ const handleSaveSize = () => {
                       <td style={{ ...thtd, background: "#ffe5e5" }}>
                         <select
                           value={row.processName}
-                          onChange={(e) => handleProcessRowChange(index, "processName", e.target.value)}
+                          onChange={(e) =>
+                            handleProcessRowChange(
+                              index,
+                              "processName",
+                              e.target.value
+                            )
+                          }
                           style={{
                             ...tableInputStyle,
                             fontWeight: 600,
@@ -1388,7 +1568,10 @@ const handleSaveSize = () => {
                         >
                           <option value="">Select Process...</option>
                           {availableProcesses.map((process) => (
-                            <option key={process.serialNo} value={process.processName}>
+                            <option
+                              key={process.serialNo}
+                              value={process.processName}
+                            >
                               {process.processName} ({process.category})
                             </option>
                           ))}
@@ -1398,7 +1581,9 @@ const handleSaveSize = () => {
                         <input
                           type="text"
                           value={row.rate}
-                          onChange={(e) => handleProcessRowChange(index, "rate", e.target.value)}
+                          onChange={(e) =>
+                            handleProcessRowChange(index, "rate", e.target.value)
+                          }
                           style={tableInputStyle}
                           placeholder="Rate"
                         />
@@ -1407,7 +1592,13 @@ const handleSaveSize = () => {
                         <input
                           type="text"
                           value={row.rate1}
-                          onChange={(e) => handleProcessRowChange(index, "rate1", e.target.value)}
+                          onChange={(e) =>
+                            handleProcessRowChange(
+                              index,
+                              "rate1",
+                              e.target.value
+                            )
+                          }
                           style={tableInputStyle}
                           placeholder="Rate1"
                         />
@@ -1416,7 +1607,13 @@ const handleSaveSize = () => {
                         <input
                           type="text"
                           value={row.sizeWid}
-                          onChange={(e) => handleProcessRowChange(index, "sizeWid", e.target.value)}
+                          onChange={(e) =>
+                            handleProcessRowChange(
+                              index,
+                              "sizeWid",
+                              e.target.value
+                            )
+                          }
                           style={tableInputStyle}
                           placeholder="Size Wis"
                         />
@@ -1425,7 +1622,13 @@ const handleSaveSize = () => {
                         <input
                           type="text"
                           value={row.sizeWidAct}
-                          onChange={(e) => handleProcessRowChange(index, "sizeWidAct", e.target.value)}
+                          onChange={(e) =>
+                            handleProcessRowChange(
+                              index,
+                              "sizeWidAct",
+                              e.target.value
+                            )
+                          }
                           style={tableInputStyle}
                           placeholder="Size Wis Act"
                         />
@@ -1434,7 +1637,13 @@ const handleSaveSize = () => {
                         <input
                           type="text"
                           value={row.itemRef}
-                          onChange={(e) => handleProcessRowChange(index, "itemRef", e.target.value)}
+                          onChange={(e) =>
+                            handleProcessRowChange(
+                              index,
+                              "itemRef",
+                              e.target.value
+                            )
+                          }
                           style={tableInputStyle}
                           placeholder="Item Ref"
                         />
@@ -1443,7 +1652,13 @@ const handleSaveSize = () => {
                         <input
                           type="text"
                           value={row.process}
-                          onChange={(e) => handleProcessRowChange(index, "process", e.target.value)}
+                          onChange={(e) =>
+                            handleProcessRowChange(
+                              index,
+                              "process",
+                              e.target.value
+                            )
+                          }
                           style={tableInputStyle}
                           placeholder="Process"
                         />
@@ -1467,8 +1682,8 @@ const handleSaveSize = () => {
                         onChange={(e) => {
                           if (e.target.value) {
                             const selectedProcess = availableProcesses.find(
-                              (process) => process.serialNo === e.target.value,
-                            )
+                              (process) => process.serialNo === e.target.value
+                            );
                             if (selectedProcess) {
                               const newRow: ProcessRow = {
                                 sno: processRows.length + 1,
@@ -1479,10 +1694,10 @@ const handleSaveSize = () => {
                                 sizeWidAct: "",
                                 itemRef: "",
                                 process: "",
-                              }
-                              setProcessRows([...processRows, newRow])
+                              };
+                              setProcessRows([...processRows, newRow]);
                             }
-                            e.target.value = ""
+                            e.target.value = "";
                           }
                         }}
                         style={{
@@ -1498,14 +1713,23 @@ const handleSaveSize = () => {
                       >
                         <option value="">Add Process</option>
                         {availableProcesses.map((process) => (
-                          <option key={process.serialNo} value={process.serialNo}>
+                          <option
+                            key={process.serialNo}
+                            value={process.serialNo}
+                          >
                             {process.processName} ({process.category})
                           </option>
                         ))}
                       </select>
                     </td>
                     <td style={thtd} colSpan={7}>
-                      <span style={{ fontSize: "12px", color: "#666", fontStyle: "italic" }}>
+                      <span
+                        style={{
+                          fontSize: "12px",
+                          color: "#666",
+                          fontStyle: "italic",
+                        }}
+                      >
                         Select a process to add a new row
                       </span>
                     </td>
@@ -1513,62 +1737,122 @@ const handleSaveSize = () => {
                 </tbody>
               </table>
 
-              <div style={{ borderTop: "1px solid #ccc", padding: "10px 8px", background: "#f9fbff" }}>
-                <div style={{ display: "flex", gap: "16px", alignItems: "center", flexWrap: "wrap" as const }}>
-                  <div style={{ fontWeight: "bold", color: "#0d47a1" }}>Process Total</div>
+              <div
+                style={{
+                  borderTop: "1px solid #ccc",
+                  padding: "10px 8px",
+                  background: "#f9fbff",
+                }}
+              >
+                <div
+                  style={{
+                    display: "flex",
+                    gap: "16px",
+                    alignItems: "center",
+                    flexWrap: "wrap" as const,
+                  }}
+                >
+                  <div style={{ fontWeight: "bold", color: "#0d47a1" }}>
+                    Process Total
+                  </div>
                   <div style={{ fontSize: "13px" }}>
-                    Rate Total: <span style={{ fontWeight: 600 }}>{totals.totalRate.toFixed(2)}</span>
+                    Rate Total:{" "}
+                    <span style={{ fontWeight: 600 }}>
+                      {totals.totalRate.toFixed(2)}
+                    </span>
                   </div>
                 </div>
               </div>
             </div>
           </div>
 
+          {/* RIGHT SIDE */}
           <div style={rightStyle}>
             <div style={{ fontSize: 12, marginBottom: 6 }}>Rate Change?</div>
 
-            <div style={{ border: "1px solid #ccc", borderRadius: 8, padding: 12, marginBottom: 12 }}>
-              <div style={{ fontWeight: 600, marginBottom: 8 }}>Consumption Detail</div>
+            <div
+              style={{
+                border: "1px solid #ccc",
+                borderRadius: 8,
+                padding: 12,
+                marginBottom: 12,
+              }}
+            >
+              <div style={{ fontWeight: 600, marginBottom: 8 }}>
+                Consumption Detail
+              </div>
 
-              <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 8 }}>
+              <div
+                style={{ display: "grid", gridTemplateColumns: "1fr", gap: 8 }}
+              >
                 <div>
-                  <label style={{ fontSize: "12px", fontWeight: "bold", marginBottom: "4px", display: "block" }}>
+                  <label
+                    style={{
+                      fontSize: "12px",
+                      fontWeight: "bold",
+                      marginBottom: "4px",
+                      display: "block",
+                    }}
+                  >
                     Select Accessories:
                   </label>
                   <button
                     type="button"
                     onClick={handleOpenAccessoriesModal}
-                    style={{ ...smallButtonStyle, backgroundColor: "#fff3e0", fontSize: "12px", cursor: "pointer" }}
+                    style={{
+                      ...smallButtonStyle,
+                      backgroundColor: "#fff3e0",
+                      fontSize: "12px",
+                      cursor: "pointer",
+                    }}
                   >
                     Open Accessories Modal
                   </button>
                 </div>
 
                 <div>
-                  <label style={{ fontSize: "12px", fontWeight: "bold", marginBottom: "4px", display: "block" }}>
+                  <label
+                    style={{
+                      fontSize: "12px",
+                      fontWeight: "bold",
+                      marginBottom: "4px",
+                      display: "block",
+                    }}
+                  >
                     Select Shade:
                   </label>
                   <select
                     onChange={(e) => {
                       if (e.target.value) {
-                        const selectedShade = availableShades.find((shade) => shade.shadeCode === e.target.value)
+                        const selectedShade = availableShades.find(
+                          (shade) => shade.shadeCode === e.target.value
+                        );
                         if (selectedShade) {
-                          if (selectedShades.find((shade) => shade.shadeCode === selectedShade.shadeCode)) {
+                          if (
+                            selectedShades.find(
+                              (shade) =>
+                                shade.shadeCode === selectedShade.shadeCode
+                            )
+                          ) {
                             Swal.fire({
                               icon: "info",
                               title: "Already Selected",
                               text: "This shade is already selected!",
                               timer: 2000,
                               showConfirmButton: false,
-                            })
+                            });
                           } else {
-                            setSelectedShades([...selectedShades, selectedShade])
+                            setSelectedShades([...selectedShades, selectedShade]);
                           }
                         }
-                        e.target.value = ""
+                        e.target.value = "";
                       }
                     }}
-                    style={{ ...smallButtonStyle, backgroundColor: "#e3f2fd", fontSize: "12px" }}
+                    style={{
+                      ...smallButtonStyle,
+                      backgroundColor: "#e3f2fd",
+                      fontSize: "12px",
+                    }}
                   >
                     <option value="">Select Shade...</option>
                     {availableShades.map((shade) => (
@@ -1580,40 +1864,63 @@ const handleSaveSize = () => {
                 </div>
 
                 <div>
-  <label style={{ fontSize: "12px", fontWeight: "bold", marginBottom: "4px", display: "block" }}>
-    Select Size:
-  </label>
-  <select
-    onChange={(e) => {
-      handleSizeSelect(e.target.value)
-      e.target.value = ""
-    }}
-    style={{ ...smallButtonStyle, backgroundColor: "#f3e5f5", fontSize: "12px" }}
-    value=""
-  >
-    <option value="">Select Size...</option>
-    {availableSizes.map((size) => (
-      <option key={size.serialNo} value={size.serialNo}>
-  {size.sizeName} {
-    (() => {
-      if (!size.artGroup) return "";
-      if (typeof size.artGroup === 'string') return `(${size.artGroup})`;
-      if (typeof size.artGroup === 'object' && 'artGroupName' in size.artGroup) {
-        return `(${size.artGroup.artGroupName})`;
-      }
-      return "";
-    })()
-  }
-</option>
-    ))}
-  </select>
-</div>
+                  <label
+                    style={{
+                      fontSize: "12px",
+                      fontWeight: "bold",
+                      marginBottom: "4px",
+                      display: "block",
+                    }}
+                  >
+                    Select Size:
+                  </label>
+                  <select
+                    onChange={(e) => {
+                      handleSizeSelect(e.target.value);
+                      e.target.value = "";
+                    }}
+                    style={{
+                      ...smallButtonStyle,
+                      backgroundColor: "#f3e5f5",
+                      fontSize: "12px",
+                    }}
+                    value=""
+                  >
+                    <option value="">Select Size...</option>
+                    {availableSizes.map((size) => (
+                      <option key={size.serialNo} value={size.serialNo}>
+                        {size.sizeName}{" "}
+                        {(() => {
+                          if (!size.artGroup) return "";
+                          if (typeof size.artGroup === "string")
+                            return `(${size.artGroup})`;
+                          if (
+                            typeof size.artGroup === "object" &&
+                            "artGroupName" in size.artGroup
+                          ) {
+                            return `(${size.artGroup.artGroupName})`;
+                          }
+                          return "";
+                        })()}
+                      </option>
+                    ))}
+                  </select>
+                </div>
               </div>
             </div>
 
             {selectedAccessories.length > 0 && (
-              <div style={{ border: "1px solid #ccc", borderRadius: 8, padding: 12, marginBottom: 12 }}>
-                <div style={{ fontWeight: 600, marginBottom: 8, color: "#ff9800" }}>
+              <div
+                style={{
+                  border: "1px solid #ccc",
+                  borderRadius: 8,
+                  padding: 12,
+                  marginBottom: 12,
+                }}
+              >
+                <div
+                  style={{ fontWeight: 600, marginBottom: 8, color: "#ff9800" }}
+                >
                   Selected Accessories ({selectedAccessories.length})
                 </div>
                 <div style={{ maxHeight: "200px", overflowY: "auto" }}>
@@ -1632,11 +1939,15 @@ const handleSaveSize = () => {
                       }}
                     >
                       <div>
-                        <div style={{ fontWeight: "bold", color: "#333" }}>{accessory.materialName}</div>
+                        <div style={{ fontWeight: "bold", color: "#333" }}>
+                          {accessory.materialName}
+                        </div>
                         <div style={{ color: "#666" }}>
                           {accessory.code} | {accessory.materialGroupName}
                         </div>
-                        <div style={{ color: "#888", fontSize: "10px" }}>Unit: {accessory.materialUnit}</div>
+                        <div style={{ color: "#888", fontSize: "10px" }}>
+                          Unit: {accessory.materialUnit}
+                        </div>
                       </div>
                       <button
                         type="button"
@@ -1653,8 +1964,17 @@ const handleSaveSize = () => {
             )}
 
             {selectedShades.length > 0 && (
-              <div style={{ border: "1px solid #ccc", borderRadius: 8, padding: 12, marginBottom: 12 }}>
-                <div style={{ fontWeight: 600, marginBottom: 8, color: "#007bff" }}>
+              <div
+                style={{
+                  border: "1px solid #ccc",
+                  borderRadius: 8,
+                  padding: 12,
+                  marginBottom: 12,
+                }}
+              >
+                <div
+                  style={{ fontWeight: 600, marginBottom: 8, color: "#007bff" }}
+                >
                   Selected Shades ({selectedShades.length})
                 </div>
                 <div style={{ maxHeight: "200px", overflowY: "auto" }}>
@@ -1673,7 +1993,9 @@ const handleSaveSize = () => {
                       }}
                     >
                       <div>
-                        <div style={{ fontWeight: "bold", color: "#333" }}>{shade.shadeName}</div>
+                        <div style={{ fontWeight: "bold", color: "#333" }}>
+                          {shade.shadeName}
+                        </div>
                         <div style={{ color: "#666" }}>
                           {shade.shadeCode} | {shade.colorFamily}
                         </div>
@@ -1692,117 +2014,142 @@ const handleSaveSize = () => {
               </div>
             )}
 
-      {selectedSizes.length > 0 && (
-  <div style={{ border: "1px solid #ccc", borderRadius: 8, padding: 12, marginBottom: 12 }}>
-    <div style={{ fontWeight: 600, marginBottom: 8, color: "#9c27b0" }}>
-      Selected Sizes ({selectedSizes.length})
-    </div>
-    <div style={{ maxHeight: "300px", overflowY: "auto" }}>
-      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "11px" }}>
-<thead>
-  <tr style={{ backgroundColor: "#f3e5f5" }}>
-    <th style={{ ...thtd, padding: "6px", fontSize: "10px" }}>Size</th>
-    <th style={{ ...thtd, padding: "6px", fontSize: "10px" }}>Group</th>
-    <th style={{ ...thtd, padding: "6px", fontSize: "10px", textAlign: "center" }}>Box</th>
-    <th style={{ ...thtd, padding: "6px", fontSize: "10px", textAlign: "center" }}>Pcs</th>
-    <th style={{ ...thtd, padding: "6px", fontSize: "10px", textAlign: "right" }}>Rate</th>
-    <th style={{ ...thtd, padding: "6px", fontSize: "10px", textAlign: "center" }}>Action</th>
-  </tr>
-</thead>
-        <tbody>
-          {selectedSizes.map((size, index) => (
-  <tr key={size.serialNo} style={{ backgroundColor: index % 2 === 0 ? "#f8f9fa" : "#ffffff" }}>
-    <td style={{ ...thtd, padding: "6px", fontWeight: "bold" }}>{size.sizeName}</td>
-    <td style={{ ...thtd, padding: "6px", fontSize: "10px", color: "#666" }}>
-      {(() => {
-        if (!size.artGroup) return "-";
-        if (typeof size.artGroup === 'string') return size.artGroup;
-        if (typeof size.artGroup === 'object' && 'artGroupName' in size.artGroup) {
-          return size.artGroup.artGroupName;
-        }
-        return "-";
-      })()}
-    </td>
-    <td style={{ ...thtd, padding: "4px", textAlign: "center" }}>
-                <input
-                  type="text"
-                  value={size.box || ""}
-                  onChange={(e) => {
-                    const updatedSizes = selectedSizes.map((s, i) => 
-                      i === index ? { ...s, box: e.target.value } : s
-                    )
-                    setSelectedSizes(updatedSizes)
-                  }}
-                  style={{
-                    width: "100%",
-                    padding: "4px",
-                    border: "1px solid #ddd",
-                    borderRadius: "3px",
-                    fontSize: "11px",
-                    textAlign: "center"
-                  }}
-                  placeholder="Box"
-                />
-              </td>
-              <td style={{ ...thtd, padding: "4px", textAlign: "center" }}>
-                <input
-                  type="text"
-                  value={size.pcs || ""}
-                  onChange={(e) => {
-                    const updatedSizes = selectedSizes.map((s, i) => 
-                      i === index ? { ...s, pcs: e.target.value } : s
-                    )
-                    setSelectedSizes(updatedSizes)
-                  }}
-                  style={{
-                    width: "100%",
-                    padding: "4px",
-                    border: "1px solid #ddd",
-                    borderRadius: "3px",
-                    fontSize: "11px",
-                    textAlign: "center"
-                  }}
-                  placeholder="Pcs"
-                />
-              </td>
-              <td style={{ ...thtd, padding: "4px", textAlign: "right" }}>
-                <input
-                  type="text"
-                  value={size.rate || ""}
-                  onChange={(e) => {
-                    const updatedSizes = selectedSizes.map((s, i) => 
-                      i === index ? { ...s, rate: e.target.value } : s
-                    )
-                    setSelectedSizes(updatedSizes)
-                  }}
-                  style={{
-                    width: "100%",
-                    padding: "4px",
-                    border: "1px solid #ddd",
-                    borderRadius: "3px",
-                    fontSize: "11px",
-                    textAlign: "right"
-                  }}
-                  placeholder="Rate"
-                />
-              </td>
-              <td style={{ ...thtd, padding: "6px", textAlign: "center" }}>
-                <button
-                  type="button"
-                  onClick={() => handleRemoveSize(size.serialNo)}
-                  style={{ ...removeButtonStyle, fontSize: "10px", padding: "2px 6px" }}
-                  title="Remove Size"
-                >
-                  ×
-                </button>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  </div>
-)}
+            {selectedSizes.length > 0 && (
+              <div
+                style={{
+                  border: "1px solid #ccc",
+                  borderRadius: 8,
+                  padding: 12,
+                  marginBottom: 12,
+                }}
+              >
+                <div style={{ fontWeight: 600, marginBottom: 8, color: "#9c27b0" }}>
+                  Selected Sizes ({selectedSizes.length})
+                </div>
+                <div style={{ maxHeight: "300px", overflowY: "auto" }}>
+                  <table
+                    style={{
+                      width: "100%",
+                      borderCollapse: "collapse",
+                      fontSize: "11px",
+                    }}
+                  >
+                    <thead>
+                      <tr style={{ backgroundColor: "#f3e5f5" }}>
+                        <th style={{ ...thtd, padding: "6px", fontSize: "10px" }}>Size</th>
+                        <th style={{ ...thtd, padding: "6px", fontSize: "10px" }}>Group</th>
+                        <th style={{ ...thtd, padding: "6px", fontSize: "10px", textAlign: "center" }}>Box</th>
+                        <th style={{ ...thtd, padding: "6px", fontSize: "10px", textAlign: "center" }}>Pcs</th>
+                        <th style={{ ...thtd, padding: "6px", fontSize: "10px", textAlign: "right" }}>Rate</th>
+                        <th style={{ ...thtd, padding: "6px", fontSize: "10px", textAlign: "center" }}>Action</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {selectedSizes.map((size, index) => (
+                        <tr
+                          key={size.serialNo}
+                          style={{
+                            backgroundColor:
+                              index % 2 === 0 ? "#f8f9fa" : "#ffffff",
+                          }}
+                        >
+                          <td style={{ ...thtd, padding: "6px", fontWeight: "bold" }}>
+                            {size.sizeName}
+                          </td>
+                          <td style={{ ...thtd, padding: "6px", fontSize: "10px", color: "#666" }}>
+                            {(() => {
+                              if (!size.artGroup) return "-";
+                              if (typeof size.artGroup === "string") return size.artGroup;
+                              if (typeof size.artGroup === "object" && "artGroupName" in size.artGroup) {
+                                return size.artGroup.artGroupName;
+                              }
+                              return "-";
+                            })()}
+                          </td>
+                          <td style={{ ...thtd, padding: "4px", textAlign: "center" }}>
+                            <input
+                              type="text"
+                              value={size.box || ""}
+                              onChange={(e) => {
+                                const updatedSizes = selectedSizes.map((s, i) =>
+                                  i === index ? { ...s, box: e.target.value } : s
+                                );
+                                setSelectedSizes(updatedSizes);
+                              }}
+                              style={{
+                                width: "100%",
+                                padding: "4px",
+                                border: "1px solid #ddd",
+                                borderRadius: "3px",
+                                fontSize: "11px",
+                                textAlign: "center",
+                              }}
+                              placeholder="Box"
+                            />
+                          </td>
+                          <td style={{ ...thtd, padding: "4px", textAlign: "center" }}>
+                            <input
+                              type="text"
+                              value={size.pcs || ""}
+                              onChange={(e) => {
+                                const updatedSizes = selectedSizes.map((s, i) =>
+                                  i === index ? { ...s, pcs: e.target.value } : s
+                                );
+                                setSelectedSizes(updatedSizes);
+                              }}
+                              style={{
+                                width: "100%",
+                                padding: "4px",
+                                border: "1px solid #ddd",
+                                borderRadius: "3px",
+                                fontSize: "11px",
+                                textAlign: "center",
+                              }}
+                              placeholder="Pcs"
+                            />
+                          </td>
+                          <td style={{ ...thtd, padding: "4px", textAlign: "right" }}>
+                            <input
+                              type="text"
+                              value={size.rate || ""}
+                              onChange={(e) => {
+                                const updatedSizes = selectedSizes.map((s, i) =>
+                                  i === index ? { ...s, rate: e.target.value } : s
+                                );
+                                setSelectedSizes(updatedSizes);
+                              }}
+                              style={{
+                                width: "100%",
+                                padding: "4px",
+                                border: "1px solid #ddd",
+                                borderRadius: "3px",
+                                fontSize: "11px",
+                                textAlign: "right",
+                              }}
+                              placeholder="Rate"
+                            />
+                          </td>
+                          <td style={{ ...thtd, padding: "6px", textAlign: "center" }}>
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveSize(size.serialNo)}
+                              style={{
+                                ...removeButtonStyle,
+                                fontSize: "10px",
+                                padding: "2px 6px",
+                              }}
+                              title="Remove Size"
+                            >
+                              ×
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
           </div>
         </div>
 
@@ -1830,6 +2177,7 @@ const handleSaveSize = () => {
         </div>
       </div>
 
+      {/* ACCESSORIES MODAL */}
       {isAccessoriesModalOpen && (
         <div style={modalOverlayStyle} onClick={handleCloseAccessoriesModal}>
           <div
@@ -2018,9 +2366,9 @@ const handleSaveSize = () => {
                                     qty: "",
                                     rate: "",
                                     amount: "0.00",
-                                  }
-                                  setAccessoryRowsInModal([...accessoryRowsInModal, newRow])
-                                  e.target.value = ""
+                                  };
+                                  setAccessoryRowsInModal([...accessoryRowsInModal, newRow]);
+                                  e.target.value = "";
                                 }
                               }}
                               style={{
@@ -2059,21 +2407,25 @@ const handleSaveSize = () => {
                   }}
                 >
                   <div style={{ display: "flex", gap: "10px" }}>
+                    {/* ✅ FIX: Save should NOT be disabled when rows are 0 (so deletions can be saved) */}
                     <button
                       onClick={handleSaveAccessoryFromModal}
                       style={{ ...buttonStyle, backgroundColor: "#007bff", padding: "6px 16px", fontSize: "13px" }}
-                      disabled={accessoryRowsInModal.length === 0}
+                      disabled={!selectedProcessForAccessories}
                     >
                       Save
                     </button>
+
+                    {/* ✅ FIX: Close should also be enabled for empty rows */}
                     <button
                       onClick={handleAddAccessoryFromModal}
                       style={{ ...buttonStyle, backgroundColor: "#4caf50", padding: "6px 16px", fontSize: "13px" }}
-                      disabled={accessoryRowsInModal.length === 0}
+                      disabled={!selectedProcessForAccessories}
                     >
                       Close
                     </button>
                   </div>
+
                   <div style={{ fontWeight: "bold", fontSize: "14px" }}>
                     Total: <span style={{ color: "#4b0082" }}>{calculateTotal()}</span>
                   </div>
@@ -2083,367 +2435,261 @@ const handleSaveSize = () => {
           </div>
         </div>
       )}
-      {isModalOpen && (
-  <div style={modalOverlayStyle} onClick={handleCloseModal}>
-    <div style={{ ...modalStyle, maxWidth: "1100px" }} onClick={(e) => e.stopPropagation()}>
-      <div style={modalHeaderStyle}>
-        <h3 style={{ margin: 0 }}>
-          Art List {loading && <span style={{ fontSize: "12px", color: "#007bff" }}>(Loading...)</span>}
-        </h3>
-        <button style={closeButtonStyle} onClick={handleCloseModal}>
-          &times;
-        </button>
-      </div>
 
-      {/* Search Box */}
-      <div style={{ marginBottom: "15px" }}>
-        <input
-          type="text"
-          placeholder="Search by Art No, Art Name, Serial Number, or Art Group..."
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          style={{
-            width: "100%",
-            padding: "10px 15px",
-            border: "2px solid #007bff",
-            borderRadius: "6px",
-            fontSize: "14px",
-            boxSizing: "border-box",
-            outline: "none",
-          }}
-          onFocus={(e) => e.target.style.borderColor = "#0056b3"}
-          onBlur={(e) => e.target.style.borderColor = "#007bff"}
-        />
-        {searchQuery && (
-          <div style={{ marginTop: "8px", fontSize: "12px", color: "#666" }}>
-            Found {filteredArtList.length} result{filteredArtList.length !== 1 ? 's' : ''}
-            <button
-              onClick={() => setSearchQuery("")}
+      {/* ART LIST MODAL */}
+      {isModalOpen && (
+        <div style={modalOverlayStyle} onClick={handleCloseModal}>
+          <div
+            style={{ ...modalStyle, maxWidth: "1100px" }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={modalHeaderStyle}>
+              <h3 style={{ margin: 0 }}>
+                Art List{" "}
+                {loading && (
+                  <span style={{ fontSize: "12px", color: "#007bff" }}>
+                    (Loading...)
+                  </span>
+                )}
+              </h3>
+              <button style={closeButtonStyle} onClick={handleCloseModal}>
+                &times;
+              </button>
+            </div>
+
+            <div style={{ marginBottom: "15px" }}>
+              <input
+                type="text"
+                placeholder="Search by Art No, Art Name, Serial Number, or Art Group..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                style={{
+                  width: "100%",
+                  padding: "10px 15px",
+                  border: "2px solid #007bff",
+                  borderRadius: "6px",
+                  fontSize: "14px",
+                  boxSizing: "border-box",
+                  outline: "none",
+                }}
+                onFocus={(e) => (e.target.style.borderColor = "#0056b3")}
+                onBlur={(e) => (e.target.style.borderColor = "#007bff")}
+              />
+              {searchQuery && (
+                <div style={{ marginTop: "8px", fontSize: "12px", color: "#666" }}>
+                  Found {filteredArtList.length} result
+                  {filteredArtList.length !== 1 ? "s" : ""}
+                  <button
+                    onClick={() => setSearchQuery("")}
+                    style={{
+                      marginLeft: "10px",
+                      padding: "2px 8px",
+                      fontSize: "11px",
+                      border: "1px solid #dc3545",
+                      borderRadius: "3px",
+                      backgroundColor: "white",
+                      color: "#dc3545",
+                      cursor: "pointer",
+                    }}
+                  >
+                    Clear
+                  </button>
+                </div>
+              )}
+            </div>
+
+            <div style={{ overflow: "auto", maxHeight: "60vh" }}>
+              <table
+                style={{
+                  width: "100%",
+                  borderCollapse: "collapse",
+                  fontSize: "13px",
+                  minWidth: "1000px",
+                }}
+              >
+                <thead
+                  style={{
+                    position: "sticky",
+                    top: 0,
+                    backgroundColor: "#f8f9fa",
+                    zIndex: 1,
+                  }}
+                >
+                  <tr>
+                    <th style={{ ...thtd, textAlign: "center", width: "50px" }}>
+                      S.No
+                    </th>
+                    <th style={{ ...thtd, textAlign: "left", width: "130px" }}>
+                      Serial Number
+                    </th>
+                    <th style={{ ...thtd, textAlign: "left", width: "110px" }}>
+                      Art Group
+                    </th>
+                    <th style={{ ...thtd, textAlign: "left", minWidth: "150px" }}>
+                      Art Name
+                    </th>
+                    <th style={{ ...thtd, textAlign: "left", width: "100px" }}>
+                      Art No
+                    </th>
+                    <th style={{ ...thtd, textAlign: "left", width: "120px" }}>
+                      Style Name
+                    </th>
+                    <th style={{ ...thtd, textAlign: "right", width: "90px" }}>
+                      Sale Rate
+                    </th>
+                    <th style={{ ...thtd, textAlign: "left", width: "80px" }}>
+                      Season
+                    </th>
+                    <th style={{ ...thtd, textAlign: "left", width: "110px" }}>
+                      Brand Name
+                    </th>
+                    <th style={{ ...thtd, textAlign: "center", width: "130px" }}>
+                      Actions
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredArtList.length === 0 ? (
+                    <tr>
+                      <td colSpan={10} style={{ ...thtd, textAlign: "center", padding: "40px", color: "#999" }}>
+                        {searchQuery ? "No arts found matching your search" : "No arts available"}
+                      </td>
+                    </tr>
+                  ) : (
+                    filteredArtList.map((art, index) => (
+                      <tr
+                        key={art.serialNumber}
+                        style={{
+                          backgroundColor: index % 2 === 0 ? "#ffffff" : "#f9f9f9",
+                        }}
+                      >
+                        <td style={{ ...thtd, textAlign: "center" }}>{index + 1}</td>
+                        <td style={{ ...thtd, fontFamily: "monospace" }}>{art.serialNumber}</td>
+                        <td style={thtd}>{art.artGroup || "-"}</td>
+                        <td style={{ ...thtd, fontWeight: 500 }}>{art.artName}</td>
+                        <td style={{ ...thtd, fontWeight: "bold", color: "#0066cc" }}>{art.artNo || "-"}</td>
+                        <td style={thtd}>{art.styleName || "-"}</td>
+                        <td style={{ ...thtd, textAlign: "right", fontWeight: "bold" }}>
+                          {art.saleRate ? `₹${art.saleRate}` : "-"}
+                        </td>
+                        <td style={thtd}>{art.season || "-"}</td>
+                        <td style={thtd}>{art.brandName || "-"}</td>
+                        <td style={{ ...thtd, textAlign: "center" }}>
+                          <button
+                            style={editButtonStyle}
+                            onClick={() => handleEditArt(art)}
+                            disabled={loading}
+                          >
+                            Edit
+                          </button>
+                          <button
+                            style={deleteButtonStyle}
+                            onClick={() => handleDeleteArt(art)}
+                            disabled={loading}
+                          >
+                            Delete
+                          </button>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            <div style={{ display: "flex", justifyContent: "space-between", marginTop: 20 }}>
+              <div style={{ fontSize: 13, color: "#666" }}>
+                Total Arts: <strong>{filteredArtList.length}</strong>
+              </div>
+              <button style={buttonStyle} onClick={handleCloseModal} disabled={loading}>
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* SIZE MODAL */}
+      {isSizeModalOpen && (
+        <div style={modalOverlayStyle} onClick={() => setIsSizeModalOpen(false)}>
+          <div
+            style={{ ...modalStyle, maxWidth: "450px", backgroundColor: "#f3e5f5" }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div
               style={{
-                marginLeft: "10px",
-                padding: "2px 8px",
-                fontSize: "11px",
-                border: "1px solid #dc3545",
-                borderRadius: "3px",
-                backgroundColor: "white",
-                color: "#dc3545",
-                cursor: "pointer",
+                ...modalHeaderStyle,
+                backgroundColor: "#f3e5f5",
+                borderBottom: "2px solid #9c27b0",
               }}
             >
-              Clear
-            </button>
+              <h3 style={{ margin: 0, fontSize: "16px", color: "#9c27b0" }}>
+                Enter Details for Size:{" "}
+                {availableSizes.find((s) => s.serialNo === currentSizeSelection)?.sizeName || ""}
+              </h3>
+              <button style={closeButtonStyle} onClick={() => setIsSizeModalOpen(false)}>
+                &times;
+              </button>
+            </div>
+
+            <div style={{ marginBottom: "16px" }}>
+              <label style={{ display: "block", marginBottom: "6px", fontWeight: "bold", fontSize: "13px" }}>
+                Box:
+              </label>
+              <input
+                type="text"
+                value={sizeDetails.box}
+                onChange={(e) => setSizeDetails({ ...sizeDetails, box: e.target.value })}
+                placeholder="Enter box quantity"
+                style={{ width: "100%", padding: "8px", border: "1px solid #9c27b0", borderRadius: "4px" }}
+              />
+            </div>
+
+            <div style={{ marginBottom: "16px" }}>
+              <label style={{ display: "block", marginBottom: "6px", fontWeight: "bold", fontSize: "13px" }}>
+                Pcs:
+              </label>
+              <input
+                type="text"
+                value={sizeDetails.pcs}
+                onChange={(e) => setSizeDetails({ ...sizeDetails, pcs: e.target.value })}
+                placeholder="Enter pieces"
+                style={{ width: "100%", padding: "8px", border: "1px solid #9c27b0", borderRadius: "4px" }}
+              />
+            </div>
+
+            <div style={{ marginBottom: "20px" }}>
+              <label style={{ display: "block", marginBottom: "6px", fontWeight: "bold", fontSize: "13px" }}>
+                Rate:
+              </label>
+              <input
+                type="text"
+                value={sizeDetails.rate}
+                onChange={(e) => setSizeDetails({ ...sizeDetails, rate: e.target.value })}
+                placeholder="Enter rate"
+                style={{ width: "100%", padding: "8px", border: "1px solid #9c27b0", borderRadius: "4px" }}
+              />
+            </div>
+
+            <div style={{ display: "flex", gap: "10px", justifyContent: "flex-end" }}>
+              <button
+                onClick={() => setIsSizeModalOpen(false)}
+                style={{ padding: "8px 16px", border: "1px solid #ccc", borderRadius: "4px" }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSaveSize}
+                style={{ padding: "8px 16px", border: "none", borderRadius: "4px", backgroundColor: "#9c27b0", color: "white" }}
+              >
+                Save
+              </button>
+            </div>
           </div>
-        )}
-      </div>
-
-      <div style={{ overflow: "auto", maxHeight: "60vh" }}>
-        <table style={{ 
-          width: "100%", 
-          borderCollapse: "collapse", 
-          fontSize: "13px",
-          minWidth: "1000px" 
-        }}>
-          <thead style={{ position: "sticky", top: 0, backgroundColor: "#f8f9fa", zIndex: 1 }}>
-            <tr>
-              <th style={{ 
-                ...thtd, 
-                textAlign: "center", 
-                width: "50px",
-                padding: "10px 6px",
-                fontWeight: "600"
-              }}>S.No</th>
-              <th style={{ 
-                ...thtd, 
-                textAlign: "left", 
-                width: "130px",
-                padding: "10px 8px",
-                fontWeight: "600"
-              }}>Serial Number</th>
-              <th style={{ 
-                ...thtd, 
-                textAlign: "left", 
-                width: "110px",
-                padding: "10px 8px",
-                fontWeight: "600"
-              }}>Art Group</th>
-              <th style={{ 
-                ...thtd, 
-                textAlign: "left", 
-                minWidth: "150px",
-                padding: "10px 8px",
-                fontWeight: "600"
-              }}>Art Name</th>
-              <th style={{ 
-                ...thtd, 
-                textAlign: "left", 
-                width: "100px",
-                padding: "10px 8px",
-                fontWeight: "600"
-              }}>Art No</th>
-              <th style={{ 
-                ...thtd, 
-                textAlign: "left", 
-                width: "120px",
-                padding: "10px 8px",
-                fontWeight: "600"
-              }}>Style Name</th>
-              <th style={{ 
-                ...thtd, 
-                textAlign: "right", 
-                width: "90px",
-                padding: "10px 8px",
-                fontWeight: "600"
-              }}>Sale Rate</th>
-              <th style={{ 
-                ...thtd, 
-                textAlign: "left", 
-                width: "80px",
-                padding: "10px 8px",
-                fontWeight: "600"
-              }}>Season</th>
-              <th style={{ 
-                ...thtd, 
-                textAlign: "left", 
-                width: "110px",
-                padding: "10px 8px",
-                fontWeight: "600"
-              }}>Brand Name</th>
-              <th style={{ 
-                ...thtd, 
-                textAlign: "center", 
-                width: "130px",
-                padding: "10px 8px",
-                fontWeight: "600"
-              }}>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {filteredArtList.length === 0 ? (
-              <tr>
-                <td 
-                  colSpan={10} 
-                  style={{ 
-                    ...thtd, 
-                    textAlign: "center", 
-                    padding: "40px",
-                    color: "#999",
-                    fontSize: "14px"
-                  }}
-                >
-                  {searchQuery ? "No arts found matching your search" : "No arts available"}
-                </td>
-              </tr>
-            ) : (
-              filteredArtList.map((art, index) => (
-                <tr 
-                  key={art.serialNumber} 
-                  style={{ 
-                    backgroundColor: index % 2 === 0 ? "#ffffff" : "#f9f9f9",
-                    transition: "background-color 0.2s"
-                  }}
-                  onMouseEnter={(e) => e.currentTarget.style.backgroundColor = "#e3f2fd"}
-                  onMouseLeave={(e) => e.currentTarget.style.backgroundColor = index % 2 === 0 ? "#ffffff" : "#f9f9f9"}
-                >
-                  <td style={{ ...thtd, textAlign: "center", padding: "8px 6px" }}>
-                    {index + 1}
-                  </td>
-                  <td style={{ ...thtd, textAlign: "left", padding: "8px", fontSize: "12px", fontFamily: "monospace" }}>
-                    {art.serialNumber}
-                  </td>
-                  <td style={{ ...thtd, textAlign: "left", padding: "8px" }}>
-                    {art.artGroup || "-"}
-                  </td>
-                  <td style={{ ...thtd, textAlign: "left", padding: "8px", fontWeight: "500" }}>
-                    {art.artName}
-                  </td>
-                  <td style={{ ...thtd, textAlign: "left", padding: "8px", fontWeight: "bold", color: "#0066cc" }}>
-                    {art.artNo || "-"}
-                  </td>
-                  <td style={{ ...thtd, textAlign: "left", padding: "8px" }}>
-                    {art.styleName || "-"}
-                  </td>
-                  <td style={{ 
-                    ...thtd, 
-                    textAlign: "right", 
-                    padding: "8px",
-                    fontWeight: "bold", 
-                    color: art.saleRate ? "#28a745" : "#999"
-                  }}>
-                    {art.saleRate ? `₹${art.saleRate}` : "-"}
-                  </td>
-                  <td style={{ ...thtd, textAlign: "left", padding: "8px" }}>
-                    {art.season || "-"}
-                  </td>
-                  <td style={{ ...thtd, textAlign: "left", padding: "8px" }}>
-                    {art.brandName || "-"}
-                  </td>
-                  <td style={{ ...thtd, textAlign: "center", padding: "8px" }}>
-                    <div style={{ display: "flex", gap: "4px", justifyContent: "center" }}>
-                      <button
-                        style={{
-                          ...editButtonStyle,
-                          padding: "6px 12px",
-                          fontSize: "12px"
-                        }}
-                        onClick={() => handleEditArt(art)}
-                        title="Edit Art"
-                        disabled={loading}
-                      >
-                        Edit
-                      </button>
-                      <button
-                        style={{
-                          ...deleteButtonStyle,
-                          padding: "6px 12px",
-                          fontSize: "12px"
-                        }}
-                        onClick={() => handleDeleteArt(art)}
-                        title="Delete Art"
-                        disabled={loading}
-                      >
-                        Delete
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
-      </div>
-
-      <div style={{ 
-        display: "flex", 
-        justifyContent: "space-between", 
-        alignItems: "center",
-        marginTop: "20px", 
-        paddingTop: "15px",
-        borderTop: "1px solid #eee"
-      }}>
-        <div style={{ fontSize: "13px", color: "#666" }}>
-          Total Arts: <strong>{filteredArtList.length}</strong>
-          {searchQuery && artList.length !== filteredArtList.length && (
-            <span> (filtered from {artList.length})</span>
-          )}
         </div>
-        <button style={buttonStyle} onClick={handleCloseModal} disabled={loading}>
-          Close
-        </button>
-      </div>
-    </div>
-  </div>
-)}
-      {isSizeModalOpen && (
-  <div style={modalOverlayStyle} onClick={() => setIsSizeModalOpen(false)}>
-    <div
-      style={{ ...modalStyle, maxWidth: "450px", backgroundColor: "#f3e5f5" }}
-      onClick={(e) => e.stopPropagation()}
-    >
-      <div style={{ ...modalHeaderStyle, backgroundColor: "#f3e5f5", borderBottom: "2px solid #9c27b0" }}>
-        <h3 style={{ margin: 0, fontSize: "16px", color: "#9c27b0" }}>
-          Enter Details for Size: {availableSizes.find(s => s.serialNo === currentSizeSelection)?.sizeName || ""}
-        </h3>
-        <button style={closeButtonStyle} onClick={() => setIsSizeModalOpen(false)}>
-          &times;
-        </button>
-      </div>
-
-      <div style={{ marginBottom: "16px" }}>
-        <label style={{ display: "block", marginBottom: "6px", fontWeight: "bold", fontSize: "13px" }}>
-          Box:
-        </label>
-        <input
-          type="text"
-          value={sizeDetails.box}
-          onChange={(e) => setSizeDetails({ ...sizeDetails, box: e.target.value })}
-          placeholder="Enter box quantity"
-          style={{
-            width: "100%",
-            padding: "8px",
-            border: "1px solid #9c27b0",
-            borderRadius: "4px",
-            fontSize: "13px",
-            boxSizing: "border-box"
-          }}
-        />
-      </div>
-
-      <div style={{ marginBottom: "16px" }}>
-        <label style={{ display: "block", marginBottom: "6px", fontWeight: "bold", fontSize: "13px" }}>
-          Pcs:
-        </label>
-        <input
-          type="text"
-          value={sizeDetails.pcs}
-          onChange={(e) => setSizeDetails({ ...sizeDetails, pcs: e.target.value })}
-          placeholder="Enter pieces"
-          style={{
-            width: "100%",
-            padding: "8px",
-            border: "1px solid #9c27b0",
-            borderRadius: "4px",
-            fontSize: "13px",
-            boxSizing: "border-box"
-          }}
-        />
-      </div>
-
-      <div style={{ marginBottom: "20px" }}>
-        <label style={{ display: "block", marginBottom: "6px", fontWeight: "bold", fontSize: "13px" }}>
-          Rate:
-        </label>
-        <input
-          type="text"
-          value={sizeDetails.rate}
-          onChange={(e) => setSizeDetails({ ...sizeDetails, rate: e.target.value })}
-          placeholder="Enter rate"
-          style={{
-            width: "100%",
-            padding: "8px",
-            border: "1px solid #9c27b0",
-            borderRadius: "4px",
-            fontSize: "13px",
-            boxSizing: "border-box"
-          }}
-        />
-      </div>
-
-      <div style={{ display: "flex", gap: "10px", justifyContent: "flex-end" }}>
-        <button
-          onClick={() => setIsSizeModalOpen(false)}
-          style={{
-            padding: "8px 16px",
-            border: "1px solid #ccc",
-            borderRadius: "4px",
-            cursor: "pointer",
-            backgroundColor: "#f0f0f0",
-            fontWeight: "bold",
-            fontSize: "13px"
-          }}
-        >
-          Cancel
-        </button>
-        <button
-          onClick={handleSaveSize}
-          style={{
-            padding: "8px 16px",
-            border: "none",
-            borderRadius: "4px",
-            cursor: "pointer",
-            backgroundColor: "#9c27b0",
-            color: "white",
-            fontWeight: "bold",
-            fontSize: "13px"
-          }}
-        >
-          Save
-        </button>
-      </div>
-    </div>
-  </div>
-)}
+      )}
     </Dashboard>
-  )
-}
+  );
+};
 
-export default ArtCreationForm
+export default ArtCreationForm;

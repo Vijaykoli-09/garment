@@ -43,6 +43,26 @@ interface CuttingEntry {
   }[]
 }
 
+// --- DATE FORMATTER: always DD/MM/YYYY (safe for "YYYY-MM-DD") ---
+const formatDateDDMMYYYY = (value: any) => {
+  if (!value) return "-"
+  const s = String(value)
+
+  // If it's already an ISO date like "2026-03-21" (from <input type="date">)
+  if (/^\d{4}-\d{2}-\d{2}/.test(s)) {
+    const [y, m, d] = s.slice(0, 10).split("-")
+    return `${d}/${m}/${y}`
+  }
+
+  // Fallback parse
+  const dt = new Date(s)
+  if (Number.isNaN(dt.getTime())) return "-"
+  const dd = String(dt.getDate()).padStart(2, "0")
+  const mm = String(dt.getMonth() + 1).padStart(2, "0")
+  const yyyy = dt.getFullYear()
+  return `${dd}/${mm}/${yyyy}`
+}
+
 const ProductionReceipt: React.FC = () => {
   const navigate = useNavigate()
 
@@ -59,7 +79,7 @@ const ProductionReceipt: React.FC = () => {
   const [showProcessModal, setShowProcessModal] = useState(false)
   const [processSearchText, setProcessSearchText] = useState("")
 
-  const [, setVoucherNo] = useState("")
+  const [voucherNo, setVoucherNo] = useState("")
   const [dated, setDated] = useState("")
 
   const [showList, setShowList] = useState(false)
@@ -72,226 +92,267 @@ const ProductionReceipt: React.FC = () => {
   const [artList, setArtList] = useState<ArtDetail[]>([])
   const [cuttingEntries, setCuttingEntries] = useState<CuttingEntry[]>([])
 
-  // NEW: Cutting Lot No search bar (filter table rows)
   const [cuttingLotSearchText, setCuttingLotSearchText] = useState("")
 
-  // NEW: Prevent double-click save
   const [isSaving, setIsSaving] = useState(false)
 
-  useEffect(() => {
-    loadEmployees()
-    loadProcesses()
-    loadArts()
-    loadCuttingEntries()
-    loadSavedRecords()
-  }, [])
+  // optional: show loading state (helps UX for first time)
+  const [isInitLoading, setIsInitLoading] = useState(false)
 
+  const createEmptyRow = useCallback(
+    (id: number): ProductionRow => ({
+      id,
+      cardNo: "",
+      artNo: "",
+      shade: "",
+      pcs: "",
+      originalPcs: "",
+      weightage: "",
+      rate: "",
+      amount: "0.00",
+      remarks: "",
+      isSelected: false,
+    }),
+    [],
+  )
+
+  // --------- LOADERS (return data too, so we can use immediately) ---------
   const loadEmployees = async () => {
-    try {
-      const res = await api.get("/employees")
-      setEmployeeList(Array.isArray(res.data) ? res.data : [])
-    } catch (err) {
-      console.error("Failed to load employees:", err)
-      Swal.fire("Error", "Failed to load employees", "error")
-    }
+    const res = await api.get("/employees")
+    const data = Array.isArray(res.data) ? res.data : []
+    setEmployeeList(data)
+    return data
   }
 
   const loadProcesses = async () => {
-    try {
-      const res = await api.get("/process/list")
-      setProcessList(Array.isArray(res.data) ? res.data : [])
-    } catch (err) {
-      console.error("Failed to load processes:", err)
-      Swal.fire("Error", "Failed to load processes", "error")
-    }
+    const res = await api.get("/process/list")
+    const data = Array.isArray(res.data) ? res.data : []
+    setProcessList(data)
+    return data
   }
 
   const loadArts = async () => {
-    try {
-      const res = await api.get("/arts")
-      const arts = Array.isArray(res.data) ? res.data : []
+    const res = await api.get("/arts")
+    const arts = Array.isArray(res.data) ? res.data : []
 
-      const detailedArts = await Promise.all(
-        arts.map(async (art: any) => {
-          try {
-            const detailRes = await api.get(`/arts/${art.serialNumber}`)
-            return detailRes.data
-          } catch (err) {
-            console.error(`Failed to load details for art ${art.serialNumber}:`, err)
-            return art
-          }
-        }),
-      )
+    const detailedArts = await Promise.all(
+      arts.map(async (art: any) => {
+        try {
+          const detailRes = await api.get(`/arts/${art.serialNumber}`)
+          return detailRes.data
+        } catch (err) {
+          console.error(`Failed to load details for art ${art.serialNumber}:`, err)
+          return art
+        }
+      }),
+    )
 
-      setArtList(detailedArts)
-    } catch (err) {
-      console.error("Failed to load arts:", err)
-      Swal.fire("Error", "Failed to load arts", "error")
-    }
+    setArtList(detailedArts)
+    return detailedArts as ArtDetail[]
   }
 
   const loadCuttingEntries = async () => {
-    try {
-      const res = await api.get("/cutting-entries")
-      setCuttingEntries(Array.isArray(res.data) ? res.data : [])
-    } catch (err) {
-      console.error("Failed to load cutting entries:", err)
-      Swal.fire("Error", "Failed to load cutting entries", "error")
-    }
+    const res = await api.get("/cutting-entries")
+    const data = Array.isArray(res.data) ? res.data : []
+    setCuttingEntries(data)
+    return data as CuttingEntry[]
   }
 
   const loadSavedRecords = async () => {
+    const res = await api.get("/production-receipt")
+    const data = Array.isArray(res.data) ? res.data : []
+    setSavedRecords(data)
+    return data
+  }
+
+  // Initial load (parallel)
+  useEffect(() => {
+    const init = async () => {
+      setIsInitLoading(true)
+      try {
+        await Promise.all([loadEmployees(), loadProcesses(), loadArts(), loadCuttingEntries(), loadSavedRecords()])
+      } catch (err) {
+        console.error("Init load error:", err)
+        Swal.fire("Error", "Failed to load initial data", "error")
+      } finally {
+        setIsInitLoading(false)
+      }
+    }
+    init()
+  }, [])
+
+  // Ensure data is loaded when user selects process quickly (FIRST TIME issue fix)
+  const ensureArtsLoaded = async () => {
+    if (artList.length > 0) return artList
     try {
-      const res = await api.get("/production-receipt")
-      const data = Array.isArray(res.data) ? res.data : []
-      setSavedRecords(data)
-      return data
-    } catch (err: any) {
-      console.error("Error loading saved records:", err)
+      return await loadArts()
+    } catch (err) {
+      console.error("ensureArtsLoaded failed:", err)
       return []
     }
   }
 
+  const ensureCuttingLoaded = async () => {
+    if (cuttingEntries.length > 0) return cuttingEntries
+    try {
+      return await loadCuttingEntries()
+    } catch (err) {
+      console.error("ensureCuttingLoaded failed:", err)
+      return []
+    }
+  }
+
+  const ensureSavedLoaded = async () => {
+    if (savedRecords.length > 0) return savedRecords
+    try {
+      return await loadSavedRecords()
+    } catch (err) {
+      console.error("ensureSavedLoaded failed:", err)
+      return []
+    }
+  }
+
+  // helper: compute consumed from records for a lot (excluding editing record)
+  const computeConsumed = useCallback(
+    (records: any[], proc: string, cardNo: string, artNo: string) => {
+      let consumed = 0
+      const procTrim = (proc || "").toString().trim().toLowerCase()
+      const cardTrim = (cardNo || "").toString().trim().toLowerCase()
+      const artTrim = (artNo || "").toString().trim().toLowerCase()
+
+      records.forEach((record) => {
+        if (editingId && record.id === editingId) return
+
+        const recordProc = (record.processName || "").toString().trim().toLowerCase()
+        if (recordProc !== procTrim) return
+
+        ;(record.rows || []).forEach((r: any) => {
+          const c = (r.cardNo || "").toString().trim().toLowerCase()
+          const a = (r.artNo || "").toString().trim().toLowerCase()
+          if (c === cardTrim && a === artTrim) {
+            consumed += Number.parseFloat(r.pcs) || 0
+          }
+        })
+      })
+
+      return consumed
+    },
+    [editingId],
+  )
+
   /**
-   * IMPORTANT CHANGES IN handleProcessSelect:
-   * 1) Rows generation order = Cutting Entries order (stable)
-   * 2) Once a cutting lot is saved for SAME process (even 1 pcs), it will NOT show again
+   * handleProcessSelect:
+   * - FIX: ensures arts + cutting entries + saved records are loaded before generating rows
+   * - Shows remaining pcs (original - consumed), DOES NOT hide after partial save
    */
   const handleProcessSelect = async (selectedProcess: any) => {
-    setProcessName(selectedProcess.processName)
-    setShowProcessModal(false)
-    setCuttingLotSearchText("") // reset search on new process select
+    try {
+      setProcessName(selectedProcess.processName)
+      setShowProcessModal(false)
+      setCuttingLotSearchText("")
 
-    const latestRecords = await loadSavedRecords()
+      // Ensure required data is present (FIRST TIME fix)
+      const [artsToUse, cuttingToUse, recordsToUse] = await Promise.all([
+        ensureArtsLoaded(),
+        ensureCuttingLoaded(),
+        ensureSavedLoaded(),
+      ])
 
-    // Helper maps (fast lookup)
-    const artByArtNo = new Map<string, ArtDetail>()
-    artList.forEach((a) => artByArtNo.set((a.artNo || "").toString().trim(), a))
+      const artByArtNo = new Map<string, ArtDetail>()
+      artsToUse.forEach((a) => artByArtNo.set((a.artNo || "").toString().trim(), a))
 
-    const currentProcess = (selectedProcess.processName || "").toString().trim()
+      const currentProcess = (selectedProcess.processName || "").toString().trim()
+      const newRows: ProductionRow[] = []
+      let rowId = Date.now()
 
-    const newRows: ProductionRow[] = []
-    let rowId = Date.now()
+      for (const entry of cuttingToUse) {
+        for (const lotRow of entry.lotRows || []) {
+          const lotArtNo = (lotRow.artNo || "").toString().trim()
+          const lotNo = (lotRow.cutLotNo || "").toString().trim()
 
-    // ORDER: cuttingEntries -> lotRows (same order as saved in cutting)
-    for (const entry of cuttingEntries) {
-      for (const lotRow of entry.lotRows || []) {
-        const lotArtNo = (lotRow.artNo || "").toString().trim()
-        const lotNo = (lotRow.cutLotNo || "").toString().trim()
+          const art = artByArtNo.get(lotArtNo)
+          if (!art) continue
 
-        const art = artByArtNo.get(lotArtNo)
-        if (!art) continue
+          const processDetail = (art.processes || []).find(
+            (p) => (p.processName || "").toString().trim() === currentProcess,
+          )
+          if (!processDetail) continue
 
-        const processDetail = (art.processes || []).find(
-          (p) => (p.processName || "").toString().trim() === currentProcess,
-        )
-        if (!processDetail) continue // art doesn't belong to this process
+          const processRate = processDetail.rate || ""
+          const originalPcs = Number.parseFloat(lotRow.pcs) || 0
 
-        const processRate = processDetail.rate || ""
+          const consumedPcs = computeConsumed(recordsToUse, currentProcess, lotNo, lotArtNo)
+          const remainingPcs = Math.max(0, originalPcs - consumedPcs)
+          if (remainingPcs <= 0) continue
 
-        const originalPcs = Number.parseFloat(lotRow.pcs) || 0
+          const rateNum = Number.parseFloat(processRate) || 0
 
-        // Consumption for THIS process + THIS cardNo + THIS artNo
-        let consumedPcs = 0
-        latestRecords.forEach((record) => {
-          const recordProcess = (record.processName || "").toString().trim()
-          if (recordProcess !== currentProcess) return
-
-          ;(record.rows || []).forEach((r: any) => {
-            const rowCardNo = (r.cardNo || "").toString().trim()
-            const rowArtNo = (r.artNo || "").toString().trim()
-            if (rowCardNo === lotNo && rowArtNo === lotArtNo) {
-              consumedPcs += Number.parseFloat(r.pcs) || 0
-            }
+          newRows.push({
+            id: rowId++,
+            cardNo: lotNo,
+            artNo: lotArtNo,
+            shade: "",
+            pcs: remainingPcs.toString(),
+            originalPcs: (lotRow.pcs || "").toString(),
+            weightage: "",
+            rate: processRate,
+            amount: (remainingPcs * rateNum).toFixed(2),
+            remarks: "",
+            isSelected: false,
           })
-        })
-
-        // NEW RULE (as requested): once saved even once, don't show again
-        if (consumedPcs > 0) {
-          continue
         }
+      }
 
-        const remainingPcs = Math.max(0, originalPcs - consumedPcs)
-        if (remainingPcs <= 0) continue
+      setRows(newRows)
 
-        newRows.push({
-          id: rowId++,
-          cardNo: lotNo,
-          artNo: lotArtNo,
-          shade: "", // manual
-          pcs: remainingPcs.toString(),
-          originalPcs: (lotRow.pcs || "").toString(),
-          weightage: "",
-          rate: processRate,
-          amount: (remainingPcs * (Number.parseFloat(processRate) || 0)).toFixed(2),
-          remarks: "",
-          isSelected: false,
+      if (newRows.length > 0) {
+        Swal.fire({
+          icon: "success",
+          title: "Rows Generated",
+          text: `${newRows.length} rows created for process: ${selectedProcess.processName}`,
+          timer: 1500,
+          showConfirmButton: false,
+        })
+      } else {
+        Swal.fire({
+          icon: "info",
+          title: "No Rows",
+          text: "No cutting lots available (fully consumed or not found for this process).",
+          timer: 1500,
+          showConfirmButton: false,
         })
       }
-    }
-
-    setRows(newRows)
-
-    if (newRows.length > 0) {
-      Swal.fire({
-        icon: "success",
-        title: "Rows Generated",
-        text: `${newRows.length} rows created for process: ${selectedProcess.processName}`,
-        timer: 2000,
-        showConfirmButton: false,
-      })
-    } else {
-      Swal.fire({
-        icon: "info",
-        title: "No Rows",
-        text: "No cutting lots available (already saved or not found for this process).",
-        timer: 2000,
-        showConfirmButton: false,
-      })
+    } catch (err) {
+      console.error("handleProcessSelect error:", err)
+      Swal.fire("Error", "Failed to generate rows for this process", "error")
     }
   }
 
   const addRow = useCallback(() => {
-    setRows((prev) => [
-      ...prev,
-      {
-        id: Date.now() + prev.length,
-        cardNo: "",
-        artNo: "",
-        shade: "",
-        pcs: "",
-        originalPcs: "",
-        weightage: "",
-        rate: "",
-        amount: "0.00",
-        remarks: "",
-        isSelected: false,
-      },
-    ])
-  }, [])
+    setRows((prev) => [...prev, createEmptyRow(Date.now() + prev.length)])
+  }, [createEmptyRow])
 
   useEffect(() => {
     if (rows.length === 0) addRow()
   }, [addRow, rows.length])
 
   const handleChange = (id: number, field: keyof ProductionRow, value: string) => {
-    const updatedRows = rows.map((r) => {
-      if (r.id !== id) return r
+    setRows((prev) =>
+      prev.map((r) => {
+        if (r.id !== id) return r
+        const updatedRow: ProductionRow = { ...r, [field]: value } as ProductionRow
 
-      const updatedRow = { ...r, [field]: value }
+        if (field === "pcs") updatedRow.isSelected = true
 
-      if (field === "pcs") updatedRow.isSelected = true
+        if (field === "pcs" || field === "rate") {
+          const pcs = Number.parseFloat(field === "pcs" ? value : updatedRow.pcs) || 0
+          const rate = Number.parseFloat(field === "rate" ? value : updatedRow.rate) || 0
+          updatedRow.amount = (pcs * rate).toFixed(2)
+        }
 
-      if (field === "pcs" || field === "rate") {
-        const pcs = Number.parseFloat(field === "pcs" ? value : updatedRow.pcs) || 0
-        const rate = Number.parseFloat(field === "rate" ? value : updatedRow.rate) || 0
-        updatedRow.amount = (pcs * rate).toFixed(2)
-      }
-
-      return updatedRow
-    })
-
-    setRows(updatedRows)
+        return updatedRow
+      }),
+    )
   }
 
   const handleRowSelection = (id: number, selected: boolean) => {
@@ -331,7 +392,6 @@ const ProductionReceipt: React.FC = () => {
   )
 
   const handleSave = async () => {
-    // NEW: prevent double click / duplicate save
     if (isSaving) return
 
     const selectedRows = rows.filter((r) => r.isSelected)
@@ -346,15 +406,20 @@ const ProductionReceipt: React.FC = () => {
       return
     }
 
-    // validate pcs should not exceed originalPcs (where originalPcs exists)
+    // validate pcs <= remaining
+    const latestRecords = await loadSavedRecords()
+
     for (const r of selectedRows) {
       if (r.originalPcs !== "") {
-        const orig = Number.parseFloat(r.originalPcs) || 0
+        const original = Number.parseFloat(r.originalPcs) || 0
+        const alreadyConsumed = computeConsumed(latestRecords, processName, r.cardNo, r.artNo)
+        const remaining = Math.max(0, original - alreadyConsumed)
         const pcs = Number.parseFloat(r.pcs) || 0
-        if (pcs > orig) {
+
+        if (pcs > remaining) {
           Swal.fire(
             "Error",
-            `Pcs cannot be greater than Original Pcs.\nCutting Lot: ${r.cardNo} | Art: ${r.artNo}\nOriginal: ${orig}, Entered: ${pcs}`,
+            `Pcs cannot be greater than Remaining Pcs.\nCutting Lot: ${r.cardNo} | Art: ${r.artNo}\nOriginal: ${original}\nAlready Consumed: ${alreadyConsumed}\nRemaining: ${remaining}\nEntered: ${pcs}`,
             "error",
           )
           return
@@ -362,7 +427,7 @@ const ProductionReceipt: React.FC = () => {
       }
     }
 
-    const autoVoucherNo = `PR-${Date.now()}`
+    const autoVoucherNo = voucherNo || `PR-${Date.now()}`
 
     const payload = {
       voucherNo: autoVoucherNo,
@@ -394,15 +459,16 @@ const ProductionReceipt: React.FC = () => {
         Swal.fire("Success", `Production receipt saved for ${employeeName}!`, "success")
       }
 
+      setVoucherNo(autoVoucherNo)
       await loadSavedRecords()
 
-      // remove selected rows from current UI
-      setRows((prev) => prev.filter((r) => !r.isSelected))
-
-      // regenerate rows for same process to hide saved cuttings immediately
+      // regenerate rows for same process (remaining pcs will appear)
       if (processName) {
         const selectedProcess = processList.find((p) => p.processName === processName)
         if (selectedProcess) await handleProcessSelect(selectedProcess)
+        else setRows((prev) => prev.filter((r) => !r.isSelected))
+      } else {
+        setRows((prev) => prev.filter((r) => !r.isSelected))
       }
     } catch (err: any) {
       console.error("Save Error:", err)
@@ -415,7 +481,6 @@ const ProductionReceipt: React.FC = () => {
   const resetForm = () => {
     if (isSaving) return
     setRows([])
-    addRow()
     setVoucherNo("")
     setDated("")
     setEmployeeName("")
@@ -501,7 +566,7 @@ const ProductionReceipt: React.FC = () => {
     const printWindow = window.open("", "_blank")
     if (!printWindow) return
 
-    const totalPcs = rows.reduce((sum, r) => sum + (Number.parseFloat(r.pcs) || 0), 0)
+    const totalPcsLocal = rows.reduce((sum, r) => sum + (Number.parseFloat(r.pcs) || 0), 0)
 
     const html = `
       <html>
@@ -520,7 +585,8 @@ const ProductionReceipt: React.FC = () => {
         <body>
           <h2>Production Receipt</h2>
           <div class="info">
-            <p><b>Date:</b> ${dated}</p>
+            <p><b>Voucher:</b> ${voucherNo}</p>
+            <p><b>Date:</b> ${formatDateDDMMYYYY(dated)}</p>
             <p><b>Employee:</b> ${employeeName}</p>
             <p><b>Process:</b> ${processName}</p>
           </div>
@@ -557,7 +623,7 @@ const ProductionReceipt: React.FC = () => {
             </tbody>
           </table>
           <div class="totals">
-            <p>Total Pieces: ${totalPcs}</p>
+            <p>Total Pieces: ${totalPcsLocal}</p>
           </div>
           <script>window.print(); window.onafterprint = function(){ window.close(); }</script>
         </body>
@@ -583,7 +649,6 @@ const ProductionReceipt: React.FC = () => {
     .reduce((sum, r) => sum + (Number.parseFloat(r.pcs) || 0), 0)
   const selectedCount = rows.filter((r) => r.isSelected).length
 
-  // filtered rows for table display by Cutting Lot No
   const displayedRows = useMemo(() => {
     const s = cuttingLotSearchText.trim().toLowerCase()
     if (!s) return rows
@@ -615,7 +680,7 @@ const ProductionReceipt: React.FC = () => {
                 onClick={openProcessModal}
                 readOnly
                 className="bg-gray-50 hover:bg-gray-100 p-2 border rounded w-full cursor-pointer"
-                placeholder="Click to select process"
+                placeholder={isInitLoading ? "Loading..." : "Click to select process"}
               />
             </div>
 
@@ -940,20 +1005,28 @@ const ProductionReceipt: React.FC = () => {
                 </thead>
 
                 <tbody>
-                  {filteredProcesses.map((p) => (
-                    <tr key={p.serialNo}>
-                      <td className="p-2 border">{p.processName}</td>
-                      <td className="p-2 border">{p.category}</td>
-                      <td className="p-2 border text-center">
-                        <button
-                          onClick={() => handleProcessSelect(p)}
-                          className="bg-green-500 hover:bg-green-600 px-3 py-1 rounded text-white"
-                        >
-                          Select
-                        </button>
+                  {filteredProcesses.length === 0 ? (
+                    <tr>
+                      <td colSpan={3} className="p-4 border text-gray-500 text-center">
+                        {isInitLoading ? "Loading processes..." : "No processes found"}
                       </td>
                     </tr>
-                  ))}
+                  ) : (
+                    filteredProcesses.map((p) => (
+                      <tr key={p.serialNo}>
+                        <td className="p-2 border">{p.processName}</td>
+                        <td className="p-2 border">{p.category}</td>
+                        <td className="p-2 border text-center">
+                          <button
+                            onClick={() => handleProcessSelect(p)}
+                            className="bg-green-500 hover:bg-green-600 px-3 py-1 rounded text-white"
+                          >
+                            Select
+                          </button>
+                        </td>
+                      </tr>
+                    ))
+                  )}
                 </tbody>
               </table>
             </div>
@@ -1006,7 +1079,7 @@ const ProductionReceipt: React.FC = () => {
                     </tr>
                   ) : (
                     filteredList.map((d, i) => {
-                      const totalPcs = (d.rows || []).reduce(
+                      const total = (d.rows || []).reduce(
                         (sum: number, r: any) => sum + (Number.parseFloat(r.pcs) || 0),
                         0,
                       )
@@ -1020,13 +1093,14 @@ const ProductionReceipt: React.FC = () => {
                       return (
                         <tr key={d.id}>
                           <td className="p-2 border text-center">{i + 1}</td>
-                          <td className="p-2 border">
-                            {d.dated ? new Date(d.dated).toLocaleDateString() : "-"}
-                          </td>
+
+                          {/* FIX: DD/MM/YYYY */}
+                          <td className="p-2 border">{formatDateDDMMYYYY(d.dated)}</td>
+
                           <td className="p-2 border">{artNos || "-"}</td>
                           <td className="p-2 border">{d.employeeName}</td>
                           <td className="p-2 border">{d.processName}</td>
-                          <td className="p-2 border text-right">{totalPcs}</td>
+                          <td className="p-2 border text-right">{total}</td>
                           <td className="p-2 border text-center">
                             <button
                               onClick={() => handleEdit(d.id)}

@@ -46,7 +46,16 @@ import DispatchReport from "./pages/Reports/DispatchReport";
 import JobWorkReport from "./pages/Reports/JobWorkReport";
 import DyeingAmountStatement from "./pages/Knitting/Dyeing/DyeingAmountStatement";
 import SalaryReport from "./pages/Reports/SalaryReport";
+import PaymentModeReport from "./pages/Reports/PaymentModeReport";
+
 //🧑‍🏫 Reports imports end
+
+// Payments Imports starts
+import PaymentMethod from "./pages/Payment/Payment";
+import PaymentRecipt from "./pages/Payment/Recipt";
+import PaymentMode from "./pages/Payment/PaymentMode";
+// Payments import End
+
 
 import FabricationCreation from "./pages/Master/FabricationCreation";
 import KnittingInwardChallan from "./pages/Knitting/knitting/KnittingInwardChallan";
@@ -67,8 +76,7 @@ import PurchasePendingOrders from "./pages/Knitting/PurchasePendingOrders";
 import PackingChallan from "./pages/Knitting/PackingChallan";
 import CuttingModule from "./pages/Cutting/CuttingModule";
 import ProductionReceipt from "./pages/Production/ProductionReceipt";
-import PaymentMethod from "./pages/Payment/Payment";
-import PaymentRecipt from "./pages/Payment/Recipt";
+
 import OutwardChallan from "./pages/Cutting/OutwardChallan";
 import InwardChallan from "./pages/Cutting/InwardChallan";
 import LocationCreation from "./pages/Master/LocationCreation";
@@ -80,9 +88,12 @@ import SaleOrderReturn from "./pages/Sales/SaleOrderReturn";
 import UserManagement from "./pages/Administration/UserManagement";
 
 import RateList from "./pages/Reports/RateList";
-import PaymentMode from "./pages/Payment/PaymentMode";
+
 import OtherDispatchChallan from "./pages/Knitting/OtherDispatchChallan";
 import AccountStatement from "./pages/Reports/AccountStatement";
+import StockAdjustment from "./pages/Reports/adjustment/StockAdjustment";
+
+
 
 
 import AddProduct from "./pages/app/AddProduct";
@@ -186,6 +197,8 @@ function App() {
           <Route path="job-work-report" element={<JobWorkReport />} />
           <Route path="rate-list-report" element={<RateList />} />
           <Route path="account-report" element={<AccountStatement />} />
+          <Route path="paymentmod-report" element={<PaymentModeReport />} />
+          <Route path="stock-adjustment" element={<StockAdjustment />} />
         </Route>
 
  

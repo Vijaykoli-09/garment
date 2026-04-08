@@ -1,4 +1,3 @@
-// src/main/java/com/garment/serviceImpl/PaymentReciptServiceImpl.java
 package com.garment.serviceImpl;
 
 import com.garment.DTO.PaymentReciptDTO;
@@ -68,6 +67,8 @@ public class PaymentReciptServiceImpl implements PaymentReciptService {
             return repository.findDistinctEmployeeNamesByPaymentTo("Employee");
         } else if ("Party".equalsIgnoreCase(type)) {
             return repository.findDistinctPartyNamesByPaymentTo("Party");
+        } else if ("Broker".equalsIgnoreCase(type)) {
+            return repository.findDistinctAgentNamesByPaymentTo("Broker");
         }
         return Collections.emptyList();
     }
@@ -88,7 +89,7 @@ public class PaymentReciptServiceImpl implements PaymentReciptService {
         dto.setAmount(e.getAmount());
         dto.setBalance(e.getBalance());
         dto.setRemarks(e.getRemarks());
-        // agentName is not stored in entity -> dto.setAgentName(null);
+        dto.setAgentName(e.getAgentName()); // FIXED
         return dto;
     }
 
@@ -104,6 +105,6 @@ public class PaymentReciptServiceImpl implements PaymentReciptService {
         e.setAmount(dto.getAmount());
         e.setBalance(dto.getBalance());
         e.setRemarks(dto.getRemarks());
-        // agentName is not mapped; add field + column if you want to store it
+        e.setAgentName(dto.getAgentName()); // FIXED
     }
 }

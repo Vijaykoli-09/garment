@@ -11,7 +11,7 @@ import Swal from "sweetalert2";
 import Dashboard from "../Dashboard";
 import api from "../../api/axiosInstance";
 
-// --- API Routes ---
+// ----------------- API Routes -----------------
 const routes = {
   create: "/dispatch-challan/create",
   list: "/dispatch-challan",
@@ -20,14 +20,16 @@ const routes = {
   delete: (id: number) => `/dispatch-challan/${id}`,
   parties: "/party/all",
   packingChallans: "/packing-challans",
-  purchaseOrders: "/purchase-orders",
   arts: "/arts",
   artDetail: (serial: string | number) => `/arts/${serial}`,
   nextNumbers: "/dispatch-challan/next",
+
+  // ✅ NEW: for packing items from group
+  materialGroups: "/material-groups",
+  materials: "/materials",
 };
 
-// --- Types ---
-
+// ----------------- Types -----------------
 interface DispatchRow {
   id: number;
   barCode: string;
@@ -58,15 +60,6 @@ interface Party {
   transport?: { transportName?: string };
 }
 
-/**
- * Item used for Art-No lookup modal.
- * NET STOCK:
- *   - Opening stock from Art Creation (qty only, rate = 0)
- *   - PLUS Packing Challans (qty + rate from packing)
- *   - MINUS Dispatch Challans (qty only, rate = 0)
- * 
- * Rate in modal = LAST PACKING RATE (not average, not stock rate)
- */
 interface PackingSourceItem {
   id: string;
   packingSerial: string;
@@ -104,8 +97,20 @@ interface ArtDetailView {
   sizes?: any[];
 }
 
-// --- Helper functions ---
+// ✅ NEW: Material Group / Materials (for packing)
+type MaterialGroupView = {
+  id: number;
+  materialGroup: string;
+};
 
+type MaterialView = {
+  id: number;
+  materialName: string;
+  materialGroupId: number;
+  materialUnit?: string;
+};
+
+// ----------------- Helpers -----------------
 const formatRowSerial = (n: number) => String(n).padStart(4, "0");
 
 const toNum = (v: any): number => {
@@ -133,52 +138,24 @@ const formatDateDDMMYY = (value?: string | Date) => {
   return `${dd}/${mm}/${yyyy.slice(-2)}`;
 };
 
-// ----------------- Modal Components (top-level) -----------------
+const toNumberOrNull = (value: string): number | null => {
+  if (value === null || value === undefined) return null;
+  const trimmed = String(value).trim();
+  if (!trimmed) return null;
+  const num = Number(trimmed);
+  return Number.isNaN(num) ? null : num;
+};
 
+const numToStr = (value: any): string =>
+  value === null || value === undefined ? "" : String(value);
+
+// ----------------- Modals -----------------
 type ProductSearchModalProps = {
   isOpen: boolean;
   searchTerm: string;
   products: PackingSourceItem[];
   onSearchTermChange: (value: string) => void;
   onSelect: (item: PackingSourceItem) => void;
-  onClose: () => void;
-};
-
-type ChallanSearchModalProps = {
-  isOpen: boolean;
-  searchText: string;
-  challans: any[];
-  onSearchTextChange: (value: string) => void;
-  onEdit: (id: number) => void;
-  onDelete: (id: number) => void;
-  onClose: () => void;
-};
-
-type ListViewModalProps = {
-  isOpen: boolean;
-  searchText: string;
-  challans: any[];
-  onSearchTextChange: (value: string) => void;
-  onEdit: (id: number) => void;
-  onDelete: (id: number) => void;
-  onClose: () => void;
-};
-
-type PurchaseOrderModalProps = {
-  isOpen: boolean;
-  searchText: string;
-  pos: any[];
-  onSearchTextChange: (value: string) => void;
-  onSelectPO: (po: any) => void;
-  onClose: () => void;
-};
-
-type PartySearchModalProps = {
-  isOpen: boolean;
-  searchText: string;
-  parties: Party[];
-  onSearchTextChange: (value: string) => void;
-  onSelect: (party: Party) => void;
   onClose: () => void;
 };
 
@@ -193,9 +170,7 @@ const ProductSearchModal: React.FC<ProductSearchModalProps> = ({
   const inputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
-    if (isOpen && inputRef.current) {
-      inputRef.current.focus();
-    }
+    if (isOpen && inputRef.current) inputRef.current.focus();
   }, [isOpen]);
 
   if (!isOpen) return null;
@@ -204,16 +179,18 @@ const ProductSearchModal: React.FC<ProductSearchModalProps> = ({
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
       <div className="bg-white rounded-lg shadow-xl w-5/6 max-w-5xl p-4">
         <h3 className="text-xl font-bold mb-4 text-blue-800">
-          Select Item (Net Art Stock: Opening + Packing - Dispatch)
+          Select Item (Net Art Stock)
         </h3>
+
         <input
           ref={inputRef}
           type="text"
           placeholder="Search by description / size / shade / art no..."
           value={searchTerm}
           onChange={(e) => onSearchTermChange(e.target.value)}
-          className="border p-2 rounded w-full mb-4 focus:ring-blue-500 focus:border-blue-500"
+          className="border p-2 rounded w-full mb-4"
         />
+
         <div className="overflow-auto max-h-96 border border-gray-300">
           <table className="w-full text-sm">
             <thead className="bg-blue-100 sticky top-0">
@@ -232,7 +209,7 @@ const ProductSearchModal: React.FC<ProductSearchModalProps> = ({
               {products.map((item, index) => (
                 <tr
                   key={item.id}
-                  className="cursor-pointer hover:bg-yellow-100 transition-colors"
+                  className="cursor-pointer hover:bg-yellow-100"
                   onClick={() => onSelect(item)}
                 >
                   <td className="border p-2 text-center">{index + 1}</td>
@@ -253,17 +230,18 @@ const ProductSearchModal: React.FC<ProductSearchModalProps> = ({
                     colSpan={8}
                     className="border p-2 text-center text-gray-500"
                   >
-                    No items found (Net Stock is zero / negative for all)
+                    No items found (Net stock zero)
                   </td>
                 </tr>
               )}
             </tbody>
           </table>
         </div>
+
         <div className="mt-4 flex justify-end">
           <button
             onClick={onClose}
-            className="px-4 py-2 bg-gray-500 text-white rounded hover:bg-gray-600 active:bg-gray-700 transition-colors"
+            className="px-4 py-2 bg-gray-500 text-white rounded"
           >
             Close
           </button>
@@ -271,6 +249,16 @@ const ProductSearchModal: React.FC<ProductSearchModalProps> = ({
       </div>
     </div>
   );
+};
+
+type ChallanSearchModalProps = {
+  isOpen: boolean;
+  searchText: string;
+  challans: any[];
+  onSearchTextChange: (value: string) => void;
+  onEdit: (id: number) => void;
+  onDelete: (id: number) => void;
+  onClose: () => void;
 };
 
 const ChallanSearchModal: React.FC<ChallanSearchModalProps> = ({
@@ -285,9 +273,7 @@ const ChallanSearchModal: React.FC<ChallanSearchModalProps> = ({
   const inputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
-    if (isOpen && inputRef.current) {
-      inputRef.current.focus();
-    }
+    if (isOpen && inputRef.current) inputRef.current.focus();
   }, [isOpen]);
 
   if (!isOpen) return null;
@@ -302,7 +288,7 @@ const ChallanSearchModal: React.FC<ChallanSearchModalProps> = ({
           placeholder="Search by Challan No / Date / Party / Station / Art No..."
           value={searchText}
           onChange={(e) => onSearchTextChange(e.target.value)}
-          className="border p-2 rounded w-full mb-3 focus:ring-blue-500 focus:border-blue-500"
+          className="border p-2 rounded w-full mb-3"
         />
         <div className="overflow-auto max-h-[450px] border border-gray-300">
           <table className="w-full text-sm">
@@ -335,9 +321,7 @@ const ChallanSearchModal: React.FC<ChallanSearchModalProps> = ({
                     ? Array.from(
                         new Set(
                           c.rows
-                            .map((r: any) =>
-                              (r.artNo || "").toString().trim()
-                            )
+                            .map((r: any) => (r.artNo || "").toString().trim())
                             .filter(Boolean)
                         )
                       ).join(", ")
@@ -357,13 +341,13 @@ const ChallanSearchModal: React.FC<ChallanSearchModalProps> = ({
                       <td className="border p-2 text-center space-x-1">
                         <button
                           onClick={() => onEdit(c.id)}
-                          className="px-2 py-1 bg-blue-500 text-white rounded hover:bg-blue-600 active:bg-blue-700"
+                          className="px-2 py-1 bg-blue-500 text-white rounded"
                         >
                           Edit
                         </button>
                         <button
                           onClick={() => onDelete(c.id)}
-                          className="px-2 py-1 bg-red-500 text-white rounded hover:bg-red-600 active:bg-red-700"
+                          className="px-2 py-1 bg-red-500 text-white rounded"
                         >
                           Delete
                         </button>
@@ -378,7 +362,7 @@ const ChallanSearchModal: React.FC<ChallanSearchModalProps> = ({
         <div className="mt-4 flex justify-end">
           <button
             onClick={onClose}
-            className="px-4 py-2 bg-gray-500 text-white rounded hover:bg-gray-600 active:bg-gray-700 transition-colors"
+            className="px-4 py-2 bg-gray-500 text-white rounded"
           >
             Close
           </button>
@@ -386,6 +370,16 @@ const ChallanSearchModal: React.FC<ChallanSearchModalProps> = ({
       </div>
     </div>
   );
+};
+
+type ListViewModalProps = {
+  isOpen: boolean;
+  searchText: string;
+  challans: any[];
+  onSearchTextChange: (value: string) => void;
+  onEdit: (id: number) => void;
+  onDelete: (id: number) => void;
+  onClose: () => void;
 };
 
 const ListViewModal: React.FC<ListViewModalProps> = ({
@@ -400,9 +394,7 @@ const ListViewModal: React.FC<ListViewModalProps> = ({
   const inputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
-    if (isOpen && inputRef.current) {
-      inputRef.current.focus();
-    }
+    if (isOpen && inputRef.current) inputRef.current.focus();
   }, [isOpen]);
 
   if (!isOpen) return null;
@@ -416,10 +408,10 @@ const ListViewModal: React.FC<ListViewModalProps> = ({
         <input
           ref={inputRef}
           type="text"
-          placeholder="Search by Date / Art No / Size / Shade / Box / Pcs / Rate / Amt / Net Amt..."
+          placeholder="Search by Date / Art No / Size / Shade / Rate / Amt / Net Amt..."
           value={searchText}
           onChange={(e) => onSearchTextChange(e.target.value)}
-          className="border p-2 rounded w-full mb-3 focus:ring-blue-500 focus:border-blue-500"
+          className="border p-2 rounded w-full mb-3"
         />
         <div className="overflow-auto max-h-[430px] border border-gray-300">
           <table className="w-full text-sm">
@@ -452,9 +444,7 @@ const ListViewModal: React.FC<ListViewModalProps> = ({
               ) : (
                 challans.map((c: any, idx: number) => {
                   const firstRow =
-                    Array.isArray(c.rows) && c.rows.length > 0
-                      ? c.rows[0]
-                      : {};
+                    Array.isArray(c.rows) && c.rows.length > 0 ? c.rows[0] : {};
                   return (
                     <tr key={c.id || idx} className="hover:bg-green-50">
                       <td className="border p-2 text-center">{idx + 1}</td>
@@ -487,13 +477,13 @@ const ListViewModal: React.FC<ListViewModalProps> = ({
                       <td className="border p-2 text-center space-x-1">
                         <button
                           onClick={() => onEdit(c.id)}
-                          className="px-2 py-1 bg-blue-500 text-white rounded hover:bg-blue-600 active:bg-blue-700"
+                          className="px-2 py-1 bg-blue-500 text-white rounded"
                         >
                           Edit
                         </button>
                         <button
                           onClick={() => onDelete(c.id)}
-                          className="px-2 py-1 bg-red-500 text-white rounded hover:bg-red-600 active:bg-red-700"
+                          className="px-2 py-1 bg-red-500 text-white rounded"
                         >
                           Delete
                         </button>
@@ -508,7 +498,7 @@ const ListViewModal: React.FC<ListViewModalProps> = ({
         <div className="mt-4 flex justify-end">
           <button
             onClick={onClose}
-            className="px-4 py-2 bg-gray-500 text-white rounded hover:bg-gray-600 active:bg-gray-700 transition-colors"
+            className="px-4 py-2 bg-gray-500 text-white rounded"
           >
             Close
           </button>
@@ -518,106 +508,13 @@ const ListViewModal: React.FC<ListViewModalProps> = ({
   );
 };
 
-const PurchaseOrderModal: React.FC<PurchaseOrderModalProps> = ({
-  isOpen,
-  searchText,
-  pos,
-  onSearchTextChange,
-  onSelectPO,
-  onClose,
-}) => {
-  const inputRef = useRef<HTMLInputElement | null>(null);
-
-  useEffect(() => {
-    if (isOpen && inputRef.current) {
-      inputRef.current.focus();
-    }
-  }, [isOpen]);
-
-  if (!isOpen) return null;
-
-  return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[60]">
-      <div className="bg-white rounded-lg shadow-xl w-5/6 max-w-5xl p-4 max-h-[90vh] overflow-auto">
-        <h3 className="text-xl font-bold mb-3 text-blue-800">
-          Select Purchase Order (for Packing Items)
-        </h3>
-        <input
-          ref={inputRef}
-          type="text"
-          placeholder="Search by Order No / Date / Party..."
-          value={searchText}
-          onChange={(e) => onSearchTextChange(e.target.value)}
-          className="border p-2 rounded w-full mb-3 focus:ring-blue-500 focus:border-blue-500"
-        />
-        <div className="overflow-auto max-h-[430px] border border-gray-300">
-          <table className="w-full text-sm">
-            <thead className="bg-indigo-100 sticky top-0">
-              <tr>
-                <th className="border p-2">S No</th>
-                <th className="border p-2">Order No</th>
-                <th className="border p-2">Date</th>
-                <th className="border p-2">Party</th>
-                <th className="border p-2">Items</th>
-                <th className="border p-2">Action</th>
-              </tr>
-            </thead>
-            <tbody>
-              {pos.length === 0 ? (
-                <tr>
-                  <td
-                    className="border p-3 text-center text-gray-500"
-                    colSpan={6}
-                  >
-                    No purchase orders found
-                  </td>
-                </tr>
-              ) : (
-                pos.map((po: any, idx: number) => {
-                  const items = Array.isArray(po.items) ? po.items : [];
-                  const itemNames = items
-                    .map(
-                      (it: any) =>
-                        it.material?.materialName ||
-                        it.materialName ||
-                        `Material ${it.materialId || ""}`
-                    )
-                    .join(", ");
-                  return (
-                    <tr key={po.id || idx} className="hover:bg-indigo-50">
-                      <td className="border p-2 text-center">{idx + 1}</td>
-                      <td className="border p-2">{po.orderNo}</td>
-                      <td className="border p-2">{po.date}</td>
-                      <td className="border p-2">
-                        {po.partyName || po.party?.partyName}
-                      </td>
-                      <td className="border p-2">{itemNames}</td>
-                      <td className="border p-2 text-center">
-                        <button
-                          onClick={() => onSelectPO(po)}
-                          className="px-3 py-1 bg-green-600 text-white rounded hover:bg-green-700 active:bg-green-800"
-                        >
-                          Use Items
-                        </button>
-                      </td>
-                    </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
-        </div>
-        <div className="mt-4 flex justify-end">
-          <button
-            onClick={onClose}
-            className="px-4 py-2 bg-gray-500 text-white rounded hover:bg-gray-600 active:bg-gray-700 transition-colors"
-          >
-            Close
-          </button>
-        </div>
-      </div>
-    </div>
-  );
+type PartySearchModalProps = {
+  isOpen: boolean;
+  searchText: string;
+  parties: Party[];
+  onSearchTextChange: (value: string) => void;
+  onSelect: (party: Party) => void;
+  onClose: () => void;
 };
 
 const PartySearchModal: React.FC<PartySearchModalProps> = ({
@@ -631,9 +528,7 @@ const PartySearchModal: React.FC<PartySearchModalProps> = ({
   const inputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
-    if (isOpen && inputRef.current) {
-      inputRef.current.focus();
-    }
+    if (isOpen && inputRef.current) inputRef.current.focus();
   }, [isOpen]);
 
   if (!isOpen) return null;
@@ -641,16 +536,14 @@ const PartySearchModal: React.FC<PartySearchModalProps> = ({
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[52]">
       <div className="bg-white rounded-lg shadow-xl w-5/6 max-w-4xl p-4 max-h-[90vh] overflow-auto">
-        <h3 className="text-xl font-bold mb-3 text-blue-800">
-          Select Party
-        </h3>
+        <h3 className="text-xl font-bold mb-3 text-blue-800">Select Party</h3>
         <input
           ref={inputRef}
           type="text"
           placeholder="Search by Party / Broker / Transport..."
           value={searchText}
           onChange={(e) => onSearchTextChange(e.target.value)}
-          className="border p-2 rounded w-full mb-3 focus:ring-blue-500 focus:border-blue-500"
+          className="border p-2 rounded w-full mb-3"
         />
         <div className="overflow-auto max-h-[430px] border border-gray-300">
           <table className="w-full text-sm">
@@ -680,16 +573,14 @@ const PartySearchModal: React.FC<PartySearchModalProps> = ({
                     <td className="border p-2 text-center">{idx + 1}</td>
                     <td className="border p-2">{p.partyName}</td>
                     <td className="border p-2">{p.station || ""}</td>
-                    <td className="border p-2">
-                      {p.agent?.agentName || ""}
-                    </td>
+                    <td className="border p-2">{p.agent?.agentName || ""}</td>
                     <td className="border p-2">
                       {p.transport?.transportName || ""}
                     </td>
                     <td className="border p-2 text-center">
                       <button
                         onClick={() => onSelect(p)}
-                        className="px-3 py-1 bg-blue-500 text-white rounded hover:bg-blue-600 active:bg-blue-700"
+                        className="px-3 py-1 bg-blue-500 text-white rounded"
                       >
                         Select
                       </button>
@@ -703,7 +594,7 @@ const PartySearchModal: React.FC<PartySearchModalProps> = ({
         <div className="mt-4 flex justify-end">
           <button
             onClick={onClose}
-            className="px-4 py-2 bg-gray-500 text-white rounded hover:bg-gray-600 active:bg-gray-700 transition-colors"
+            className="px-4 py-2 bg-gray-500 text-white rounded"
           >
             Close
           </button>
@@ -713,8 +604,253 @@ const PartySearchModal: React.FC<PartySearchModalProps> = ({
   );
 };
 
-// ----------------- Main Component -----------------
+// ✅ NEW: Packing Items from Material Group (default "PETTI PACKING")
+type PackingGroupItemsModalProps = {
+  isOpen: boolean;
+  groups: MaterialGroupView[];
+  materials: MaterialView[];
+  defaultGroupName?: string;
+  onApply: (rows: { itemName: string; quantity: string }[]) => void;
+  onClose: () => void;
+};
 
+const PackingGroupItemsModal: React.FC<PackingGroupItemsModalProps> = ({
+  isOpen,
+  groups,
+  materials,
+  defaultGroupName = "PETTI PACKING",
+  onApply,
+  onClose,
+}) => {
+  const [selectedGroupId, setSelectedGroupId] = useState<number | "">("");
+  const [search, setSearch] = useState("");
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [qtyById, setQtyById] = useState<Record<number, string>>({});
+
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const target = defaultGroupName.trim().toLowerCase();
+    const dg =
+      groups.find(
+        (g) => (g.materialGroup || "").trim().toLowerCase() === target
+      ) ||
+      groups.find((g) =>
+        (g.materialGroup || "")
+          .trim()
+          .toLowerCase()
+          .includes("petti")
+      ) ||
+      groups.find((g) =>
+        (g.materialGroup || "")
+          .trim()
+          .toLowerCase()
+          .includes("peti")
+      );
+
+    setSelectedGroupId(dg?.id ?? "");
+    setSearch("");
+    setSelectedIds(new Set());
+    setQtyById({});
+  }, [isOpen, groups, defaultGroupName]);
+
+  const groupMaterials = useMemo(() => {
+    const base =
+      selectedGroupId === ""
+        ? []
+        : materials.filter((m) => m.materialGroupId === selectedGroupId);
+
+    const term = search.trim().toLowerCase();
+    if (!term) return base;
+
+    return base.filter((m) =>
+      (m.materialName || "").toLowerCase().includes(term)
+    );
+  }, [materials, selectedGroupId, search]);
+
+  const toggleOne = (id: number) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const selectAll = () =>
+    setSelectedIds(new Set(groupMaterials.map((m) => m.id)));
+  const clearAll = () => setSelectedIds(new Set());
+
+  const handleUseSelected = () => {
+    if (selectedIds.size === 0) {
+      Swal.fire("Info", "Please select at least 1 item.", "info");
+      return;
+    }
+
+    const rows = groupMaterials
+      .filter((m) => selectedIds.has(m.id))
+      .map((m) => ({
+        itemName: m.materialName,
+        quantity: (qtyById[m.id] ?? "").toString(),
+      }));
+
+    onApply(rows);
+  };
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[70]">
+      <div className="bg-white rounded-lg shadow-xl w-5/6 max-w-5xl p-4 max-h-[90vh] overflow-auto">
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-xl font-bold text-blue-800">
+            Select Packing Items (Default: {defaultGroupName})
+          </h3>
+          <button
+            onClick={onClose}
+            className="px-3 py-1 bg-gray-500 text-white rounded"
+          >
+            Close
+          </button>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-3">
+          <div className="md:col-span-1">
+            <label className="block text-sm font-semibold mb-1">
+              Material Group
+            </label>
+            <select
+              className="border p-2 rounded w-full"
+              value={selectedGroupId}
+              onChange={(e) => {
+                const v = e.target.value;
+                setSelectedGroupId(v ? Number(v) : "");
+                setSelectedIds(new Set());
+                setQtyById({});
+              }}
+            >
+              <option value="">-- Select Group --</option>
+              {groups.map((g) => (
+                <option key={g.id} value={g.id}>
+                  {g.materialGroup}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="md:col-span-2">
+            <label className="block text-sm font-semibold mb-1">
+              Search Items
+            </label>
+            <input
+              className="border p-2 rounded w-full"
+              placeholder="Search by item name..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+          </div>
+        </div>
+
+        <div className="flex flex-wrap gap-2 mb-3">
+          <button
+            onClick={selectAll}
+            className="px-3 py-1 bg-indigo-600 text-white rounded"
+            disabled={groupMaterials.length === 0}
+          >
+            Select All
+          </button>
+          <button
+            onClick={clearAll}
+            className="px-3 py-1 bg-gray-200 text-black rounded"
+            disabled={selectedIds.size === 0}
+          >
+            Clear
+          </button>
+
+          <button
+            onClick={handleUseSelected}
+            className="ml-auto px-3 py-1 bg-green-600 text-white rounded"
+          >
+            Use Selected Items
+          </button>
+        </div>
+
+        <div className="overflow-auto border border-gray-300 max-h-[450px]">
+          <table className="w-full text-sm">
+            <thead className="bg-slate-100 sticky top-0">
+              <tr>
+                <th className="border p-2 w-16 text-center">Select</th>
+                <th className="border p-2 text-left">Item Name</th>
+                <th className="border p-2 w-32 text-center">Qty</th>
+              </tr>
+            </thead>
+            <tbody>
+              {selectedGroupId === "" ? (
+                <tr>
+                  <td
+                    colSpan={3}
+                    className="border p-3 text-center text-gray-500"
+                  >
+                    Please select a material group.
+                  </td>
+                </tr>
+              ) : groupMaterials.length === 0 ? (
+                <tr>
+                  <td
+                    colSpan={3}
+                    className="border p-3 text-center text-gray-500"
+                  >
+                    No items found in this group.
+                  </td>
+                </tr>
+              ) : (
+                groupMaterials.map((m) => (
+                  <tr key={m.id} className="hover:bg-yellow-50">
+                    <td className="border p-2 text-center">
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.has(m.id)}
+                        onChange={() => toggleOne(m.id)}
+                      />
+                    </td>
+                    <td className="border p-2">{m.materialName}</td>
+                    <td className="border p-2">
+                      <input
+                        type="text"
+                        className="border p-1 rounded w-full text-right"
+                        placeholder="Qty"
+                        value={qtyById[m.id] ?? ""}
+                        onChange={(e) =>
+                          setQtyById((prev) => ({
+                            ...prev,
+                            [m.id]: e.target.value,
+                          }))
+                        }
+                        onFocus={() => {
+                          setSelectedIds((prev) => {
+                            const next = new Set(prev);
+                            next.add(m.id);
+                            return next;
+                          });
+                        }}
+                      />
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        <div className="mt-3 text-xs text-gray-600">
+          Tip: Qty type karte hi item auto-select ho jayega.
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ----------------- Main Component -----------------
 const DispatchChallan: React.FC = () => {
   const [rows, setRows] = useState<DispatchRow[]>([]);
   const [packingRows, setPackingRows] = useState<PackingRow[]>([]);
@@ -740,9 +876,9 @@ const DispatchChallan: React.FC = () => {
   const [cartage, setCartage] = useState("");
   const [netAmt, setNetAmt] = useState("");
 
-  const [discountMode, setDiscountMode] = useState<
-    "percent" | "amount" | null
-  >(null);
+  const [discountMode, setDiscountMode] = useState<"percent" | "amount" | null>(
+    null
+  );
   const [taxMode, setTaxMode] = useState<"percent" | "amount" | null>(null);
 
   const [editingId, setEditingId] = useState<number | null>(null);
@@ -766,11 +902,6 @@ const DispatchChallan: React.FC = () => {
   const [listViewChallanList, setListViewChallanList] = useState<any[]>([]);
   const [listViewSearchText, setListViewSearchText] = useState("");
 
-  // Purchase Order modal
-  const [isPOModalOpen, setIsPOModalOpen] = useState(false);
-  const [poList, setPoList] = useState<any[]>([]);
-  const [poSearchTerm, setPoSearchTerm] = useState("");
-
   // Party search modal
   const [isPartyModalOpen, setIsPartyModalOpen] = useState(false);
   const [partySearchText, setPartySearchText] = useState("");
@@ -783,6 +914,11 @@ const DispatchChallan: React.FC = () => {
     rowIndex: number;
     colIndex: number;
   } | null>(null);
+
+  // ✅ NEW: packing items from "PETTI PACKING" group
+  const [materialGroups, setMaterialGroups] = useState<MaterialGroupView[]>([]);
+  const [materials, setMaterials] = useState<MaterialView[]>([]);
+  const [isPackingGroupModalOpen, setIsPackingGroupModalOpen] = useState(false);
 
   const fieldOrder: (keyof DispatchRow)[] = [
     "barCode",
@@ -844,8 +980,7 @@ const DispatchChallan: React.FC = () => {
     return () => window.removeEventListener("keydown", handleGlobalEnter);
   }, []);
 
-  // --- Row management ---
-
+  // ----------------- Row management -----------------
   const addMainRow = useCallback(() => {
     setRows((prev) => {
       const nextIndex = prev.length;
@@ -870,30 +1005,27 @@ const DispatchChallan: React.FC = () => {
     });
   }, []);
 
-  const deleteMainRow = useCallback(
-    (indexToDelete?: number) => {
-      setRows((prev) => {
-        let newRows: DispatchRow[];
-        let removedIndex: number;
-        if (typeof indexToDelete === "number") {
-          removedIndex = indexToDelete;
-          newRows = prev.filter((_, index) => index !== indexToDelete);
-        } else {
-          removedIndex = prev.length - 1;
-          newRows = prev.slice(0, Math.max(prev.length - 1, 0));
-        }
+  const deleteMainRow = useCallback((indexToDelete?: number) => {
+    setRows((prev) => {
+      let newRows: DispatchRow[];
+      let removedIndex: number;
+      if (typeof indexToDelete === "number") {
+        removedIndex = indexToDelete;
+        newRows = prev.filter((_, index) => index !== indexToDelete);
+      } else {
+        removedIndex = prev.length - 1;
+        newRows = prev.slice(0, Math.max(prev.length - 1, 0));
+      }
 
-        if (newRows.length > 0) {
-          const targetRow = Math.min(removedIndex, newRows.length - 1);
-          setPendingFocus({ rowIndex: targetRow, colIndex: 0 });
-        } else {
-          setPendingFocus(null);
-        }
-        return newRows;
-      });
-    },
-    [setPendingFocus]
-  );
+      if (newRows.length > 0) {
+        const targetRow = Math.min(removedIndex, newRows.length - 1);
+        setPendingFocus({ rowIndex: targetRow, colIndex: 0 });
+      } else {
+        setPendingFocus(null);
+      }
+      return newRows;
+    });
+  }, []);
 
   const addPackingRow = useCallback(() => {
     setPackingRows((prev) => {
@@ -935,20 +1067,13 @@ const DispatchChallan: React.FC = () => {
         : null;
     if (el) {
       el.focus();
-      if (typeof el.select === "function") {
-        el.select();
-      }
+      el.select?.();
     }
     setPendingFocus(null);
   }, [pendingFocus, rows.length]);
 
-  // --- Row change ---
-
-  const handleChange = (
-    id: number,
-    field: keyof DispatchRow,
-    value: string
-  ) => {
+  // ----------------- Row change -----------------
+  const handleChange = (id: number, field: keyof DispatchRow, value: string) => {
     setRows((prev) =>
       prev.map((r) => {
         if (r.id !== id) return r;
@@ -1036,16 +1161,13 @@ const DispatchChallan: React.FC = () => {
 
       if (nextEl) {
         nextEl.focus();
-        if (typeof nextEl.select === "function") {
-          nextEl.select();
-        }
+        nextEl.select?.();
       }
     },
     [rows.length, fieldOrder.length]
   );
 
-  // --- Totals (boxes/pcs/art count + amount) ---
-
+  // ----------------- Totals (boxes/pcs/art count + amount) -----------------
   const { totalBoxes, totalPcsSum, uniqueArtNosCount } = useMemo(() => {
     let boxSum = 0;
     let pcsSum = 0;
@@ -1055,15 +1177,9 @@ const DispatchChallan: React.FC = () => {
       const boxNum = parseFloat(row.box);
       const pcsNum = parseFloat(row.pcs);
 
-      if (!Number.isNaN(boxNum)) {
-        boxSum += boxNum;
-      }
-      if (!Number.isNaN(pcsNum)) {
-        pcsSum += pcsNum;
-      }
-      if (row.artNo) {
-        artNos.add(row.artNo);
-      }
+      if (!Number.isNaN(boxNum)) boxSum += boxNum;
+      if (!Number.isNaN(pcsNum)) pcsSum += pcsNum;
+      if (row.artNo) artNos.add(row.artNo);
     });
 
     return {
@@ -1081,9 +1197,7 @@ const DispatchChallan: React.FC = () => {
     setTotalAmt(total ? String(total) : "");
   }, [rows]);
 
-  const handleDiscountPercentChange = (
-    e: React.ChangeEvent<HTMLInputElement>
-  ) => {
+  const handleDiscountPercentChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const val = e.target.value;
     setDiscountPercent(val);
     setDiscountMode("percent");
@@ -1098,9 +1212,7 @@ const DispatchChallan: React.FC = () => {
     setDiscount(amt ? String(amt) : "");
   };
 
-  const handleDiscountAmountChange = (
-    e: React.ChangeEvent<HTMLInputElement>
-  ) => {
+  const handleDiscountAmountChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const val = e.target.value;
     setDiscount(val);
     setDiscountMode("amount");
@@ -1181,8 +1293,7 @@ const DispatchChallan: React.FC = () => {
     setNetAmt(net ? String(net) : "");
   }, [totalAmt, discount, tax, cartage]);
 
-  // --- Load masters ---
-
+  // ----------------- Load masters -----------------
   const loadParties = useCallback(async () => {
     try {
       const res = await api.get<Party[]>(routes.parties);
@@ -1194,14 +1305,60 @@ const DispatchChallan: React.FC = () => {
     }
   }, []);
 
+  // ✅ NEW: load material groups
+  const loadMaterialGroups = useCallback(async () => {
+    try {
+      const res = await api.get<any[]>(routes.materialGroups);
+      const arr = Array.isArray(res.data) ? res.data : [];
+      setMaterialGroups(
+        arr
+          .map((g) => ({
+            id: Number(g.id),
+            materialGroup: String(g.materialGroup ?? ""),
+          }))
+          .filter((g) => Number.isFinite(g.id) && g.materialGroup)
+      );
+    } catch (err) {
+      console.error("Error loading material groups:", err);
+      setMaterialGroups([]);
+      Swal.fire("Error", "Failed to load material groups", "error");
+    }
+  }, []);
+
+  // ✅ NEW: load materials
+  const loadMaterialsMaster = useCallback(async () => {
+    try {
+      const res = await api.get<any[]>(routes.materials);
+      const arr = Array.isArray(res.data) ? res.data : [];
+      setMaterials(
+        arr
+          .map((m) => ({
+            id: Number(m.id),
+            materialName: String(m.materialName ?? ""),
+            materialGroupId: Number(
+              m.materialGroupId ?? m.materialGroup?.id ?? m.groupId ?? 0
+            ),
+            materialUnit: m.materialUnit ? String(m.materialUnit) : undefined,
+          }))
+          .filter(
+            (m) =>
+              Number.isFinite(m.id) &&
+              Number.isFinite(m.materialGroupId) &&
+              m.materialGroupId > 0 &&
+              m.materialName
+          )
+      );
+    } catch (err) {
+      console.error("Error loading materials:", err);
+      setMaterials([]);
+      Swal.fire("Error", "Failed to load materials", "error");
+    }
+  }, []);
+
   /**
-   * ⭐ NET ART STOCK:
-   *   - Opening from Art Creation (rate = 0)
-   *   - PLUS Packing Challans (rate from packing)
-   *   - MINUS Dispatch Challans (rate = 0)
-   * 
-   * Final rate = LAST PACKING RATE (per Art+Size+Shade+Description),
-   *              NOT average, NOT from Art master.
+   * NET ART STOCK:
+   *   Opening (rate 0) + Packing (rate from packing) - Dispatch (rate 0)
+   * Rate = LAST PACKING RATE for key (artNo+size+shade+desc)
    */
   const loadProducts = useCallback(async () => {
     try {
@@ -1211,12 +1368,8 @@ const DispatchChallan: React.FC = () => {
         api.get<any[]>(routes.list),
       ]);
 
-      const arts: ArtListView[] = Array.isArray(artsRes.data)
-        ? artsRes.data
-        : [];
-      const challans: any[] = Array.isArray(packingRes.data)
-        ? packingRes.data
-        : [];
+      const arts: ArtListView[] = Array.isArray(artsRes.data) ? artsRes.data : [];
+      const challans: any[] = Array.isArray(packingRes.data) ? packingRes.data : [];
       const dispatchChallans: any[] = Array.isArray(dispatchRes.data)
         ? dispatchRes.data
         : [];
@@ -1228,11 +1381,10 @@ const DispatchChallan: React.FC = () => {
         shade: string;
         box: number;
         pcs: number;
-        rate: number; // LAST packing rate for this Art+Size+Shade+Description
+        rate: number; // LAST packing rate
       }
 
       const aggregateMap = new Map<string, AggregatedItem>();
-
       const makeKey = (
         artNo: string,
         size: string,
@@ -1247,7 +1399,7 @@ const DispatchChallan: React.FC = () => {
         shade: string;
         box: number;
         pcs: number;
-        rate: number; // 0 for opening/dispatch, >0 for packing
+        rate: number;
       }) => {
         const { artNo, description, size, shade, box, pcs, rate } = params;
         if (!artNo || !size) return;
@@ -1261,10 +1413,7 @@ const DispatchChallan: React.FC = () => {
         if (existing) {
           existing.box += cleanBox;
           existing.pcs += cleanPcs;
-          // ⭐ Packing challan ka RATE jaise-jaise aata hai, LAST wala save karte rahenge
-          if (cleanRate > 0) {
-            existing.rate = cleanRate;
-          }
+          if (cleanRate > 0) existing.rate = cleanRate; // last packing rate wins
         } else {
           aggregateMap.set(key, {
             artNo,
@@ -1278,43 +1427,34 @@ const DispatchChallan: React.FC = () => {
         }
       };
 
-      // ---------- 1) Opening stock from Art Creation (RATE = 0) ----------
+      // 1) Opening stock from Art Creation (rate = 0)
       try {
         const artDetails: (ArtDetailView | null)[] = await Promise.all(
           arts.map((a) =>
             api
               .get<ArtDetailView>(routes.artDetail(a.serialNumber))
               .then((res) => res.data)
-              .catch((err) => {
-                console.error(
-                  "Error loading art detail for serial:",
-                  a.serialNumber,
-                  err
-                );
-                return null;
-              })
+              .catch(() => null)
           )
         );
 
         artDetails.forEach((det, idx) => {
           if (!det) return;
           const listArt = arts[idx];
-
           const artNo = String(det.artNo || listArt?.artNo || "").trim();
           if (!artNo) return;
 
           const desc = String(det.artName || listArt?.artName || "").trim();
-
           const artShades =
             Array.isArray(det.shades) && det.shades.length > 0
               ? det.shades
-              : [{ shadeName: "", shadeCode: "", colorFamily: "" }];
+              : [{ shadeName: "" }];
 
           const sizeList: any[] =
             Array.isArray(det.sizeDetails) && det.sizeDetails.length > 0
-              ? (det.sizeDetails as any[])
+              ? det.sizeDetails
               : Array.isArray(det.sizes)
-              ? (det.sizes as any[])
+              ? det.sizes
               : [];
 
           sizeList.forEach((sz: any) => {
@@ -1325,12 +1465,8 @@ const DispatchChallan: React.FC = () => {
             const box = toNum(sz.box);
             const pcs = box * perBox;
 
-            // ⭐ Opening ka rate = 0, sirf qty add karo
-            const rate = 0;
-
             artShades.forEach((sh: any) => {
               const shade = String(sh.shadeName || sh.shade || "").trim();
-
               addToAggregate({
                 artNo,
                 description: desc,
@@ -1338,27 +1474,24 @@ const DispatchChallan: React.FC = () => {
                 shade,
                 box,
                 pcs,
-                rate,
+                rate: 0,
               });
             });
           });
         });
       } catch (err) {
-        console.error("Opening stock (Art Creation) load error:", err);
+        console.error("Opening stock load error:", err);
       }
 
-      // ---------- 2) PLUS Packing Challans (incoming, yahan ka RATE use hoga) ----------
+      // 2) PLUS Packing Challans (incoming, rate from packing)
       challans.forEach((ch: any) => {
         const rows = Array.isArray(ch.rows) ? ch.rows : [];
         rows.forEach((r: any) => {
           const artNo = String(r.artNo || "").trim();
           if (!artNo) return;
 
-          const description = String(
-            r.workOnArt || r.description || ""
-          ).trim();
+          const description = String(r.workOnArt || r.description || "").trim();
           const shade = String(r.shadeName || r.shade || "").trim();
-
           const sizeDetails = Array.isArray(r.sizeDetails) ? r.sizeDetails : [];
 
           if (sizeDetails.length) {
@@ -1375,10 +1508,7 @@ const DispatchChallan: React.FC = () => {
                   ? box * perBox
                   : 0;
 
-              // ⭐ Yehi packing-challan ka rate hai:
               const rate = Number(sd.rate ?? 0);
-
-              if (!sizeName && !description && !artNo) return;
 
               addToAggregate({
                 artNo,
@@ -1404,8 +1534,6 @@ const DispatchChallan: React.FC = () => {
                 : 0;
             const rate = Number(r.rate ?? 0);
 
-            if (!sizeName && !description && !artNo) return;
-
             addToAggregate({
               artNo,
               description,
@@ -1419,7 +1547,7 @@ const DispatchChallan: React.FC = () => {
         });
       });
 
-      // ---------- 3) MINUS Dispatch Challans (qty out, RATE = 0) ----------
+      // 3) MINUS Dispatch Challans (outgoing, rate = 0)
       dispatchChallans.forEach((dc: any) => {
         const rows = Array.isArray(dc.rows) ? dc.rows : [];
         rows.forEach((r: any) => {
@@ -1440,33 +1568,25 @@ const DispatchChallan: React.FC = () => {
               ? box * perBox
               : 0;
 
-          const negBox = -Math.abs(box);
-          const negPcs = -Math.abs(pcs);
-
-          // minus qty, rate zero
           addToAggregate({
             artNo,
             description,
             size: sizeName,
             shade,
-            box: negBox,
-            pcs: negPcs,
+            box: -Math.abs(box),
+            pcs: -Math.abs(pcs),
             rate: 0,
           });
         });
       });
 
-      // ---------- 4) FINAL NET STOCK ITEMS ----------
+      // 4) Final NET STOCK list (✅ only show positive pcs)
       const items: PackingSourceItem[] = [];
       aggregateMap.forEach((agg, key) => {
-        if (!agg.box && !agg.pcs) return;
+        if (agg.pcs <= 0) return; // ✅ don't show zero/negative stock
 
-        const perBox =
-          agg.box > 0 && agg.pcs > 0 ? agg.pcs / agg.box : 0;
-
-        // ⭐ Final RATE = LAST PACKING RATE (agg.rate)
+        const perBox = agg.box > 0 ? agg.pcs / agg.box : 0;
         const rate = agg.rate > 0 ? agg.rate : 0;
-
         const amount = agg.pcs * rate;
 
         items.push({
@@ -1489,21 +1609,13 @@ const DispatchChallan: React.FC = () => {
 
       setProductList(items);
     } catch (err) {
-      console.error(
-        "Error loading Net Art Stock (Opening + Packing - Dispatch) for dispatch:",
-        err
-      );
+      console.error("Error loading Net Art Stock:", err);
       setProductList([]);
-      Swal.fire(
-        "Error",
-        "Failed to load Net Art Stock (Opening + Packing - Dispatch) for dispatch",
-        "error"
-      );
+      Swal.fire("Error", "Failed to load Net Art Stock", "error");
     }
   }, []);
 
-  // --- New / Reset ---
-
+  // ----------------- New / Reset -----------------
   const handleAddNew = useCallback((showToast = false) => {
     setSerialNo("");
     setChallanNo("");
@@ -1531,20 +1643,29 @@ const DispatchChallan: React.FC = () => {
     setEditingId(null);
     setPendingFocus(null);
 
-    if (showToast) {
+    if (showToast)
       Swal.fire("Cleared", "Ready for new dispatch challan", "success");
-    }
   }, []);
 
   // initial load once
   useEffect(() => {
     loadParties();
     loadProducts();
+
+    // ✅ NEW
+    loadMaterialGroups();
+    loadMaterialsMaster();
+
     handleAddNew(false);
-  }, [loadParties, loadProducts, handleAddNew]);
+  }, [
+    loadParties,
+    loadProducts,
+    loadMaterialGroups,
+    loadMaterialsMaster,
+    handleAddNew,
+  ]);
 
-  // --- Backend se next Serial/Challan No (party select / date change par) ---
-
+  // ----------------- Next numbers -----------------
   const fetchNextNumbers = useCallback(
     async (currentDate: string, currentParty: string, currentBroker: string) => {
       if (!currentParty || !currentDate) return;
@@ -1562,56 +1683,58 @@ const DispatchChallan: React.FC = () => {
         }
       } catch (err) {
         console.error("Error fetching next numbers:", err);
-        Swal.fire(
-          "Error",
-          "Failed to get next Serial/Challan No from server",
-          "error"
-        );
+        Swal.fire("Error", "Failed to get next Serial/Challan No", "error");
       }
     },
     []
   );
 
-  // --- Party select → broker + transport + station + next serial/challan ---
-
+  /**
+   * ✅ FIX #1:
+   * Editing mode me bhi party change karoge to:
+   * - A/C By (brokerName)
+   * - Transport
+   * - Station
+   * update ho jayenge.
+   *
+   * (Serial/Challan No) sirf NEW mode me fetch honge (editingId null).
+   */
   useEffect(() => {
     const selectedParty = partyList.find((p) => p.partyName === partyName);
 
-    let derivedBroker = "";
-
-    if (selectedParty && !editingId) {
-      derivedBroker = selectedParty.agent?.agentName || "";
-      setBrokerName(derivedBroker);
-      setTransportName(selectedParty.transport?.transportName || "");
-
-      if (!station) {
-        setStation(selectedParty.station || "");
-      }
-    } else if (!selectedParty && !editingId) {
+    if (!selectedParty) {
+      // Party cleared / not found
       setBrokerName("");
       setTransportName("");
       setStation("");
+      return;
     }
 
-    if (selectedParty && !editingId) {
+    const derivedBroker = selectedParty.agent?.agentName || "";
+    const derivedTransport = selectedParty.transport?.transportName || "";
+    const derivedStation = selectedParty.station || "";
+
+    setBrokerName(derivedBroker);
+    setTransportName(derivedTransport);
+    setStation(derivedStation);
+
+    // Only in NEW mode
+    if (!editingId) {
       fetchNextNumbers(date, partyName, derivedBroker);
     }
-  }, [partyName, partyList, editingId, station, date, fetchNextNumbers]);
+  }, [partyName, partyList, date, editingId, fetchNextNumbers]);
 
-  // --- Art lookup (Net Art Stock) with simple substring search ---
-
+  // ----------------- Art lookup (Net Stock) -----------------
   const filteredProducts = useMemo(() => {
     const term = productSearchTerm.trim().toLowerCase();
     if (!term) return productList;
-
-    return productList.filter((p) => {
-      const searchStr = [p.artNo, p.description, p.size, p.shade]
+    return productList.filter((p) =>
+      [p.artNo, p.description, p.size, p.shade]
         .filter(Boolean)
         .join(" ")
-        .toLowerCase();
-
-      return searchStr.includes(term);
-    });
+        .toLowerCase()
+        .includes(term)
+    );
   }, [productSearchTerm, productList]);
 
   const handleArtNoFocus = (rowId: number) => {
@@ -1623,9 +1746,7 @@ const DispatchChallan: React.FC = () => {
   const handleProductSelect = (item: PackingSourceItem) => {
     let targetRowIndex = -1;
     if (currentRowIdForLookup !== null) {
-      targetRowIndex = rows.findIndex(
-        (r) => r.id === currentRowIdForLookup
-      );
+      targetRowIndex = rows.findIndex((r) => r.id === currentRowIdForLookup);
     }
 
     if (currentRowIdForLookup !== null) {
@@ -1642,7 +1763,6 @@ const DispatchChallan: React.FC = () => {
             box: item.box ? String(item.box) : "",
             pcsPerBox: item.perBox ? String(item.perBox) : "",
             lotNumber: item.cuttingLotNo || r.lotNumber,
-            // ⭐ Rate packing ke Net Stock se aa raha hai (LAST PACKING RATE)
             rate: item.rate ? String(item.rate) : r.rate,
           };
 
@@ -1680,46 +1800,29 @@ const DispatchChallan: React.FC = () => {
     if (targetRowIndex >= 0) {
       const artIndex = fieldOrder.indexOf("artNo");
       const nextColIndex =
-        artIndex >= 0 && artIndex + 1 < fieldOrder.length
-          ? artIndex + 1
-          : artIndex >= 0
-          ? artIndex
-          : 0;
-      setPendingFocus({
-        rowIndex: targetRowIndex,
-        colIndex: nextColIndex,
-      });
+        artIndex >= 0 && artIndex + 1 < fieldOrder.length ? artIndex + 1 : 0;
+      setPendingFocus({ rowIndex: targetRowIndex, colIndex: nextColIndex });
     }
 
     setIsModalOpen(false);
     setCurrentRowIdForLookup(null);
   };
 
-  // --- Challan search ---
-
+  // ----------------- Challan search / list view -----------------
   const filteredChallans = useMemo(() => {
     if (!challanSearchText) return challanList;
     const term = challanSearchText.toLowerCase();
+
     return challanList.filter((c: any) => {
       const challanNoVal = (c.challanNo || "").toLowerCase();
-
       const rawDate = c.date || c.dated || "";
       const datedRaw = String(rawDate).toLowerCase();
       const datedFormatted = formatDateDDMMYY(rawDate).toLowerCase();
-
       const party = (c.partyName || "").toLowerCase();
-      const stationVal = (
-        c.station ||
-        c.destination ||
-        c.remarks1 ||
-        ""
-      ).toLowerCase();
-
+      const stationVal = (c.station || c.destination || c.remarks1 || "").toLowerCase();
       const allArtNosText = Array.isArray(c.rows)
         ? c.rows
-            .map((r: any) =>
-              (r.artNo || "").toString().toLowerCase()
-            )
+            .map((r: any) => (r.artNo || "").toString().toLowerCase())
             .join(" ")
         : "";
 
@@ -1738,7 +1841,6 @@ const DispatchChallan: React.FC = () => {
     try {
       const res = await api.get(routes.list);
       let data = Array.isArray(res.data) ? res.data : [];
-
       data = data
         .slice()
         .sort((a: any, b: any) =>
@@ -1754,8 +1856,6 @@ const DispatchChallan: React.FC = () => {
     }
   };
 
-  // --- List View (table of challans with art/size/etc.) ---
-
   const filteredListViewChallans = useMemo(() => {
     if (!listViewSearchText) return listViewChallanList;
     const term = listViewSearchText.toLowerCase();
@@ -1763,29 +1863,19 @@ const DispatchChallan: React.FC = () => {
     return listViewChallanList.filter((c: any) => {
       const firstRow =
         Array.isArray(c.rows) && c.rows.length > 0 ? c.rows[0] : {};
-      const artNo = (firstRow.artNo || "").toLowerCase();
-      const size = (firstRow.size || "").toLowerCase();
-      const shade = (firstRow.shade || "").toLowerCase();
-      const box = String(firstRow.box ?? "").toLowerCase();
-      const pcsPerBox = String(firstRow.pcsPerBox ?? "").toLowerCase();
-      const pcs = String(firstRow.pcs ?? "").toLowerCase();
-      const rate = String(firstRow.rate ?? "").toLowerCase();
-      const amt = String(firstRow.amt ?? "").toLowerCase();
-      const netAmtStr = String(c.netAmt ?? "").toLowerCase();
-
       const dateVal = formatDateDDMMYY(c.date || c.dated || "").toLowerCase();
 
       return [
         dateVal,
-        artNo,
-        size,
-        shade,
-        box,
-        pcsPerBox,
-        pcs,
-        rate,
-        amt,
-        netAmtStr,
+        String(firstRow.artNo ?? "").toLowerCase(),
+        String(firstRow.size ?? "").toLowerCase(),
+        String(firstRow.shade ?? "").toLowerCase(),
+        String(firstRow.box ?? "").toLowerCase(),
+        String(firstRow.pcsPerBox ?? "").toLowerCase(),
+        String(firstRow.pcs ?? "").toLowerCase(),
+        String(firstRow.rate ?? "").toLowerCase(),
+        String(firstRow.amt ?? "").toLowerCase(),
+        String(c.netAmt ?? "").toLowerCase(),
       ].some((field) => field.includes(term));
     });
   }, [listViewSearchText, listViewChallanList]);
@@ -1810,19 +1900,6 @@ const DispatchChallan: React.FC = () => {
     }
   };
 
-  // --- helpers for numeric conversion for backend integration ---
-
-  const toNumberOrNull = (value: string): number | null => {
-    if (value === null || value === undefined) return null;
-    const trimmed = String(value).trim();
-    if (!trimmed) return null;
-    const num = Number(trimmed);
-    return Number.isNaN(num) ? null : num;
-  };
-
-  const numToStr = (value: any): string =>
-    value === null || value === undefined ? "" : String(value);
-
   const handleSelectChallan = async (id: number) => {
     try {
       const res = await api.get(routes.get(id));
@@ -1837,7 +1914,6 @@ const DispatchChallan: React.FC = () => {
       setRemarks1(ch.remarks1 || "");
       setRemarks2(ch.remarks2 || "");
       setDispatchedBy(ch.dispatchedBy || "");
-
       setStation(ch.station || ch.destination || ch.remarks1 || "");
 
       setTotalAmt(numToStr(ch.totalAmt));
@@ -1860,14 +1936,11 @@ const DispatchChallan: React.FC = () => {
             lotNumber: r.lotNumber || "",
             size: r.size || "",
             shade: r.shade || "",
-            box: r.box !== null && r.box !== undefined ? String(r.box) : "",
-            pcsPerBox:
-              r.pcsPerBox !== null && r.pcsPerBox !== undefined
-                ? String(r.pcsPerBox)
-                : "",
-            pcs: r.pcs !== null && r.pcs !== undefined ? String(r.pcs) : "",
-            rate: r.rate !== null && r.rate !== undefined ? String(r.rate) : "",
-            amt: r.amt !== null && r.amt !== undefined ? String(r.amt) : "",
+            box: r.box != null ? String(r.box) : "",
+            pcsPerBox: r.pcsPerBox != null ? String(r.pcsPerBox) : "",
+            pcs: r.pcs != null ? String(r.pcs) : "",
+            rate: r.rate != null ? String(r.rate) : "",
+            amt: r.amt != null ? String(r.amt) : "",
           }))
         : [];
 
@@ -1877,10 +1950,7 @@ const DispatchChallan: React.FC = () => {
         ? ch.packingRows.map((p: any, idx: number) => ({
             id: Date.now() + idx,
             itemName: p.itemName || "",
-            quantity:
-              p.quantity !== null && p.quantity !== undefined
-                ? String(p.quantity)
-                : "",
+            quantity: p.quantity != null ? String(p.quantity) : "",
           }))
         : [];
 
@@ -1916,10 +1986,7 @@ const DispatchChallan: React.FC = () => {
       setListViewChallanList((prev) => prev.filter((c: any) => c.id !== id));
       Swal.fire("Deleted!", "Challan deleted successfully", "success");
 
-      if (editingId === id) {
-        handleAddNew(false);
-      }
-
+      if (editingId === id) handleAddNew(false);
       await loadProducts();
     } catch (err) {
       console.error("Delete Error:", err);
@@ -1927,8 +1994,35 @@ const DispatchChallan: React.FC = () => {
     }
   };
 
-  // --- Save / Update / Delete ---
+  // ----------------- Party modal filtering -----------------
+  const filteredParties = useMemo(() => {
+    const term = partySearchText.trim().toLowerCase();
+    if (!term) return partyList;
+    return partyList.filter((p) => {
+      const pn = (p.partyName || "").toLowerCase();
+      const st = (p.station || "").toLowerCase();
+      const br = (p.agent?.agentName || "").toLowerCase();
+      const tr = (p.transport?.transportName || "").toLowerCase();
+      return (
+        pn.includes(term) ||
+        st.includes(term) ||
+        br.includes(term) ||
+        tr.includes(term)
+      );
+    });
+  }, [partySearchText, partyList]);
 
+  const openPartyModal = () => {
+    setPartySearchText("");
+    setIsPartyModalOpen(true);
+  };
+
+  const handlePartySelect = (party: Party) => {
+    setPartyName(party.partyName);
+    setIsPartyModalOpen(false);
+  };
+
+  // ----------------- Save / Update / Delete -----------------
   const handleSave = async () => {
     if (isSaving) return;
 
@@ -1938,9 +2032,8 @@ const DispatchChallan: React.FC = () => {
     }
 
     const hasRowData = rows.some(
-      (r) => r.artNo || r.barCode || r.baleNo || r.box || r.pcs || r.pcsPerBox
+      (r) => r.artNo || r.barCode || r.box || r.pcs || r.pcsPerBox
     );
-
     if (!hasRowData) {
       Swal.fire("Error", "Please enter at least one dispatch row", "error");
       return;
@@ -2004,15 +2097,12 @@ const DispatchChallan: React.FC = () => {
         if (saved) {
           setSerialNo(saved.serialNo || "");
           setChallanNo(saved.challanNo || "");
-          if (saved.id) {
-            setEditingId(saved.id);
-          }
+          if (saved.id) setEditingId(saved.id);
         }
         Swal.fire("Success", "Dispatch challan saved successfully!", "success");
       }
 
       await loadProducts();
-
       handleAddNew(false);
     } catch (error: any) {
       console.error("Error saving challan:", error);
@@ -2026,9 +2116,7 @@ const DispatchChallan: React.FC = () => {
     }
   };
 
-  const handleUpdate = async () => {
-    await openChallanSearch();
-  };
+  const handleUpdate = async () => openChallanSearch();
 
   const handleDelete = async () => {
     if (!editingId) {
@@ -2051,7 +2139,6 @@ const DispatchChallan: React.FC = () => {
       await api.delete(routes.delete(editingId));
       Swal.fire("Deleted!", "Challan deleted successfully", "success");
       handleAddNew(false);
-
       await loadProducts();
     } catch (err) {
       console.error("Delete Error:", err);
@@ -2059,92 +2146,11 @@ const DispatchChallan: React.FC = () => {
     }
   };
 
-  // --- Purchase Order → Packing ---
-
-  const filteredPOs = useMemo(() => {
-    if (!poSearchTerm) return poList;
-    const term = poSearchTerm.toLowerCase();
-    return poList.filter((po: any) => {
-      const orderNo = (po.orderNo || "").toLowerCase();
-      const dateStr = (po.date || "").toLowerCase();
-      const pName = (po.partyName || po.party?.partyName || "").toLowerCase();
-      return (
-        orderNo.includes(term) || dateStr.includes(term) || pName.includes(term)
-      );
-    });
-  }, [poSearchTerm, poList]);
-
-  const openPurchaseOrderModal = async () => {
-    try {
-      const res = await api.get<any[]>(routes.purchaseOrders);
-      let data = Array.isArray(res.data) ? res.data : [];
-
-      if (partyName) {
-        data = data.filter(
-          (po: any) => (po.partyName || po.party?.partyName) === partyName
-        );
-      }
-
-      setPoList(data);
-      setPoSearchTerm("");
-      setIsPOModalOpen(true);
-    } catch (err) {
-      console.error("Error loading purchase orders:", err);
-      Swal.fire("Error", "Failed to load purchase orders", "error");
-    }
-  };
-
-  const handleSelectPOForPacking = (po: any) => {
-    const items = Array.isArray(po.items) ? po.items : [];
-    if (!items.length) {
-      Swal.fire("Info", "Selected purchase order has no items.", "info");
-      return;
-    }
-
-    const newPackingRows: PackingRow[] = items.map((it: any, idx: number) => ({
-      id: Date.now() + idx,
-      itemName:
-        it.material?.materialName ||
-        it.materialName ||
-        `Material ${it.materialId || ""}`,
-      quantity: it.quantity != null ? String(it.quantity) : "",
-    }));
-
-    setPackingRows(newPackingRows);
-    setIsPOModalOpen(false);
-  };
-
-  // --- Party modal filtering & handlers ---
-
-  const filteredParties = useMemo(() => {
-    const term = partySearchText.trim().toLowerCase();
-    if (!term) return partyList;
-    return partyList.filter((p) => {
-      const pn = (p.partyName || "").toLowerCase();
-      const st = (p.station || "").toLowerCase();
-      const br = (p.agent?.agentName || "").toLowerCase();
-      const tr = (p.transport?.transportName || "").toLowerCase();
-      return (
-        pn.includes(term) ||
-        st.includes(term) ||
-        br.includes(term) ||
-        tr.includes(term)
-      );
-    });
-  }, [partySearchText, partyList]);
-
-  const openPartyModal = () => {
-    setPartySearchText("");
-    setIsPartyModalOpen(true);
-  };
-
-  const handlePartySelect = (party: Party) => {
-    setPartyName(party.partyName);
-    setIsPartyModalOpen(false);
-  };
-
   // --- Print challan ---
-
+  /**
+   * ✅ FIX #2:
+   * Print me "Packing Details" bilkul show nahi hoga.
+   */
   const handlePrint = () => {
     if (typeof window === "undefined" || typeof document === "undefined") {
       return;
@@ -2184,31 +2190,13 @@ const DispatchChallan: React.FC = () => {
       const totalBox = totalBoxes;
       const totalPcs = totalPcsSum;
 
-      const packingHtml = packingRows
-        .filter((p) => p.itemName || p.quantity)
-        .map(
-          (p, idx) => `
-        <tr>
-          <td style="text-align:center; border:1px solid #000;">${idx + 1}</td>
-          <td style="text-align:left; border:1px solid #000;">${
-            p.itemName || ""
-          }</td>
-          <td style="text-align:right; border:1px solid #000;">${
-            p.quantity || ""
-          }</td>
-        </tr>`
-        )
-        .join("");
-
       const dNum = parseFloat(discount || "0");
       const tNum = parseFloat(tax || "0");
       const cNum = parseFloat(cartage || "0");
 
-      const hasDiscountRow =
-        !!discount && !Number.isNaN(dNum) && dNum !== 0;
+      const hasDiscountRow = !!discount && !Number.isNaN(dNum) && dNum !== 0;
       const hasTaxRow = !!tax && !Number.isNaN(tNum) && tNum !== 0;
-      const hasCartageRow =
-        !!cartage && !Number.isNaN(cNum) && cNum !== 0;
+      const hasCartageRow = !!cartage && !Number.isNaN(cNum) && cNum !== 0;
 
       const discountRowHtml = hasDiscountRow
         ? `<tr>
@@ -2231,24 +2219,7 @@ const DispatchChallan: React.FC = () => {
            </tr>`
         : "";
 
-      const packingSectionRowHtml = packingHtml
-        ? `
-        <tr>
-          <td colspan="10" style="padding:0; text-align:left;">
-            <div style="font-size:11px; padding:2px 4px;">
-              <strong>Packing Details</strong>
-            </div>
-            <table style="width:100%; border-collapse:collapse; font-size:11px;">
-              <tr>
-                <th style="width:10%; border:1px solid #000;">S.n</th>
-                <th style="border:1px solid #000;">Item Name</th>
-                <th style="width:20%; border:1px solid #000;">Quantity</th>
-              </tr>
-              ${packingHtml}
-            </table>
-          </td>
-        </tr>`
-        : "";
+      // ❌ packing section removed intentionally
 
       const html = `<!doctype html>
 <html>
@@ -2256,92 +2227,23 @@ const DispatchChallan: React.FC = () => {
   <meta charset="utf-8" />
   <title>Dispatch Challan</title>
   <style>
-    @page {
-      margin: 5mm;
-    }
-    body {
-      font-family: Arial, sans-serif;
-      margin: 0;
-      padding: 0;
-      color: #000;
-    }
-    .page {
-      width: 148mm;
-      height: 210mm;
-      margin: 0 auto;
-      border: 1px solid #000;
-      box-sizing: border-box;
-      padding: 6mm;
-    }
-    table.outer {
-      border-collapse: collapse;
-      width: 100%;
-      height: 100%;
-      font-size: 11px;
-    }
-    th, td {
-      border: 1px solid #000;
-      padding: 2px 4px;
-      vertical-align: top;
-      text-align: center;
-    }
-    th {
-      font-weight: bold;
-    }
-    .title-row {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      font-size: 12px;
-      margin-bottom: 4px;
-    }
-    .title-center {
-      font-size: 18px;
-      font-weight: bold;
-      text-align: center;
-      flex: 1;
-    }
-    .title-right {
-      text-align: right;
-      white-space: nowrap;
-    }
-    .inner-totals td {
-      border: none;
-      padding: 2px 4px;
-      font-size: 11px;
-      text-align: left;
-    }
-    .inner-totals td:last-child {
-      text-align: right;
-    }
-    .signature-row td {
-      font-size: 11px;
-      text-align: left;
-    }
-    .signature-row td:last-child {
-      text-align: right;
-    }
-    .no-print {
-      text-align: right;
-      margin: 8px;
-    }
-    .filler-row td {
-      border-top: 0;
-      border-bottom: 0;
-      padding: 0;
-      height: 100%;
-    }
-    .totals-row td {
-      font-weight: bold;
-    }
-    @media print {
-      .no-print {
-        display: none;
-      }
-      body {
-        margin: 0;
-      }
-    }
+    @page { margin: 5mm; }
+    body { font-family: Arial, sans-serif; margin: 0; padding: 0; color: #000; }
+    .page { width: 148mm; height: 210mm; margin: 0 auto; border: 1px solid #000; box-sizing: border-box; padding: 6mm; }
+    table.outer { border-collapse: collapse; width: 100%; height: 100%; font-size: 11px; }
+    th, td { border: 1px solid #000; padding: 2px 4px; vertical-align: top; text-align: center; }
+    th { font-weight: bold; }
+    .title-row { display: flex; justify-content: space-between; align-items: center; font-size: 12px; margin-bottom: 4px; }
+    .title-center { font-size: 18px; font-weight: bold; text-align: center; flex: 1; }
+    .title-right { text-align: right; white-space: nowrap; }
+    .inner-totals td { border: none; padding: 2px 4px; font-size: 11px; text-align: left; }
+    .inner-totals td:last-child { text-align: right; }
+    .signature-row td { font-size: 11px; text-align: left; }
+    .signature-row td:last-child { text-align: right; }
+    .no-print { text-align: right; margin: 8px; }
+    .filler-row td { border-top: 0; border-bottom: 0; padding: 0; height: 100%; }
+    .totals-row td { font-weight: bold; }
+    @media print { .no-print { display: none; } body { margin: 0; } }
   </style>
 </head>
 <body>
@@ -2391,19 +2293,9 @@ const DispatchChallan: React.FC = () => {
         `<tr><td colspan="10" style="text-align:center;">No rows</td></tr>`
       }
 
-      ${packingSectionRowHtml}
-
       <tr class="filler-row">
-        <td>&nbsp;</td>
-        <td>&nbsp;</td>
-        <td>&nbsp;</td>
-        <td>&nbsp;</td>
-        <td>&nbsp;</td>
-        <td>&nbsp;</td>
-        <td>&nbsp;</td>
-        <td>&nbsp;</td>
-        <td>&nbsp;</td>
-        <td>&nbsp;</td>
+        <td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td>
+        <td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td>
       </tr>
 
       <tr class="totals-row">
@@ -2421,30 +2313,10 @@ const DispatchChallan: React.FC = () => {
 
       <tr>
         <td colspan="8" style="font-size:11px; text-align:left; vertical-align:top;">
-          <div>
-            ${
-              dispatchedBy
-                ? `LR No : ${dispatchedBy.replace(/\n/g, "<br/>")}`
-                : ""
-            }
-          </div>
-          <div style="margin-top:2px;">
-            ${
-              remarks1
-                ? `LR Date : ${remarks1.replace(/\n/g, "<br/>")}`
-                : ""
-            }
-          </div>
-          <div style="margin-top:4px;">
-            TRANSPORT : ${transportName || ""}
-          </div>
-          <div style="margin-top:2px;">
-            ${
-              remarks2
-                ? `Remarks : ${remarks2.replace(/\n/g, "<br/>")}`
-                : ""
-            }
-          </div>
+          <div>${dispatchedBy ? `LR No : ${dispatchedBy.replace(/\n/g, "<br/>")}` : ""}</div>
+          <div style="margin-top:2px;">${remarks1 ? `LR Date : ${remarks1.replace(/\n/g, "<br/>")}` : ""}</div>
+          <div style="margin-top:4px;">TRANSPORT : ${transportName || ""}</div>
+          <div style="margin-top:2px;">${remarks2 ? `Remarks : ${remarks2.replace(/\n/g, "<br/>")}` : ""}</div>
         </td>
         <td colspan="2" style="vertical-align:top; padding:0;">
           <table class="inner-totals" style="width:100%;">
@@ -2460,24 +2332,15 @@ const DispatchChallan: React.FC = () => {
       </tr>
 
       <tr class="signature-row">
-        <td colspan="5">
-          Receiver Signature
-        </td>
-        <td colspan="5">
-          Auth. Signature
-        </td>
+        <td colspan="5">Receiver Signature</td>
+        <td colspan="5">Auth. Signature</td>
       </tr>
     </table>
   </div>
 
   <script>
     window.onload = function () {
-      try {
-        window.focus();
-        window.print();
-      } catch (e) {
-        console.error('Print error', e);
-      }
+      try { window.focus(); window.print(); } catch (e) { console.error('Print error', e); }
       setTimeout(function () {
         try {
           if (window.frameElement && window.frameElement.parentNode) {
@@ -2518,7 +2381,7 @@ const DispatchChallan: React.FC = () => {
     }
   };
 
-  // ================= Render =================
+  // ----------------- Render -----------------
   return (
     <Dashboard>
       {/* Modals */}
@@ -2530,6 +2393,7 @@ const DispatchChallan: React.FC = () => {
         onSelect={handleProductSelect}
         onClose={() => setIsModalOpen(false)}
       />
+
       <ChallanSearchModal
         isOpen={isChallanModalOpen}
         searchText={challanSearchText}
@@ -2539,6 +2403,7 @@ const DispatchChallan: React.FC = () => {
         onDelete={handleDeleteChallanFromList}
         onClose={() => setIsChallanModalOpen(false)}
       />
+
       <ListViewModal
         isOpen={isListViewModalOpen}
         searchText={listViewSearchText}
@@ -2548,14 +2413,7 @@ const DispatchChallan: React.FC = () => {
         onDelete={handleDeleteChallanFromList}
         onClose={() => setIsListViewModalOpen(false)}
       />
-      <PurchaseOrderModal
-        isOpen={isPOModalOpen}
-        searchText={poSearchTerm}
-        pos={filteredPOs}
-        onSearchTextChange={setPoSearchTerm}
-        onSelectPO={handleSelectPOForPacking}
-        onClose={() => setIsPOModalOpen(false)}
-      />
+
       <PartySearchModal
         isOpen={isPartyModalOpen}
         searchText={partySearchText}
@@ -2563,6 +2421,27 @@ const DispatchChallan: React.FC = () => {
         onSearchTextChange={setPartySearchText}
         onSelect={handlePartySelect}
         onClose={() => setIsPartyModalOpen(false)}
+      />
+
+      {/* ✅ NEW: PETTI PACKING modal */}
+      <PackingGroupItemsModal
+        isOpen={isPackingGroupModalOpen}
+        groups={materialGroups}
+        materials={materials}
+        defaultGroupName="PETTI PACKING"
+        onApply={(selected) => {
+          if (!selected.length) return;
+
+          const newPackingRows: PackingRow[] = selected.map((s, idx) => ({
+            id: Date.now() + idx,
+            itemName: s.itemName,
+            quantity: s.quantity,
+          }));
+
+          setPackingRows(newPackingRows);
+          setIsPackingGroupModalOpen(false);
+        }}
+        onClose={() => setIsPackingGroupModalOpen(false)}
       />
 
       {/* Main content */}
@@ -2584,6 +2463,7 @@ const DispatchChallan: React.FC = () => {
                 className="border p-2 rounded w-full bg-gray-100"
               />
             </div>
+
             <div>
               <label className="block font-semibold">Date</label>
               <input
@@ -2593,6 +2473,7 @@ const DispatchChallan: React.FC = () => {
                 className="border p-2 rounded w-full"
               />
             </div>
+
             <div>
               <label className="block font-semibold">
                 Challan No. (YYYY/00001)
@@ -2638,6 +2519,7 @@ const DispatchChallan: React.FC = () => {
                 className="border p-2 rounded w-full"
               />
             </div>
+
             <div>
               <label className="block font-semibold">LR Date</label>
               <input
@@ -2647,6 +2529,7 @@ const DispatchChallan: React.FC = () => {
                 className="border p-2 rounded w-full"
               />
             </div>
+
             <div>
               <label className="block font-semibold">Remarks</label>
               <input
@@ -2656,6 +2539,7 @@ const DispatchChallan: React.FC = () => {
                 className="border p-2 rounded w-full"
               />
             </div>
+
             <div>
               <label className="block font-semibold">A/c By</label>
               <input
@@ -2665,6 +2549,7 @@ const DispatchChallan: React.FC = () => {
                 className="border p-2 rounded w-full bg-gray-100"
               />
             </div>
+
             <div className="col-span-1">
               <label className="block font-semibold">Transport Name</label>
               <input
@@ -2674,6 +2559,7 @@ const DispatchChallan: React.FC = () => {
                 className="border p-2 rounded w-full"
               />
             </div>
+
             <div className="col-span-3"></div>
           </div>
 
@@ -2745,7 +2631,8 @@ const DispatchChallan: React.FC = () => {
               <span className="text-blue-700">{totalBoxes}</span>
             </div>
             <div>
-              Total Pcs: <span className="text-blue-700">{totalPcsSum}</span>
+              Total Pcs:{" "}
+              <span className="text-blue-700">{totalPcsSum}</span>
             </div>
           </div>
 
@@ -2753,13 +2640,13 @@ const DispatchChallan: React.FC = () => {
           <div className="flex justify-start mt-6 space-x-3">
             <button
               onClick={addMainRow}
-              className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 active:bg-blue-700 mt-2"
+              className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 mt-2"
             >
               Add Row
             </button>
             <button
               onClick={() => deleteMainRow()}
-              className="px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600 active:bg-red-700 mt-2"
+              className="px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600 mt-2"
             >
               Delete Row
             </button>
@@ -2771,13 +2658,15 @@ const DispatchChallan: React.FC = () => {
             <div className="col-span-2">
               <div className="flex items-center justify-between mb-2">
                 <h3 className="text-lg font-semibold">Packing</h3>
+
                 <button
-                  onClick={openPurchaseOrderModal}
-                  className="px-3 py-1 bg-indigo-500 text-white rounded hover:bg-indigo-600 active:bg-indigo-700 text-sm"
+                  onClick={() => setIsPackingGroupModalOpen(true)}
+                  className="px-3 py-1 bg-indigo-500 text-white rounded hover:bg-indigo-600 text-sm"
                 >
-                  Load From Purchase Order
+                  Load From PETTI PACKING
                 </button>
               </div>
+
               <table className="w-full border text-sm">
                 <thead className="bg-gray-200">
                   <tr>
@@ -2899,49 +2788,55 @@ const DispatchChallan: React.FC = () => {
           </div>
 
           {/* Footer buttons */}
-          <div className="flex justify-start mt-6 space-x-3">
+          <div className="flex justify-start mt-6 space-x-3 flex-wrap gap-2">
             <button
               onClick={addPackingRow}
-              className="px-4 py-2 bg-purple-500 text-white rounded hover:bg-purple-600 active:bg-purple-700"
+              className="px-4 py-2 bg-purple-500 text-white rounded hover:bg-purple-600"
             >
               Add Packing
             </button>
+
             <button
               onClick={handleSave}
               disabled={isSaving}
-              className={`px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600 active:bg-green-700 ${
+              className={`px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600 ${
                 isSaving ? "opacity-50 cursor-not-allowed" : ""
               }`}
             >
               Save
             </button>
+
             <button
               onClick={handleUpdate}
-              className="px-4 py-2 bg-yellow-500 text-white rounded hover:bg-yellow-600 active:bg-yellow-700"
+              className="px-4 py-2 bg-yellow-500 text-white rounded hover:bg-yellow-600"
             >
               Update
             </button>
+
             <button
               onClick={handleDelete}
-              className="px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600 active:bg-red-700"
+              className="px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600"
             >
               Delete
             </button>
+
             <button
               onClick={openListViewModal}
-              className="px-4 py-2 bg-teal-500 text-white rounded hover:bg-teal-600 active:bg-teal-700"
+              className="px-4 py-2 bg-teal-500 text-white rounded hover:bg-teal-600"
             >
               List View
             </button>
+
             <button
               onClick={handlePrint}
-              className="px-4 py-2 bg-gray-600 text-white rounded hover:bg-gray-700 active:bg-gray-800"
+              className="px-4 py-2 bg-gray-600 text-white rounded hover:bg-gray-700"
             >
               Print
             </button>
+
             <button
               onClick={() => handleAddNew(true)}
-              className="px-4 py-2 bg-blue-700 text-white rounded hover:bg-blue-800 active:bg-blue-900"
+              className="px-4 py-2 bg-blue-700 text-white rounded hover:bg-blue-800"
             >
               New
             </button>
