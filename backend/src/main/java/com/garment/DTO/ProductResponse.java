@@ -19,6 +19,11 @@ public class ProductResponse {
     private MinBox minBox;
     private Boolean active;
     private String createdAt;
+    
+    // ✅ NEW: Art relationship fields
+    private String artSerialNumber;
+    private String artNo;
+    private String artName;
 
     // Price per BOX
     public static class Pricing {
@@ -62,6 +67,11 @@ public class ProductResponse {
         res.boxQuantity = p.getBoxQuantity();
         res.active      = p.getActive();
         res.createdAt   = p.getCreatedAt() != null ? p.getCreatedAt().toString() : null;
+        
+        // ✅ NEW: Map art fields
+        res.artSerialNumber = p.getArtSerialNumber();
+        res.artNo = p.getArtNo();
+        res.artName = p.getArtName();
 
         res.categories = (p.getCategories() != null && !p.getCategories().isBlank())
                 ? Arrays.asList(p.getCategories().split(","))
@@ -90,6 +100,7 @@ public class ProductResponse {
         return res;
     }
 
+    // Getters
     public Long getId() { return id; }
     public String getName() { return name; }
     public String getDescription() { return description; }
@@ -102,4 +113,9 @@ public class ProductResponse {
     public MinBox getMinBox() { return minBox; }
     public Boolean getActive() { return active; }
     public String getCreatedAt() { return createdAt; }
+    
+    // Art relationship getters
+    public String getArtSerialNumber() { return artSerialNumber; }
+    public String getArtNo() { return artNo; }
+    public String getArtName() { return artName; }
 }

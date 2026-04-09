@@ -10,6 +10,8 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/api/arts")
@@ -23,6 +25,21 @@ public class ArtController {
     public ResponseEntity<List<ArtListDTO>> getAllArts() {
         List<ArtListDTO> arts = artService.getAllArts();
         return ResponseEntity.ok(arts);
+    }
+
+    // ✅ NEW: Dropdown endpoint for art selection
+    @GetMapping("/dropdown")
+    public ResponseEntity<List<Map<String, String>>> getArtsDropdown() {
+        List<ArtListDTO> arts = artService.getAllArts();
+        List<Map<String, String>> dropdown = arts.stream()
+                .map(art -> Map.of(
+                    "serialNumber", art.getSerialNumber() != null ? art.getSerialNumber() : "",
+                    "artNo", art.getArtNo() != null ? art.getArtNo() : "",
+                    "artName", art.getArtName() != null ? art.getArtName() : "",
+                    "saleRate", art.getSaleRate() != null ? art.getSaleRate() : ""
+                ))
+                .collect(Collectors.toList());
+        return ResponseEntity.ok(dropdown);
     }
 
     @GetMapping("/{serialNumber}")

@@ -13,6 +13,11 @@ public class ProductRequest {
     private List<String> images;
     private Pricing pricing;
     private MinBox minBox;
+    
+    // ✅ NEW: Art relationship fields
+    private String artSerialNumber;
+    private String artNo;
+    private String artName;
 
     // Price per BOX
     public static class Pricing {
@@ -42,6 +47,7 @@ public class ProductRequest {
         public void setRetailer(Integer v) { this.retailer = v; }
     }
 
+    // Standard getters/setters
     public String getName() { return name; }
     public void setName(String name) { this.name = name; }
     public String getDescription() { return description; }
@@ -60,4 +66,12 @@ public class ProductRequest {
     public void setPricing(Pricing pricing) { this.pricing = pricing; }
     public MinBox getMinBox() { return minBox; }
     public void setMinBox(MinBox minBox) { this.minBox = minBox; }
+    
+    // Art relationship getters/setters
+    public String getArtSerialNumber() { return artSerialNumber; }
+    public void setArtSerialNumber(String artSerialNumber) { this.artSerialNumber = artSerialNumber; }
+    public String getArtNo() { return artNo; }
+    public void setArtNo(String artNo) { this.artNo = artNo; }
+    public String getArtName() { return artName; }
+    public void setArtName(String artName) { this.artName = artName; }
 }

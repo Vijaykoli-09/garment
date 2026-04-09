@@ -18,7 +18,6 @@ public class Product {
     private String description;
 
     // Multiple categories stored as comma-separated: "MEN,WOMEN" or "MEN,WOMEN,KIDS"
-    // nullable = true so existing rows are not broken on migration
     @Column(nullable = true)
     private String categories = "";
 
@@ -37,6 +36,16 @@ public class Product {
     // Image URLs stored as comma-separated
     @Column(columnDefinition = "TEXT")
     private String images;
+
+    // ── Art Relationship Fields (NEW) ─────────────────────────────
+    @Column(name = "art_serial_number")
+    private String artSerialNumber;
+
+    @Column(name = "art_no")
+    private String artNo;
+
+    @Column(name = "art_name")
+    private String artName;
 
     // ── Price per BOX for each customer type ─────────────────────
     @Column(nullable = false)
@@ -66,6 +75,7 @@ public class Product {
 
     private LocalDateTime updatedAt;
 
+    // ── Getters and Setters ──────────────────────────────────────
     public Long getId() { return id; }
     public String getName() { return name; }
     public void setName(String name) { this.name = name; }
@@ -81,6 +91,15 @@ public class Product {
     public void setSizes(String sizes) { this.sizes = sizes; }
     public String getImages() { return images; }
     public void setImages(String images) { this.images = images; }
+    
+    // Art relationship getters/setters
+    public String getArtSerialNumber() { return artSerialNumber; }
+    public void setArtSerialNumber(String artSerialNumber) { this.artSerialNumber = artSerialNumber; }
+    public String getArtNo() { return artNo; }
+    public void setArtNo(String artNo) { this.artNo = artNo; }
+    public String getArtName() { return artName; }
+    public void setArtName(String artName) { this.artName = artName; }
+    
     public Double getPriceWholeSeller() { return priceWholeSeller; }
     public void setPriceWholeSeller(Double v) { this.priceWholeSeller = v; }
     public Double getPriceSemiWholeSeller() { return priceSemiWholeSeller; }

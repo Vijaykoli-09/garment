@@ -14,44 +14,19 @@ import java.util.stream.Collectors;
 public class ProductService {
 
     // ── Category / Sub-category master list ───────────────────────────────────
-    // To add a new category    → add a new CATEGORY_MAP.put(...) entry.
-    // To remove a category     → delete that CATEGORY_MAP.put(...) line.
-    // To add a sub-category    → add a string to that category's List.of(...)
-    // To remove a sub-category → delete that string from the List.of(...)
     private static final Map<String, List<String>> CATEGORY_MAP;
     static {
         CATEGORY_MAP = new LinkedHashMap<>();
         CATEGORY_MAP.put("MEN", List.of(
-                "T-Shirt",
-                "Pouch Gents",
-                "Gents Sweet Shirt",
-                "Gents Pajama",
-                "Track Suit",
-                "Night Suit",
-                "Boys Suit"
+                "T-Shirt","Pouch Gents","Gents Sweet Shirt","Gents Pajama","Track Suit","Night Suit","Boys Suit"
         ));
         CATEGORY_MAP.put("WOMEN", List.of(
-                "Ladies Pouch",
-                "Girly Pouch",
-                "Girlyish Tees",
-                "Ladies Sweet",
-                "Ladies Pajama",
-                "Girl Suit",
-                "Night Suit",
-                "Track Suit"
+                "Ladies Pouch","Girly Pouch","Girlyish Tees","Ladies Sweet","Ladies Pajama","Girl Suit","Night Suit","Track Suit"
         ));
         CATEGORY_MAP.put("KIDS", List.of(
-                "Kit T-Shirt",
-                "Kids Pouch",
-                "Kids Sweet Shirt",
-                "Kid Pajama",
-                "Boys Suit",
-                "Girl Suit",
-                "Track Suit",
-                "Night Suit"
+                "Kit T-Shirt","Kids Pouch","Kids Sweet Shirt","Kid Pajama","Boys Suit","Girl Suit","Track Suit","Night Suit"
         ));
     }
-    // ─────────────────────────────────────────────────────────────────────────
 
     private final ProductRepository repo;
     private final CloudinaryService cloudinaryService;
@@ -112,7 +87,6 @@ public class ProductService {
         if (categories == null || categories.isEmpty())
             throw new RuntimeException("At least one category is required.");
 
-        // Validate each selected category and collect the union of allowed sub-categories
         Set<String> allowedSubs = new LinkedHashSet<>();
         for (String cat : categories) {
             String key = cat.trim().toUpperCase();
@@ -138,7 +112,6 @@ public class ProductService {
         p.setName(req.getName().trim());
         p.setDescription(req.getDescription() != null ? req.getDescription().trim() : "");
 
-        // Store categories as comma-separated uppercase string: "MEN,WOMEN"
         String cats = req.getCategories().stream()
                 .map(c -> c.trim().toUpperCase())
                 .distinct()
@@ -149,6 +122,11 @@ public class ProductService {
         p.setBoxQuantity(req.getBoxQuantity() != null ? req.getBoxQuantity() : 12);
         p.setSizes(req.getSizes()  != null ? String.join(",", req.getSizes())  : "");
         p.setImages(req.getImages() != null ? String.join(",", req.getImages()) : "");
+
+        // ✅ NEW: Map art fields
+        p.setArtSerialNumber(req.getArtSerialNumber());
+        p.setArtNo(req.getArtNo());
+        p.setArtName(req.getArtName());
 
         if (req.getPricing() != null) {
             p.setPriceWholeSeller(    orZero(req.getPricing().getWholeSeller()));
