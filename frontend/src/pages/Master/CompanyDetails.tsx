@@ -7,14 +7,14 @@ const CompanyDetails: React.FC = () => {
   const navigate = useNavigate();
 
   const company = {
-    companyName: "Ashdip IT Solutions",
-    address: "123, Tech Park, Mumbai, India",
-    contactNumber: "+91 9876543210",
-    email: "info@ashdipitsolutions.com",
-    gstNumber: "27ABCDE1234F1Z5",
+    companyName: "Shriuday Garments",
+    address: "10, Street Number 2, Guru Vihar, Rahon Road, Ludhiana-141007",
+    contactNumber: "+91 9877559445",
+    email: "shreyansgolchha433@gmail.com",
+    gstNumber: "03DXAPS4171N1Z6",
     panNumber: "ABCDE1234F",
-    website: "www.ashdipitsolutions.com",
-    state: "Maharashtra",
+    // website: "www.ashdipitsolutions.com",
+    state: "Punjab",
     stateCode: "27",
   };
 
@@ -101,10 +101,10 @@ const CompanyDetails: React.FC = () => {
           <div style={valueStyle}>{company.panNumber}</div>
         </div>
 
-        <div style={rowStyle}>
+        {/* <div style={rowStyle}>
           <div style={labelStyle}>Website:</div>
           <div style={valueStyle}>{company.website}</div>
-        </div>
+        </div> */}
 
         <div style={rowStyle}>
           <div style={labelStyle}>State:</div>

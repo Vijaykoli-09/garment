@@ -322,7 +322,9 @@ const SaleOrderPendencyArtSizeWise: React.FC = () => {
 
     const stationNormSet = new Set(
       parties
-        .filter((p) => p.broker && p.station && selBrokerNames.has(norm(p.broker)))
+        .filter(
+          (p) => p.broker && p.station && selBrokerNames.has(norm(p.broker))
+        )
         .map((p) => norm(p.station))
     );
 
@@ -340,7 +342,9 @@ const SaleOrderPendencyArtSizeWise: React.FC = () => {
     );
 
     if (brokers.length === 0) {
-      return parties.filter((p) => p.station && selDestNames.has(norm(p.station)));
+      return parties.filter(
+        (p) => p.station && selDestNames.has(norm(p.station))
+      );
     }
 
     if (selBrokerIds.length === 0) return [];
@@ -353,17 +357,26 @@ const SaleOrderPendencyArtSizeWise: React.FC = () => {
 
     return parties.filter((p) => {
       if (!p.station || !p.broker) return false;
-      return selDestNames.has(norm(p.station)) && selBrokerNames.has(norm(p.broker));
+      return (
+        selDestNames.has(norm(p.station)) && selBrokerNames.has(norm(p.broker))
+      );
     });
   }, [selDestIds, destinations, parties, brokers, selBrokerIds]);
 
   // arts available (from saleOrders)
   const availableArts = useMemo<Art[]>(() => {
-    if (selDestIds.length === 0 || selPartyIds.length === 0 || saleOrders.length === 0) return [];
+    if (
+      selDestIds.length === 0 ||
+      selPartyIds.length === 0 ||
+      saleOrders.length === 0
+    )
+      return [];
 
     const selPartySet = new Set(selPartyIds.map(Number));
     const selDestNames = new Set(
-      destinations.filter((d) => selDestIds.includes(d.id)).map((d) => d.name.trim().toUpperCase())
+      destinations
+        .filter((d) => selDestIds.includes(d.id))
+        .map((d) => d.name.trim().toUpperCase())
     );
 
     const allowedPartyIds = new Set<number>();
@@ -395,7 +408,9 @@ const SaleOrderPendencyArtSizeWise: React.FC = () => {
 
     const result: Art[] = [];
     artNoSet.forEach((anLower) => {
-      const master = arts.find((a) => a.artNo.trim().toLowerCase() === anLower);
+      const master = arts.find(
+        (a) => a.artNo.trim().toLowerCase() === anLower
+      );
       if (master) result.push(master);
       else result.push({ id: result.length + 1, artNo: anLower, artName: anLower });
     });
@@ -433,7 +448,9 @@ const SaleOrderPendencyArtSizeWise: React.FC = () => {
   const filteredArts = useMemo(() => {
     const q = norm(artSearch);
     if (!q) return availableArts;
-    return availableArts.filter((a) => norm(a.artNo).includes(q) || norm(a.artName).includes(q));
+    return availableArts.filter(
+      (a) => norm(a.artNo).includes(q) || norm(a.artName).includes(q)
+    );
   }, [availableArts, artSearch]);
 
   const filteredSizes = useMemo(() => {
@@ -450,19 +467,27 @@ const SaleOrderPendencyArtSizeWise: React.FC = () => {
 
   // prune selections when options change
   useEffect(() => {
-    setSelBrokerIds((prev) => prev.filter((id) => availableBrokers.some((b) => b.id === id)));
+    setSelBrokerIds((prev) =>
+      prev.filter((id) => availableBrokers.some((b) => b.id === id))
+    );
   }, [availableBrokers]);
 
   useEffect(() => {
-    setSelDestIds((prev) => prev.filter((id) => availableDestinations.some((d) => d.id === id)));
+    setSelDestIds((prev) =>
+      prev.filter((id) => availableDestinations.some((d) => d.id === id))
+    );
   }, [availableDestinations]);
 
   useEffect(() => {
-    setSelPartyIds((prev) => prev.filter((id) => availableParties.some((p) => p.id === id)));
+    setSelPartyIds((prev) =>
+      prev.filter((id) => availableParties.some((p) => p.id === id))
+    );
   }, [availableParties]);
 
   useEffect(() => {
-    setSelArtIds((prev) => prev.filter((id) => availableArts.some((a) => a.id === id)));
+    setSelArtIds((prev) =>
+      prev.filter((id) => availableArts.some((a) => a.id === id))
+    );
   }, [availableArts]);
 
   useEffect(() => {
@@ -470,7 +495,9 @@ const SaleOrderPendencyArtSizeWise: React.FC = () => {
   }, [availableSizes]);
 
   useEffect(() => {
-    setSelShadeIds((prev) => prev.filter((id) => availableShades.some((s) => s.id === id)));
+    setSelShadeIds((prev) =>
+      prev.filter((id) => availableShades.some((s) => s.id === id))
+    );
   }, [availableShades]);
 
   // toggle helpers
@@ -488,43 +515,69 @@ const SaleOrderPendencyArtSizeWise: React.FC = () => {
     setSelShadeIds(checked ? availableShades.map((s) => s.id) : []);
 
   const toggleBroker = (id: number) =>
-    setSelBrokerIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+    setSelBrokerIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
   const toggleDest = (id: number) =>
-    setSelDestIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+    setSelDestIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
   const toggleParty = (id: number) =>
-    setSelPartyIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+    setSelPartyIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
   const toggleArt = (id: number) =>
-    setSelArtIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+    setSelArtIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
   const toggleSize = (s: string) =>
-    setSelSizes((prev) => (prev.includes(s) ? prev.filter((x) => x !== s) : [...prev, s]));
+    setSelSizes((prev) =>
+      prev.includes(s) ? prev.filter((x) => x !== s) : [...prev, s]
+    );
   const toggleShade = (id: number) =>
-    setSelShadeIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+    setSelShadeIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
 
   const allBrokerSelected =
-    availableBrokers.length > 0 && selBrokerIds.length === availableBrokers.length;
+    availableBrokers.length > 0 &&
+    selBrokerIds.length === availableBrokers.length;
   const allDestSelected =
-    availableDestinations.length > 0 && selDestIds.length === availableDestinations.length;
+    availableDestinations.length > 0 &&
+    selDestIds.length === availableDestinations.length;
   const allPartySelected =
-    availableParties.length > 0 && selPartyIds.length === availableParties.length;
-  const allArtSelected = availableArts.length > 0 && selArtIds.length === availableArts.length;
-  const allSizeSelected = availableSizes.length > 0 && selSizes.length === availableSizes.length;
+    availableParties.length > 0 &&
+    selPartyIds.length === availableParties.length;
+  const allArtSelected =
+    availableArts.length > 0 && selArtIds.length === availableArts.length;
+  const allSizeSelected =
+    availableSizes.length > 0 && selSizes.length === availableSizes.length;
   const allShadeSelected =
-    availableShades.length > 0 && selShadeIds.length === availableShades.length;
+    availableShades.length > 0 &&
+    selShadeIds.length === availableShades.length;
 
   // ===== Report (data load) =====
   const showReport = async () => {
     if (brokers.length > 0 && selBrokerIds.length === 0)
       return Swal.fire("Select at least one Broker (Agent)", "", "warning");
-    if (selDestIds.length === 0) return Swal.fire("Select at least one Destination", "", "warning");
-    if (selPartyIds.length === 0) return Swal.fire("Select at least one Party", "", "warning");
-    if (selArtIds.length === 0) return Swal.fire("Select at least one Art", "", "warning");
-    if (selSizes.length === 0) return Swal.fire("Select at least one Size", "", "warning");
+    if (selDestIds.length === 0)
+      return Swal.fire("Select at least one Destination", "", "warning");
+    if (selPartyIds.length === 0)
+      return Swal.fire("Select at least one Party", "", "warning");
+    if (selArtIds.length === 0)
+      return Swal.fire("Select at least one Art", "", "warning");
+    if (selSizes.length === 0)
+      return Swal.fire("Select at least one Size", "", "warning");
 
     const selectedArts = availableArts.filter((a) => selArtIds.includes(a.id));
     const selectedArtNos = selectedArts.map((a) => a.artNo.trim());
-    const selectedArtNosSet = new Set(selectedArtNos.map((x) => x.toLowerCase()));
+    const selectedArtNosSet = new Set(
+      selectedArtNos.map((x) => x.toLowerCase())
+    );
 
-    const selectedShades = availableShades.filter((s) => selShadeIds.includes(s.id));
+    const selectedShades = availableShades.filter((s) =>
+      selShadeIds.includes(s.id)
+    );
     const selectedShadeNameSet = new Set(selectedShades.map((s) => norm(s.name)));
     const shadesStr = selectedShades.map((s) => s.name).join(",");
 
@@ -556,7 +609,8 @@ const SaleOrderPendencyArtSizeWise: React.FC = () => {
 
       let baseRows: SORow[] = list.map((r: any, i: number) => {
         const destId =
-          destinations.find((d) => norm(d.name) === norm(r.destination || r.station || ""))?.id ?? 0;
+          destinations.find((d) => norm(d.name) === norm(r.destination || r.station || ""))?.id ??
+          0;
 
         const party: Party =
           (parties.find((p) => Number(p.id) === Number(r.partyId)) as Party) || {
@@ -567,12 +621,15 @@ const SaleOrderPendencyArtSizeWise: React.FC = () => {
           };
 
         const brokerName = String(party.broker || "");
-        const brokerId = brokers.find((b) => norm(b.name) === norm(brokerName))?.id ?? undefined;
+        const brokerId =
+          brokers.find((b) => norm(b.name) === norm(brokerName))?.id ?? undefined;
 
         const artNoApi = String(r.artNo || "").trim();
         const artNameApi = String(r.artName || r.artNo || "").trim();
 
-        const masterArt = arts.find((a) => a.artNo.trim().toLowerCase() === artNoApi.toLowerCase());
+        const masterArt = arts.find(
+          (a) => a.artNo.trim().toLowerCase() === artNoApi.toLowerCase()
+        );
         const finalArtNo = artNoApi || masterArt?.artNo || "";
         const finalArtName = masterArt?.artName || artNameApi || finalArtNo;
 
@@ -612,12 +669,16 @@ const SaleOrderPendencyArtSizeWise: React.FC = () => {
 
       // strict art filter
       if (selectedArtNosSet.size > 0) {
-        baseRows = baseRows.filter((r) => selectedArtNosSet.has(r.artNo.trim().toLowerCase()));
+        baseRows = baseRows.filter((r) =>
+          selectedArtNosSet.has(r.artNo.trim().toLowerCase())
+        );
       }
 
       // shade filter
       if (selectedShadeNameSet.size > 0) {
-        baseRows = baseRows.filter((r) => selectedShadeNameSet.has(norm(r.shade || "")));
+        baseRows = baseRows.filter((r) =>
+          selectedShadeNameSet.has(norm(r.shade || ""))
+        );
       }
 
       // ---------- Dispatch Challan (shade + orderRef aware, with fallbacks) ----------
@@ -637,7 +698,9 @@ const SaleOrderPendencyArtSizeWise: React.FC = () => {
           const pName = ch.partyName || "";
           if (!pName) return;
 
-          const partyMatch = availableParties.some((p) => norm(p.partyName) === norm(pName));
+          const partyMatch = availableParties.some(
+            (p) => norm(p.partyName) === norm(pName)
+          );
           if (!partyMatch) return;
 
           const docOrderRef = getOrderRef(ch);
@@ -646,12 +709,19 @@ const SaleOrderPendencyArtSizeWise: React.FC = () => {
           rowsDc.forEach((rr: any) => {
             const artNo = String(rr.artNo || "").trim();
             const size = String(rr.size || "").trim();
-            const shade = String(rr.shade ?? rr.shadeName ?? rr.shadeCode ?? "").trim();
+            const shade = String(
+              rr.shade ?? rr.shadeName ?? rr.shadeCode ?? ""
+            ).trim();
             const rowOrderRef = getOrderRef(rr) || docOrderRef;
 
             if (!artNo || !size) return;
             if (!selectedArtNosSet.has(artNo.toLowerCase())) return;
-            if (!selSizes.map((s) => s.toUpperCase()).includes(size.toUpperCase())) return;
+            if (
+              !selSizes
+                .map((s) => s.toUpperCase())
+                .includes(size.toUpperCase())
+            )
+              return;
 
             const box =
               rr.box != null
@@ -663,10 +733,14 @@ const SaleOrderPendencyArtSizeWise: React.FC = () => {
             if (!box || isNaN(box)) return;
 
             if (rowOrderRef) {
-              const k1 = `${norm(pName)}|${norm(artNo)}|${norm(rowOrderRef)}|${norm(shade)}|${norm(size)}`;
+              const k1 = `${norm(pName)}|${norm(artNo)}|${norm(
+                rowOrderRef
+              )}|${norm(shade)}|${norm(size)}`;
               dispatchMap.set(k1, (dispatchMap.get(k1) || 0) + box);
 
-              const k2 = `${norm(pName)}|${norm(artNo)}|${norm(rowOrderRef)}|${norm(size)}`;
+              const k2 = `${norm(pName)}|${norm(artNo)}|${norm(
+                rowOrderRef
+              )}|${norm(size)}`;
               dispatchMapNoShade.set(k2, (dispatchMapNoShade.get(k2) || 0) + box);
             }
 
@@ -674,7 +748,10 @@ const SaleOrderPendencyArtSizeWise: React.FC = () => {
             dispatchMapNoOrder.set(k3, (dispatchMapNoOrder.get(k3) || 0) + box);
 
             const k4 = `${norm(pName)}|${norm(artNo)}|${norm(size)}`;
-            dispatchMapNoOrderNoShade.set(k4, (dispatchMapNoOrderNoShade.get(k4) || 0) + box);
+            dispatchMapNoOrderNoShade.set(
+              k4,
+              (dispatchMapNoOrderNoShade.get(k4) || 0) + box
+            );
           });
         });
 
@@ -699,7 +776,8 @@ const SaleOrderPendencyArtSizeWise: React.FC = () => {
             disp = dispatchMapNoOrder.get(k3) ?? dispatchMapNoOrderNoShade.get(k4) ?? 0;
           }
 
-          const pending = row.opening + row.receipt - disp;
+          // ✅ clamp pending so it never goes minus
+          const pending = Math.max(0, row.opening + row.receipt - disp);
           return { ...row, dispatch: disp, pending };
         });
       } catch (e) {
@@ -723,7 +801,9 @@ const SaleOrderPendencyArtSizeWise: React.FC = () => {
           const pName = doc.partyName || "";
           if (!pName) return;
 
-          const partyMatch = availableParties.some((p) => norm(p.partyName) === norm(pName));
+          const partyMatch = availableParties.some(
+            (p) => norm(p.partyName) === norm(pName)
+          );
           if (!partyMatch) return;
 
           const docOrderRef = getOrderRef(doc);
@@ -731,7 +811,9 @@ const SaleOrderPendencyArtSizeWise: React.FC = () => {
           const rowsOs = Array.isArray(doc.rows) ? doc.rows : [];
           rowsOs.forEach((rr: any) => {
             const artNo = String(rr.artNo || "").trim();
-            const shade = String(rr.shade ?? rr.shadeName ?? rr.shadeCode ?? "").trim();
+            const shade = String(
+              rr.shade ?? rr.shadeName ?? rr.shadeCode ?? ""
+            ).trim();
             const rowOrderRef = getOrderRef(rr) || docOrderRef;
 
             if (!artNo) return;
@@ -741,24 +823,39 @@ const SaleOrderPendencyArtSizeWise: React.FC = () => {
             dets.forEach((sd: any) => {
               const size = String(sd.sizeName || "").trim();
               if (!size) return;
-              if (!selSizes.map((s) => s.toUpperCase()).includes(size.toUpperCase())) return;
+              if (
+                !selSizes
+                  .map((s) => s.toUpperCase())
+                  .includes(size.toUpperCase())
+              )
+                return;
 
               const qty = Number(sd.settleBox ?? sd.box ?? sd.qty ?? 0);
               if (!qty || isNaN(qty)) return;
 
               if (rowOrderRef) {
-                const k1 = `${norm(pName)}|${norm(artNo)}|${norm(rowOrderRef)}|${norm(shade)}|${norm(size)}`;
+                const k1 = `${norm(pName)}|${norm(artNo)}|${norm(
+                  rowOrderRef
+                )}|${norm(shade)}|${norm(size)}`;
                 settleMap.set(k1, (settleMap.get(k1) || 0) + qty);
 
-                const k2 = `${norm(pName)}|${norm(artNo)}|${norm(rowOrderRef)}|${norm(size)}`;
-                settleMapNoShade.set(k2, (settleMapNoShade.get(k2) || 0) + qty);
+                const k2 = `${norm(pName)}|${norm(artNo)}|${norm(
+                  rowOrderRef
+                )}|${norm(size)}`;
+                settleMapNoShade.set(
+                  k2,
+                  (settleMapNoShade.get(k2) || 0) + qty
+                );
               }
 
               const k3 = `${norm(pName)}|${norm(artNo)}|${norm(shade)}|${norm(size)}`;
               settleMapNoOrder.set(k3, (settleMapNoOrder.get(k3) || 0) + qty);
 
               const k4 = `${norm(pName)}|${norm(artNo)}|${norm(size)}`;
-              settleMapNoOrderNoShade.set(k4, (settleMapNoOrderNoShade.get(k4) || 0) + qty);
+              settleMapNoOrderNoShade.set(
+                k4,
+                (settleMapNoOrderNoShade.get(k4) || 0) + qty
+              );
             });
           });
         });
@@ -784,14 +881,16 @@ const SaleOrderPendencyArtSizeWise: React.FC = () => {
             settled = settleMapNoOrder.get(k3) ?? settleMapNoOrderNoShade.get(k4) ?? 0;
           }
 
-          const pending = row.opening + row.receipt - row.dispatch - settled;
+          // ✅ clamp pending so it never goes minus
+          const pending = Math.max(0, row.opening + row.receipt - row.dispatch - settled);
           return { ...row, pending };
         });
       } catch (e) {
         console.error("Order-settles fetch error (pendency report):", e);
       }
 
-      baseRows = baseRows.filter((r) => (r.pending ?? 0) !== 0);
+      // ✅ keep only positive pending rows (avoid negatives)
+      baseRows = baseRows.filter((r) => (r.pending ?? 0) > 0);
 
       setRows(baseRows);
       setShowReportView(true);
@@ -916,7 +1015,8 @@ const SaleOrderPendencyArtSizeWise: React.FC = () => {
       g.pendingTotal += r.pending || 0;
     });
 
-    const arr = Array.from(map.values()).filter((g) => (g.pendingTotal ?? 0) !== 0);
+    // ✅ keep only positive pending groups
+    const arr = Array.from(map.values()).filter((g) => (g.pendingTotal ?? 0) > 0);
 
     return arr.sort((a, b) => {
       const bcmp = (a.brokerName || "").localeCompare(b.brokerName || "");
@@ -1069,8 +1169,10 @@ const SaleOrderPendencyArtSizeWise: React.FC = () => {
     const payloadRows: any[] = [];
     sizeColumns.forEach((s) => {
       const cell = g.perSize[s];
-      const pending = cell?.pending ?? 0;
-      if (!pending) return;
+
+      // ✅ never send negative pending; only send > 0
+      const pending = Math.max(0, cell?.pending ?? 0);
+      if (pending <= 0) return;
 
       payloadRows.push({
         destination: "",
@@ -1092,7 +1194,8 @@ const SaleOrderPendencyArtSizeWise: React.FC = () => {
 
   const handleFulfillGroup = async (g: GroupedRow) => {
     const payloadRows = buildPayloadForGroup(g);
-    if (!payloadRows.length) return Swal.fire("Info", "No pending quantity in this row.", "info");
+    if (!payloadRows.length)
+      return Swal.fire("Info", "No pending quantity in this row.", "info");
 
     const confirm = await Swal.fire({
       title: "Fulfill this row?",
@@ -1202,7 +1305,9 @@ const SaleOrderPendencyArtSizeWise: React.FC = () => {
               {/* Dates */}
               <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 mb-5">
                 <div>
-                  <label className="block text-xs font-semibold mb-1 text-slate-600">From Date</label>
+                  <label className="block text-xs font-semibold mb-1 text-slate-600">
+                    From Date
+                  </label>
                   <input
                     type="date"
                     value={fromDate}
@@ -1211,7 +1316,9 @@ const SaleOrderPendencyArtSizeWise: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold mb-1 text-slate-600">To Date</label>
+                  <label className="block text-xs font-semibold mb-1 text-slate-600">
+                    To Date
+                  </label>
                   <input
                     type="date"
                     value={toDate}
@@ -1226,7 +1333,9 @@ const SaleOrderPendencyArtSizeWise: React.FC = () => {
                 {/* Broker */}
                 <div className="border border-slate-200 rounded-xl bg-slate-50/70 p-3">
                   <div className="flex items-center justify-between mb-2">
-                    <div className="font-semibold text-sm text-slate-800">Broker (Agent)</div>
+                    <div className="font-semibold text-sm text-slate-800">
+                      Broker (Agent)
+                    </div>
                     <div className="flex items-center gap-2 text-[11px] text-slate-600">
                       <label>
                         <input
@@ -1265,7 +1374,10 @@ const SaleOrderPendencyArtSizeWise: React.FC = () => {
                       <div className="text-xs text-slate-500">No matching broker</div>
                     ) : (
                       filteredBrokers.map((b) => (
-                        <label key={b.id} className="flex items-center py-0.5 text-xs text-slate-700">
+                        <label
+                          key={b.id}
+                          className="flex items-center py-0.5 text-xs text-slate-700"
+                        >
                           <input
                             type="checkbox"
                             className="mr-2"
@@ -1329,7 +1441,10 @@ const SaleOrderPendencyArtSizeWise: React.FC = () => {
                       <div className="text-xs text-slate-500">No matching destination</div>
                     ) : (
                       filteredDestinations.map((d) => (
-                        <label key={d.id} className="flex items-center py-0.5 text-xs text-slate-700">
+                        <label
+                          key={d.id}
+                          className="flex items-center py-0.5 text-xs text-slate-700"
+                        >
                           <input
                             type="checkbox"
                             className="mr-2"
@@ -1385,7 +1500,10 @@ const SaleOrderPendencyArtSizeWise: React.FC = () => {
                       <div className="text-xs text-slate-500">No matching party</div>
                     ) : (
                       filteredParties.map((p) => (
-                        <label key={p.id} className="flex items-center py-0.5 text-xs text-slate-700">
+                        <label
+                          key={p.id}
+                          className="flex items-center py-0.5 text-xs text-slate-700"
+                        >
                           <input
                             type="checkbox"
                             className="mr-2"
@@ -1441,7 +1559,10 @@ const SaleOrderPendencyArtSizeWise: React.FC = () => {
                       <div className="text-xs text-slate-500">No matching art</div>
                     ) : (
                       filteredArts.map((a) => (
-                        <label key={a.id} className="flex items-center py-0.5 text-xs text-slate-700">
+                        <label
+                          key={a.id}
+                          className="flex items-center py-0.5 text-xs text-slate-700"
+                        >
                           <input
                             type="checkbox"
                             className="mr-2"
@@ -1497,7 +1618,10 @@ const SaleOrderPendencyArtSizeWise: React.FC = () => {
                       <div className="text-xs text-slate-500">No matching size</div>
                     ) : (
                       filteredSizes.map((s) => (
-                        <label key={s} className="flex items-center py-0.5 text-xs text-slate-700">
+                        <label
+                          key={s}
+                          className="flex items-center py-0.5 text-xs text-slate-700"
+                        >
                           <input
                             type="checkbox"
                             className="mr-2"
@@ -1553,7 +1677,10 @@ const SaleOrderPendencyArtSizeWise: React.FC = () => {
                       <div className="text-xs text-slate-500">No matching shade</div>
                     ) : (
                       filteredShades.map((s) => (
-                        <label key={s.id} className="flex items-center py-0.5 text-xs text-slate-700">
+                        <label
+                          key={s.id}
+                          className="flex items-center py-0.5 text-xs text-slate-700"
+                        >
                           <input
                             type="checkbox"
                             className="mr-2"
@@ -1651,7 +1778,10 @@ const SaleOrderPendencyArtSizeWise: React.FC = () => {
                   No data found for selected filters.
                 </div>
               ) : (
-                <div ref={reportRef} className="overflow-x-auto bg-white border border-slate-200 rounded-xl">
+                <div
+                  ref={reportRef}
+                  className="overflow-x-auto bg-white border border-slate-200 rounded-xl"
+                >
                   <table className="min-w-full text-xs">
                     <thead className="bg-slate-100 text-slate-700 sticky top-0 z-10">
                       <tr>
@@ -1693,9 +1823,15 @@ const SaleOrderPendencyArtSizeWise: React.FC = () => {
                             );
                           })}
 
-                          <td className="border border-slate-200 p-1.5 text-right">{fmt(g.openingTotal)}</td>
-                          <td className="border border-slate-200 p-1.5 text-right">{fmt(g.receiptTotal)}</td>
-                          <td className="border border-slate-200 p-1.5 text-right">{fmt(g.dispatchTotal)}</td>
+                          <td className="border border-slate-200 p-1.5 text-right">
+                            {fmt(g.openingTotal)}
+                          </td>
+                          <td className="border border-slate-200 p-1.5 text-right">
+                            {fmt(g.receiptTotal)}
+                          </td>
+                          <td className="border border-slate-200 p-1.5 text-right">
+                            {fmt(g.dispatchTotal)}
+                          </td>
                           <td className="border border-slate-200 p-1.5 text-right font-semibold text-slate-800">
                             {fmt(g.pendingTotal)}
                           </td>
@@ -1737,10 +1873,18 @@ const SaleOrderPendencyArtSizeWise: React.FC = () => {
                           </td>
                         ))}
 
-                        <td className="border border-slate-200 p-1.5 text-right">{fmt(totals.opening)}</td>
-                        <td className="border border-slate-200 p-1.5 text-right">{fmt(totals.receipt)}</td>
-                        <td className="border border-slate-200 p-1.5 text-right">{fmt(totals.dispatch)}</td>
-                        <td className="border border-slate-200 p-1.5 text-right">{fmt(totals.pending)}</td>
+                        <td className="border border-slate-200 p-1.5 text-right">
+                          {fmt(totals.opening)}
+                        </td>
+                        <td className="border border-slate-200 p-1.5 text-right">
+                          {fmt(totals.receipt)}
+                        </td>
+                        <td className="border border-slate-200 p-1.5 text-right">
+                          {fmt(totals.dispatch)}
+                        </td>
+                        <td className="border border-slate-200 p-1.5 text-right">
+                          {fmt(totals.pending)}
+                        </td>
                         <td className="border border-slate-200 p-1.5 no-print" />
                       </tr>
                     </tfoot>
