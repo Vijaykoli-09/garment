@@ -246,16 +246,22 @@ public class SaleOrderServiceImpl implements SaleOrderService {
             List<String> sizeNamesUpper,
             List<String> shadeNamesUpper
     ) {
+        // 1) Load Sale Orders in date range
         List<SaleOrder> soRecv = repo.findByDatedBetween(from, to);
 
-        // party -> station
+        // 2) Map party -> station (UPPER)
         Set<Long> partyIdSet = new HashSet<>();
-        soRecv.forEach(so -> { if (so.getPartyId()!=null) partyIdSet.add(so.getPartyId()); });
+        for (SaleOrder so : soRecv) {
+            if (so.getPartyId() != null) {
+                partyIdSet.add(so.getPartyId());
+            }
+        }
 
         Map<Long, String> partyStation = new HashMap<>();
         if (!partyIdSet.isEmpty()) {
             partyRepo.findAllById(partyIdSet).forEach(p -> {
-                partyStation.put(p.getId(), Optional.ofNullable(p.getStation()).orElse(""));
+                String st = Optional.ofNullable(p.getStation()).orElse("");
+                partyStation.put(p.getId(), st.toUpperCase().trim());
             });
         }
 
@@ -265,11 +271,16 @@ public class SaleOrderServiceImpl implements SaleOrderService {
         final Set<String> sizeFilter   = new HashSet<>(sizeNamesUpper == null ? List.of() : sizeNamesUpper);
         final Set<String> shadeFilter  = new HashSet<>(shadeNamesUpper == null ? List.of() : shadeNamesUpper);
 
+        java.util.function.Function<String,String> up  = s -> s == null ? "" : s.trim().toUpperCase();
+        java.util.function.Function<String,String> low = s -> s == null ? "" : s.trim().toLowerCase();
+
+        // Aggregation holder
         class Agg {
             int opening = 0;
             int receipt = 0;
             int dispatch = 0;
             int pending = 0;
+
             String dest;
             Long   pid;
             String pname;
@@ -281,9 +292,6 @@ public class SaleOrderServiceImpl implements SaleOrderService {
 
         Map<String, Agg> map = new LinkedHashMap<>();
 
-        java.util.function.Function<String,String> up  = s -> s == null ? "" : s.trim().toUpperCase();
-        java.util.function.Function<String,String> low = s -> s == null ? "" : s.trim().toLowerCase();
-
         java.util.function.BiConsumer<String, java.util.function.Consumer<Agg>> put =
                 (key, consumer) -> {
                     Agg a = map.get(key);
@@ -294,12 +302,20 @@ public class SaleOrderServiceImpl implements SaleOrderService {
                     consumer.accept(a);
                 };
 
+        // 3) Aggregate from Sale Order size details
         for (SaleOrder so : soRecv) {
             Long pid = so.getPartyId();
             String station = pid != null ? up.apply(partyStation.get(pid)) : "";
 
-            if (!destFilter.isEmpty() && (station.isEmpty() || !destFilter.contains(station))) continue;
-            if (!partyFilter.isEmpty() && (pid == null || !partyFilter.contains(pid))) continue;
+            // Destination filter
+            if (!destFilter.isEmpty()) {
+                if (station.isEmpty() || !destFilter.contains(station)) continue;
+            }
+
+            // Party filter
+            if (!partyFilter.isEmpty()) {
+                if (pid == null || !partyFilter.contains(pid)) continue;
+            }
 
             String partyName = Optional.ofNullable(so.getPartyName()).orElse("");
 
@@ -323,25 +339,19 @@ public class SaleOrderServiceImpl implements SaleOrderService {
                     if (shadeUpper.isEmpty() || !shadeFilter.contains(shadeUpper)) continue;
                 }
 
-                Integer rawPeti = row.getPeti();
-                int effectivePeti = (rawPeti == null ? 1 : rawPeti);
+                // IMPORTANT:
+                // PETI KO IGNORE KARNA HAI
+                // Pehle effectivePeti * box hota tha, ab sirf box = qty
 
                 for (SaleOrderSizeDetail sd : Optional.ofNullable(row.getSizeDetails()).orElse(List.of())) {
                     String rawSize = Optional.ofNullable(sd.getSizeName()).orElse("");
                     String[] parts = rawSize.split("__", 2);
-                    String baseSize = up.apply(parts[0]);
+                    String baseSize = up.apply(parts[0]);   // e.g. "M", "L"
 
                     if (!sizeFilter.isEmpty() && !sizeFilter.contains(baseSize)) continue;
 
                     int box = Optional.ofNullable(sd.getQty()).orElse(0);
-
-                    int rec;
-                    if (rawPeti != null && rawPeti == 0) {
-                        rec = box;
-                    } else {
-                        rec = effectivePeti * box;
-                    }
-                    if (rec == 0) continue;
+                    if (box == 0) continue; // qty 0 skip
 
                     String key = station + "|" + String.valueOf(pid) + "|" + artNoLower + "|" + shadeUpper + "|" + baseSize;
                     put.accept(key, a -> {
@@ -353,14 +363,21 @@ public class SaleOrderServiceImpl implements SaleOrderService {
                         a.shade   = shadeUpper;
                         a.size    = baseSize;
 
-                        a.receipt += rec;
-                        a.pending  = a.opening + a.receipt - a.dispatch;
+                        // AB PETI se multiply NAHI (direct qty use)
+                        a.receipt += box;
+                        // opening, dispatch abhi 0 hai
+                        a.pending = a.opening + a.receipt - a.dispatch;
                     });
                 }
             }
         }
 
+        // 4) Final DTO list:
+        //    - pending = opening + receipt - dispatch
+        //    - sirf woh rows jinke pending != 0  (0 wali row skip)
         return map.values().stream()
+                .peek(a -> a.pending = a.opening + a.receipt - a.dispatch)
+                .filter(a -> a.pending != 0)   // ✅ only non-zero pending (negative allowed)
                 .map(a -> new SaleOrderPendencyRowDTO(
                         a.dest,
                         a.pid,
