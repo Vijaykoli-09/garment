@@ -4,6 +4,7 @@ import com.garment.DTO.ProductRequest;
 import com.garment.DTO.ProductResponse;
 import com.garment.entity.Product;
 import com.garment.repository.ProductRepository;
+import com.garment.repository.ShadeRepository;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
@@ -30,11 +31,32 @@ public class ProductService {
 
     private final ProductRepository repo;
     private final CloudinaryService cloudinaryService;
+    private final ShadeRepository shadeRepository;
 
-    public ProductService(ProductRepository repo, CloudinaryService cloudinaryService) {
-        this.repo = repo;
+    public ProductService(ProductRepository repo,
+                          CloudinaryService cloudinaryService,
+                          ShadeRepository shadeRepository) {
+        this.repo              = repo;
         this.cloudinaryService = cloudinaryService;
+        this.shadeRepository   = shadeRepository;
     }
+
+    // ── Shade resolver: shadeCode -> shadeName ────────────────────
+    // Cached map built once per service call to avoid N+1 DB hits
+    private java.util.function.Function<String, String> buildShadeResolver() {
+        // Load all shades into a map once
+        Map<String, String> shadeMap = shadeRepository.findAll()
+                .stream()
+                .collect(Collectors.toMap(
+                        s -> s.getShadeCode(),
+                        s -> s.getShadeName(),
+                        (a, b) -> a
+                ));
+        // Return resolver: if code not found, return the code itself as fallback
+        return code -> shadeMap.getOrDefault(code, code);
+    }
+
+    // ── CRUD ──────────────────────────────────────────────────────
 
     public ProductResponse createProduct(ProductRequest req) {
         validateCategoryAndSub(req.getCategories(), req.getSubCategory());
@@ -42,7 +64,7 @@ public class ProductService {
         mapToEntity(req, p);
         p.setCreatedAt(LocalDateTime.now());
         p.setActive(true);
-        return ProductResponse.from(repo.save(p));
+        return ProductResponse.from(repo.save(p), buildShadeResolver());
     }
 
     public ProductResponse updateProduct(Long id, ProductRequest req) {
@@ -55,7 +77,7 @@ public class ProductService {
                 .forEach(cloudinaryService::deleteImage);
         mapToEntity(req, p);
         p.setUpdatedAt(LocalDateTime.now());
-        return ProductResponse.from(repo.save(p));
+        return ProductResponse.from(repo.save(p), buildShadeResolver());
     }
 
     public void deleteProduct(Long id) {
@@ -66,23 +88,30 @@ public class ProductService {
     }
 
     public List<ProductResponse> getAllProductsAdmin() {
+        var resolver = buildShadeResolver();
         return repo.findAllByOrderByCreatedAtDesc().stream()
-                .map(ProductResponse::from).collect(Collectors.toList());
+                .map(p -> ProductResponse.from(p, resolver))
+                .collect(Collectors.toList());
     }
 
     public List<ProductResponse> getActiveProducts(String search) {
+        var resolver = buildShadeResolver();
         List<Product> list = (search != null && !search.isBlank())
                 ? repo.findByActiveTrueAndNameContainingIgnoreCaseOrderByCreatedAtDesc(search.trim())
                 : repo.findByActiveTrueOrderByCreatedAtDesc();
-        return list.stream().map(ProductResponse::from).collect(Collectors.toList());
+        return list.stream()
+                .map(p -> ProductResponse.from(p, resolver))
+                .collect(Collectors.toList());
     }
 
     public ProductResponse getProductById(Long id) {
-        return ProductResponse.from(repo.findById(id)
-                .orElseThrow(() -> new RuntimeException("Product not found: " + id)));
+        return ProductResponse.from(
+                repo.findById(id).orElseThrow(() -> new RuntimeException("Product not found: " + id)),
+                buildShadeResolver()
+        );
     }
 
-    // ── Validation ────────────────────────────────────────────────────────────
+    // ── Validation ────────────────────────────────────────────────
     private void validateCategoryAndSub(List<String> categories, String subCategory) {
         if (categories == null || categories.isEmpty())
             throw new RuntimeException("At least one category is required.");
@@ -107,7 +136,7 @@ public class ProductService {
                 "Invalid sub-category: '" + subCategory + "' for selected categories. Allowed: " + allowedSubs);
     }
 
-    // ── Mapping ───────────────────────────────────────────────────────────────
+    // ── Mapping ───────────────────────────────────────────────────
     private void mapToEntity(ProductRequest req, Product p) {
         p.setName(req.getName().trim());
         p.setDescription(req.getDescription() != null ? req.getDescription().trim() : "");
@@ -123,10 +152,22 @@ public class ProductService {
         p.setSizes(req.getSizes()  != null ? String.join(",", req.getSizes())  : "");
         p.setImages(req.getImages() != null ? String.join(",", req.getImages()) : "");
 
-        // ✅ NEW: Map art fields
+        // Art fields
         p.setArtSerialNumber(req.getArtSerialNumber());
         p.setArtNo(req.getArtNo());
         p.setArtName(req.getArtName());
+
+        // Shades: store as comma-separated shade codes
+        if (req.getShades() != null && !req.getShades().isEmpty()) {
+            String shadeCsv = req.getShades().stream()
+                    .map(String::trim)
+                    .filter(s -> !s.isBlank())
+                    .distinct()
+                    .collect(Collectors.joining(","));
+            p.setShades(shadeCsv);
+        } else {
+            p.setShades("");
+        }
 
         if (req.getPricing() != null) {
             p.setPriceWholeSeller(    orZero(req.getPricing().getWholeSeller()));

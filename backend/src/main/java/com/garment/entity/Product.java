@@ -37,7 +37,7 @@ public class Product {
     @Column(columnDefinition = "TEXT")
     private String images;
 
-    // ── Art Relationship Fields (NEW) ─────────────────────────────
+    // ── Art Relationship Fields ───────────────────────────────────
     @Column(name = "art_serial_number")
     private String artSerialNumber;
 
@@ -46,6 +46,11 @@ public class Product {
 
     @Column(name = "art_name")
     private String artName;
+
+    // ── Shades assigned to this product (comma-separated shade codes) ──
+    // e.g. "SH001,SH002,SH003"
+    @Column(name = "shades", columnDefinition = "TEXT")
+    private String shades;
 
     // ── Price per BOX for each customer type ─────────────────────
     @Column(nullable = false)
@@ -91,7 +96,7 @@ public class Product {
     public void setSizes(String sizes) { this.sizes = sizes; }
     public String getImages() { return images; }
     public void setImages(String images) { this.images = images; }
-    
+
     // Art relationship getters/setters
     public String getArtSerialNumber() { return artSerialNumber; }
     public void setArtSerialNumber(String artSerialNumber) { this.artSerialNumber = artSerialNumber; }
@@ -99,7 +104,11 @@ public class Product {
     public void setArtNo(String artNo) { this.artNo = artNo; }
     public String getArtName() { return artName; }
     public void setArtName(String artName) { this.artName = artName; }
-    
+
+    // Shades getter/setter
+    public String getShades() { return shades; }
+    public void setShades(String shades) { this.shades = shades; }
+
     public Double getPriceWholeSeller() { return priceWholeSeller; }
     public void setPriceWholeSeller(Double v) { this.priceWholeSeller = v; }
     public Double getPriceSemiWholeSeller() { return priceSemiWholeSeller; }

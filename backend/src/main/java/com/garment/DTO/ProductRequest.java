@@ -13,11 +13,14 @@ public class ProductRequest {
     private List<String> images;
     private Pricing pricing;
     private MinBox minBox;
-    
-    // ✅ NEW: Art relationship fields
+
+    // Art relationship fields
     private String artSerialNumber;
     private String artNo;
     private String artName;
+
+    // Shade codes assigned to this product e.g. ["SH001", "SH002"]
+    private List<String> shades;
 
     // Price per BOX
     public static class Pricing {
@@ -66,7 +69,7 @@ public class ProductRequest {
     public void setPricing(Pricing pricing) { this.pricing = pricing; }
     public MinBox getMinBox() { return minBox; }
     public void setMinBox(MinBox minBox) { this.minBox = minBox; }
-    
+
     // Art relationship getters/setters
     public String getArtSerialNumber() { return artSerialNumber; }
     public void setArtSerialNumber(String artSerialNumber) { this.artSerialNumber = artSerialNumber; }
@@ -74,4 +77,8 @@ public class ProductRequest {
     public void setArtNo(String artNo) { this.artNo = artNo; }
     public String getArtName() { return artName; }
     public void setArtName(String artName) { this.artName = artName; }
+
+    // Shades getters/setters
+    public List<String> getShades() { return shades; }
+    public void setShades(List<String> shades) { this.shades = shades; }
 }

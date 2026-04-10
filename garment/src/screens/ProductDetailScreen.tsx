@@ -14,6 +14,21 @@ function getMyPrice(pricing: any, type?: string): number {
   return pricing?.retailer ?? 0;
 }
 
+function getVisiblePrices(pricing: any, type?: string) {
+  const tiers = [];
+  if (type === 'Wholesaler') {
+    tiers.push({ label: 'Wholesaler',      price: pricing?.wholeSeller     ?? 0 });
+    tiers.push({ label: 'Semi Wholesaler', price: pricing?.semiWholeSeller ?? 0 });
+    tiers.push({ label: 'Retailer',        price: pricing?.retailer        ?? 0 });
+  } else if (type === 'Semi_Wholesaler') {
+    tiers.push({ label: 'Semi Wholesaler', price: pricing?.semiWholeSeller ?? 0 });
+    tiers.push({ label: 'Retailer',        price: pricing?.retailer        ?? 0 });
+  } else {
+    tiers.push({ label: 'Retailer',        price: pricing?.retailer        ?? 0 });
+  }
+  return tiers;
+}
+
 function getMyMinBox(minBox: any, type?: string): number {
   if (type === 'Wholesaler')      return minBox?.wholeSeller     ?? 10;
   if (type === 'Semi_Wholesaler') return minBox?.semiWholeSeller ?? 8;
@@ -32,7 +47,7 @@ export default function ProductDetailScreen({ route, navigation }: any) {
   const [boxes, setBoxes]               = useState(minBoxes);
   const [activeImg, setActiveImg]       = useState(0);
   const [fullScreen, setFullScreen]     = useState(false);
-
+const visiblePrices = getVisiblePrices(product.pricing, user?.type);
   const totalPcs   = boxes * pcsPerBox;
   const subtotal   = pricePerBox * boxes;
   const gstAmt     = subtotal * GST;
@@ -109,27 +124,39 @@ export default function ProductDetailScreen({ route, navigation }: any) {
           <Text style={s.desc}>{product.description}</Text>
 
           {/* ── PRICE CARD — piece is now the hero number ── */}
-          <View style={s.myPriceCard}>
-            <View style={s.myPriceLeft}>
-              <Text style={s.myPriceTier}>Your Price  ({typeLabel})</Text>
+         {/* ── PRICE CARD ── */}
+<View style={s.myPriceCard}>
+  <View style={s.myPriceLeft}>
+    <Text style={s.myPriceTier}>Your Price  ({typeLabel})</Text>
 
-              {/* BIG: price per piece */}
-              <Text style={s.myPriceBox}>
-                ₹{pricePerPc.toFixed(2)}
-                <Text style={s.myPriceUnit}> / piece</Text>
-              </Text>
+    {/* BIG: your own price per piece */}
+    <Text style={s.myPriceBox}>
+      ₹{pricePerPc.toFixed(2)}
+      <Text style={s.myPriceUnit}> / piece</Text>
+    </Text>
+    <Text style={s.myPricePc}>
+      ₹{pricePerBox.toLocaleString()} per box  ·  {pcsPerBox} pcs per box
+    </Text>
 
-              {/* SMALL: price per box below */}
-              <Text style={s.myPricePc}>
-                ₹{pricePerBox.toLocaleString()} per box  ·  {pcsPerBox} pcs per box
-              </Text>
-            </View>
-            <View style={s.myPriceRight}>
-              <Text style={s.myMinLabel}>Min Order</Text>
-              <Text style={s.myMinNum}>{minBoxes}</Text>
-              <Text style={s.myMinUnit}>boxes</Text>
-            </View>
-          </View>
+    {/* Other visible tiers */}
+    {visiblePrices.length > 1 && (
+      <View style={s.otherTiers}>
+        {visiblePrices.slice(1).map(tier => (
+          <Text key={tier.label} style={s.otherTierTxt}>
+            {tier.label}: ₹{(tier.price / pcsPerBox).toFixed(2)}/pc
+            {'  '}(₹{tier.price.toLocaleString()}/box)
+          </Text>
+        ))}
+      </View>
+    )}
+  </View>
+
+  <View style={s.myPriceRight}>
+    <Text style={s.myMinLabel}>Min Order</Text>
+    <Text style={s.myMinNum}>{minBoxes}</Text>
+    <Text style={s.myMinUnit}>boxes</Text>
+  </View>
+</View>
 
           {product.sizes?.length > 0 && (
             <View style={s.section}>
@@ -304,4 +331,6 @@ const s = StyleSheet.create({
   fsOverlay:      { flex: 1, backgroundColor: '#000', justifyContent: 'center', alignItems: 'center' },
   fsClose:        { position: 'absolute', top: 44, right: 20, zIndex: 10, backgroundColor: 'rgba(255,255,255,0.2)', width: 44, height: 44, borderRadius: 22, justifyContent: 'center', alignItems: 'center' },
   fsCloseTxt:     { color: '#fff', fontSize: 20, fontWeight: '700' },
+  otherTiers:   { marginTop: 10, backgroundColor: 'rgba(255,255,255,0.12)', borderRadius: 8, padding: 8 },
+  otherTierTxt: { fontSize: 11, color: 'rgba(255,255,255,0.75)', marginBottom: 3 },
 });

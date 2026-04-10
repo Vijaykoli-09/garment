@@ -10,8 +10,8 @@ public class ProductResponse {
     private Long id;
     private String name;
     private String description;
-    private List<String> categories;   // e.g. ["MEN", "WOMEN"]
-    private String subCategory;        // e.g. "T-Shirt"
+    private List<String> categories;
+    private String subCategory;
     private Integer boxQuantity;
     private List<String> sizes;
     private List<String> images;
@@ -19,13 +19,31 @@ public class ProductResponse {
     private MinBox minBox;
     private Boolean active;
     private String createdAt;
-    
-    // ✅ NEW: Art relationship fields
+
+    // Art relationship fields
     private String artSerialNumber;
     private String artNo;
     private String artName;
 
-    // Price per BOX
+    // Shades: list of {shadeCode, shadeName} resolved objects
+    // App and web both get full shade info — no extra lookup needed on frontend
+    private List<ShadeInfo> shades;
+
+    // ── Nested classes ────────────────────────────────────────────
+
+    public static class ShadeInfo {
+        private String shadeCode;
+        private String shadeName;
+
+        public ShadeInfo(String shadeCode, String shadeName) {
+            this.shadeCode = shadeCode;
+            this.shadeName = shadeName;
+        }
+
+        public String getShadeCode() { return shadeCode; }
+        public String getShadeName() { return shadeName; }
+    }
+
     public static class Pricing {
         private Double wholeSeller;
         private Double semiWholeSeller;
@@ -41,7 +59,6 @@ public class ProductResponse {
         public Double getRetailer() { return retailer; }
     }
 
-    // Min boxes per customer type
     public static class MinBox {
         private Integer wholeSeller;
         private Integer semiWholeSeller;
@@ -57,8 +74,10 @@ public class ProductResponse {
         public Integer getRetailer() { return retailer; }
     }
 
-    // Factory: Entity -> DTO
-    public static ProductResponse from(Product p) {
+    // ── Factory: Entity -> DTO ────────────────────────────────────
+    // shadeResolver: pass a function that takes shadeCode -> shadeName
+    // In ProductService, inject ShadeRepository and pass it here
+    public static ProductResponse from(Product p, java.util.function.Function<String, String> shadeResolver) {
         ProductResponse res = new ProductResponse();
         res.id          = p.getId();
         res.name        = p.getName();
@@ -67,11 +86,11 @@ public class ProductResponse {
         res.boxQuantity = p.getBoxQuantity();
         res.active      = p.getActive();
         res.createdAt   = p.getCreatedAt() != null ? p.getCreatedAt().toString() : null;
-        
-        // ✅ NEW: Map art fields
+
+        // Art fields
         res.artSerialNumber = p.getArtSerialNumber();
-        res.artNo = p.getArtNo();
-        res.artName = p.getArtName();
+        res.artNo           = p.getArtNo();
+        res.artName         = p.getArtName();
 
         res.categories = (p.getCategories() != null && !p.getCategories().isBlank())
                 ? Arrays.asList(p.getCategories().split(","))
@@ -84,6 +103,17 @@ public class ProductResponse {
         res.images = (p.getImages() != null && !p.getImages().isBlank())
                 ? Arrays.asList(p.getImages().split(","))
                 : Collections.emptyList();
+
+        // Resolve shade codes -> ShadeInfo list
+        if (p.getShades() != null && !p.getShades().isBlank()) {
+            res.shades = Arrays.stream(p.getShades().split(","))
+                    .map(String::trim)
+                    .filter(code -> !code.isBlank())
+                    .map(code -> new ShadeInfo(code, shadeResolver.apply(code)))
+                    .collect(java.util.stream.Collectors.toList());
+        } else {
+            res.shades = Collections.emptyList();
+        }
 
         res.pricing = new Pricing(
                 p.getPriceWholeSeller(),
@@ -100,7 +130,7 @@ public class ProductResponse {
         return res;
     }
 
-    // Getters
+    // ── Getters ───────────────────────────────────────────────────
     public Long getId() { return id; }
     public String getName() { return name; }
     public String getDescription() { return description; }
@@ -113,9 +143,8 @@ public class ProductResponse {
     public MinBox getMinBox() { return minBox; }
     public Boolean getActive() { return active; }
     public String getCreatedAt() { return createdAt; }
-    
-    // Art relationship getters
     public String getArtSerialNumber() { return artSerialNumber; }
     public String getArtNo() { return artNo; }
     public String getArtName() { return artName; }
+    public List<ShadeInfo> getShades() { return shades; }
 }
