@@ -11,12 +11,12 @@ interface ProductGroup {
   name:        string;
   images:      string[];
   pcsPerBox:   number;
-  pricePerPc:  number;  // same for all sizes of same product
+  pricePerPc:  number;
   pricePerBox: number;
-  sizes:       CartItem[];          // all size rows for this product
-  productSubtotal: number;          // sum of (pricePerBox * boxes) for all sizes
-  productGst:      number;          // productSubtotal * 0.18
-  productTotal:    number;          // productSubtotal + productGst
+  sizes:       CartItem[];
+  productSubtotal: number;
+  productGst:      number;
+  productTotal:    number;
   totalBoxes:      number;
   totalPcs:        number;
 }
@@ -48,7 +48,6 @@ function groupCart(cart: CartItem[]): ProductGroup[] {
     g.totalPcs        += item.quantity;
   }
 
-  // Calculate GST + total after all sizes are summed
   for (const g of map.values()) {
     g.productGst   = g.productSubtotal * 0.18;
     g.productTotal = g.productSubtotal + g.productGst;
@@ -65,9 +64,9 @@ export default function CartScreen({ navigation }: any) {
     creditApproved, availableCredit,
   } = useContext(AppContext);
 
-  const groups = useMemo(() => groupCart(cart), [cart]);
-  const gstAmount   = cartTotal * 0.18;
-  const totalBoxes  = cart.reduce((s, i) => s + i.boxes, 0);
+  const groups     = useMemo(() => groupCart(cart), [cart]);
+  const gstAmount  = cartTotal * 0.18;
+  const totalBoxes = cart.reduce((s, i) => s + i.boxes, 0);
 
   const confirmClear = () =>
     Alert.alert('Clear Cart', 'Remove all items from your cart?', [
@@ -75,26 +74,34 @@ export default function CartScreen({ navigation }: any) {
       { text: 'Clear All', style: 'destructive', onPress: clearCart },
     ]);
 
-  const confirmRemoveSize = (item: CartItem) =>
+  const confirmRemoveRow = (item: CartItem) =>
     Alert.alert(
-      'Remove Size',
-      `Remove ${item.selectedSize} from ${item.name}?`,
+      'Remove Item',
+      `Remove ${item.selectedSize}${item.shade ? ` · ${item.shade}` : ''} from ${item.name}?`,
       [
         { text: 'Cancel', style: 'cancel' },
-        { text: 'Remove', style: 'destructive',
-          onPress: () => removeFromCart(item.productId, item.selectedSize) },
+        {
+          text: 'Remove', style: 'destructive',
+          // Pass shadeCode as third arg — new signature
+          onPress: () => removeFromCart(item.productId, item.selectedSize, item.shadeCode),
+        },
       ]
     );
 
-  // ── Render one size row inside the product card ─────────────────
+  // ── Size/shade row inside product card ──────────────────────────
   const SizeRow = ({ item }: { item: CartItem }) => {
     const rowSubtotal = item.pricePerBox * item.boxes;
 
     return (
       <View style={s.sizeRow}>
-        {/* Size chip */}
-        <View style={s.sizeChip}>
-          <Text style={s.sizeChipTxt}>{item.selectedSize}</Text>
+        {/* Size + shade chip */}
+        <View style={s.sizeShadeCol}>
+          <View style={s.sizeChip}>
+            <Text style={s.sizeChipTxt}>{item.selectedSize}</Text>
+          </View>
+          {item.shade ? (
+            <Text style={s.shadeLabel} numberOfLines={1}>{item.shade}</Text>
+          ) : null}
         </View>
 
         {/* Boxes stepper */}
@@ -102,8 +109,9 @@ export default function CartScreen({ navigation }: any) {
           <TouchableOpacity
             style={[s.stepBtn, item.boxes <= 1 && s.stepBtnDim]}
             onPress={() => {
-              if (item.boxes <= 1) confirmRemoveSize(item);
-              else updateCartItem(item.productId, item.selectedSize, item.boxes - 1);
+              if (item.boxes <= 1) confirmRemoveRow(item);
+              // Pass shadeCode as third arg — new signature
+              else updateCartItem(item.productId, item.selectedSize, item.shadeCode, item.boxes - 1);
             }}
           >
             <Text style={s.stepBtnTxt}>{item.boxes <= 1 ? '🗑' : '−'}</Text>
@@ -111,16 +119,16 @@ export default function CartScreen({ navigation }: any) {
           <Text style={s.stepVal}>{item.boxes}</Text>
           <TouchableOpacity
             style={s.stepBtn}
-            onPress={() => updateCartItem(item.productId, item.selectedSize, item.boxes + 1)}
+            onPress={() => updateCartItem(item.productId, item.selectedSize, item.shadeCode, item.boxes + 1)}
           >
             <Text style={s.stepBtnTxt}>+</Text>
           </TouchableOpacity>
         </View>
 
-        {/* Pcs count */}
+        {/* Pcs */}
         <Text style={s.pcsCell}>{item.quantity} pcs</Text>
 
-        {/* Row subtotal */}
+        {/* Subtotal */}
         <Text style={s.subtotalCell}>
           ₹{rowSubtotal.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
         </Text>
@@ -128,11 +136,10 @@ export default function CartScreen({ navigation }: any) {
     );
   };
 
-  // ── Render one product card (with all its size rows) ────────────
+  // ── Product card ─────────────────────────────────────────────────
   const ProductCard = ({ group }: { group: ProductGroup }) => (
     <View style={s.productCard}>
 
-      {/* Product header */}
       <View style={s.productHeader}>
         {group.images?.[0]
           ? <Image source={{ uri: group.images[0] }} style={s.productImg} />
@@ -143,20 +150,18 @@ export default function CartScreen({ navigation }: any) {
           <Text style={s.productMeta}>
             ₹{group.pricePerPc.toFixed(2)}/pc  ·  ₹{group.pricePerBox.toLocaleString()}/box
           </Text>
-          <Text style={s.productMeta}>
-            {group.pcsPerBox} pcs per box
-          </Text>
+          <Text style={s.productMeta}>{group.pcsPerBox} pcs per box</Text>
         </View>
-        {/* Remove whole product */}
         <TouchableOpacity
           style={s.removeAllBtn}
           onPress={() =>
-            Alert.alert('Remove Product', `Remove all sizes of "${group.name}"?`, [
+            Alert.alert('Remove Product', `Remove all rows of "${group.name}"?`, [
               { text: 'Cancel', style: 'cancel' },
               {
                 text: 'Remove All', style: 'destructive',
                 onPress: () => group.sizes.forEach(i =>
-                  removeFromCart(i.productId, i.selectedSize)),
+                  removeFromCart(i.productId, i.selectedSize, i.shadeCode)
+                ),
               },
             ])
           }
@@ -165,39 +170,17 @@ export default function CartScreen({ navigation }: any) {
         </TouchableOpacity>
       </View>
 
-      {/* Size table header */}
+      {/* Table header */}
       <View style={s.tableHeader}>
-        <Text style={[s.tableHdrCell, { flex: 1 }]}>SIZE</Text>
+        <Text style={[s.tableHdrCell, { flex: 1.5 }]}>SIZE / SHADE</Text>
         <Text style={[s.tableHdrCell, { flex: 2.2, textAlign: 'center' }]}>BOXES</Text>
         <Text style={[s.tableHdrCell, { flex: 1.5, textAlign: 'center' }]}>PCS</Text>
         <Text style={[s.tableHdrCell, { flex: 2, textAlign: 'right' }]}>AMOUNT</Text>
       </View>
 
-      {/* Size rows */}
-      {group.sizes.map(item => (
-        <SizeRow key={item.selectedSize} item={item} />
-      ))}
+      {group.sizes.map(item => <SizeRow key={`${item.selectedSize}-${item.shadeCode}`} item={item} />)}
 
-      {/* Add another size shortcut */}
-      <TouchableOpacity
-        style={s.addSizeBtn}
-        onPress={() => navigation.navigate('ProductDetail', {
-          product: {
-            id:          group.productId,
-            name:        group.name,
-            images:      group.images,
-            pcsPerBox:   group.pcsPerBox,
-            sizes:       [],          // will be re-fetched or navigated with full product
-            description: '',
-            pricing:     {},
-            minBox:      {},
-          }
-        })}
-      >
-        <Text style={s.addSizeTxt}>+ Add another size</Text>
-      </TouchableOpacity>
-
-      {/* Product price summary */}
+      {/* Product summary */}
       <View style={s.productSummary}>
         <View style={s.summaryLine}>
           <Text style={s.summaryLbl}>
@@ -226,27 +209,22 @@ export default function CartScreen({ navigation }: any) {
     </View>
   );
 
-  // ── Empty state ─────────────────────────────────────────────────
-  if (cart.length === 0) {
+  if (!cart.length) {
     return (
       <View style={s.emptyWrap}>
-        <StatusBar backgroundColor="#fff" barStyle="dark-content" />
-        <Text style={{ fontSize: 72 }}>🛒</Text>
-        <Text style={s.emptyTitle}>Your cart is empty</Text>
-        <Text style={s.emptySub}>Browse products and add items to your cart</Text>
-        <TouchableOpacity style={s.browseBtn}
-          onPress={() => navigation.navigate('Category')}>
-          <Text style={s.browseBtnTxt}>Browse Products</Text>
+        <Text style={{ fontSize: 64 }}>🛒</Text>
+        <Text style={s.emptyTitle}>Cart is Empty</Text>
+        <Text style={s.emptySub}>Add products from the catalog to start an order</Text>
+        <TouchableOpacity style={s.browseBtn} onPress={() => navigation.navigate('ProductList')}>
+          <Text style={s.browseBtnTxt}>Browse Products →</Text>
         </TouchableOpacity>
       </View>
     );
   }
 
-  // ── Main render ─────────────────────────────────────────────────
   return (
     <View style={s.container}>
-      <StatusBar backgroundColor="#fff" barStyle="dark-content" />
-
+      <StatusBar backgroundColor="#F1F5F9" barStyle="dark-content" />
       <FlatList
         data={groups}
         keyExtractor={g => String(g.productId)}
@@ -267,11 +245,9 @@ export default function CartScreen({ navigation }: any) {
 
         ListFooterComponent={
           <View>
-            {/* ── Grand total summary card ── */}
             <View style={s.grandSummary}>
               <Text style={s.grandSummaryTitle}>🧾 Order Summary</Text>
 
-              {/* Per-product subtotals */}
               {groups.map(g => (
                 <View key={g.productId} style={s.grandRow}>
                   <Text style={s.grandRowLbl} numberOfLines={1}>{g.name}</Text>
@@ -282,7 +258,6 @@ export default function CartScreen({ navigation }: any) {
               ))}
 
               <View style={s.grandDivider} />
-
               <View style={s.grandRow}>
                 <Text style={s.grandRowLbl}>Subtotal</Text>
                 <Text style={s.grandRowVal}>
@@ -295,9 +270,7 @@ export default function CartScreen({ navigation }: any) {
                   ₹{gstAmount.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
                 </Text>
               </View>
-
               <View style={s.grandDivider} />
-
               <View style={s.grandRow}>
                 <Text style={s.grandTotalLbl}>Grand Total</Text>
                 <Text style={s.grandTotalVal}>
@@ -305,29 +278,21 @@ export default function CartScreen({ navigation }: any) {
                 </Text>
               </View>
 
-              {/* Credit info */}
               {creditApproved && (
-                <View style={[
-                  s.creditRow,
-                  cartTotalWithGst > availableCredit && s.creditRowRed,
-                ]}>
+                <View style={[s.creditRow, cartTotalWithGst > availableCredit && s.creditRowRed]}>
                   <Text style={s.creditLbl}>Available Credit</Text>
-                  <Text style={[
-                    s.creditVal,
-                    { color: cartTotalWithGst <= availableCredit ? '#059669' : '#DC2626' },
-                  ]}>
+                  <Text style={[s.creditVal, { color: cartTotalWithGst <= availableCredit ? '#059669' : '#DC2626' }]}>
                     ₹{availableCredit.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
                   </Text>
                 </View>
               )}
             </View>
-
             <View style={{ height: 110 }} />
           </View>
         }
       />
 
-      {/* ── Sticky checkout bar ── */}
+      {/* Sticky checkout bar */}
       <View style={s.bottomBar}>
         <View>
           <Text style={s.bottomTotal}>
@@ -335,37 +300,27 @@ export default function CartScreen({ navigation }: any) {
           </Text>
           <Text style={s.bottomSub}>Total incl. GST</Text>
         </View>
-        <TouchableOpacity
-          style={s.checkoutBtn}
-          onPress={() => navigation.navigate('Checkout')}
-        >
-          <Text style={s.checkoutTxt}>Proceed to Payment →</Text>
+        <TouchableOpacity style={s.checkoutBtn} onPress={() => navigation.navigate('Checkout')}>
+          <Text style={s.checkoutTxt}>Proceed to Checkout →</Text>
         </TouchableOpacity>
       </View>
     </View>
   );
 }
 
-// ════════════════════════════════════════════════════════════════════
 const s = StyleSheet.create({
   container:       { flex: 1, backgroundColor: '#F1F5F9' },
-
-  // Empty state
   emptyWrap:       { flex: 1, backgroundColor: '#F8FAFC', justifyContent: 'center', alignItems: 'center', gap: 12, padding: 24 },
   emptyTitle:      { fontSize: 22, fontWeight: '700', color: '#0F172A' },
   emptySub:        { fontSize: 14, color: '#64748B', textAlign: 'center' },
   browseBtn:       { marginTop: 6, backgroundColor: '#2563EB', borderRadius: 12, paddingHorizontal: 32, paddingVertical: 14 },
   browseBtnTxt:    { color: '#fff', fontWeight: '700', fontSize: 15 },
-
   list:            { padding: 12 },
-
   listHeader:      { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, paddingHorizontal: 2 },
   listHeaderTxt:   { fontSize: 13, fontWeight: '600', color: '#475569' },
   clearTxt:        { fontSize: 13, color: '#DC2626', fontWeight: '600' },
 
-  // Product card
   productCard:     { backgroundColor: '#fff', borderRadius: 16, marginBottom: 14, overflow: 'hidden', borderWidth: 1, borderColor: '#E2E8F0', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.07, shadowRadius: 8, elevation: 3 },
-
   productHeader:   { flexDirection: 'row', alignItems: 'center', padding: 12, borderBottomWidth: 1, borderBottomColor: '#F1F5F9', gap: 10 },
   productImg:      { width: 64, height: 64, borderRadius: 10 },
   productImgPh:    { width: 64, height: 64, borderRadius: 10, backgroundColor: '#F3F4F6', justifyContent: 'center', alignItems: 'center' },
@@ -375,28 +330,25 @@ const s = StyleSheet.create({
   removeAllBtn:    { width: 28, height: 28, borderRadius: 14, backgroundColor: '#FEE2E2', justifyContent: 'center', alignItems: 'center' },
   removeAllTxt:    { fontSize: 13, color: '#DC2626', fontWeight: '800' },
 
-  // Table
   tableHeader:     { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 7, backgroundColor: '#F8FAFC', borderBottomWidth: 1, borderBottomColor: '#E2E8F0' },
   tableHdrCell:    { fontSize: 10, fontWeight: '800', color: '#94A3B8', letterSpacing: 0.6 },
 
-  // Size row
   sizeRow:         { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#F1F5F9' },
-  sizeChip:        { flex: 1, backgroundColor: '#EFF6FF', borderRadius: 6, paddingHorizontal: 8, paddingVertical: 4, alignSelf: 'center', alignItems: 'center', marginRight: 4 },
+
+  // Size + shade stacked
+  sizeShadeCol:    { flex: 1.5, gap: 3 },
+  sizeChip:        { backgroundColor: '#EFF6FF', borderRadius: 6, paddingHorizontal: 8, paddingVertical: 4, alignSelf: 'flex-start', alignItems: 'center' },
   sizeChipTxt:     { fontSize: 13, fontWeight: '800', color: '#2563EB' },
+  shadeLabel:      { fontSize: 10, color: '#7C3AED', fontWeight: '600', paddingLeft: 2 },
 
   stepper:         { flex: 2.2, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 },
   stepBtn:         { width: 28, height: 28, borderRadius: 7, backgroundColor: '#2563EB', justifyContent: 'center', alignItems: 'center' },
   stepBtnDim:      { backgroundColor: '#FCA5A5' },
   stepBtnTxt:      { color: '#fff', fontSize: 14, fontWeight: '800', lineHeight: 18 },
   stepVal:         { fontSize: 15, fontWeight: '800', color: '#0F172A', minWidth: 22, textAlign: 'center' },
-
   pcsCell:         { flex: 1.5, fontSize: 12, color: '#475569', textAlign: 'center' },
   subtotalCell:    { flex: 2, fontSize: 13, fontWeight: '700', color: '#0F172A', textAlign: 'right' },
 
-  addSizeBtn:      { marginHorizontal: 12, marginTop: 8, paddingVertical: 9, borderRadius: 8, borderWidth: 1.5, borderColor: '#BFDBFE', borderStyle: 'dashed', alignItems: 'center', backgroundColor: '#EFF6FF' },
-  addSizeTxt:      { fontSize: 12, color: '#2563EB', fontWeight: '700' },
-
-  // Product summary
   productSummary:  { marginHorizontal: 12, marginTop: 10, marginBottom: 12, backgroundColor: '#F8FAFC', borderRadius: 10, padding: 10, borderWidth: 1, borderColor: '#E2E8F0' },
   summaryLine:     { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 4 },
   summaryLbl:      { fontSize: 12, color: '#64748B' },
@@ -405,22 +357,19 @@ const s = StyleSheet.create({
   summaryTotalLbl: { fontSize: 13, fontWeight: '700', color: '#0F172A' },
   summaryTotalVal: { fontSize: 15, fontWeight: '800', color: '#2563EB' },
 
-  // Grand summary
-  grandSummary:    { backgroundColor: '#fff', borderRadius: 16, marginTop: 4, padding: 16, borderWidth: 1, borderColor: '#E2E8F0' },
+  grandSummary:     { backgroundColor: '#fff', borderRadius: 16, marginTop: 4, padding: 16, borderWidth: 1, borderColor: '#E2E8F0' },
   grandSummaryTitle:{ fontSize: 15, fontWeight: '700', color: '#0F172A', marginBottom: 12 },
-  grandRow:        { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 6 },
-  grandRowLbl:     { fontSize: 13, color: '#64748B', flex: 1, marginRight: 8 },
-  grandRowVal:     { fontSize: 13, fontWeight: '600', color: '#374151' },
-  grandDivider:    { height: 1, backgroundColor: '#E2E8F0', marginVertical: 6 },
-  grandTotalLbl:   { fontSize: 16, fontWeight: '800', color: '#0F172A' },
-  grandTotalVal:   { fontSize: 20, fontWeight: '900', color: '#2563EB' },
+  grandRow:         { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 6 },
+  grandRowLbl:      { fontSize: 13, color: '#64748B', flex: 1, marginRight: 8 },
+  grandRowVal:      { fontSize: 13, fontWeight: '600', color: '#374151' },
+  grandDivider:     { height: 1, backgroundColor: '#E2E8F0', marginVertical: 6 },
+  grandTotalLbl:    { fontSize: 16, fontWeight: '800', color: '#0F172A' },
+  grandTotalVal:    { fontSize: 20, fontWeight: '900', color: '#2563EB' },
+  creditRow:        { flexDirection: 'row', justifyContent: 'space-between', marginTop: 10, backgroundColor: '#F0FDF4', borderRadius: 10, padding: 10, borderWidth: 1, borderColor: '#BBF7D0' },
+  creditRowRed:     { backgroundColor: '#FEF2F2', borderColor: '#FECACA' },
+  creditLbl:        { fontSize: 13, fontWeight: '600', color: '#374151' },
+  creditVal:        { fontSize: 14, fontWeight: '800' },
 
-  creditRow:       { flexDirection: 'row', justifyContent: 'space-between', marginTop: 10, backgroundColor: '#F0FDF4', borderRadius: 10, padding: 10, borderWidth: 1, borderColor: '#BBF7D0' },
-  creditRowRed:    { backgroundColor: '#FEF2F2', borderColor: '#FECACA' },
-  creditLbl:       { fontSize: 13, fontWeight: '600', color: '#374151' },
-  creditVal:       { fontSize: 14, fontWeight: '800' },
-
-  // Bottom bar
   bottomBar:       { position: 'absolute', bottom: 0, left: 0, right: 0, backgroundColor: '#fff', padding: 16, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderTopWidth: 1, borderTopColor: '#E2E8F0', shadowColor: '#000', shadowOffset: { width: 0, height: -3 }, shadowOpacity: 0.1, shadowRadius: 8, elevation: 10 },
   bottomTotal:     { fontSize: 22, fontWeight: '800', color: '#0F172A' },
   bottomSub:       { fontSize: 11, color: '#6B7280', marginTop: 1 },

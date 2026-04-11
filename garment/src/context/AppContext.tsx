@@ -10,27 +10,37 @@ const USED_CREDIT_KEY  = 'app_used_credit';
 // ════════════════════════════════════════════════════════════════════
 export interface AppUser {
   id:              number;
-  name:            string;   // matches backend CustomerLoginResponse.name
+  name:            string;
   phone:           string;
   email:           string;
-  type:            'Wholesaler' | 'Semi_Wholesaler' | 'Retailer'; // matches backend .type
+  type:            'Wholesaler' | 'Semi_Wholesaler' | 'Retailer';
   token:           string;
   creditEnabled:   boolean;
   creditLimit:     number;
   advanceOption:   boolean;
   accountApproved: boolean;
+  partyId?:        number | null;   // set by admin when they create party record
+  deliveryAddress?: string;
 }
 
 export interface CartItem {
-  productId:    number;
-  name:         string;
-  selectedSize: string;
-  boxes:        number;      // how many boxes ordered
-  pcsPerBox:    number;      // pieces per box (product.boxQuantity)
-  quantity:     number;      // total pcs = boxes * pcsPerBox
-  pricePerBox:  number;      // price for 1 full box (what backend needs to calc subtotal correctly)
-  pricePerPc:   number;      // pricePerBox / pcsPerBox — for display only
-  images:       string[];
+  productId:       number;
+  name:            string;
+  // ── Art fields — needed for sale order creation ───────────────
+  artNo:           string;
+  artSerialNumber: string;
+  artName:         string;
+  // ── Shade selected by customer ────────────────────────────────
+  shade:           string;   // shadeName e.g. "Red"
+  shadeCode:       string;   // shadeCode e.g. "SH001"
+  // ── Size & quantity ───────────────────────────────────────────
+  selectedSize:    string;
+  boxes:           number;
+  pcsPerBox:       number;
+  quantity:        number;   // total pcs = boxes * pcsPerBox
+  pricePerBox:     number;
+  pricePerPc:      number;   // pricePerBox / pcsPerBox — display only
+  images:          string[];
 }
 
 interface AppContextType {
@@ -38,24 +48,18 @@ interface AppContextType {
   isLoading:     boolean;
   login:         (userData: AppUser) => Promise<void>;
   logout:        () => Promise<void>;
-  refreshCredit: () => Promise<void>;   // pull-to-refresh: re-fetches profile + orders
+  refreshCredit: () => Promise<void>;
 
-  cart:          CartItem[];
-  // BUG FIX 3: new signature — boxes + pcsPerBox + pricePerBox separately
-  // OLD: addToCart(product, totalPcs, pricePerPc)
-  //   where totalPcs=12, pricePerPc=pricePerBox=₹500
-  //   cartTotal = 500 * 12 = ₹6000 ← 12x inflated!
-  // NEW: addToCart(product, boxes, pcsPerBox, pricePerBox)
-  //   cartTotal = pricePerBox * boxes = 500 * 1 = ₹500 ✓
-  addToCart:     (product: any, boxes: number, pcsPerBox: number, pricePerBox: number) => void;
-  removeFromCart:(productId: number, size: string) => void;
-  updateCartItem:(productId: number, size: string, boxes: number) => void;
-  clearCart:     () => void;
+  cart:            CartItem[];
+  addToCart:       (product: any, boxes: number, pcsPerBox: number, pricePerBox: number, shade: { shadeName: string; shadeCode: string }) => void;
+  removeFromCart:  (productId: number, size: string, shadeCode: string) => void;
+  updateCartItem:  (productId: number, size: string, shadeCode: string, boxes: number) => void;
+  clearCart:       () => void;
 
-  totalItems:        number;   // total boxes
-  totalPcs:          number;   // total pieces (display)
-  cartTotal:         number;   // before GST  — pricePerBox * boxes
-  cartTotalWithGst:  number;   // with 18% GST
+  totalItems:       number;
+  totalPcs:         number;
+  cartTotal:        number;
+  cartTotalWithGst: number;
 
   creditLimit:     number;
   usedCredit:      number;
@@ -123,8 +127,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
           loadCartFromStorage(),
         ]);
         if (token && savedUser) {
-          // Step 1: Restore cached user immediately (fast, no network)
-          // Migrate stale field names from old login (fullName→name, customerType→type)
           const migratedUser: AppUser = {
             ...savedUser,
             name:          savedUser.name || (savedUser as any).fullName || '',
@@ -132,6 +134,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
             creditEnabled: Boolean(savedUser.creditEnabled),
             creditLimit:   Number(savedUser.creditLimit ?? 0),
             advanceOption: Boolean(savedUser.advanceOption),
+            partyId:       savedUser.partyId ?? null,
+            deliveryAddress: savedUser.deliveryAddress ?? '',
           };
           setUser(migratedUser);
           SessionStorage.saveUser(migratedUser);
@@ -141,7 +145,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
             setUsedCredit(savedCart.usedCredit);
           }
 
-          // Step 2: Background refresh — get latest profile + real credit usage from orders
+          // Background refresh
           try {
             const [profileRes, ordersRes] = await Promise.allSettled([
               authApi.getProfile(),
@@ -152,18 +156,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
               const fresh = profileRes.value.data;
               const refreshed: AppUser = {
                 ...migratedUser,
-                name:          fresh.name || fresh.fullName || migratedUser.name,
-                type:          fresh.type || fresh.customerType || migratedUser.type,
-                creditEnabled: Boolean(fresh.creditEnabled),
-                creditLimit:   Number(fresh.creditLimit   ?? 0),
-                advanceOption: Boolean(fresh.advanceOption),
+                name:           fresh.name          ?? fresh.fullName     ?? migratedUser.name,
+                type:           fresh.type          ?? fresh.customerType ?? migratedUser.type,
+                creditEnabled:  Boolean(fresh.creditEnabled),
+                creditLimit:    Number(fresh.creditLimit ?? 0),
+                advanceOption:  Boolean(fresh.advanceOption),
+                partyId:        fresh.partyId        ?? migratedUser.partyId,
+                deliveryAddress: fresh.deliveryAddress ?? migratedUser.deliveryAddress,
               };
               setUser(refreshed);
               SessionStorage.saveUser(refreshed);
             }
 
-            // Real usedCredit = sum of creditAmount on active credit orders
-            // This auto-deducts from profile whenever a credit order is placed
             if (ordersRes.status === 'fulfilled') {
               const orders: any[] = ordersRes.value.data ?? [];
               const realUsedCredit = orders
@@ -176,7 +180,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
                 .reduce((sum: number, o: any) => sum + Number(o.creditAmount ?? 0), 0);
               setUsedCredit(realUsedCredit);
             }
-          } catch { /* server unreachable — keep cached values */ }
+          } catch { /* server unreachable — keep cached */ }
         }
       } catch { /* fresh start */ }
       finally  { setIsLoading(false); }
@@ -207,8 +211,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setUsedCredit(0);
   }, []);
 
-  // ── refreshCredit — called by pull-to-refresh on Dashboard ─────────
-  // Re-fetches profile (credit limit) and orders (usedCredit) from backend.
   const refreshCredit = useCallback(async () => {
     if (!user) return;
     try {
@@ -221,11 +223,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
         const fresh = profileRes.value.data;
         const refreshed: AppUser = {
           ...user,
-          name:          fresh.name          ?? fresh.fullName     ?? user.name,
-          type:          fresh.type          ?? fresh.customerType ?? user.type,
-          creditEnabled: Boolean(fresh.creditEnabled),
-          creditLimit:   Number(fresh.creditLimit   ?? 0),
-          advanceOption: Boolean(fresh.advanceOption),
+          name:           fresh.name          ?? fresh.fullName     ?? user.name,
+          type:           fresh.type          ?? fresh.customerType ?? user.type,
+          creditEnabled:  Boolean(fresh.creditEnabled),
+          creditLimit:    Number(fresh.creditLimit   ?? 0),
+          advanceOption:  Boolean(fresh.advanceOption),
+          partyId:        fresh.partyId        ?? user.partyId,
+          deliveryAddress: fresh.deliveryAddress ?? user.deliveryAddress,
         };
         setUser(refreshed);
         SessionStorage.saveUser(refreshed);
@@ -243,52 +247,73 @@ export function AppProvider({ children }: { children: ReactNode }) {
           .reduce((sum: number, o: any) => sum + Number(o.creditAmount ?? 0), 0);
         setUsedCredit(realUsedCredit);
       }
-    } catch { /* server unreachable — keep current values */ }
+    } catch { /* server unreachable */ }
   }, [user]);
 
   // ── Add to cart ───────────────────────────────────────────────────
-  // BUG FIX 3: correct math — cartTotal = pricePerBox * boxes
+  // Unique cart key = productId + selectedSize + shadeCode
+  // This allows same product in same size but different shade as separate cart rows
   const addToCart = useCallback((
     product:     any,
-    boxes:       number,   // number of boxes (e.g. 2)
-    pcsPerBox:   number,   // pieces per box  (e.g. 12)
-    pricePerBox: number,   // price per box   (e.g. ₹500)
+    boxes:       number,
+    pcsPerBox:   number,
+    pricePerBox: number,
+    shade:       { shadeName: string; shadeCode: string },
   ) => {
     const pricePerPc = pcsPerBox > 0 ? pricePerBox / pcsPerBox : 0;
     const totalPcs   = boxes * pcsPerBox;
 
     setCart(prev => {
       const exists = prev.find(
-        i => i.productId === product.id && i.selectedSize === product.selectedSize
+        i =>
+          i.productId    === product.id &&
+          i.selectedSize === product.selectedSize &&
+          i.shadeCode    === shade.shadeCode
       );
       if (exists) {
         return prev.map(i =>
-          i.productId === product.id && i.selectedSize === product.selectedSize
+          i.productId    === product.id &&
+          i.selectedSize === product.selectedSize &&
+          i.shadeCode    === shade.shadeCode
             ? { ...i, boxes: i.boxes + boxes, quantity: i.quantity + totalPcs }
             : i
         );
       }
       return [...prev, {
-        productId:    product.id,
-        name:         product.name,
-        selectedSize: product.selectedSize ?? '',
+        productId:       product.id,
+        name:            product.name,
+        artNo:           product.artNo           ?? '',
+        artSerialNumber: product.artSerialNumber ?? '',
+        artName:         product.artName         ?? '',
+        shade:           shade.shadeName,
+        shadeCode:       shade.shadeCode,
+        selectedSize:    product.selectedSize    ?? '',
         boxes,
         pcsPerBox,
-        quantity:     totalPcs,
+        quantity:        totalPcs,
         pricePerBox,
         pricePerPc,
-        images:       product.images ?? [],
+        images:          product.images          ?? [],
       }];
     });
 
-    // Track credit usage with correct amount (pricePerBox * boxes)
     setUsedCredit(prev => prev + pricePerBox * boxes * 1.18);
   }, []);
 
-  const updateCartItem = useCallback((productId: number, size: string, boxes: number) => {
+  // ── Update cart item — now needs shadeCode to uniquely identify row ──
+  const updateCartItem = useCallback((
+    productId: number,
+    size:      string,
+    shadeCode: string,
+    boxes:     number,
+  ) => {
     setCart(prev =>
       prev.map(i => {
-        if (i.productId === productId && i.selectedSize === size) {
+        if (
+          i.productId    === productId &&
+          i.selectedSize === size &&
+          i.shadeCode    === shadeCode
+        ) {
           return { ...i, boxes, quantity: boxes * i.pcsPerBox };
         }
         return i;
@@ -296,13 +321,29 @@ export function AppProvider({ children }: { children: ReactNode }) {
     );
   }, []);
 
-  const removeFromCart = useCallback((productId: number, size: string) => {
+  // ── Remove from cart — now needs shadeCode too ────────────────────
+  const removeFromCart = useCallback((
+    productId: number,
+    size:      string,
+    shadeCode: string,
+  ) => {
     setCart(prev => {
-      const item = prev.find(i => i.productId === productId && i.selectedSize === size);
+      const item = prev.find(
+        i =>
+          i.productId    === productId &&
+          i.selectedSize === size &&
+          i.shadeCode    === shadeCode
+      );
       if (item) {
         setUsedCredit(u => Math.max(0, u - item.pricePerBox * item.boxes * 1.18));
       }
-      return prev.filter(i => !(i.productId === productId && i.selectedSize === size));
+      return prev.filter(
+        i => !(
+          i.productId    === productId &&
+          i.selectedSize === size &&
+          i.shadeCode    === shadeCode
+        )
+      );
     });
   }, []);
 
@@ -313,7 +354,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, []);
 
   // ── Derived values ────────────────────────────────────────────────
-  // BUG FIX 3: cartTotal = pricePerBox * boxes  (NOT pricePerBox * totalPcs)
   const cartTotal        = cart.reduce((s, i) => s + i.pricePerBox * i.boxes, 0);
   const cartTotalWithGst = cartTotal * 1.18;
   const totalItems       = cart.reduce((s, i) => s + i.boxes, 0);

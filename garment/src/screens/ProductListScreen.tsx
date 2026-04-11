@@ -7,14 +7,36 @@ import {
 import { AppContext } from '../context/AppContext';
 import { productApi } from '../api/api';
 
+// ── Full product type matching backend ProductResponse ────────────────────────
 interface Pricing { wholeSeller: number; semiWholeSeller: number; retailer: number; }
-interface Product {
-  id: number; name: string; description: string;
-  categories: string[]; subCategory: string;
-  images: string[]; sizes: string[]; boxQuantity: number; pricing: Pricing;
+interface MinBox  { wholeSeller: number; semiWholeSeller: number; retailer: number; }
+
+export interface ShadeInfo {
+  shadeCode: string;
+  shadeName: string;
 }
 
-// ── Must mirror the backend / admin CATEGORY_MAP exactly ─────────────────────
+export interface Product {
+  id:              number;
+  name:            string;
+  description:     string;
+  categories:      string[];
+  subCategory:     string;
+  images:          string[];
+  sizes:           string[];
+  boxQuantity:     number;
+  pricing:         Pricing;
+  minBox:          MinBox;
+  active:          boolean;
+  // Art fields — carried through to cart for sale order
+  artNo:           string;
+  artName:         string;
+  artSerialNumber: string;
+  // Shades — customer picks one per add-to-cart
+  shades:          ShadeInfo[];
+}
+
+// ── Category / Sub-category master list ──────────────────────────────────────
 const CATEGORY_MAP: Record<string, string[]> = {
   MEN: [
     'T-Shirt', 'Pouch Gents', 'Gents Sweet Shirt',
@@ -29,7 +51,7 @@ const CATEGORY_MAP: Record<string, string[]> = {
     'Kid Pajama', 'Boys Suit', 'Girl Suit', 'Track Suit', 'Night Suit',
   ],
 };
-const ALL_CATEGORIES = Object.keys(CATEGORY_MAP); // ['MEN','WOMEN','KIDS']
+const ALL_CATEGORIES = Object.keys(CATEGORY_MAP);
 
 const CAT_COLORS: Record<string, { bg: string; text: string; activeBg: string; activeText: string }> = {
   MEN:   { bg: '#EFF6FF', text: '#1D4ED8', activeBg: '#1D4ED8', activeText: '#fff' },
@@ -41,31 +63,24 @@ const CAT_EMOJI: Record<string, string> = { MEN: '👔', WOMEN: '👗', KIDS: '�
 export default function ProductListScreen({ navigation }: any) {
   const { user } = useContext(AppContext);
 
-  const [allProducts, setAllProducts] = useState<Product[]>([]);   // raw from API
+  const [allProducts, setAllProducts] = useState<Product[]>([]);
   const [loading, setLoading]         = useState(true);
   const [refreshing, setRefresh]      = useState(false);
   const [search, setSearch]           = useState('');
   const [error, setError]             = useState('');
 
-  // Filter state
-  const [selectedCat, setSelectedCat]   = useState<string>('');    // '' = ALL
-  const [selectedSub, setSelectedSub]   = useState<string>('');    // '' = all subs
+  const [selectedCat, setSelectedCat] = useState<string>('');
+  const [selectedSub, setSelectedSub] = useState<string>('');
 
-  // ── Derived: sub-category options for the selected category ──────────────
   const subOptions: string[] = selectedCat ? CATEGORY_MAP[selectedCat] ?? [] : [];
 
-  // ── Derived: products after applying category + sub-category filter ───────
   const filteredProducts = allProducts.filter(p => {
-    if (selectedCat) {
-      // product must include the selected category
-      if (!p.categories?.includes(selectedCat)) return false;
-    }
-    if (selectedSub) {
-      if (p.subCategory !== selectedSub) return false;
-    }
+    if (selectedCat && !p.categories?.includes(selectedCat)) return false;
+    if (selectedSub && p.subCategory !== selectedSub) return false;
     return true;
   });
 
+  // Price based on customer type — shown on list card
   const getPrice = useCallback((p: Pricing) => {
     if (user?.type === 'Wholesaler')      return p.wholeSeller;
     if (user?.type === 'Semi_Wholesaler') return p.semiWholeSeller;
@@ -76,11 +91,12 @@ export default function ProductListScreen({ navigation }: any) {
     setError('');
     try {
       const res = await productApi.getAll(q || undefined);
-      setAllProducts(res.data);
+      // Filter only active products for customers
+      const active = (res.data as Product[]).filter(p => p.active !== false);
+      setAllProducts(active);
     } catch (e: any) {
       const status = e?.response?.status;
       const msg    = e?.response?.data || e?.message;
-      console.log('❌ Product fetch error:', status, msg);
       setError(`Error ${status}: ${JSON.stringify(msg)}`);
     }
   }, []);
@@ -89,7 +105,6 @@ export default function ProductListScreen({ navigation }: any) {
     (async () => { setLoading(true); await fetchProducts(); setLoading(false); })();
   }, []);
 
-  // Debounced search
   useEffect(() => {
     const t = setTimeout(() => fetchProducts(search), 400);
     return () => clearTimeout(t);
@@ -99,20 +114,13 @@ export default function ProductListScreen({ navigation }: any) {
     setRefresh(true); await fetchProducts(search); setRefresh(false);
   };
 
-  // When user picks a category, reset sub-category
   const handleCatPress = (cat: string) => {
-    if (selectedCat === cat) {
-      // tap again → deselect (show ALL)
-      setSelectedCat('');
-      setSelectedSub('');
-    } else {
-      setSelectedCat(cat);
-      setSelectedSub('');
-    }
+    if (selectedCat === cat) { setSelectedCat(''); setSelectedSub(''); }
+    else { setSelectedCat(cat); setSelectedSub(''); }
   };
 
   const handleSubPress = (sub: string) => {
-    setSelectedSub(prev => prev === sub ? '' : sub); // tap again → deselect
+    setSelectedSub(prev => prev === sub ? '' : sub);
   };
 
   const clearFilters = () => { setSelectedCat(''); setSelectedSub(''); };
@@ -128,7 +136,7 @@ export default function ProductListScreen({ navigation }: any) {
   return (
     <View style={s.container}>
 
-      {/* ── Search bar ── */}
+      {/* Search bar */}
       <View style={s.searchBar}>
         <Text style={{ fontSize: 16, marginRight: 8 }}>🔍</Text>
         <TextInput
@@ -145,21 +153,12 @@ export default function ProductListScreen({ navigation }: any) {
         )}
       </View>
 
-      {/* ── Category filter row ── */}
+      {/* Category filter row */}
       <View style={s.filterSection}>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.filterRow}>
-
-          {/* ALL pill */}
-          <TouchableOpacity
-            onPress={clearFilters}
-            style={[s.catPill, !selectedCat && s.catPillAllActive]}
-          >
-            <Text style={[s.catPillTxt, !selectedCat && s.catPillAllActiveTxt]}>
-              🏷 All
-            </Text>
+          <TouchableOpacity onPress={clearFilters} style={[s.catPill, !selectedCat && s.catPillAllActive]}>
+            <Text style={[s.catPillTxt, !selectedCat && s.catPillAllActiveTxt]}>🏷 All</Text>
           </TouchableOpacity>
-
-          {/* MEN / WOMEN / KIDS pills */}
           {ALL_CATEGORIES.map(cat => {
             const active  = selectedCat === cat;
             const colors  = CAT_COLORS[cat];
@@ -167,11 +166,7 @@ export default function ProductListScreen({ navigation }: any) {
               <TouchableOpacity
                 key={cat}
                 onPress={() => handleCatPress(cat)}
-                style={[
-                  s.catPill,
-                  { backgroundColor: active ? colors.activeBg : colors.bg,
-                    borderColor:      active ? colors.activeBg : colors.bg },
-                ]}
+                style={[s.catPill, { backgroundColor: active ? colors.activeBg : colors.bg, borderColor: active ? colors.activeBg : colors.bg }]}
               >
                 <Text style={[s.catPillTxt, { color: active ? colors.activeText : colors.text }]}>
                   {CAT_EMOJI[cat]} {cat}
@@ -181,17 +176,13 @@ export default function ProductListScreen({ navigation }: any) {
           })}
         </ScrollView>
 
-        {/* ── Sub-category row — only shown when a category is selected ── */}
         {selectedCat !== '' && (
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.subRow}>
             {subOptions.map(sub => {
               const active = selectedSub === sub;
               return (
-                <TouchableOpacity
-                  key={sub}
-                  onPress={() => handleSubPress(sub)}
-                  style={[s.subPill, active && s.subPillActive]}
-                >
+                <TouchableOpacity key={sub} onPress={() => handleSubPress(sub)}
+                  style={[s.subPill, active && s.subPillActive]}>
                   <Text style={[s.subPillTxt, active && s.subPillActiveTxt]}>{sub}</Text>
                 </TouchableOpacity>
               );
@@ -199,7 +190,6 @@ export default function ProductListScreen({ navigation }: any) {
           </ScrollView>
         )}
 
-        {/* ── Active filter summary + clear ── */}
         {hasFilter && (
           <View style={s.filterSummary}>
             <Text style={s.filterSummaryTxt} numberOfLines={1}>
@@ -237,17 +227,22 @@ export default function ProductListScreen({ navigation }: any) {
       ) : (
         <FlatList
           data={filteredProducts}
-          keyExtractor={i => i.id.toString()}
+          keyExtractor={item => item.id.toString()}
           numColumns={2}
           columnWrapperStyle={s.row}
           contentContainerStyle={s.list}
           showsVerticalScrollIndicator={false}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
           renderItem={({ item }) => {
-            const price = getPrice(item.pricing);
+            const price      = getPrice(item.pricing);
+            const pricePerPc = item.boxQuantity > 0 ? price / item.boxQuantity : 0;
+            const shadeCount = item.shades?.length ?? 0;
+
             return (
               <TouchableOpacity
                 style={s.card}
+                // Pass the full product object — ProductDetailScreen needs artNo, artName,
+                // artSerialNumber, shades, sizes, minBox, pricing all intact
                 onPress={() => navigation.navigate('ProductDetail', { product: item })}
                 activeOpacity={0.85}
               >
@@ -259,7 +254,7 @@ export default function ProductListScreen({ navigation }: any) {
                   </View>
                 )}
 
-                {/* Category badges on card */}
+                {/* Category badges */}
                 {item.categories?.length > 0 && (
                   <View style={s.cardBadgeRow}>
                     {item.categories.map(cat => (
@@ -279,12 +274,31 @@ export default function ProductListScreen({ navigation }: any) {
                   ) : (
                     <Text style={s.desc} numberOfLines={1}>{item.description}</Text>
                   )}
+
                   <View style={s.priceRow}>
-                    <Text style={s.price}>₹{price}<Text style={s.perPc}>/box</Text></Text>
+                    <Text style={s.price}>
+                      ₹{pricePerPc.toFixed(0)}
+                      <Text style={s.perPc}>/pc</Text>
+                    </Text>
                     <View style={s.moq}>
-                      <Text style={s.moqTxt}>Box:{item.boxQuantity}pc</Text>
+                      <Text style={s.moqTxt}>{item.boxQuantity}pc/box</Text>
                     </View>
                   </View>
+
+                  {/* Shade dots — visual indicator only, no names shown */}
+                  {shadeCount > 0 && (
+                    <View style={s.shadeRow}>
+                      {item.shades.slice(0, 6).map(sh => (
+                        <View
+                          key={sh.shadeCode}
+                          style={[s.shadeDot, { backgroundColor: getSwatchColor(sh.shadeName) }]}
+                        />
+                      ))}
+                      {shadeCount > 6 && (
+                        <Text style={s.shadeMore}>+{shadeCount - 6}</Text>
+                      )}
+                    </View>
+                  )}
                 </View>
               </TouchableOpacity>
             );
@@ -295,12 +309,30 @@ export default function ProductListScreen({ navigation }: any) {
   );
 }
 
+// Simple heuristic color for shade dot swatches
+function getSwatchColor(name: string): string {
+  const n = (name ?? '').toLowerCase();
+  if (n.includes('red'))    return '#ef4444';
+  if (n.includes('blue'))   return '#3b82f6';
+  if (n.includes('green'))  return '#22c55e';
+  if (n.includes('yellow')) return '#eab308';
+  if (n.includes('black'))  return '#111827';
+  if (n.includes('white'))  return '#e5e7eb';
+  if (n.includes('grey') || n.includes('gray')) return '#9ca3af';
+  if (n.includes('pink'))   return '#ec4899';
+  if (n.includes('orange')) return '#f97316';
+  if (n.includes('purple')) return '#a855f7';
+  if (n.includes('brown'))  return '#92400e';
+  if (n.includes('navy'))   return '#1e3a8a';
+  if (n.includes('maroon')) return '#881337';
+  return '#94a3b8';
+}
+
 const s = StyleSheet.create({
   container:  { flex: 1, backgroundColor: '#F8FAFC' },
   center:     { flex: 1, justifyContent: 'center', alignItems: 'center' },
   loadTxt:    { marginTop: 12, color: '#64748B', fontSize: 14 },
 
-  // Search
   searchBar: {
     flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff',
     margin: 12, marginBottom: 6, paddingHorizontal: 14, borderRadius: 12,
@@ -310,7 +342,6 @@ const s = StyleSheet.create({
   },
   searchInput: { flex: 1, paddingVertical: 11, fontSize: 14, color: '#111827' },
 
-  // Filter
   filterSection: { paddingBottom: 6, borderBottomWidth: 1, borderBottomColor: '#F1F5F9' },
   filterRow:     { paddingHorizontal: 12, paddingVertical: 6, gap: 8 },
   subRow:        { paddingHorizontal: 12, paddingBottom: 6, gap: 8 },
@@ -341,17 +372,14 @@ const s = StyleSheet.create({
   clearBtn:         { paddingHorizontal: 10, paddingVertical: 4, backgroundColor: '#fff', borderRadius: 6, borderWidth: 1, borderColor: '#C7D2FE' },
   clearBtnTxt:      { fontSize: 11, fontWeight: '700', color: '#6366F1' },
 
-  // Errors / empty
   errBanner: { backgroundColor: '#FEE2E2', padding: 10, marginHorizontal: 12, borderRadius: 8 },
   errTxt:    { color: '#DC2626', fontSize: 13, textAlign: 'center' },
   empty:     { flex: 1, justifyContent: 'center', alignItems: 'center', paddingVertical: 60 },
   emptyTxt:  { fontSize: 15, color: '#6B7280', marginTop: 12, fontWeight: '500', marginBottom: 12 },
 
-  // List
   list: { paddingHorizontal: 8, paddingBottom: 20, paddingTop: 8 },
   row:  { justifyContent: 'space-between', paddingHorizontal: 4 },
 
-  // Card
   card: {
     width: '48%', backgroundColor: '#fff', borderRadius: 14, marginBottom: 12,
     overflow: 'hidden', borderWidth: 1, borderColor: '#E5E7EB',
@@ -367,9 +395,14 @@ const s = StyleSheet.create({
   name:           { fontSize: 13, fontWeight: '700', color: '#111827', marginBottom: 2 },
   subCatTxt:      { fontSize: 11, color: '#6366F1', fontWeight: '600', marginBottom: 6 },
   desc:           { fontSize: 11, color: '#6B7280', marginBottom: 8 },
-  priceRow:       { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  priceRow:       { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 },
   price:          { fontSize: 15, fontWeight: '800', color: '#2563EB' },
   perPc:          { fontSize: 10, color: '#6B7280', fontWeight: '400' },
   moq:            { backgroundColor: '#DBEAFE', paddingHorizontal: 6, paddingVertical: 3, borderRadius: 6 },
   moqTxt:         { fontSize: 10, color: '#1D4ED8', fontWeight: '700' },
+
+  // Shade dots row
+  shadeRow:  { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 2 },
+  shadeDot:  { width: 10, height: 10, borderRadius: 5, borderWidth: 0.5, borderColor: 'rgba(0,0,0,0.15)' },
+  shadeMore: { fontSize: 9, color: '#6B7280', fontWeight: '600' },
 });
