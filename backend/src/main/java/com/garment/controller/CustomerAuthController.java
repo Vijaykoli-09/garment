@@ -15,6 +15,8 @@ import java.util.Map;
  *
  * POST /api/customer/auth/signup
  * POST /api/customer/auth/login
+ * GET  /api/customer/auth/profile
+ * PUT  /api/admin/customers/{customerId}/link-party?partyId=123
  */
 @RestController
 @RequestMapping("/api/customer/auth")
@@ -68,7 +70,7 @@ public class CustomerAuthController {
     }
 
     // ── Profile (called silently on app launch to refresh credit settings) ──
-    // Returns fresh creditEnabled / creditLimit / advanceOption from DB.
+    // Returns fresh creditEnabled / creditLimit / advanceOption / partyId from DB.
     // This lets the app pick up admin changes without requiring re-login.
     @GetMapping("/profile")
     public ResponseEntity<?> getProfile(java.security.Principal principal) {
@@ -77,6 +79,29 @@ public class CustomerAuthController {
             return ResponseEntity.ok(profile);
         } catch (RuntimeException e) {
             return ResponseEntity.status(404).body(Map.of("error", e.getMessage()));
+        }
+    }
+
+    // ── Link Party (admin only) ────────────────────────────────────
+    // After admin creates a party in PartyCreation, they call this to
+    // link that party's ID to the customer. The app picks it up on next
+    // profile refresh (app launch) via GET /profile above.
+    //
+    // PUT /api/admin/customers/{customerId}/link-party?partyId=123
+    @PutMapping("/admin/customers/{customerId}/link-party")
+    public ResponseEntity<?> linkParty(
+            @PathVariable Long customerId,
+            @RequestParam Long partyId
+    ) {
+        try {
+            service.linkParty(customerId, partyId);
+            return ResponseEntity.ok(Map.of(
+                    "message", "Party linked successfully",
+                    "customerId", customerId,
+                    "partyId", partyId
+            ));
+        } catch (RuntimeException e) {
+            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
         }
     }
 }

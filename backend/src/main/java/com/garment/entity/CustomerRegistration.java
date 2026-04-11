@@ -48,6 +48,11 @@ public class CustomerRegistration {
     private Double creditLimit = 0.0;
     private Boolean advanceOption = false; // 30% advance + 70% credit
 
+    // ── Party Link (set by admin after creating party in PartyCreation) ──
+    // Null until admin manually links this customer to a party record.
+    @Column(name = "party_id")
+    private Long partyId;
+
     // ── Enums ───────────────────────────────────────────────────
     public enum CustomerType {
         Wholesaler, Semi_Wholesaler, Retailer
@@ -104,4 +109,8 @@ public class CustomerRegistration {
 
     public Boolean getAdvanceOption() { return advanceOption; }
     public void setAdvanceOption(Boolean advanceOption) { this.advanceOption = advanceOption; }
+
+    // ── partyId — null until admin links it ─────────────────────
+    public Long getPartyId() { return partyId; }
+    public void setPartyId(Long partyId) { this.partyId = partyId; }
 }

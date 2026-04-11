@@ -53,6 +53,10 @@ export default function CheckoutScreen({ navigation }: any) {
   const groups    = useMemo(() => groupCart(cart), [cart]);
   const gstAmount = cartTotal * 0.18;
   const canAfford = !creditApproved || cartTotalWithGst <= availableCredit;
+  
+  // ── Party ID validation ────────────────────────────────────────
+  const hasPartyId = user?.partyId != null && user.partyId > 0;
+  const canProceed = canAfford && hasPartyId;
 
   // ── Read-only product card — same visual as CartScreen but no controls ──
   const ProductCard = ({ group }: { group: ProductGroup }) => (
@@ -201,6 +205,15 @@ export default function CheckoutScreen({ navigation }: any) {
                   </Text>
                 </View>
               )}
+              
+              {!hasPartyId && (
+                <View style={s.warningCard}>
+                  <Text style={s.warningIcon}>⚠️</Text>
+                  <Text style={s.warningText}>
+                    Your account is pending approval. Please contact admin to place orders.
+                  </Text>
+                </View>
+              )}
             </View>
 
             <View style={{ height: 110 }} />
@@ -217,12 +230,16 @@ export default function CheckoutScreen({ navigation }: any) {
           <Text style={s.bottomSub}>Total incl. GST</Text>
         </View>
         <TouchableOpacity
-          style={[s.payBtn, !canAfford && s.payBtnOff]}
+          style={[s.payBtn, !canProceed && s.payBtnOff]}
           onPress={() => navigation.navigate('PaymentMethod')}
-          disabled={!canAfford}
+          disabled={!canProceed}
         >
           <Text style={s.payBtnTxt}>
-            {canAfford ? 'Select Payment →' : '⚠️ Credit Exceeded'}
+            {!hasPartyId 
+              ? '⚠️ Account Pending' 
+              : !canAfford 
+                ? '⚠️ Credit Exceeded' 
+                : 'Select Payment →'}
           </Text>
         </TouchableOpacity>
       </View>
@@ -286,6 +303,11 @@ const s = StyleSheet.create({
   creditRowRed:    { backgroundColor: '#FEF2F2', borderColor: '#FECACA' },
   creditLbl:       { fontSize: 13, fontWeight: '600', color: '#374151' },
   creditVal:       { fontSize: 14, fontWeight: '800' },
+
+  // Warning card
+  warningCard:     { flexDirection: 'row', alignItems: 'center', marginTop: 12, backgroundColor: '#FEF3C7', borderRadius: 10, padding: 12, borderWidth: 1, borderColor: '#FCD34D' },
+  warningIcon:     { fontSize: 20, marginRight: 8 },
+  warningText:     { flex: 1, fontSize: 13, fontWeight: '600', color: '#92400E', lineHeight: 18 },
 
   // Bottom bar
   bottomBar:       { position: 'absolute', bottom: 0, left: 0, right: 0, backgroundColor: '#fff', padding: 16, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderTopWidth: 1, borderTopColor: '#E2E8F0', shadowColor: '#000', shadowOffset: { width: 0, height: -3 }, shadowOpacity: 0.1, shadowRadius: 8, elevation: 10 },

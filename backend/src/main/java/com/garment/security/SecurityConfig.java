@@ -104,6 +104,7 @@ public class SecurityConfig {
                 .requestMatchers("/api/payment/payment-mode/**").permitAll()
                 .requestMatchers("/api/other-dispatch-challan/**").permitAll()
                 .requestMatchers("/api/order-settles/**").permitAll()
+.requestMatchers("/api/customer/auth/admin/**").permitAll()
 
                 // ── Mobile orders — JWT required ───────────────────────
                 // JwtAuthFilter uses CustomerUserDetailsService (by phone) for this path

@@ -62,6 +62,7 @@ public class CustomerRegistrationService {
         customer.setBrokerPhone(req.getBrokerPhone());
         customer.setStatus(AccountStatus.PENDING);
         customer.setCreatedAt(LocalDateTime.now());
+        // partyId starts as null — admin links it later via PartyCreation
 
         repo.save(customer);
 
@@ -102,7 +103,8 @@ public class CustomerRegistrationService {
                 customer.getCustomerType().name(),
                 Boolean.TRUE.equals(customer.getCreditEnabled()),
                 customer.getCreditLimit() != null ? customer.getCreditLimit() : 0.0,
-                Boolean.TRUE.equals(customer.getAdvanceOption())
+                Boolean.TRUE.equals(customer.getAdvanceOption()),
+                customer.getPartyId()   // ← pass partyId (null until admin links it)
         );
     }
 
@@ -166,7 +168,7 @@ public class CustomerRegistrationService {
                 .orElseThrow(() -> new RuntimeException("Customer not found."));
 
         // Re-use the same response shape as login — app merges creditEnabled,
-        // creditLimit, advanceOption into the cached user object.
+        // creditLimit, advanceOption, partyId into the cached user object.
         return new CustomerLoginResponse(
                 null,  // no new token needed
                 customer.getId(),
@@ -176,45 +178,62 @@ public class CustomerRegistrationService {
                 customer.getCustomerType().name(),
                 Boolean.TRUE.equals(customer.getCreditEnabled()),
                 customer.getCreditLimit() != null ? customer.getCreditLimit() : 0.0,
-                Boolean.TRUE.equals(customer.getAdvanceOption())
+                Boolean.TRUE.equals(customer.getAdvanceOption()),
+                customer.getPartyId()   // ← pass partyId (null until admin links it)
         );
     }
 
+    // ────────────────────────────────────────────────────────────────
+    // ADMIN: Update customer status + payment config
+    // ────────────────────────────────────────────────────────────────
     public CustomerRegistration updateCustomer(Long id, UpdateCustomerRequest req) {
 
-    CustomerRegistration customer = repo.findById(id)
-            .orElseThrow(() -> new RuntimeException("Customer not found with id: " + id));
+        CustomerRegistration customer = repo.findById(id)
+                .orElseThrow(() -> new RuntimeException("Customer not found with id: " + id));
 
-    AccountStatus newStatus;
-    try {
-        newStatus = AccountStatus.valueOf(req.getStatus().toUpperCase());
-    } catch (IllegalArgumentException e) {
-        throw new RuntimeException("Invalid status: " + req.getStatus() + ". Must be APPROVED or REJECTED.");
+        AccountStatus newStatus;
+        try {
+            newStatus = AccountStatus.valueOf(req.getStatus().toUpperCase());
+        } catch (IllegalArgumentException e) {
+            throw new RuntimeException("Invalid status: " + req.getStatus() + ". Must be APPROVED or REJECTED.");
+        }
+
+        if (newStatus == AccountStatus.PENDING) {
+            throw new RuntimeException("Cannot manually set status back to PENDING.");
+        }
+
+        // Validate credit limit if approving with credit enabled
+        if (newStatus == AccountStatus.APPROVED && req.isCreditEnabled() && req.getCreditLimit() <= 0) {
+            throw new RuntimeException("Credit limit must be greater than 0 when credit is enabled.");
+        }
+
+        customer.setStatus(newStatus);
+        customer.setReviewedAt(LocalDateTime.now());
+
+        if (newStatus == AccountStatus.APPROVED) {
+            customer.setCreditEnabled(req.isCreditEnabled());
+            customer.setCreditLimit(req.isCreditEnabled() ? req.getCreditLimit() : 0.0);
+            customer.setAdvanceOption(req.isAdvanceOption());
+        } else {
+            // Rejected: clear payment config
+            customer.setCreditEnabled(false);
+            customer.setCreditLimit(0.0);
+            customer.setAdvanceOption(false);
+        }
+
+        return repo.save(customer);
     }
 
-    if (newStatus == AccountStatus.PENDING) {
-        throw new RuntimeException("Cannot manually set status back to PENDING.");
+    // ────────────────────────────────────────────────────────────────
+    // ADMIN: Link a party to a customer
+    // Called after admin creates a party in PartyCreation and wants to
+    // associate it with this customer so the app can use partyId.
+    // ────────────────────────────────────────────────────────────────
+    public CustomerRegistration linkParty(Long customerId, Long partyId) {
+        CustomerRegistration customer = repo.findById(customerId)
+                .orElseThrow(() -> new RuntimeException("Customer not found with id: " + customerId));
+
+        customer.setPartyId(partyId);
+        return repo.save(customer);
     }
-
-    // Validate credit limit if approving with credit enabled
-    if (newStatus == AccountStatus.APPROVED && req.isCreditEnabled() && req.getCreditLimit() <= 0) {
-        throw new RuntimeException("Credit limit must be greater than 0 when credit is enabled.");
-    }
-
-    customer.setStatus(newStatus);
-    customer.setReviewedAt(LocalDateTime.now());
-
-    if (newStatus == AccountStatus.APPROVED) {
-        customer.setCreditEnabled(req.isCreditEnabled());
-        customer.setCreditLimit(req.isCreditEnabled() ? req.getCreditLimit() : 0.0);
-        customer.setAdvanceOption(req.isAdvanceOption());
-    } else {
-        // Rejected: clear payment config
-        customer.setCreditEnabled(false);
-        customer.setCreditLimit(0.0);
-        customer.setAdvanceOption(false);
-    }
-
-    return repo.save(customer);
-}
 }

@@ -10,8 +10,9 @@ package com.garment.DTO;
  *   user.name = undefined → prefill name in Razorpay checkout was empty
  *
  * NEW (fixed):
- *   "name"  → matches AppUser.name  ✓
- *   "type"  → matches AppUser.type  ✓
+ *   "name"    → matches AppUser.name    ✓
+ *   "type"    → matches AppUser.type    ✓
+ *   "partyId" → matches AppUser.partyId ✓  (null until admin links a party)
  */
 public class CustomerLoginResponse {
 
@@ -24,11 +25,12 @@ public class CustomerLoginResponse {
     private boolean creditEnabled;
     private double  creditLimit;
     private boolean advanceOption;
+    private Long    partyId;       // ← null until admin links a party record
 
     public CustomerLoginResponse(String token, Long id, String name,
                                  String phone, String email, String type,
                                  boolean creditEnabled, double creditLimit,
-                                 boolean advanceOption) {
+                                 boolean advanceOption, Long partyId) {
         this.token         = token;
         this.id            = id;
         this.name          = name;
@@ -38,15 +40,17 @@ public class CustomerLoginResponse {
         this.creditEnabled = creditEnabled;
         this.creditLimit   = creditLimit;
         this.advanceOption = advanceOption;
+        this.partyId       = partyId;
     }
 
     public String  getToken()         { return token; }
     public Long    getId()            { return id; }
-    public String  getName()          { return name; }       // ← was getFullName()
+    public String  getName()          { return name; }
     public String  getPhone()         { return phone; }
     public String  getEmail()         { return email; }
-    public String  getType()          { return type; }       // ← was getCustomerType()
+    public String  getType()          { return type; }
     public boolean isCreditEnabled()  { return creditEnabled; }
     public double  getCreditLimit()   { return creditLimit; }
     public boolean isAdvanceOption()  { return advanceOption; }
+    public Long    getPartyId()       { return partyId; }  // null is fine — Jackson serializes it as null
 }

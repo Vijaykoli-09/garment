@@ -5,6 +5,8 @@ import com.garment.DTO.AppOrderResponse;
 import com.garment.DTO.AppRazorpayOrderRequest;
 import com.garment.DTO.AppVerifyPaymentRequest;
 import com.garment.DTO.AppVerifyCreditPaymentRequest;
+import com.garment.DTO.SaleOrderDTO;
+import com.garment.DTO.SaleOrderSaveDTO;
 import com.garment.entity.CustomerRegistration;
 import com.garment.entity.AppOrder;
 import com.garment.entity.AppOrder.OrderStatus;
@@ -13,6 +15,9 @@ import com.garment.entity.AppOrder.PaymentStatus;
 import com.garment.entity.AppOrderItem;
 import com.garment.repository.CustomerRegistrationRepository;
 import com.garment.repository.AppOrderRepository;
+import com.garment.repository.ProductRepository;
+import com.garment.repository.ShadeRepository;
+import com.garment.util.AppSaleOrderMapper;
 import com.razorpay.RazorpayClient;
 import com.razorpay.RazorpayException;
 import org.json.JSONObject;
@@ -33,6 +38,9 @@ public class AppOrderService {
 
     private final AppOrderRepository orderRepo;
     private final CustomerRegistrationRepository customerRepo;
+    private final SaleOrderService saleOrderService;
+    private final ProductRepository productRepo;
+    private final ShadeRepository shadeRepo;
 
     @Value("${razorpay.key.id}")
     private String razorpayKeyId;
@@ -41,9 +49,15 @@ public class AppOrderService {
     private String razorpayKeySecret;
 
     public AppOrderService(AppOrderRepository orderRepo,
-                           CustomerRegistrationRepository customerRepo) {
-        this.orderRepo    = orderRepo;
-        this.customerRepo = customerRepo;
+                           CustomerRegistrationRepository customerRepo,
+                           SaleOrderService saleOrderService,
+                           ProductRepository productRepo,
+                           ShadeRepository shadeRepo) {
+        this.orderRepo        = orderRepo;
+        this.customerRepo     = customerRepo;
+        this.saleOrderService = saleOrderService;
+        this.productRepo      = productRepo;
+        this.shadeRepo        = shadeRepo;
     }
 
     // ════════════════════════════════════════════════════════════════
@@ -55,6 +69,11 @@ public class AppOrderService {
         CustomerRegistration customer = customerRepo.findByPhone(customerPhone)
                 .orElseThrow(() -> new RuntimeException("Customer not found."));
 
+        // ── VALIDATION: Check if customer has partyId ────────────────
+        if (customer.getPartyId() == null) {
+            throw new RuntimeException("Your account is pending approval. Please contact admin.");
+        }
+
         double subtotal    = req.getItems().stream()
                 .mapToDouble(AppOrderItemRequest::safeItemTotal)
                 .sum();
@@ -63,6 +82,7 @@ public class AppOrderService {
 
         PaymentMethod method = parsePaymentMethod(req.getPaymentMethod());
 
+        // ── Credit validation ─────────────────────────────────────────
         if (method == PaymentMethod.CREDIT_ORDER || method == PaymentMethod.ADVANCE_CREDIT) {
             if (!Boolean.TRUE.equals(customer.getCreditEnabled())) {
                 throw new RuntimeException("Credit is not enabled for your account.");
@@ -135,6 +155,14 @@ public class AppOrderService {
 
         AppOrder saved = orderRepo.save(order);
 
+        // ════════════════════════════════════════════════════════════════
+        // CREATE SALE ORDER IN WEB SYSTEM
+        // ════════════════════════════════════════════════════════════════
+        // Rule: Create immediately if CREDIT_ORDER (no payment needed upfront)
+        if (method == PaymentMethod.CREDIT_ORDER) {
+            createSaleOrderFromAppOrder(saved);
+        }
+
         return new AppOrderResponse(
                 saved.getId(),
                 razorpayOrderId,
@@ -174,6 +202,17 @@ public class AppOrderService {
         order.setUpdatedAt(LocalDateTime.now());
 
         AppOrder saved = orderRepo.save(order);
+
+        // ════════════════════════════════════════════════════════════════
+        // CREATE SALE ORDER IN WEB SYSTEM
+        // ════════════════════════════════════════════════════════════════
+        // Rules:
+        // - UPI/CARD/etc (full payment) → create sale order NOW
+        // - ADVANCE_CREDIT (30% paid) → create sale order NOW
+        PaymentMethod method = saved.getPaymentMethod();
+        if (method != PaymentMethod.CREDIT_ORDER) {
+            createSaleOrderFromAppOrder(saved);
+        }
 
         return new AppOrderResponse(
                 saved.getId(),
@@ -302,6 +341,26 @@ public class AppOrderService {
             throw new RuntimeException("Access denied.");
         }
         return AppOrderResponse.from(order);
+    }
+
+    // ════════════════════════════════════════════════════════════════
+    // PRIVATE: Create Sale Order from App Order
+    // ════════════════════════════════════════════════════════════════
+    private void createSaleOrderFromAppOrder(AppOrder appOrder) {
+        try {
+            AppSaleOrderMapper mapper = new AppSaleOrderMapper(productRepo, shadeRepo);
+            SaleOrderSaveDTO saleOrderDTO = mapper.convertToSaleOrder(appOrder);
+            SaleOrderDTO created = saleOrderService.create(saleOrderDTO);
+            
+            System.out.println("✅ Sale Order created: " + created.getOrderNo() 
+                    + " for App Order #" + appOrder.getId());
+        } catch (Exception e) {
+            // Log error but don't fail the app order
+            System.err.println("❌ Failed to create Sale Order for App Order #" 
+                    + appOrder.getId() + ": " + e.getMessage());
+            e.printStackTrace();
+            // Continue - app order is still valid even if sale order creation fails
+        }
     }
 
     // ════════════════════════════════════════════════════════════════

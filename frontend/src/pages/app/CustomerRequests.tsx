@@ -17,12 +17,21 @@ interface Customer {
   creditEnabled?: boolean;
   creditLimit?: number;
   advanceOption?: boolean;
+  partyId?: number | null;   // null until admin links a party
+}
+
+interface Party {
+  id: number;
+  serialNumber: string;
+  partyName: string;
+  mobileNo: string;
 }
 
 type ModalMode = "approve" | "edit";
 
 const CustomerRequests = () => {
   const [customers, setCustomers] = useState<Customer[]>([]);
+  const [parties, setParties] = useState<Party[]>([]);
   const [loading, setLoading] = useState(true);
   const [pageError, setPageError] = useState("");
 
@@ -45,7 +54,16 @@ const CustomerRequests = () => {
   const [modalError, setModalError] = useState("");
   const [saving, setSaving] = useState(false);
 
-  useEffect(() => { fetchCustomers(); }, []);
+  // link party state
+  const [linkingCustomerId, setLinkingCustomerId] = useState<number | null>(null);
+  const [selectedPartyId, setSelectedPartyId] = useState<string>("");
+  const [linkSaving, setLinkSaving] = useState(false);
+  const [linkError, setLinkError] = useState("");
+
+  useEffect(() => {
+    fetchCustomers();
+    fetchParties();
+  }, []);
 
   const fetchCustomers = async () => {
     setLoading(true);
@@ -56,6 +74,15 @@ const CustomerRequests = () => {
       setPageError("Failed to load customers. Please refresh.");
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchParties = async () => {
+    try {
+      const res = await api.get("/party/all");
+      setParties(res.data);
+    } catch {
+      // non-critical — link party UI just won't show party list
     }
   };
 
@@ -119,7 +146,6 @@ const CustomerRequests = () => {
 
     try {
       if (modalMode === "approve") {
-        // Fresh approval for PENDING customer
         await api.post(`/admin/customers/${activeCustomer.id}/approve`, {
           creditEnabled,
           creditLimit: creditEnabled ? Number(creditLimit) : 0,
@@ -133,7 +159,6 @@ const CustomerRequests = () => {
           )
         );
       } else {
-        // Edit mode: change status + payment config via /update
         await api.post(`/admin/customers/${activeCustomer.id}/update`, {
           status: formStatus,
           creditEnabled: formStatus === "APPROVED" ? creditEnabled : false,
@@ -172,6 +197,44 @@ const CustomerRequests = () => {
       );
     } catch {
       alert("Failed to reject. Please try again.");
+    }
+  };
+
+  // ── Link Party ──────────────────────────────────────────────────
+  const openLinkParty = (customerId: number) => {
+    setLinkingCustomerId(customerId);
+    setSelectedPartyId("");
+    setLinkError("");
+  };
+
+  const closeLinkParty = () => {
+    setLinkingCustomerId(null);
+    setSelectedPartyId("");
+    setLinkError("");
+  };
+
+  const handleLinkParty = async (customerId: number) => {
+    if (!selectedPartyId) {
+      setLinkError("Please select a party.");
+      return;
+    }
+    setLinkSaving(true);
+    setLinkError("");
+    try {
+      await api.put(`/customer/auth/admin/customers/${customerId}/link-party`, null, {
+        params: { partyId: selectedPartyId },
+      });
+      // Update local state so UI reflects the new partyId immediately
+      setCustomers((prev) =>
+        prev.map((c) =>
+          c.id === customerId ? { ...c, partyId: Number(selectedPartyId) } : c
+        )
+      );
+      closeLinkParty();
+    } catch {
+      setLinkError("Failed to link party. Please try again.");
+    } finally {
+      setLinkSaving(false);
     }
   };
 
@@ -313,6 +376,54 @@ const CustomerRequests = () => {
                         </div>
                       </>
                     )}
+
+                    {/* Party Link Info */}
+                    <div style={{ ...paymentRow, marginTop: 6, paddingTop: 6, borderTop: "1px solid #e2e8f0" }}>
+                      <span style={payLabel}>🏷️ Party</span>
+                      {cust.partyId ? (
+                        <span style={payVal("#10b981")}>✓ Linked (#{cust.partyId})</span>
+                      ) : (
+                        <span style={payVal("#f59e0b")}>⚠ Not linked</span>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Link Party inline panel (approved + no party yet) */}
+                {cust.status === "APPROVED" && linkingCustomerId === cust.id && (
+                  <div style={linkPartyPanel}>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: "#374151", marginBottom: 8 }}>
+                      🔗 Link Party to Customer
+                    </div>
+                    <select
+                      value={selectedPartyId}
+                      onChange={(e) => { setSelectedPartyId(e.target.value); setLinkError(""); }}
+                      style={{ ...filterInput, width: "100%", marginBottom: 8 }}
+                    >
+                      <option value="">-- Select Party --</option>
+                      {parties.map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.partyName} ({p.serialNumber}) {p.mobileNo ? `· ${p.mobileNo}` : ""}
+                        </option>
+                      ))}
+                    </select>
+                    {linkError && <p style={errText}>{linkError}</p>}
+                    <div style={{ display: "flex", gap: 8 }}>
+                      <button
+                        style={{ ...btnApprove, fontSize: 12, padding: "7px 0" }}
+                        onClick={() => handleLinkParty(cust.id)}
+                        disabled={linkSaving}
+                      >
+                        {linkSaving ? "Linking..." : "✓ Confirm Link"}
+                      </button>
+                      <button
+                        style={{ ...btnEdit, fontSize: 12, padding: "7px 0" }}
+                        onClick={closeLinkParty}
+                        disabled={linkSaving}
+                      >
+                        Cancel
+                      </button>
+                    </div>
                   </div>
                 )}
 
@@ -331,6 +442,25 @@ const CustomerRequests = () => {
                   {(cust.status === "APPROVED" || cust.status === "REJECTED") && (
                     <button style={btnEdit} onClick={() => openEditModal(cust)}>
                       ✎ Edit
+                    </button>
+                  )}
+                  {/* Show Link Party button for approved customers */}
+                  {cust.status === "APPROVED" && (
+                    <button
+                      style={cust.partyId ? btnLinked : btnLinkParty}
+                      onClick={() => {
+                        if (linkingCustomerId === cust.id) {
+                          closeLinkParty();
+                        } else {
+                          openLinkParty(cust.id);
+                        }
+                      }}
+                    >
+                      {cust.partyId
+                        ? "🔗 Relink Party"
+                        : linkingCustomerId === cust.id
+                        ? "✕ Cancel"
+                        : "🔗 Link Party"}
                     </button>
                   )}
                 </div>
@@ -358,7 +488,7 @@ const CustomerRequests = () => {
                 <button style={closeBtn} onClick={closeModal}>✕</button>
               </div>
 
-              {/* Status Toggle (edit mode only — change APPROVED ↔ REJECTED) */}
+              {/* Status Toggle (edit mode only) */}
               {modalMode === "edit" && (
                 <div style={section}>
                   <div style={sectionLabel}>Account Status</div>
@@ -370,7 +500,6 @@ const CustomerRequests = () => {
                         onClick={() => {
                           setFormStatus(s);
                           setModalError("");
-                          // clear credit fields when switching to rejected
                           if (s === "REJECTED") {
                             setCreditEnabled(false);
                             setCreditLimit("0");
@@ -406,12 +535,11 @@ const CustomerRequests = () => {
                     </label>
                   </div>
 
-                  {/* Credit Limit (only when credit enabled) */}
+                  {/* Credit Limit */}
                   {creditEnabled && (
                     <div style={section}>
                       <div style={sectionLabel}>Credit Limit (₹)</div>
 
-                      {/* Quick preset buttons */}
                       <div style={presetRow}>
                         {[50000, 100000, 250000, 500000, 1000000].map((amt) => (
                           <button
@@ -424,7 +552,6 @@ const CustomerRequests = () => {
                         ))}
                       </div>
 
-                      {/* Manual input with +/- controls */}
                       <div style={amountRow}>
                         <button
                           style={amtBtn}
@@ -588,7 +715,7 @@ const paymentRow: React.CSSProperties = { display: "flex", justifyContent: "spac
 const payLabel: React.CSSProperties = { fontSize: 12, color: "#64748b" };
 const payVal = (color: string): React.CSSProperties => ({ fontSize: 12, fontWeight: 700, color });
 
-const cardActions: React.CSSProperties = { display: "flex", gap: 8, marginTop: 4 };
+const cardActions: React.CSSProperties = { display: "flex", gap: 8, marginTop: 4, flexWrap: "wrap" };
 const btnApprove: React.CSSProperties = {
   flex: 1, padding: "8px", background: "#10b981", color: "#fff",
   border: "none", borderRadius: 8, cursor: "pointer", fontWeight: 700, fontSize: 13,
@@ -600,6 +727,18 @@ const btnReject: React.CSSProperties = {
 const btnEdit: React.CSSProperties = {
   flex: 1, padding: "8px", background: "#f1f5f9", color: "#475569",
   border: "1px solid #e2e8f0", borderRadius: 8, cursor: "pointer", fontWeight: 700, fontSize: 13,
+};
+const btnLinkParty: React.CSSProperties = {
+  flex: 1, padding: "8px", background: "#eff6ff", color: "#2563eb",
+  border: "1px solid #bfdbfe", borderRadius: 8, cursor: "pointer", fontWeight: 700, fontSize: 13,
+};
+const btnLinked: React.CSSProperties = {
+  flex: 1, padding: "8px", background: "#f0fdf4", color: "#15803d",
+  border: "1px solid #bbf7d0", borderRadius: 8, cursor: "pointer", fontWeight: 700, fontSize: 13,
+};
+const linkPartyPanel: React.CSSProperties = {
+  background: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: 8,
+  padding: "12px", marginBottom: 10,
 };
 
 /* Modal */
@@ -638,7 +777,6 @@ const statusToggleBtn = (active: boolean, status: string): React.CSSProperties =
   };
 };
 
-/* iOS-style toggle */
 const toggle = (on: boolean): React.CSSProperties => ({
   width: 44, height: 24, borderRadius: 12, cursor: "pointer", flexShrink: 0,
   background: on ? "#10b981" : "#e2e8f0", position: "relative", transition: "background 0.2s",
