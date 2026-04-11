@@ -7,6 +7,7 @@ import {
   DocumentTextIcon,
   HomeIcon,
   CreditCardIcon,
+  ShoppingCartIcon,
 } from "@heroicons/react/24/solid";
 import AdminPanelSettingsIcon from '@mui/icons-material/AdminPanelSettings';
 import { useLocation, useNavigate } from "react-router-dom";
@@ -17,6 +18,7 @@ import CuttingNavigator from "../navigations/CuttingNavigator";
 import PaymentNavigator from "../navigations/PaymentNavigator";
 import SalesNavigator from "../navigations/SalesNavigator";
 import AdministrationNavigator from "../navigations/AdministrationNavigator";
+import PurchaseNavigator from "../navigations/PurchaseNavigator";
 
 interface DashboardProps {
   children?: React.ReactNode;
@@ -30,12 +32,13 @@ const Dashboard: React.FC<DashboardProps> = ({ children }) => {
   const [openCutting, setOpenCutting] = useState(false);
   const [openPayments, setOpenPayments] = useState(false);
   const [dropdownOpen, setDropdownOpen] = useState(false);
-  const [companyName] = useState<string>("Company Name");
+  const [companyName] = useState<string>("Shriuday Garments");
   const dropdownRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
   const location = useLocation();
   const [openSales, setOpenSales] = useState(false);
   const [openAdministration, setOpenAdministration] = useState(false);
+  const [openPurchase, setOpenPurchase] = useState(false);
   const userString = localStorage.getItem("user");
   const user = userString ? JSON.parse(userString) : { name: "User" };
 
@@ -229,6 +232,22 @@ const Dashboard: React.FC<DashboardProps> = ({ children }) => {
             <SalesNavigator onNavigate={(path) => navigate(path)} />
           )}
 
+
+          {/* Purchase Material  */}
+          <button style={buttonStyle} onClick={() => setOpenPurchase(!openPurchase)}>
+            <ShoppingCartIcon style={iconStyle} /> Purchase Material
+            <span style={{ marginLeft: "auto" }}>
+              {openPurchase ? (
+                <ChevronUpIcon style={{ width: 16, height: 16 }} />
+              ) : (
+                <ChevronDownIcon style={{ width: 16, height: 16 }} />
+              )}
+            </span>
+          </button>
+          {openPurchase && (
+            <PurchaseNavigator onNavigate={(path) => navigate(path)} />
+          )}
+
           {/* Payments Button */}
           <button
             style={buttonStyle}
@@ -246,7 +265,7 @@ const Dashboard: React.FC<DashboardProps> = ({ children }) => {
           {openPayments && (
             <PaymentNavigator onNavigate={(path) => navigate(path)} />
           )}
-           {/* Administration */}
+          {/* Administration */}
           <button style={buttonStyle} onClick={() => setOpenAdministration(!openAdministration)}>
             <AdminPanelSettingsIcon style={iconStyle} /> Administration
             <span style={{ marginLeft: "auto" }}>
@@ -260,7 +279,7 @@ const Dashboard: React.FC<DashboardProps> = ({ children }) => {
           {openAdministration && (
             <AdministrationNavigator onNavigate={(path) => navigate(path)} />
           )}
-          
+
 
         </div>
 

@@ -92,6 +92,10 @@ import RateList from "./pages/Reports/RateList";
 import OtherDispatchChallan from "./pages/Knitting/OtherDispatchChallan";
 import AccountStatement from "./pages/Reports/AccountStatement";
 import StockAdjustment from "./pages/Reports/adjustment/StockAdjustment";
+import PurchaseOrderItem from "./pages/PurchaseMaterial/PurchaseOrderItem";
+import PurchaseEntryItem from "./pages/PurchaseMaterial/PurchaseEntryItem";
+import PurchasePendingOrderItem from "./pages/PurchaseMaterial/PurchasePendingOrderItem";
+import PurchaseReturnItem from "./pages/PurchaseMaterial/PurchaseReturnItem";
 
 
 
@@ -175,6 +179,12 @@ function App() {
         <Route path="/sales/sale-order-settle" element={<OrderSettle />} />
         <Route path="/sales/sale-order-pendency" element={<SaleOrderPendency />} />
         <Route path="/sales/sale-order-return" element={<SaleOrderReturn />} />
+
+        {/* Purchase Material */}
+        <Route path="/purchase/order-item" element={<PurchaseOrderItem />} />
+        <Route path="/purchase/entry-item" element={<PurchaseEntryItem />}/>
+        <Route path="/purchase/pending-order-item" element={<PurchasePendingOrderItem /> }/>
+        <Route path="/purchase/return-item" element={<PurchaseReturnItem />}/>
 
         {/* Administration */}
         <Route path="/administration/user-managment" element={<UserManagement />} />
