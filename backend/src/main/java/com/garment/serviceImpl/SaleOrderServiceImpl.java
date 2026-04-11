@@ -5,6 +5,7 @@ import java.time.LocalDate;
 import java.util.*;
 import java.util.stream.Collectors;
 
+import com.garment.repository.*;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -21,10 +22,6 @@ import com.garment.model.SaleOrder;
 import com.garment.model.SaleOrderRow;
 import com.garment.model.SaleOrderSizeDetail;
 import com.garment.model.Size;
-import com.garment.repository.PartyRepository;
-import com.garment.repository.SaleOrderRepository;
-import com.garment.repository.ShadeRepository;
-import com.garment.repository.SizeRepository;
 import com.garment.service.OrderSettleService;
 import com.garment.service.SaleOrderService;
 
@@ -40,6 +37,7 @@ public class SaleOrderServiceImpl implements SaleOrderService {
     private final SizeRepository sizeRepo;
     private final PartyRepository partyRepo;
     private final OrderSettleService orderSettleService; // USE EXISTING SERVICE
+    private final DispatchChallanRepository dispatchChallanRepository;
 
     /* ---------- Helpers ---------- */
 
@@ -249,7 +247,7 @@ public class SaleOrderServiceImpl implements SaleOrderService {
         // 1) Load Sale Orders in date range
         List<SaleOrder> soRecv = repo.findByDatedBetween(from, to);
 
-        // 2) Map party -> station (UPPER)
+        // 2) party -> station (UPPER)
         Set<Long> partyIdSet = new HashSet<>();
         for (SaleOrder so : soRecv) {
             if (so.getPartyId() != null) {
@@ -274,7 +272,6 @@ public class SaleOrderServiceImpl implements SaleOrderService {
         java.util.function.Function<String,String> up  = s -> s == null ? "" : s.trim().toUpperCase();
         java.util.function.Function<String,String> low = s -> s == null ? "" : s.trim().toLowerCase();
 
-        // Aggregation holder
         class Agg {
             int opening = 0;
             int receipt = 0;
@@ -302,17 +299,14 @@ public class SaleOrderServiceImpl implements SaleOrderService {
                     consumer.accept(a);
                 };
 
-        // 3) Aggregate from Sale Order size details
+        // ========= 3) FROM SALE ORDER (receipt = peti * box) =========
         for (SaleOrder so : soRecv) {
             Long pid = so.getPartyId();
             String station = pid != null ? up.apply(partyStation.get(pid)) : "";
 
-            // Destination filter
             if (!destFilter.isEmpty()) {
                 if (station.isEmpty() || !destFilter.contains(station)) continue;
             }
-
-            // Party filter
             if (!partyFilter.isEmpty()) {
                 if (pid == null || !partyFilter.contains(pid)) continue;
             }
@@ -339,19 +333,29 @@ public class SaleOrderServiceImpl implements SaleOrderService {
                     if (shadeUpper.isEmpty() || !shadeFilter.contains(shadeUpper)) continue;
                 }
 
-                // IMPORTANT:
-                // PETI KO IGNORE KARNA HAI
-                // Pehle effectivePeti * box hota tha, ab sirf box = qty
+                Integer rawPeti = row.getPeti();
+                int effectivePeti = (rawPeti == null ? 1 : rawPeti);
 
                 for (SaleOrderSizeDetail sd : Optional.ofNullable(row.getSizeDetails()).orElse(List.of())) {
                     String rawSize = Optional.ofNullable(sd.getSizeName()).orElse("");
                     String[] parts = rawSize.split("__", 2);
-                    String baseSize = up.apply(parts[0]);   // e.g. "M", "L"
+                    String baseSize = up.apply(parts[0]);   // "M", "L", etc.
 
                     if (!sizeFilter.isEmpty() && !sizeFilter.contains(baseSize)) continue;
 
                     int box = Optional.ofNullable(sd.getQty()).orElse(0);
-                    if (box == 0) continue; // qty 0 skip
+                    if (box == 0) continue;
+
+                    // PETI MULTIPLIED HERE
+                    int rec;
+                    if (rawPeti != null && rawPeti == 0) {
+                        // special case: peti=0 => direct boxes
+                        rec = box;
+                    } else {
+                        rec = effectivePeti * box;
+                    }
+
+                    if (rec == 0) continue;
 
                     String key = station + "|" + String.valueOf(pid) + "|" + artNoLower + "|" + shadeUpper + "|" + baseSize;
                     put.accept(key, a -> {
@@ -363,21 +367,140 @@ public class SaleOrderServiceImpl implements SaleOrderService {
                         a.shade   = shadeUpper;
                         a.size    = baseSize;
 
-                        // AB PETI se multiply NAHI (direct qty use)
-                        a.receipt += box;
-                        // opening, dispatch abhi 0 hai
-                        a.pending = a.opening + a.receipt - a.dispatch;
+                        a.receipt += rec;
+                        a.pending  = a.opening + a.receipt - a.dispatch;
                     });
                 }
             }
         }
 
-        // 4) Final DTO list:
-        //    - pending = opening + receipt - dispatch
-        //    - sirf woh rows jinke pending != 0  (0 wali row skip)
+        // ========= 4) MINUS DISPATCH CHALLAN =========
+        try {
+            // Directly use repository (you have DispatchChallanRepository)
+            // or a service method returning all DispatchChallan between from/to.
+            // For simplicity, we assume you have repository bean here; if not, inject it.
+            // Example with repository bean:
+            // private final DispatchChallanRepository dispatchRepo;
+            // and here:
+            // List<DispatchChallan> challans = dispatchRepo.findByDateBetween(from, to);
+
+            // If you don't want to inject repo here, you can call service.getAll() and filter by date,
+            // but repo is better.
+
+            // Assume you inject DispatchChallanRepository:
+            List<com.garment.model.DispatchChallan> challans =
+                    dispatchChallanRepository.findByDateBetween(from, to);
+
+            for (com.garment.model.DispatchChallan ch : challans) {
+                String pName = Optional.ofNullable(ch.getPartyName()).orElse("");
+                Long pid = null; // we don't have partyId in DispatchChallan, so we match by partyName only
+
+                String partyUpper = up.apply(pName);
+
+                for (com.garment.model.DispatchRow rr :
+                        Optional.ofNullable(ch.getRows()).orElse(List.of())) {
+
+                    String artNo = Optional.ofNullable(rr.getArtNo()).orElse("");
+                    String artNoLower = low.apply(artNo);
+                    if (!artFilter.isEmpty() && !artFilter.contains(artNoLower)) continue;
+
+                    String sizeName = Optional.ofNullable(rr.getSize()).orElse("");
+                    String sizeUpper = up.apply(sizeName);
+                    if (!sizeFilter.isEmpty() && !sizeFilter.contains(sizeUpper)) continue;
+
+                    String shadeName = Optional.ofNullable(rr.getShade()).orElse("");
+                    String shadeUpper = up.apply(shadeName);
+                    if (!shadeFilter.isEmpty()) {
+                        if (shadeUpper.isEmpty() || !shadeFilter.contains(shadeUpper)) continue;
+                    }
+
+                    Integer boxVal = rr.getBox();
+                    Integer pcsVal = rr.getPcs();
+                    Integer perBox = rr.getPcsPerBox();
+
+                    int box;
+                    if (boxVal != null) {
+                        box = boxVal;
+                    } else if (pcsVal != null && perBox != null && perBox != 0) {
+                        box = pcsVal / perBox;
+                    } else {
+                        box = 0;
+                    }
+                    if (box == 0) continue;
+
+                    // key without partyId (match on partyName, art, shade, size)
+                    String key = "" + "|" + partyUpper + "|" + artNoLower + "|" + shadeUpper + "|" + sizeUpper;
+
+                    // since map key uses pid (Long) and station, we need to search by matching fields:
+                    // But we only know partyName; we can't get pid here. We'll match by partyName case-insensitive.
+                    for (Map.Entry<String, Agg> e : map.entrySet()) {
+                        Agg a = e.getValue();
+                        if (up.apply(a.pname).equals(partyUpper)
+                                && low.apply(a.artNo).equals(artNoLower)
+                                && up.apply(a.shade).equals(shadeUpper)
+                                && up.apply(a.size).equals(sizeUpper)) {
+                            a.dispatch += box;
+                            a.pending = a.opening + a.receipt - a.dispatch;
+                        }
+                    }
+                }
+            }
+        } catch (Exception ex) {
+            ex.printStackTrace();
+        }
+
+        // ========= 5) MINUS ORDER SETTLE =========
+        try {
+            List<OrderSettleDTO> settles = orderSettleService.listByDateRange(from, to);
+            for (OrderSettleDTO os : settles) {
+                String pName = Optional.ofNullable(os.getPartyName()).orElse("");
+                String partyUpper = up.apply(pName);
+
+                List<OrderSettleRowDTO> rs = os.getRows() != null ? os.getRows() : List.of();
+                for (OrderSettleRowDTO r : rs) {
+                    String artNo = Optional.ofNullable(r.getArtNo()).orElse("");
+                    String artNoLower = low.apply(artNo);
+                    if (!artFilter.isEmpty() && !artFilter.contains(artNoLower)) continue;
+
+                    String shadeName = Optional.ofNullable(r.getShade()).orElse("");
+                    String shadeUpper = up.apply(shadeName);
+                    if (!shadeFilter.isEmpty()) {
+                        if (shadeUpper.isEmpty() || !shadeFilter.contains(shadeUpper)) continue;
+                    }
+
+                    List<OrderSettleSizeDetailDTO> ds =
+                            r.getSizeDetails() != null ? r.getSizeDetails() : List.of();
+                    for (OrderSettleSizeDetailDTO sd : ds) {
+                        String sizeName = Optional.ofNullable(sd.getSizeName()).orElse("");
+                        String sizeUpper = up.apply(sizeName);
+                        if (!sizeFilter.isEmpty() && !sizeFilter.contains(sizeUpper)) continue;
+
+                        int settleBox = Optional.ofNullable(sd.getSettleBox()).orElse(0);
+                        if (settleBox == 0) continue;
+
+                        // again, match in map by partyName, artNo, shade, size
+                        for (Map.Entry<String, Agg> e : map.entrySet()) {
+                            Agg a = e.getValue();
+                            if (up.apply(a.pname).equals(partyUpper)
+                                    && low.apply(a.artNo).equals(artNoLower)
+                                    && up.apply(a.shade).equals(shadeUpper)
+                                    && up.apply(a.size).equals(sizeUpper)) {
+                                // treat settleBox same as dispatch for pending
+                                a.dispatch += settleBox;
+                                a.pending = a.opening + a.receipt - a.dispatch;
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (Exception ex) {
+            ex.printStackTrace();
+        }
+
+        // ========= 6) Final list, only pending != 0 =========
         return map.values().stream()
                 .peek(a -> a.pending = a.opening + a.receipt - a.dispatch)
-                .filter(a -> a.pending != 0)   // ✅ only non-zero pending (negative allowed)
+                .filter(a -> a.pending != 0) // 0 skip, negative allowed
                 .map(a -> new SaleOrderPendencyRowDTO(
                         a.dest,
                         a.pid,
