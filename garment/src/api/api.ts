@@ -1,5 +1,6 @@
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { CartItem, AppUser } from '../context/AppContext';
 
 // export const BASE_URL = 'https://garment-1-1v21.onrender.com/api';
 export const BASE_URL = 'http://192.168.31.42:8080/api';
@@ -133,12 +134,11 @@ export interface VerifyPaymentPayload {
   razorpaySignature: string;
 }
 
-// ── New: credit payment types ────────────────────────────────────────
 export interface CreditPaymentOrderResponse {
   orderId:         number;
   razorpayOrderId: string;
   razorpayKeyId:   string;
-  creditAmount:    number;   // exact amount to charge via Razorpay
+  creditAmount:    number;
 }
 
 export interface VerifyCreditPaymentPayload {
@@ -150,19 +150,19 @@ export interface VerifyCreditPaymentPayload {
 
 export interface VerifyCreditPaymentResponse {
   order: {
-    id:             number;
-    totalAmount:    number;
-    subtotal:       number;
-    gstAmount:      number;
-    advanceAmount:  number;
-    creditAmount:   number;
-    orderStatus:    string;
-    paymentStatus:  string;
-    paymentMethod:  string;
-    deliveryAddress:string;
-    createdAt:      string;
-    paidAt:         string | null;
-    items:          any[];
+    id:              number;
+    totalAmount:     number;
+    subtotal:        number;
+    gstAmount:       number;
+    advanceAmount:   number;
+    creditAmount:    number;
+    orderStatus:     string;
+    paymentStatus:   string;
+    paymentMethod:   string;
+    deliveryAddress: string;
+    createdAt:       string;
+    paidAt:          string | null;
+    items:           any[];
   };
 }
 
@@ -170,7 +170,6 @@ export interface VerifyCreditPaymentResponse {
 // ORDER API — methods
 // ════════════════════════════════════════════════════════════════════
 export const orderApi = {
-  // ── Existing ──────────────────────────────────────────────────────
   createRazorpayOrder: (data: CreateRazorpayOrderPayload) =>
     api.post<CreateRazorpayOrderResponse>('/orders/create-razorpay-order', data),
 
@@ -183,15 +182,70 @@ export const orderApi = {
   getOrderById: (id: number) =>
     api.get(`/orders/${id}`),
 
-  // ── New: pay the credit amount on an existing credit order ────────
-
-  // Step 1 — ask backend to create a Razorpay order for the credit amount
   createCreditPaymentOrder: (orderId: number) =>
     api.post<CreditPaymentOrderResponse>(`/orders/${orderId}/pay-credit`),
 
-  // Step 2 — verify Razorpay payment, backend marks order PAID + sets paidAt
   verifyCreditPayment: (data: VerifyCreditPaymentPayload) =>
     api.post<VerifyCreditPaymentResponse>('/orders/verify-credit-payment', data),
+};
+
+// ════════════════════════════════════════════════════════════════════
+// SALE ORDER API
+// ════════════════════════════════════════════════════════════════════
+//
+// Builds SaleOrderSaveDTO from app cart and posts to /api/sale-orders
+//
+// Confirmed mapping:
+//   CartItem.artSerialNumber  → row.artSerial
+//   CartItem.artNo            → row.artNo
+//   CartItem.artName          → row.description
+//   CartItem.shade            → row.shade  (shadeName, backend resolves shadeCode)
+//   CartItem.boxes            → row.peti   ("20")
+//   CartItem.pcsPerBox        → row.sizesQty[selectedSize]  ("12")
+//   CartItem.pricePerPc       → row.sizesRate[selectedSize] ("20.8333")
+//   CartItem.selectedSize     → key in sizesQty + sizesRate maps
+//
+// One CartItem = one sale order row
+// partyName = user.name, partyId = null (app users have no partyId)
+// orderNo   = "" → backend auto-generates O/YYYY-NNNN
+// dated     = today
+
+function buildSaleOrderPayload(cart: CartItem[], user: AppUser) {
+  const today = new Date();
+  const yyyy  = today.getFullYear();
+  const mm    = String(today.getMonth() + 1).padStart(2, '0');
+  const dd    = String(today.getDate()).padStart(2, '0');
+  const dated = `${yyyy}-${mm}-${dd}`;
+
+  const rows = cart.map(item => ({
+    artSerial:   item.artSerialNumber ?? '',
+    artNo:       item.artNo           ?? '',
+    shade:       item.shade           ?? '',
+    description: item.artName         ?? '',
+    peti:        String(item.boxes),
+    remarks:     '',
+    sizes:       {},                                                         // legacy — empty
+    sizesQty:  { [item.selectedSize]: String(item.pcsPerBox) },             // { "M": "12" }
+    sizesRate: { [item.selectedSize]: String(item.pricePerPc.toFixed(4)) }, // { "M": "20.8333" }
+  }));
+
+  return {
+    orderNo:      '',                                   // blank → backend auto-generates
+    dated,                                              // today yyyy-MM-dd
+    deliveryDate: null,
+    partyId:      null,                                 // app users have no partyId
+    partyName:    user.name,                            // shown in admin web
+    remarks:      `App Order | ${user.phone}`,          // helps admin identify app orders
+    rows,
+  };
+}
+
+export const saleOrderApi = {
+  // Fire-and-forget after payment success.
+  // Caller must catch errors — payment is already done, this is just
+  // admin notification. Failure here does NOT affect customer.
+  createFromAppCart: (cart: CartItem[], user: AppUser) =>
+    api.post('/sale-orders', buildSaleOrderPayload(cart, user)),
 };
 
 export default api;

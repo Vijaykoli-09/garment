@@ -5,7 +5,7 @@ import {
 } from 'react-native';
 import RazorpayCheckout from 'react-native-razorpay';
 import { AppContext } from '../context/AppContext';
-import { orderApi, OrderItemPayload } from '../api/api';
+import { orderApi, saleOrderApi, OrderItemPayload } from '../api/api';
 
 export default function PaymentMethodScreen({ navigation }: any) {
   const {
@@ -14,25 +14,52 @@ export default function PaymentMethodScreen({ navigation }: any) {
     user, clearCart,
   } = useContext(AppContext);
 
-  // advanceOption = admin has enabled the 30% advance + 70% credit option for this customer
   const advanceEnabled = creditApproved && Boolean(user?.advanceOption);
 
   const [loading, setLoading]           = useState(false);
   const [activeMethod, setActiveMethod] = useState<string | null>(null);
 
-  // ── BUG FIX 1: Always recompute pricePerPc from pricePerBox/pcsPerBox.
-  // item.pricePerPc stored in cart can be 0 or NaN if saved before the cart fix.
-  // If subtotal → 0, Razorpay rejects the order and the gateway never opens.
+  // ── Build Razorpay order items from cart ──────────────────────────
   const buildItems = (): OrderItemPayload[] =>
     cart.map(item => ({
       productId:    item.productId,
       productName:  item.name,
       selectedSize: item.selectedSize,
       quantity:     item.quantity,
-      pricePerPc:   (item.pcsPerBox > 0)
+      pricePerPc:   item.pcsPerBox > 0
                       ? item.pricePerBox / item.pcsPerBox
                       : (item.pricePerPc ?? 0),
     }));
+
+  // ── Extract real error message from any error shape ───────────────
+  const extractError = (error: any, fallback: string): string => {
+    if (error?.response?.data) {
+      const d = error.response.data;
+      if (typeof d === 'string' && d.trim()) return d.trim();
+      if (d?.message)                         return String(d.message);
+      if (d?.error)                           return String(d.error);
+    }
+    if (
+      error?.code === 0 ||
+      error?.code === 'PAYMENT_CANCELLED' ||
+      error?.description === 'Payment Cancelled by user'
+    ) return 'CANCELLED';
+    return error?.description ?? error?.message ?? fallback;
+  };
+
+  // ── Create sale order in admin panel (fire-and-forget) ────────────
+  // Called after EVERY successful payment — Razorpay, Credit, Advance+Credit.
+  // Failure here is silent — payment is already confirmed, admin can
+  // manually create the sale order in the rare case this fails.
+  const createSaleOrder = async () => {
+    if (!user) return;
+    try {
+      await saleOrderApi.createFromAppCart(cart, user);
+    } catch (err) {
+      // Silent fail — do not alert customer
+      console.warn('[SaleOrder] Failed to create sale order after payment:', err);
+    }
+  };
 
   // ════════════════════════════════════════════════════════════════
   // RAZORPAY FLOW — UPI / Card / Bank Transfer
@@ -48,36 +75,29 @@ export default function PaymentMethodScreen({ navigation }: any) {
       const { data } = await orderApi.createRazorpayOrder({
         items:           buildItems(),
         paymentMethod:   method,
-        deliveryAddress: (user as any)?.deliveryAddress ?? '',
+        deliveryAddress: user?.deliveryAddress ?? '',
       });
 
-      // ── BUG FIX 2: Use the Razorpay order's actual amount (paise).
-      // data.totalAmount is the full order total, but the Razorpay order on
-      // the server was created for exactly that amount for UPI/card/bank.
-      // Always pass amount as a number (paise), not a string.
       const amountInPaise: number = Math.round(data.totalAmount * 100);
+
+      if (!data.razorpayOrderId || !data.razorpayKeyId) {
+        throw new Error('Server did not return a valid Razorpay order. Check backend logs.');
+      }
 
       const options = {
         description: 'Shriuday Garments Order',
         currency:    'INR',
         key:         data.razorpayKeyId,
-        amount:      amountInPaise,          // ← number in paise, not string
+        amount:      amountInPaise,
         name:        'Shriuday Garments',
-        order_id:    data.razorpayOrderId,   // ← must match server-created order
+        order_id:    data.razorpayOrderId,
         prefill: {
-          email:   user?.email   ?? '',
-          contact: user?.phone   ?? '',
-          name:    user?.name    ?? '',
+          email:   user?.email ?? '',
+          contact: user?.phone ?? '',
+          name:    user?.name  ?? '',
         },
         theme: { color: '#2563EB' },
       };
-
-      // ── BUG FIX 3: Validate that razorpayOrderId is present before opening.
-      // If the backend failed silently, data.razorpayOrderId is null/undefined,
-      // and RazorpayCheckout.open() will hang or crash without error.
-      if (!data.razorpayOrderId || !data.razorpayKeyId) {
-        throw new Error('Server did not return a valid Razorpay order. Check backend logs.');
-      }
 
       const paymentData = await RazorpayCheckout.open(options);
 
@@ -87,6 +107,9 @@ export default function PaymentMethodScreen({ navigation }: any) {
         razorpaySignature: paymentData.razorpay_signature,
       });
 
+      // ── Payment verified → create sale order in admin panel ──────
+      await createSaleOrder();
+
       clearCart();
       Alert.alert(
         '✅ Payment Successful!',
@@ -94,18 +117,10 @@ export default function PaymentMethodScreen({ navigation }: any) {
         [{ text: 'View Orders', onPress: () => navigation.navigate('OrderHistory') }]
       );
     } catch (error: any) {
-      const cancelled =
-        error?.code === 0 ||
-        error?.code === 'PAYMENT_CANCELLED' ||
-        error?.description === 'Payment Cancelled by user';
-      if (cancelled) {
+      const msg = extractError(error, 'Payment failed. Please try again.');
+      if (msg === 'CANCELLED') {
         Alert.alert('Payment Cancelled', 'You cancelled. Your cart is still saved.');
       } else {
-        const msg =
-          error?.response?.data?.error ??
-          error?.description ??
-          error?.message ??
-          'Payment failed. Please try again.';
         Alert.alert('❌ Payment Failed', msg);
       }
     } finally {
@@ -115,7 +130,7 @@ export default function PaymentMethodScreen({ navigation }: any) {
   };
 
   // ════════════════════════════════════════════════════════════════
-  // CREDIT ORDER
+  // CREDIT ORDER — full amount on credit, no Razorpay gateway
   // ════════════════════════════════════════════════════════════════
   const handleCreditOrder = async () => {
     if (!creditApproved) {
@@ -123,14 +138,17 @@ export default function PaymentMethodScreen({ navigation }: any) {
       return;
     }
     if (grandTotal > availableCredit) {
-      Alert.alert('⚠️ Credit Limit Exceeded',
-        `Order: ₹${grandTotal.toFixed(2)}\nAvailable Credit: ₹${availableCredit.toFixed(2)}`);
+      Alert.alert(
+        '⚠️ Credit Limit Exceeded',
+        `Order: ₹${grandTotal.toFixed(2)}\nAvailable Credit: ₹${availableCredit.toFixed(2)}`
+      );
       return;
     }
     if (cart.length === 0) {
       Alert.alert('Empty Cart', 'Please add items before proceeding.');
       return;
     }
+
     Alert.alert(
       '📋 Confirm Credit Order',
       `Order Amount: ₹${grandTotal.toFixed(2)}\nThis will be deducted from your credit limit.`,
@@ -145,8 +163,12 @@ export default function PaymentMethodScreen({ navigation }: any) {
               const { data } = await orderApi.createRazorpayOrder({
                 items:           buildItems(),
                 paymentMethod:   'CREDIT_ORDER',
-                deliveryAddress: (user as any)?.deliveryAddress ?? '',
+                deliveryAddress: user?.deliveryAddress ?? '',
               });
+
+              // ── Credit order confirmed → create sale order ────────
+              await createSaleOrder();
+
               clearCart();
               Alert.alert(
                 '✅ Credit Order Placed!',
@@ -154,7 +176,7 @@ export default function PaymentMethodScreen({ navigation }: any) {
                 [{ text: 'View Orders', onPress: () => navigation.navigate('OrderHistory') }]
               );
             } catch (error: any) {
-              const msg = error?.response?.data?.error ?? 'Failed to place credit order.';
+              const msg = extractError(error, 'Failed to place credit order.');
               Alert.alert('❌ Order Failed', msg);
             } finally {
               setLoading(false);
@@ -178,10 +200,13 @@ export default function PaymentMethodScreen({ navigation }: any) {
       return;
     }
     if (creditPart > availableCredit) {
-      Alert.alert('❌ Insufficient Credit',
-        `Credit needed: ₹${creditPart.toFixed(2)}\nAvailable: ₹${availableCredit.toFixed(2)}`);
+      Alert.alert(
+        '❌ Insufficient Credit',
+        `Credit needed: ₹${creditPart.toFixed(2)}\nAvailable: ₹${availableCredit.toFixed(2)}`
+      );
       return;
     }
+
     Alert.alert(
       '🔀 Confirm Mixed Payment',
       `Pay Now (30%): ₹${advancePart.toFixed(2)}\nCredit (70%): ₹${creditPart.toFixed(2)}`,
@@ -196,13 +221,10 @@ export default function PaymentMethodScreen({ navigation }: any) {
               const { data } = await orderApi.createRazorpayOrder({
                 items:           buildItems(),
                 paymentMethod:   'ADVANCE_CREDIT',
-                deliveryAddress: (user as any)?.deliveryAddress ?? '',
+                deliveryAddress: user?.deliveryAddress ?? '',
               });
 
-              // ── BUG FIX 4: For ADVANCE_CREDIT, the Razorpay order on the server
-              // was created for only 30% of totalAmount. Pass that same 30% to
-              // RazorpayCheckout — passing the full amount would mismatch the
-              // server order and Razorpay would reject/silently fail.
+              // 30% only charged via Razorpay — server created order for that amount
               const razorpayAmountInPaise: number = Math.round(data.totalAmount * 0.30 * 100);
 
               if (!data.razorpayOrderId || !data.razorpayKeyId) {
@@ -213,7 +235,7 @@ export default function PaymentMethodScreen({ navigation }: any) {
                 description: 'Shriuday Garments Order (30% Advance)',
                 currency:    'INR',
                 key:         data.razorpayKeyId,
-                amount:      razorpayAmountInPaise,   // ← 30% only, matches server order
+                amount:      razorpayAmountInPaise,
                 name:        'Shriuday Garments',
                 order_id:    data.razorpayOrderId,
                 prefill: {
@@ -232,21 +254,20 @@ export default function PaymentMethodScreen({ navigation }: any) {
                 razorpaySignature: paymentData.razorpay_signature,
               });
 
+              // ── Advance payment verified → create sale order ──────
+              await createSaleOrder();
+
               clearCart();
               Alert.alert(
                 '✅ Order Placed!',
-                `Order #${data.orderId} confirmed!\nPaid Now: ₹${(data.totalAmount * 0.30).toFixed(2)}\nOn Credit: ₹${(data.totalAmount * 0.70).toFixed(2)}`,
+                `Order #${data.orderId} confirmed!\nPaid Now: ₹${advancePart.toFixed(2)}\nOn Credit: ₹${creditPart.toFixed(2)}`,
                 [{ text: 'View Orders', onPress: () => navigation.navigate('OrderHistory') }]
               );
             } catch (error: any) {
-              const cancelled =
-                error?.code === 0 ||
-                error?.code === 'PAYMENT_CANCELLED' ||
-                error?.description === 'Payment Cancelled by user';
-              if (cancelled) {
+              const msg = extractError(error, 'Payment failed.');
+              if (msg === 'CANCELLED') {
                 Alert.alert('Payment Cancelled', 'You cancelled. Your cart is still saved.');
               } else {
-                const msg = error?.response?.data?.error ?? error?.description ?? error?.message ?? 'Payment failed.';
                 Alert.alert('❌ Payment Failed', msg);
               }
             } finally {
@@ -303,7 +324,7 @@ export default function PaymentMethodScreen({ navigation }: any) {
         </TouchableOpacity>
       ))}
 
-      {creditApproved && (  /* shown only when admin has enabled credit */
+      {creditApproved && (
         <>
           <Text style={styles.sectionTitle}>💰 Credit Options</Text>
 
@@ -339,31 +360,32 @@ export default function PaymentMethodScreen({ navigation }: any) {
             </View>
           </TouchableOpacity>
 
-          {/* 30/70 option: only shown when admin has enabled advanceOption for this customer */}
-          {advanceEnabled && <TouchableOpacity
-            style={[styles.mixedOption, loading && styles.optionDisabled]}
-            onPress={handleAdvanceCredit}
-            disabled={loading}
-          >
-            <View style={styles.creditHeader}>
-              <Text style={styles.creditEmoji}>🔀</Text>
-              <View style={styles.creditContent}>
-                <Text style={styles.mixedTitle}>Advance + Credit</Text>
-                <Text style={styles.mixedDesc}>30% advance now, 70% on credit</Text>
+          {advanceEnabled && (
+            <TouchableOpacity
+              style={[styles.mixedOption, loading && styles.optionDisabled]}
+              onPress={handleAdvanceCredit}
+              disabled={loading}
+            >
+              <View style={styles.creditHeader}>
+                <Text style={styles.creditEmoji}>🔀</Text>
+                <View style={styles.creditContent}>
+                  <Text style={styles.mixedTitle}>Advance + Credit</Text>
+                  <Text style={styles.mixedDesc}>30% advance now, 70% on credit</Text>
+                </View>
+                {isMethodLoading('ADVANCE_CREDIT') && <ActivityIndicator color="#A855F7" />}
               </View>
-              {isMethodLoading('ADVANCE_CREDIT') && <ActivityIndicator color="#A855F7" />}
-            </View>
-            <View style={styles.mixedDetails}>
-              <View style={styles.mixedDetailItem}>
-                <Text style={styles.mixedLabel}>Pay Now (30%)</Text>
-                <Text style={styles.mixedValue}>₹{(grandTotal * 0.3).toFixed(2)}</Text>
+              <View style={styles.mixedDetails}>
+                <View style={styles.mixedDetailItem}>
+                  <Text style={styles.mixedLabel}>Pay Now (30%)</Text>
+                  <Text style={styles.mixedValue}>₹{(grandTotal * 0.3).toFixed(2)}</Text>
+                </View>
+                <View style={styles.mixedDetailItem}>
+                  <Text style={styles.mixedLabel}>Credit (70%)</Text>
+                  <Text style={styles.mixedValue}>₹{(grandTotal * 0.7).toFixed(2)}</Text>
+                </View>
               </View>
-              <View style={styles.mixedDetailItem}>
-                <Text style={styles.mixedLabel}>Credit (70%)</Text>
-                <Text style={styles.mixedValue}>₹{(grandTotal * 0.7).toFixed(2)}</Text>
-              </View>
-            </View>
-          </TouchableOpacity>}
+            </TouchableOpacity>
+          )}
         </>
       )}
 
