@@ -29,6 +29,9 @@ interface DispatchChallan {
   partyName: string;
   brokerName?: string;
   netAmt?: number | string;
+
+  // for details (line items)
+  items?: any[];
 }
 
 interface OtherDispatchChallan {
@@ -38,6 +41,9 @@ interface OtherDispatchChallan {
   partyName: string;
   brokerName?: string;
   netAmt?: number | string;
+
+  // for details (line items)
+  items?: any[];
 }
 
 interface PurchaseOrderDoc {
@@ -46,6 +52,9 @@ interface PurchaseOrderDoc {
   date?: string;
   partyName: string;
   amount: number;
+
+  // for details (line items)
+  items?: any[];
 }
 
 interface PurchaseEntryDoc {
@@ -54,6 +63,9 @@ interface PurchaseEntryDoc {
   date?: string;
   partyName: string;
   amount: number;
+
+  // for details (line items)
+  items?: any[];
 }
 
 interface PurchaseReturnDoc {
@@ -62,6 +74,9 @@ interface PurchaseReturnDoc {
   date?: string;
   partyName: string;
   amount: number;
+
+  // for details (line items)
+  items?: any[];
 }
 
 interface PaymentDoc {
@@ -96,6 +111,9 @@ interface JobOutwardChallanDoc {
   date: string;
   partyName: string;
   totalPcs: number;
+
+  // for details (line items)
+  rows?: any[];
 }
 
 interface JobInwardChallanDoc {
@@ -104,6 +122,9 @@ interface JobInwardChallanDoc {
   date: string;
   partyName: string;
   amount: number;
+
+  // for details (line items)
+  rows?: any[];
 }
 
 interface BrokerInfo {
@@ -288,6 +309,10 @@ const AccountStatement: React.FC = () => {
   // popup once per report
   const overdueAlertKeyRef = useRef<string>("");
 
+  // ✅ Drill-down (click date -> show details on same page)
+  const [selectedTx, setSelectedTx] = useState<DisplayRowWithDays | null>(null);
+  const detailRef = useRef<HTMLDivElement | null>(null);
+
   // ---------- Load data ----------
   useEffect(() => {
     const safeGet = async <T,>(url: string): Promise<T> => {
@@ -359,6 +384,13 @@ const AccountStatement: React.FC = () => {
             partyName: dc.partyName || "",
             brokerName: (dc.brokerName || dc.agentName || "").trim(),
             netAmt: dc.netAmt,
+            items: Array.isArray(dc.items)
+              ? dc.items
+              : Array.isArray(dc.rows)
+                ? dc.rows
+                : Array.isArray(dc.products)
+                  ? dc.products
+                  : [],
           })),
         );
 
@@ -370,6 +402,13 @@ const AccountStatement: React.FC = () => {
             partyName: od.partyName || "",
             brokerName: (od.brokerName || od.agentName || "").trim(),
             netAmt: od.netAmt,
+            items: Array.isArray(od.items)
+              ? od.items
+              : Array.isArray(od.rows)
+                ? od.rows
+                : Array.isArray(od.products)
+                  ? od.products
+                  : [],
           })),
         );
 
@@ -383,6 +422,7 @@ const AccountStatement: React.FC = () => {
               date: po.date || "",
               partyName: po.partyName || po.party?.partyName || "",
               amount,
+              items,
             };
           }),
         );
@@ -397,6 +437,7 @@ const AccountStatement: React.FC = () => {
               date: e.date || "",
               partyName: e.partyName || e.party?.partyName || "",
               amount,
+              items,
             };
           }),
         );
@@ -411,6 +452,7 @@ const AccountStatement: React.FC = () => {
               date: r.date || "",
               partyName: r.partyName || r.party?.partyName || "",
               amount,
+              items,
             };
           }),
         );
@@ -429,6 +471,7 @@ const AccountStatement: React.FC = () => {
                   partyIdToName.get(String(d.partyId ?? "")) ||
                   "",
                 totalPcs,
+                rows,
               } as JobOutwardChallanDoc;
             })
             .filter((x) => x.partyName && x.date && x.challanNo),
@@ -448,6 +491,7 @@ const AccountStatement: React.FC = () => {
                   partyIdToName.get(String(d.partyId ?? "")) ||
                   "",
                 amount,
+                rows,
               } as JobInwardChallanDoc;
             })
             .filter((x) => x.partyName && x.date && x.challanNo),
@@ -547,14 +591,6 @@ const AccountStatement: React.FC = () => {
 
   /**
    * ✅ YOUR REQUIRED DR/CR RULES
-   * - Purchase (PurchaseOrder, PurchaseEntry) => CR
-   * - Payment => DR
-   * - Receipt => CR (all receipts)
-   * - Dispatch Return => CR  (we treat OtherDispatch as Dispatch Return)
-   * - Purchase Return => DR
-   * - Dispatch => DR (kept as normal sale dispatch)
-   * - JobInward => CR
-   * - JobOutward, Opening => 0 effect
    */
   const getDrCr = useCallback((source: TxType, amount: number) => {
     const amt = toNum(amount);
@@ -565,20 +601,15 @@ const AccountStatement: React.FC = () => {
     if (source === "PurchaseOrder") return { debit: 0, credit: amt };
     if (source === "PurchaseEntry") return { debit: 0, credit: amt };
 
-    // Dispatch Return => CR (mapped to OtherDispatch in your code)
     if (source === "OtherDispatch") return { debit: 0, credit: amt };
 
-    // Purchase Return => DR
     if (source === "PurchaseReturn") return { debit: amt, credit: 0 };
 
-    // Job Inward => CR
     if (source === "JobInward") return { debit: 0, credit: amt };
 
-    // No financial effect
     if (source === "JobOutward") return { debit: 0, credit: 0 };
     if (source === "Opening") return { debit: 0, credit: 0 };
 
-    // Default: Dispatch etc => DR
     return { debit: amt, credit: 0 };
   }, []);
 
@@ -727,6 +758,7 @@ const AccountStatement: React.FC = () => {
     setReportPreparing(true);
     setError(null);
     setTransactionFilter("all");
+    setSelectedTx(null);
 
     try {
       const fromT = toTime(fromDate);
@@ -768,7 +800,7 @@ const AccountStatement: React.FC = () => {
         });
       });
 
-      // OtherDispatch (treated as Dispatch Return for CR)
+      // OtherDispatch
       otherDispatchChallans.forEach((od) => {
         const bName = getBrokerNameForDoc(od);
         if (!brokerOk(bName)) return;
@@ -1110,7 +1142,7 @@ const AccountStatement: React.FC = () => {
     return rowsWithDays.filter((r) => r.type === transactionFilter);
   }, [rowsWithDays, transactionFilter]);
 
-  // ---------- Totals (FIX: totals/net must react to transaction type filter) ----------
+  // ---------- Totals ----------
   const totalDebitAll = useMemo(
     () => transactions.reduce((s, t) => s + (t.debit || 0), 0),
     [transactions],
@@ -1120,7 +1152,6 @@ const AccountStatement: React.FC = () => {
     [transactions],
   );
 
-  // ✅ These change when you change Transaction Type filter
   const totalDebitFiltered = useMemo(
     () => filteredRows.reduce((s, r) => s + (r.debit || 0), 0),
     [filteredRows],
@@ -1141,7 +1172,6 @@ const AccountStatement: React.FC = () => {
     return sortedRowsAll[sortedRowsAll.length - 1].balance;
   }, [sortedRowsAll]);
 
-  // Net movement for current filter (this is what most users expect to change on filter change)
   const netMovementFiltered = useMemo(
     () => totalDebitFiltered - totalCreditFiltered,
     [totalDebitFiltered, totalCreditFiltered],
@@ -1156,6 +1186,183 @@ const AccountStatement: React.FC = () => {
     }),
     [filteredRows.length, totalDebitFiltered, totalCreditFiltered, netMovementFiltered],
   );
+
+  // ================= Drill-down Details (click date) =================
+  const findDocDetailsForTx = useCallback(
+    (tx: DisplayRowWithDays) => {
+      if (!tx || tx.type === "Opening") return null;
+
+      const docNo = String(tx.orderNo || "").trim();
+
+      switch (tx.type) {
+        case "Dispatch": {
+          const doc =
+            dispatchChallans.find((d) => d.id === tx.id) ||
+            dispatchChallans.find((d) => String(d.challanNo).trim() === docNo) ||
+            null;
+          return { title: `Dispatch Details`, doc };
+        }
+        case "OtherDispatch": {
+          const doc =
+            otherDispatchChallans.find((d) => d.id === tx.id) ||
+            otherDispatchChallans.find((d) => String(d.challanNo).trim() === docNo) ||
+            null;
+          return { title: `Other Dispatch Details`, doc };
+        }
+        case "PurchaseOrder": {
+          const doc =
+            purchaseOrders.find((d) => d.id === tx.id) ||
+            purchaseOrders.find((d) => String(d.orderNo).trim() === docNo) ||
+            null;
+          return { title: `Purchase Order Details`, doc };
+        }
+        case "PurchaseEntry": {
+          const doc =
+            purchaseEntries.find((d) => d.id === tx.id) ||
+            purchaseEntries.find((d) => String(d.challanNo).trim() === docNo) ||
+            null;
+          return { title: `Purchase Entry Details`, doc };
+        }
+        case "PurchaseReturn": {
+          const doc =
+            purchaseReturns.find((d) => d.id === tx.id) ||
+            purchaseReturns.find((d) => String(d.challanNo).trim() === docNo) ||
+            null;
+          return { title: `Purchase Return Details`, doc };
+        }
+        case "JobOutward": {
+          const doc =
+            jobOutwards.find(
+              (d) =>
+                String(d.challanNo).trim() === docNo &&
+                norm(d.partyName) === norm(tx.partyName) &&
+                String(d.date).slice(0, 10) === String(tx.date).slice(0, 10),
+            ) || null;
+          return { title: `Job Outward Details`, doc };
+        }
+        case "JobInward": {
+          const doc =
+            jobInwards.find(
+              (d) =>
+                String(d.challanNo).trim() === docNo &&
+                norm(d.partyName) === norm(tx.partyName) &&
+                String(d.date).slice(0, 10) === String(tx.date).slice(0, 10),
+            ) || null;
+          return { title: `Job Inward Details`, doc };
+        }
+        case "Payment": {
+          const doc = payments.find((p) => p.id === tx.id) || null;
+          return { title: `Payment Details`, doc };
+        }
+        case "Receipt": {
+          const doc = receipts.find((r) => r.id === tx.id) || null;
+          return { title: `Receipt Details`, doc };
+        }
+        default:
+          return { title: `Details`, doc: null };
+      }
+    },
+    [
+      dispatchChallans,
+      otherDispatchChallans,
+      purchaseOrders,
+      purchaseEntries,
+      purchaseReturns,
+      jobOutwards,
+      jobInwards,
+      payments,
+      receipts,
+    ],
+  );
+
+  const selectedTxDetails = useMemo(() => {
+    if (!selectedTx) return null;
+    return findDocDetailsForTx(selectedTx);
+  }, [selectedTx, findDocDetailsForTx]);
+
+  const openDetails = (tx: DisplayRowWithDays) => {
+    if (tx.type === "Opening") return;
+    setSelectedTx(tx);
+    window.setTimeout(() => {
+      detailRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 50);
+  };
+
+  // ✅ HIDE THESE COLUMNS FROM Items/Rows TABLE
+  const normalizeItemKey = (k: string) => String(k || "").replace(/[^a-z0-9]/gi, "").toLowerCase();
+  const isHiddenItemKey = (k: string) => {
+    const nk = normalizeItemKey(k);
+    // remove: lot no, bale no, barcode, id (including common variations)
+    return (
+      nk === "id" ||
+      nk === "barcode" ||
+      nk === "barcodeno" ||
+      nk === "barcodenumber" ||
+      nk === "lotno" ||
+      nk === "lotnumber" ||
+      nk === "baleno" ||
+      nk === "balenumber"
+    );
+  };
+
+  const renderArrayTable = (arr: any[], title: string) => {
+    if (!Array.isArray(arr) || arr.length === 0) return null;
+
+    const keysAll = Array.from(
+      new Set(
+        arr
+          .slice(0, 20)
+          .flatMap((x) => (x && typeof x === "object" ? Object.keys(x) : [])),
+      ),
+    );
+
+    // ✅ remove unwanted columns (lot no, bale no, barcode, id)
+    const keys = keysAll.filter((k) => !isHiddenItemKey(k)).slice(0, 12);
+
+    if (keys.length === 0) {
+      return (
+        <div className="mt-3">
+          <div className="text-xs font-semibold text-gray-700 mb-1">{title}</div>
+          <div className="text-[11px] text-gray-500">
+            No visible columns (Lot No / Bale No / Barcode / ID are hidden).
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <div className="mt-3">
+        <div className="text-xs font-semibold text-gray-700 mb-1">{title}</div>
+        <div className="overflow-auto border rounded">
+          <table className="min-w-max w-full text-xs border-collapse">
+            <thead className="bg-gray-100">
+              <tr>
+                {keys.map((k) => (
+                  <th key={k} className="border px-2 py-1 text-left">
+                    {k}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {arr.slice(0, 200).map((row, idx) => (
+                <tr key={idx} className={idx % 2 === 0 ? "bg-white" : "bg-gray-50"}>
+                  {keys.map((k) => (
+                    <td key={k} className="border px-2 py-1">
+                      {row && typeof row === "object" ? String(row[k] ?? "") : String(row ?? "")}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        {arr.length > 200 && (
+          <div className="text-[11px] text-gray-500 mt-1">Showing first 200 rows only.</div>
+        )}
+      </div>
+    );
+  };
 
   // ✅ PRINT
   const handlePrintReport = () => {
@@ -1324,6 +1531,7 @@ const AccountStatement: React.FC = () => {
     setFullScreen(false);
     setTransactions([]);
     setTransactionFilter("all");
+    setSelectedTx(null);
     overdueAlertKeyRef.current = "";
   }
 
@@ -1485,7 +1693,6 @@ const AccountStatement: React.FC = () => {
               Reset
             </button>
 
-            {/* ✅ FIX: show FILTERED totals so it changes when transaction type changes */}
             <div className="ml-auto text-sm text-gray-600">
               Rows (Filtered): <strong>{totals.rows}</strong> | Debit (Filtered):{" "}
               <strong>{fmtNumber(totals.debit)}</strong> | Credit (Filtered):{" "}
@@ -1500,7 +1707,10 @@ const AccountStatement: React.FC = () => {
           <div className="fixed inset-0 z-50 flex items-start justify-center pt-8">
             <div
               className="absolute inset-0 bg-black opacity-30"
-              onClick={() => setShowModal(false)}
+              onClick={() => {
+                setShowModal(false);
+                setSelectedTx(null);
+              }}
             />
             <div
               className={`relative bg-white rounded shadow overflow-hidden ${
@@ -1522,7 +1732,6 @@ const AccountStatement: React.FC = () => {
                     <strong>To:</strong> {fmtDateHeader(toDate)}
                   </div>
 
-                  {/* ✅ FIX: show FILTERED totals here */}
                   <div className="text-xs text-gray-600 mt-1">
                     Rows (Filtered): {totals.rows} | Debit (Filtered): {fmtNumber(totals.debit)} |
                     Credit (Filtered): {fmtNumber(totals.credit)} | Net (Filtered):{" "}
@@ -1538,7 +1747,10 @@ const AccountStatement: React.FC = () => {
                       <span className="text-gray-700">Transaction Type:</span>
                       <select
                         value={transactionFilter}
-                        onChange={(e) => setTransactionFilter(e.target.value as any)}
+                        onChange={(e) => {
+                          setTransactionFilter(e.target.value as any);
+                          setSelectedTx(null);
+                        }}
                         className="border rounded px-2 py-1 text-xs"
                       >
                         <option value="all">All</option>
@@ -1553,6 +1765,10 @@ const AccountStatement: React.FC = () => {
                         <option value="Receipt">Receipt</option>
                         <option value="Opening">Opening</option>
                       </select>
+
+                      <span className="text-gray-400">
+                        (Click any <b>Date</b> to view details below)
+                      </span>
                     </div>
                   )}
                 </div>
@@ -1574,7 +1790,10 @@ const AccountStatement: React.FC = () => {
 
                   <button
                     className="px-2 py-1 bg-red-500 text-white rounded text-sm hover:bg-red-600"
-                    onClick={() => setShowModal(false)}
+                    onClick={() => {
+                      setShowModal(false);
+                      setSelectedTx(null);
+                    }}
                   >
                     Close
                   </button>
@@ -1590,6 +1809,96 @@ const AccountStatement: React.FC = () => {
                     <div className="font-semibold text-red-700">
                       Overdue Entries (≥ {OVERDUE_DAYS} Days): {overdueRowsAll.length}
                     </div>
+                  </div>
+                )}
+
+                {/* ✅ Details section (same page) */}
+                <div ref={detailRef} />
+                {selectedTx && selectedTxDetails && (
+                  <div className="mb-3 border rounded p-3 bg-gray-50">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="text-sm font-semibold text-gray-800">
+                        {selectedTxDetails.title}{" "}
+                        <span className="text-gray-500 font-normal">
+                          ({typeLabel(selectedTx.type)} / {selectedTx.orderNo})
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        className="px-2 py-1 border rounded text-xs hover:bg-white"
+                        onClick={() => setSelectedTx(null)}
+                      >
+                        Close Details
+                      </button>
+                    </div>
+
+                    {/* ✅ Only useful details (NO document fields list, NO raw rows, NO raw json) */}
+                    <div className="mt-2 grid grid-cols-12 gap-2 text-xs">
+                      <div className="col-span-12 lg:col-span-3 text-gray-600">Date</div>
+                      <div className="col-span-12 lg:col-span-9 text-gray-900">
+                        {fmtDateHeader(selectedTx.date)}
+                      </div>
+
+                      <div className="col-span-12 lg:col-span-3 text-gray-600">Party</div>
+                      <div className="col-span-12 lg:col-span-9 text-gray-900">
+                        {selectedTx.partyName || "-"}
+                      </div>
+
+                      <div className="col-span-12 lg:col-span-3 text-gray-600">Broker</div>
+                      <div className="col-span-12 lg:col-span-9 text-gray-900">
+                        {selectedTx.brokerName || "-"}
+                      </div>
+
+                      <div className="col-span-12 lg:col-span-3 text-gray-600">Challan No</div>
+                      <div className="col-span-12 lg:col-span-9 text-gray-900">
+                        {selectedTx.orderNo || "-"}
+                      </div>
+
+                      <div className="col-span-12 lg:col-span-3 text-gray-600">Debit</div>
+                      <div className="col-span-12 lg:col-span-9 text-gray-900">
+                        {fmtNumber(selectedTx.debit)}
+                      </div>
+
+                      <div className="col-span-12 lg:col-span-3 text-gray-600">Credit</div>
+                      <div className="col-span-12 lg:col-span-9 text-gray-900">
+                        {fmtNumber(selectedTx.credit)}
+                      </div>
+
+                      <div className="col-span-12 lg:col-span-3 text-gray-600">Balance</div>
+                      <div className="col-span-12 lg:col-span-9 text-gray-900">
+                        {fmtNumber(selectedTx.balance)}
+                      </div>
+
+                      <div className="col-span-12 lg:col-span-3 text-gray-600">Days</div>
+                      <div className="col-span-12 lg:col-span-9 text-gray-900">
+                        {selectedTx.days}
+                      </div>
+                    </div>
+
+                    {/* Line items */}
+                    {(() => {
+                      const doc: any = selectedTxDetails.doc;
+                      if (!doc) {
+                        return (
+                          <div className="mt-3 text-xs text-gray-500">
+                            Details not found for this entry.
+                          </div>
+                        );
+                      }
+
+                      const rows: any[] =
+                        Array.isArray(doc.items) && doc.items.length
+                          ? doc.items
+                          : Array.isArray(doc.rows) && doc.rows.length
+                            ? doc.rows
+                            : [];
+
+                      return rows.length ? (
+                        renderArrayTable(rows, "Items / Rows")
+                      ) : (
+                        <div className="mt-3 text-xs text-gray-500">No items/rows found.</div>
+                      );
+                    })()}
                   </div>
                 )}
 
@@ -1630,7 +1939,23 @@ const AccountStatement: React.FC = () => {
                         return (
                           <tr key={`${r.type}-${r.id}-${r.srNo}`} className={rowClass}>
                             <td className="px-2 py-1 border">{r.srNo}</td>
-                            <td className="px-2 py-1 border">{fmtDateHeader(r.date)}</td>
+
+                            {/* ✅ CLICK DATE -> SHOW DETAILS */}
+                            <td className="px-2 py-1 border">
+                              {r.type === "Opening" ? (
+                                fmtDateHeader(r.date)
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => openDetails(r)}
+                                  className="text-blue-700 underline underline-offset-2 hover:text-blue-900"
+                                  title="Click to view details"
+                                >
+                                  {fmtDateHeader(r.date)}
+                                </button>
+                              )}
+                            </td>
+
                             <td className="px-2 py-1 border">{partyCell}</td>
                             <td className="px-2 py-1 border">{r.orderNo}</td>
                             <td className="px-2 py-1 border">{r.mode || ""}</td>
@@ -1697,7 +2022,6 @@ const AccountStatement: React.FC = () => {
                                   </div>
 
                                   <div className="col-span-3 text-right">
-                                    {/* ✅ FIX: Net box now changes with filter */}
                                     <div className="text-sm font-semibold">
                                       {transactionFilter === "all"
                                         ? "Net Position (All)"

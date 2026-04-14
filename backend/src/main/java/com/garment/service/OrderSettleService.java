@@ -1,5 +1,6 @@
 package com.garment.service;
 
+import java.time.LocalDate;
 import java.util.List;
 import com.garment.DTO.OrderSettleDTO;
 
@@ -14,4 +15,6 @@ public interface OrderSettleService {
     List<OrderSettleDTO> list();
 
     void delete(Long id);
+
+    List<OrderSettleDTO> listByDateRange(LocalDate from, LocalDate to);
 }

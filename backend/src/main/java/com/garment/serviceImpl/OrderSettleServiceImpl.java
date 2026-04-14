@@ -1,5 +1,6 @@
 package com.garment.serviceImpl;
 
+import java.time.LocalDate;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -139,6 +140,13 @@ public class OrderSettleServiceImpl implements OrderSettleService {
                 }
                 e.addRow(r);
             }
+
         }
+    }
+    @Override
+    @Transactional(readOnly = true)
+    public List<OrderSettleDTO> listByDateRange(LocalDate from, LocalDate to) {
+        List<OrderSettle> list = repo.findByDatedBetween(from, to);
+        return list.stream().map(this::toDto).collect(Collectors.toList());
     }
 }

@@ -5,6 +5,7 @@ import java.time.LocalDate;
 import java.util.*;
 import java.util.stream.Collectors;
 
+import com.garment.repository.*;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -21,10 +22,6 @@ import com.garment.model.SaleOrder;
 import com.garment.model.SaleOrderRow;
 import com.garment.model.SaleOrderSizeDetail;
 import com.garment.model.Size;
-import com.garment.repository.PartyRepository;
-import com.garment.repository.SaleOrderRepository;
-import com.garment.repository.ShadeRepository;
-import com.garment.repository.SizeRepository;
 import com.garment.service.OrderSettleService;
 import com.garment.service.SaleOrderService;
 
@@ -40,6 +37,7 @@ public class SaleOrderServiceImpl implements SaleOrderService {
     private final SizeRepository sizeRepo;
     private final PartyRepository partyRepo;
     private final OrderSettleService orderSettleService; // USE EXISTING SERVICE
+    private final DispatchChallanRepository dispatchChallanRepository;
 
     /* ---------- Helpers ---------- */
 
@@ -246,16 +244,22 @@ public class SaleOrderServiceImpl implements SaleOrderService {
             List<String> sizeNamesUpper,
             List<String> shadeNamesUpper
     ) {
+        // 1) Load Sale Orders in date range
         List<SaleOrder> soRecv = repo.findByDatedBetween(from, to);
 
-        // party -> station
+        // 2) party -> station (UPPER)
         Set<Long> partyIdSet = new HashSet<>();
-        soRecv.forEach(so -> { if (so.getPartyId()!=null) partyIdSet.add(so.getPartyId()); });
+        for (SaleOrder so : soRecv) {
+            if (so.getPartyId() != null) {
+                partyIdSet.add(so.getPartyId());
+            }
+        }
 
         Map<Long, String> partyStation = new HashMap<>();
         if (!partyIdSet.isEmpty()) {
             partyRepo.findAllById(partyIdSet).forEach(p -> {
-                partyStation.put(p.getId(), Optional.ofNullable(p.getStation()).orElse(""));
+                String st = Optional.ofNullable(p.getStation()).orElse("");
+                partyStation.put(p.getId(), st.toUpperCase().trim());
             });
         }
 
@@ -265,11 +269,15 @@ public class SaleOrderServiceImpl implements SaleOrderService {
         final Set<String> sizeFilter   = new HashSet<>(sizeNamesUpper == null ? List.of() : sizeNamesUpper);
         final Set<String> shadeFilter  = new HashSet<>(shadeNamesUpper == null ? List.of() : shadeNamesUpper);
 
+        java.util.function.Function<String,String> up  = s -> s == null ? "" : s.trim().toUpperCase();
+        java.util.function.Function<String,String> low = s -> s == null ? "" : s.trim().toLowerCase();
+
         class Agg {
             int opening = 0;
             int receipt = 0;
             int dispatch = 0;
             int pending = 0;
+
             String dest;
             Long   pid;
             String pname;
@@ -281,9 +289,6 @@ public class SaleOrderServiceImpl implements SaleOrderService {
 
         Map<String, Agg> map = new LinkedHashMap<>();
 
-        java.util.function.Function<String,String> up  = s -> s == null ? "" : s.trim().toUpperCase();
-        java.util.function.Function<String,String> low = s -> s == null ? "" : s.trim().toLowerCase();
-
         java.util.function.BiConsumer<String, java.util.function.Consumer<Agg>> put =
                 (key, consumer) -> {
                     Agg a = map.get(key);
@@ -294,12 +299,17 @@ public class SaleOrderServiceImpl implements SaleOrderService {
                     consumer.accept(a);
                 };
 
+        // ========= 3) FROM SALE ORDER (receipt = peti * box) =========
         for (SaleOrder so : soRecv) {
             Long pid = so.getPartyId();
             String station = pid != null ? up.apply(partyStation.get(pid)) : "";
 
-            if (!destFilter.isEmpty() && (station.isEmpty() || !destFilter.contains(station))) continue;
-            if (!partyFilter.isEmpty() && (pid == null || !partyFilter.contains(pid))) continue;
+            if (!destFilter.isEmpty()) {
+                if (station.isEmpty() || !destFilter.contains(station)) continue;
+            }
+            if (!partyFilter.isEmpty()) {
+                if (pid == null || !partyFilter.contains(pid)) continue;
+            }
 
             String partyName = Optional.ofNullable(so.getPartyName()).orElse("");
 
@@ -329,18 +339,22 @@ public class SaleOrderServiceImpl implements SaleOrderService {
                 for (SaleOrderSizeDetail sd : Optional.ofNullable(row.getSizeDetails()).orElse(List.of())) {
                     String rawSize = Optional.ofNullable(sd.getSizeName()).orElse("");
                     String[] parts = rawSize.split("__", 2);
-                    String baseSize = up.apply(parts[0]);
+                    String baseSize = up.apply(parts[0]);   // "M", "L", etc.
 
                     if (!sizeFilter.isEmpty() && !sizeFilter.contains(baseSize)) continue;
 
                     int box = Optional.ofNullable(sd.getQty()).orElse(0);
+                    if (box == 0) continue;
 
+                    // PETI MULTIPLIED HERE
                     int rec;
                     if (rawPeti != null && rawPeti == 0) {
+                        // special case: peti=0 => direct boxes
                         rec = box;
                     } else {
                         rec = effectivePeti * box;
                     }
+
                     if (rec == 0) continue;
 
                     String key = station + "|" + String.valueOf(pid) + "|" + artNoLower + "|" + shadeUpper + "|" + baseSize;
@@ -360,7 +374,133 @@ public class SaleOrderServiceImpl implements SaleOrderService {
             }
         }
 
+        // ========= 4) MINUS DISPATCH CHALLAN =========
+        try {
+            // Directly use repository (you have DispatchChallanRepository)
+            // or a service method returning all DispatchChallan between from/to.
+            // For simplicity, we assume you have repository bean here; if not, inject it.
+            // Example with repository bean:
+            // private final DispatchChallanRepository dispatchRepo;
+            // and here:
+            // List<DispatchChallan> challans = dispatchRepo.findByDateBetween(from, to);
+
+            // If you don't want to inject repo here, you can call service.getAll() and filter by date,
+            // but repo is better.
+
+            // Assume you inject DispatchChallanRepository:
+            List<com.garment.model.DispatchChallan> challans =
+                    dispatchChallanRepository.findByDateBetween(from, to);
+
+            for (com.garment.model.DispatchChallan ch : challans) {
+                String pName = Optional.ofNullable(ch.getPartyName()).orElse("");
+                Long pid = null; // we don't have partyId in DispatchChallan, so we match by partyName only
+
+                String partyUpper = up.apply(pName);
+
+                for (com.garment.model.DispatchRow rr :
+                        Optional.ofNullable(ch.getRows()).orElse(List.of())) {
+
+                    String artNo = Optional.ofNullable(rr.getArtNo()).orElse("");
+                    String artNoLower = low.apply(artNo);
+                    if (!artFilter.isEmpty() && !artFilter.contains(artNoLower)) continue;
+
+                    String sizeName = Optional.ofNullable(rr.getSize()).orElse("");
+                    String sizeUpper = up.apply(sizeName);
+                    if (!sizeFilter.isEmpty() && !sizeFilter.contains(sizeUpper)) continue;
+
+                    String shadeName = Optional.ofNullable(rr.getShade()).orElse("");
+                    String shadeUpper = up.apply(shadeName);
+                    if (!shadeFilter.isEmpty()) {
+                        if (shadeUpper.isEmpty() || !shadeFilter.contains(shadeUpper)) continue;
+                    }
+
+                    Integer boxVal = rr.getBox();
+                    Integer pcsVal = rr.getPcs();
+                    Integer perBox = rr.getPcsPerBox();
+
+                    int box;
+                    if (boxVal != null) {
+                        box = boxVal;
+                    } else if (pcsVal != null && perBox != null && perBox != 0) {
+                        box = pcsVal / perBox;
+                    } else {
+                        box = 0;
+                    }
+                    if (box == 0) continue;
+
+                    // key without partyId (match on partyName, art, shade, size)
+                    String key = "" + "|" + partyUpper + "|" + artNoLower + "|" + shadeUpper + "|" + sizeUpper;
+
+                    // since map key uses pid (Long) and station, we need to search by matching fields:
+                    // But we only know partyName; we can't get pid here. We'll match by partyName case-insensitive.
+                    for (Map.Entry<String, Agg> e : map.entrySet()) {
+                        Agg a = e.getValue();
+                        if (up.apply(a.pname).equals(partyUpper)
+                                && low.apply(a.artNo).equals(artNoLower)
+                                && up.apply(a.shade).equals(shadeUpper)
+                                && up.apply(a.size).equals(sizeUpper)) {
+                            a.dispatch += box;
+                            a.pending = a.opening + a.receipt - a.dispatch;
+                        }
+                    }
+                }
+            }
+        } catch (Exception ex) {
+            ex.printStackTrace();
+        }
+
+        // ========= 5) MINUS ORDER SETTLE =========
+        try {
+            List<OrderSettleDTO> settles = orderSettleService.listByDateRange(from, to);
+            for (OrderSettleDTO os : settles) {
+                String pName = Optional.ofNullable(os.getPartyName()).orElse("");
+                String partyUpper = up.apply(pName);
+
+                List<OrderSettleRowDTO> rs = os.getRows() != null ? os.getRows() : List.of();
+                for (OrderSettleRowDTO r : rs) {
+                    String artNo = Optional.ofNullable(r.getArtNo()).orElse("");
+                    String artNoLower = low.apply(artNo);
+                    if (!artFilter.isEmpty() && !artFilter.contains(artNoLower)) continue;
+
+                    String shadeName = Optional.ofNullable(r.getShade()).orElse("");
+                    String shadeUpper = up.apply(shadeName);
+                    if (!shadeFilter.isEmpty()) {
+                        if (shadeUpper.isEmpty() || !shadeFilter.contains(shadeUpper)) continue;
+                    }
+
+                    List<OrderSettleSizeDetailDTO> ds =
+                            r.getSizeDetails() != null ? r.getSizeDetails() : List.of();
+                    for (OrderSettleSizeDetailDTO sd : ds) {
+                        String sizeName = Optional.ofNullable(sd.getSizeName()).orElse("");
+                        String sizeUpper = up.apply(sizeName);
+                        if (!sizeFilter.isEmpty() && !sizeFilter.contains(sizeUpper)) continue;
+
+                        int settleBox = Optional.ofNullable(sd.getSettleBox()).orElse(0);
+                        if (settleBox == 0) continue;
+
+                        // again, match in map by partyName, artNo, shade, size
+                        for (Map.Entry<String, Agg> e : map.entrySet()) {
+                            Agg a = e.getValue();
+                            if (up.apply(a.pname).equals(partyUpper)
+                                    && low.apply(a.artNo).equals(artNoLower)
+                                    && up.apply(a.shade).equals(shadeUpper)
+                                    && up.apply(a.size).equals(sizeUpper)) {
+                                // treat settleBox same as dispatch for pending
+                                a.dispatch += settleBox;
+                                a.pending = a.opening + a.receipt - a.dispatch;
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (Exception ex) {
+            ex.printStackTrace();
+        }
+
+        // ========= 6) Final list, only pending != 0 =========
         return map.values().stream()
+                .peek(a -> a.pending = a.opening + a.receipt - a.dispatch)
+                .filter(a -> a.pending != 0) // 0 skip, negative allowed
                 .map(a -> new SaleOrderPendencyRowDTO(
                         a.dest,
                         a.pid,
