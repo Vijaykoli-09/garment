@@ -1,6 +1,5 @@
 import React, { useMemo, useState, useEffect, useCallback } from "react";
 import Dashboard from "../Dashboard";
-import axios from "axios";
 import api from "../../api/axiosInstance";
 
 
