@@ -20,9 +20,7 @@ const PAYMENT_METHOD_LABEL: Record<string, string> = {
 };
 
 function paymentModeLabel(method: string): string {
-  if (method === "CREDIT_ORDER")   return "Credit";
-  if (method === "ADVANCE_CREDIT") return "Advance + Credit";
-  return "Full Payment";
+  return PAYMENT_METHOD_LABEL[method] ?? "Full Payment";
 }
 
 function deriveStatus(order: any): "Paid" | "Partial" | "Credit Pending" {
