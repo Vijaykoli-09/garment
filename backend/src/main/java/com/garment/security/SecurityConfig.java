@@ -99,6 +99,7 @@ public class SecurityConfig {
                 .requestMatchers("/api/sale-orders/**").permitAll()
                 .requestMatchers("/api/sale-order-returns/**").permitAll()
                 .requestMatchers("/api/payment/**").permitAll()
+                .requestMatchers("/api/recipt/**").permitAll()
                 .requestMatchers("/api/production-receipt/**").permitAll()
                 .requestMatchers("/api/dispatch-challan/**").permitAll()
                 .requestMatchers("/api/payment/payment-mode/**").permitAll()
