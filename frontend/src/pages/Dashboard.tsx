@@ -7,7 +7,6 @@ import {
   DocumentTextIcon,
   HomeIcon,
   CreditCardIcon,
-  ShoppingCartIcon,
 } from "@heroicons/react/24/solid";
 import AdminPanelSettingsIcon from '@mui/icons-material/AdminPanelSettings';
 import { useLocation, useNavigate } from "react-router-dom";
@@ -18,7 +17,7 @@ import CuttingNavigator from "../navigations/CuttingNavigator";
 import PaymentNavigator from "../navigations/PaymentNavigator";
 import SalesNavigator from "../navigations/SalesNavigator";
 import AdministrationNavigator from "../navigations/AdministrationNavigator";
-import PurchaseNavigator from "../navigations/PurchaseNavigator";
+
 
 interface DashboardProps {
   children?: React.ReactNode;
@@ -37,7 +36,6 @@ const Dashboard: React.FC<DashboardProps> = ({ children }) => {
   const location = useLocation();
   const [openSales, setOpenSales] = useState(false);
   const [openAdministration, setOpenAdministration] = useState(false);
-  const [openPurchase, setOpenPurchase] = useState(false);
   const userString = localStorage.getItem("user");
   const user = userString ? JSON.parse(userString) : { name: "User" };
 
