@@ -5,6 +5,7 @@ import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.core.userdetails.UserDetails;
@@ -21,16 +22,20 @@ public class JwtAuthFilter extends OncePerRequestFilter {
     private JwtUtil jwtUtil;
 
     @Autowired
-    private UserDetailsService userDetailsService;
+    @Qualifier("customUserDetailsService")
+    private UserDetailsService webUserDetailsService;
 
-    /** Skip JWT checks for auth endpoints and CORS preflight */
+    @Autowired
+    private CustomerUserDetailsService customerUserDetailsService;
+
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
-        String path = request.getServletPath();
-        boolean skip = path.startsWith("/api/auth/") || "OPTIONS".equalsIgnoreCase(request.getMethod());
-        // DEBUG (optional): uncomment if you want to see it in logs
-        // System.out.println("[JwtAuthFilter] shouldNotFilter path=" + path + " -> " + skip);
-        return skip;
+        String path   = request.getServletPath();
+        String method = request.getMethod();
+        return path.startsWith("/api/auth/")
+            || path.equals("/api/customer/auth/login")
+            || path.equals("/api/customer/auth/signup")
+            || "OPTIONS".equalsIgnoreCase(method);
     }
 
     @Override
@@ -41,37 +46,45 @@ public class JwtAuthFilter extends OncePerRequestFilter {
 
         final String authHeader = request.getHeader("Authorization");
 
-        // If there is no Bearer token, continue the chain unauthenticated
         if (authHeader == null || !authHeader.startsWith("Bearer ")) {
             filterChain.doFilter(request, response);
             return;
         }
 
-        String jwt = authHeader.substring(7).trim();
-        String email;
+        String jwt     = authHeader.substring(7).trim();
+        String subject;
 
         try {
-            email = jwtUtil.extractEmail(jwt);
+            subject = jwtUtil.extractEmail(jwt);
         } catch (Exception e) {
-            // Invalid token -> proceed without authentication
             filterChain.doFilter(request, response);
             return;
         }
 
-        // Only authenticate if no one is already authenticated
-        if (email != null && SecurityContextHolder.getContext().getAuthentication() == null) {
+        if (subject != null && SecurityContextHolder.getContext().getAuthentication() == null) {
             try {
-                UserDetails userDetails = userDetailsService.loadUserByUsername(email);
+                // IMPROVEMENT over your version:
+                // OLD: detected mobile by URL path (startsWith "/api/orders/" etc.)
+                //      Problem: any new mobile endpoint not in that list would fail.
+                //
+                // NEW: detect by JWT subject format.
+                //      Phone numbers are 10 digits → mobile customer token.
+                //      Emails contain '@' → web admin token.
+                //      This works for ALL endpoints automatically.
+                boolean isMobileToken = subject.matches("^[0-9]{10}$");
 
-                // Validate token against the username/subject
+                UserDetails userDetails = isMobileToken
+                        ? customerUserDetailsService.loadUserByUsername(subject)
+                        : webUserDetailsService.loadUserByUsername(subject);
+
                 if (jwtUtil.validateToken(jwt, userDetails.getUsername())) {
                     UsernamePasswordAuthenticationToken authToken =
                             new UsernamePasswordAuthenticationToken(
                                     userDetails, null, userDetails.getAuthorities());
                     SecurityContextHolder.getContext().setAuthentication(authToken);
                 }
-            } catch (Exception ignored) {
-                // user not found or other issue -> leave context unauthenticated
+            } catch (Exception e) {
+                // user not found or account not approved → leave unauthenticated
             }
         }
 

@@ -1,6 +1,6 @@
 import React, { useContext } from 'react';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
-import { TouchableOpacity, Text, StyleSheet, View } from 'react-native';
+import { TouchableOpacity, Text, View } from 'react-native';
 import { AppContext } from '../context/AppContext';
 
 import DashboardScreen from '../screens/DashboardScreen';
@@ -13,6 +13,10 @@ import CreditCheckScreen from '../screens/CreditCheckScreen';
 import OrderHistoryScreen from '../screens/OrderHistoryScreen';
 import PaymentScreen from '../screens/PaymentScreen';
 import ProfileScreen from '../screens/ProfileScreen';
+import PendingOrdersScreen from '../screens/PendingOrdersScreen';
+import AcceptedOrdersScreen from '../screens/AcceptedOrdersScreen';
+import OrderDetailScreen from '../screens/OrderDetailScreen';
+import CreditOrdersScreen from '../screens/CreditOrdersScreen';
 
 export type RootStackParamList = {
   Dashboard: undefined;
@@ -25,47 +29,68 @@ export type RootStackParamList = {
   OrderHistory: undefined;
   PaymentScreen: undefined;
   Profile: undefined;
+  PendingOrders: undefined;
+  AcceptedOrders: undefined;
+  OrderDetail: { orderId: number };
+  CreditOrders: undefined;
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
 const screenOptions = {
-  headerStyle: {
-    backgroundColor: '#FFFFFF',
-  },
+  headerStyle: { backgroundColor: '#FFFFFF' },
   headerTintColor: '#2563EB',
   headerTitleStyle: {
-    fontWeight: '700',
+    fontWeight: '700' as const,
     fontSize: 16,
     color: '#0F172A',
   },
   headerShadowVisible: true,
 };
 
+// Cart button with badge — reused across screens
+function CartBtn({ navigation, totalItems }: { navigation: any; totalItems: number }) {
+  return (
+    <TouchableOpacity
+      onPress={() => navigation.navigate('Cart')}
+      style={{ marginRight: 15 }}
+    >
+      <Text style={{ fontSize: 18 }}>🛒</Text>
+      {totalItems > 0 && (
+        <View style={{
+          position: 'absolute', top: -5, right: -8,
+          backgroundColor: '#EF4444', borderRadius: 10,
+          minWidth: 18, height: 18,
+          justifyContent: 'center', alignItems: 'center',
+        }}>
+          <Text style={{ color: '#fff', fontSize: 10, fontWeight: '800' }}>
+            {totalItems}
+          </Text>
+        </View>
+      )}
+    </TouchableOpacity>
+  );
+}
+
 export default function MainNavigator() {
   const { totalItems } = useContext(AppContext);
 
   return (
     <Stack.Navigator screenOptions={screenOptions}>
+
       <Stack.Screen
         name="Dashboard"
         component={DashboardScreen}
         options={({ navigation }) => ({
-          title: 'Dashboard',
+          headerShown: false,
           headerRight: () => (
             <View style={{ flexDirection: 'row', marginRight: 15, gap: 15 }}>
-              <TouchableOpacity
-                onPress={() => navigation.navigate('Profile')}
-              >
-                <Text style={{ fontSize: 18 }}>👤</Text>
+              <TouchableOpacity onPress={() => navigation.navigate('Profile')}>
+                <Text style={{ fontSize: 20 }}>👤</Text>
               </TouchableOpacity>
-              <TouchableOpacity
-                onPress={() => navigation.navigate('Cart')}
-              >
-                <Text style={{ fontSize: 16, fontWeight: '600' }}>🛒 {totalItems}</Text>
-              </TouchableOpacity>
+              <CartBtn navigation={navigation} totalItems={totalItems} />
             </View>
-          )
+          ),
         })}
       />
 
@@ -74,42 +99,38 @@ export default function MainNavigator() {
         component={ProductListScreen}
         options={({ navigation }) => ({
           title: 'Products',
-          headerRight: () => (
-            <TouchableOpacity
-              onPress={() => navigation.navigate('Cart')}
-              style={{ marginRight: 15 }}
-            >
-              <Text style={{ fontSize: 16, color: '#FFFFFF', fontWeight: '600' }}>🛒 {totalItems}</Text>
-            </TouchableOpacity>
-          )
+          headerRight: () => <CartBtn navigation={navigation} totalItems={totalItems} />,
         })}
       />
 
       <Stack.Screen
         name="ProductDetail"
         component={ProductDetailScreen}
-        options={{ title: 'Product Details' }}
+        options={({ navigation }) => ({
+          title: 'Product Details',
+          headerRight: () => <CartBtn navigation={navigation} totalItems={totalItems} />,
+        })}
       />
 
-      <Stack.Screen 
-        name="Cart" 
+      <Stack.Screen
+        name="Cart"
         component={CartScreen}
         options={{ title: 'Shopping Cart' }}
       />
-      <Stack.Screen 
-        name="Checkout" 
+      <Stack.Screen
+        name="Checkout"
         component={CheckoutScreen}
         options={{ title: 'Checkout' }}
       />
-      <Stack.Screen 
-        name="PaymentMethod" 
+      <Stack.Screen
+        name="PaymentMethod"
         component={PaymentMethodScreen}
         options={{ title: 'Payment Method' }}
       />
-      <Stack.Screen 
-        name="CreditCheck" 
+      <Stack.Screen
+        name="CreditCheck"
         component={CreditCheckScreen}
-        options={{ title: 'Credit Check' }}
+        options={{ title: 'Credit Details' }}
       />
       <Stack.Screen
         name="OrderHistory"
@@ -126,6 +147,27 @@ export default function MainNavigator() {
         component={ProfileScreen}
         options={{ title: 'My Profile' }}
       />
+      <Stack.Screen
+        name="PendingOrders"
+        component={PendingOrdersScreen}
+        options={{ title: 'Pending Orders' }}
+      />
+      <Stack.Screen
+        name="AcceptedOrders"
+        component={AcceptedOrdersScreen}
+        options={{ title: 'Accepted Orders' }}
+      />
+      <Stack.Screen
+        name="OrderDetail"
+        component={OrderDetailScreen}
+        options={{ title: 'Order Detail' }}
+      />
+       <Stack.Screen
+        name="CreditOrders"
+        component={CreditOrdersScreen}
+        options={{ title: 'Pending Credit Payments' }}
+      />
+
     </Stack.Navigator>
   );
 }

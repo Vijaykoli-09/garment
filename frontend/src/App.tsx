@@ -100,6 +100,10 @@ import PurchaseReturnItem from "./pages/PurchaseMaterial/PurchaseReturnItem";
 
 
 
+import AddProduct from "./pages/app/AddProduct";
+import ViewSales from "./pages/app/ViewSales";
+import CustomerRequests from "./pages/app/CustomerRequests";
+
 function App() {
   return (
     <Router>
@@ -208,6 +212,11 @@ function App() {
         </Route>
 
  
+      {/* application */}
+         <Route path="/app/AddProduct" element={<AddProduct />} />
+        <Route path="/app/CustomerRequests" element={<CustomerRequests />} />
+        <Route path="/app/ViewSales" element={<ViewSales />} />
+
         {/* Dashboard (protected) */}
         <Route
           path="/dashboard"
