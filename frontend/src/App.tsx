@@ -26,7 +26,7 @@ import MaterialCreation from "./pages/Master/MaterialCreation";
 import MaterialGroup from "./pages/Master/MaterialGroup";
 import CustomerGrade from "./pages/Master/CustomerGrade";
 import CategoryCreation from "./pages/Master/CategoryCreation";
-import OrderRegister from "./pages/Master/OrderRegister";
+// import OrderRegister from "./pages/Master/OrderRegister";
 import PurchaseEntry from "./pages/Knitting/PurchaseEntry";
 import PurchaseOrder from "./pages/Knitting/PurchaseOrder";
 import PurchaseReturn from "./pages/Knitting/PurchaseReturn";
@@ -120,7 +120,7 @@ function App() {
         <Route path="/master/art/range-creation" element={<RangeCreation />} />
         <Route path="/master/art/shade-creation" element={<ShadeCreation />} />
         <Route path="/master/art/accessories-creation" element={<AccessoriesCreation />} />
-        <Route path="/master/order_register" element={<OrderRegister />} />
+        {/* <Route path="/master/order_register" element={<OrderRegister />} /> */}
         <Route path="/master/yarn-creation" element={<YarnCreation />} />
         <Route path="/master/transport" element={<TransportCreation />} />
         <Route path="/master/agent" element={<AgentCreation />} />
