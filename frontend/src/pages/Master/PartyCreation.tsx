@@ -1,9 +1,4 @@
-import React, {
-  useState,
-  useEffect,
-  useMemo,
-  useRef,
-} from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import api from "../../api/axiosInstance";
 import Swal from "sweetalert2";
 import Dashboard from "../Dashboard";
@@ -12,10 +7,20 @@ import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
 import { INDIA_STATES } from "../../api/indiaStates";
 
+type CustomerType = "WHOLESALER" | "SEMI_WHOLESALER" | "RETAILER";
+type CustomerTypeOrEmpty = CustomerType | "";
+
+const CUSTOMER_TYPES: { value: CustomerType; label: string }[] = [
+  { value: "WHOLESALER", label: "Wholesaler" },
+  { value: "SEMI_WHOLESALER", label: "Semi-Wholesaler" },
+  { value: "RETAILER", label: "Retailer" },
+];
+
 type ColumnId =
   | "srNo"
   | "serialNumber"
   | "partyName"
+  | "customerType"
   | "gstNo"
   | "mobileNo"
   | "stateName"
@@ -33,6 +38,7 @@ const columnLabels: Record<ColumnId, string> = {
   srNo: "Sr No",
   serialNumber: "Serial No",
   partyName: "Party Name",
+  customerType: "Customer Type",
   gstNo: "GST No",
   mobileNo: "Mobile No",
   stateName: "State Name",
@@ -52,6 +58,7 @@ const PartyCreation: React.FC = () => {
     id: null,
     serialNumber: "",
     partyName: "",
+    customerType: "" as CustomerTypeOrEmpty, // ✅ optional default blank
     address: "",
     mobileNo: "",
     gstNo: "",
@@ -100,6 +107,7 @@ const PartyCreation: React.FC = () => {
     srNo: true,
     serialNumber: true,
     partyName: true,
+    customerType: true,
     gstNo: true,
     mobileNo: true,
     stateName: true,
@@ -114,8 +122,11 @@ const PartyCreation: React.FC = () => {
     creditAmount: true,
   });
 
-  // Hidden full table for PDF (all columns)
-  const pdfTableRef = useRef<HTMLDivElement | null>(null);
+  const formatCustomerType = (val: any) => {
+    if (!val) return "";
+    const found = CUSTOMER_TYPES.find((x) => x.value === val);
+    return found?.label || String(val);
+  };
 
   // ------------ Dropdowns ------------
   useEffect(() => {
@@ -169,7 +180,8 @@ const PartyCreation: React.FC = () => {
         allParties
           .map((p: any) => p.station)
           .filter(
-            (v: any) => v !== null && v !== undefined && v.toString().trim() !== ""
+            (v: any) =>
+              v !== null && v !== undefined && v.toString().trim() !== ""
           )
       )
     ).sort((a: string, b: string) => a.localeCompare(b));
@@ -227,6 +239,9 @@ const PartyCreation: React.FC = () => {
         ...prev,
         category: selectedCategory || { serialNo: "", categoryName: "" },
       }));
+    } else if (name === "customerType") {
+      // ✅ keep "" in state, but we'll send null on save
+      setFormData((prev: any) => ({ ...prev, customerType: value }));
     } else {
       setFormData((prev: any) => ({ ...prev, [name]: value }));
     }
@@ -252,18 +267,21 @@ const PartyCreation: React.FC = () => {
 
   const handleSave = async () => {
     try {
-      if (!formData.openingBalanceType) formData.openingBalanceType = "CR";
+      // ✅ make payload: customerType "" => null (so Spring enum parsing won't fail)
+      const payload = {
+        ...formData,
+        openingBalanceType: formData.openingBalanceType || "CR",
+        customerType: formData.customerType ? formData.customerType : null,
+      };
 
       if (formData.id) {
-        await api.put(`/party/update/${formData.id}`, formData);
+        await api.put(`/party/update/${formData.id}`, payload);
         Swal.fire("Updated!", "Party updated successfully", "success");
       } else {
-        await api.post("/party/save", formData);
+        await api.post("/party/save", payload);
         Swal.fire("Added!", "Party saved successfully", "success");
       }
 
-      // After save, reload parties. New station (if any) will come in this list,
-      // and stationOptions (derived from allParties) will include it automatically.
       loadAllParties();
       handleAddNew();
     } catch (err) {
@@ -289,6 +307,7 @@ const PartyCreation: React.FC = () => {
       id: null,
       serialNumber: "",
       partyName: "",
+      customerType: "" as CustomerTypeOrEmpty, // ✅ reset blank (optional)
       address: "",
       mobileNo: "",
       gstNo: "",
@@ -343,6 +362,7 @@ const PartyCreation: React.FC = () => {
         const values = [
           p.serialNumber,
           p.partyName,
+          p.customerType,
           p.gstNo,
           p.mobileNo,
           p.stateName,
@@ -353,22 +373,12 @@ const PartyCreation: React.FC = () => {
         ];
         return values
           .filter((v) => v !== null && v !== undefined)
-          .some((v) =>
-            v
-              .toString()
-              .toLowerCase()
-              .includes(term)
-          );
+          .some((v) => v.toString().toLowerCase().includes(term));
       });
     }
 
-    if (stateFilter) {
-      filtered = filtered.filter((p: any) => p.stateName === stateFilter);
-    }
-
-    if (stationFilter) {
-      filtered = filtered.filter((p: any) => p.station === stationFilter);
-    }
+    if (stateFilter) filtered = filtered.filter((p: any) => p.stateName === stateFilter);
+    if (stationFilter) filtered = filtered.filter((p: any) => p.station === stationFilter);
 
     if (agentFilter) {
       filtered = filtered.filter(
@@ -405,9 +415,8 @@ const PartyCreation: React.FC = () => {
 
   const uniqueStations = useMemo(() => {
     let source = allParties;
-    if (filterState) {
-      source = allParties.filter((p: any) => p.stateName === filterState);
-    }
+    if (filterState) source = allParties.filter((p: any) => p.stateName === filterState);
+
     return Array.from(
       new Set(
         source
@@ -453,18 +462,11 @@ const PartyCreation: React.FC = () => {
     const selected = (Object.keys(columnVisibility) as ColumnId[]).filter(
       (id) => columnVisibility[id]
     );
-    if (selected.length === 0) {
-      // If no columns are selected, print all of them as a fallback
-      return Object.keys(columnVisibility) as ColumnId[];
-    }
+    if (selected.length === 0) return Object.keys(columnVisibility) as ColumnId[];
     return selected;
   };
 
-  const getColumnValueForPrint = (
-    colId: ColumnId,
-    p: any,
-    idx: number
-  ): string => {
+  const getColumnValueForPrint = (colId: ColumnId, p: any, idx: number): string => {
     switch (colId) {
       case "srNo":
         return String(idx + 1);
@@ -472,6 +474,8 @@ const PartyCreation: React.FC = () => {
         return p.serialNumber || "";
       case "partyName":
         return p.partyName || "";
+      case "customerType":
+        return formatCustomerType(p.customerType) || "";
       case "gstNo":
         return p.gstNo || "";
       case "mobileNo":
@@ -485,8 +489,7 @@ const PartyCreation: React.FC = () => {
       case "openingBalance":
         return formatOpeningBalance(p) || "";
       case "openingTaxBalance":
-        return p.openingTaxBalance === null ||
-          p.openingTaxBalance === undefined
+        return p.openingTaxBalance === null || p.openingTaxBalance === undefined
           ? ""
           : String(p.openingTaxBalance);
       case "date":
@@ -496,17 +499,19 @@ const PartyCreation: React.FC = () => {
       case "transport":
         return p.transport?.transportName || "";
       case "creditDays":
-        return p.creditDays === null || p.creditDays === undefined
-          ? ""
-          : String(p.creditDays);
+        return p.creditDays === null || p.creditDays === undefined ? "" : String(p.creditDays);
       case "creditAmount":
-        return p.creditAmount === null || p.creditAmount === undefined
-          ? ""
-          : String(p.creditAmount);
+        return p.creditAmount === null || p.creditAmount === undefined ? "" : String(p.creditAmount);
       default:
         return "";
     }
   };
+
+  const sortedFilteredParties = useMemo(() => {
+    return [...filteredParties].sort((a, b) =>
+      (a.partyName || "").localeCompare(b.partyName || "")
+    );
+  }, [filteredParties]);
 
   // ------------ Print ------------
   const handlePrint = () => {
@@ -515,18 +520,15 @@ const PartyCreation: React.FC = () => {
       return;
     }
 
-    // Sort parties alphabetically by partyName for printing
     const partiesToPrintSorted = [...filteredParties].sort((a, b) =>
       (a.partyName || "").localeCompare(b.partyName || "")
     );
 
     const cols = getPrintColumns();
 
-    const headerHtml = cols
-      .map((colId) => `<th>${columnLabels[colId]}</th>`)
-      .join("");
+    const headerHtml = cols.map((colId) => `<th>${columnLabels[colId]}</th>`).join("");
 
-    const bodyHtml = partiesToPrintSorted // Use the sorted array here
+    const bodyHtml = partiesToPrintSorted
       .map((p, i) => {
         const cells = cols
           .map(
@@ -562,12 +564,8 @@ const PartyCreation: React.FC = () => {
           <h2>Party Master List</h2>
           <h4>As On: ${today}</h4>
           <table>
-            <thead>
-              <tr>${headerHtml}</tr>
-            </thead>
-            <tbody>
-              ${bodyHtml}
-            </tbody>
+            <thead><tr>${headerHtml}</tr></thead>
+            <tbody>${bodyHtml}</tbody>
           </table>
         </body>
       </html>
@@ -579,63 +577,25 @@ const PartyCreation: React.FC = () => {
     w.print();
   };
 
-  // ------------ Export PDF (always ALL columns) ------------
+  // ------------ Export PDF (ALL columns) ------------
   const handleExportPDF = async () => {
     if (!filteredParties.length) {
       Swal.fire("No data", "No parties to export. Check filters.", "info");
       return;
     }
 
-    const input = pdfTableRef.current;
-    if (!input) {
-      Swal.fire("Error", "Table not found for export.", "error");
-      return;
-    }
-
     try {
-      // Sort parties alphabetically by partyName for PDF export as well
       const partiesForPdf = [...filteredParties].sort((a, b) =>
         (a.partyName || "").localeCompare(b.partyName || "")
       );
 
-      // Temporarily render a full table with ALL columns for html2canvas
-      // This is necessary because html2canvas only renders what's visible
-      // in the DOM, so we use the hidden `pdfTableRef` which contains all columns.
-      // We need to pass the sorted data to it somehow for rendering.
-      // A more robust solution might involve creating the PDF HTML manually,
-      // similar to `handlePrint`, but for a fixed-layout PDF.
-      // For now, we'll assume `pdfTableRef` gets its data from `filteredParties`
-      // and sort `filteredParties` before calling `html2canvas`.
+      const tempDiv = document.createElement("div");
+      tempDiv.style.position = "fixed";
+      tempDiv.style.left = "-9999px";
+      tempDiv.style.top = "0";
+      tempDiv.style.background = "#fff";
+      tempDiv.style.padding = "10px";
 
-      // To make pdfTableRef use the sorted data, you'd typically need to
-      // re-render it with the sorted data. Since it's hidden and always
-      // renders all parties, we just need to ensure the data source `filteredParties`
-      // is sorted *before* `html2canvas` is called.
-      // The current `pdfTableRef` JSX already iterates over `filteredParties`.
-      // The `filteredParties` state itself is what needs to be sorted temporarily
-      // or a new component needs to render the sorted list.
-      // For `html2canvas` on a hidden element, it will capture what's in the DOM.
-      // The most straightforward way is to manage the sort on `filteredParties`
-      // before it's passed to the hidden table, or ensure the hidden table
-      // explicitly uses a sorted version.
-
-      // A simple approach for the `pdfTableRef` is to use the `partiesForPdf` directly:
-      // This part is tricky. `html2canvas(input)` will capture the current state of `input`.
-      // If `input`'s content is rendered from `filteredParties`, then `filteredParties`
-      // *must* be sorted before `html2canvas` is called.
-
-      // Let's modify the JSX for `pdfTableRef` slightly to accept a prop
-      // or ensure `filteredParties` is sorted before being rendered into the ref.
-      // Since `pdfTableRef` is rendered using `filteredParties.map`,
-      // we need to make sure `filteredParties` is sorted at the moment of capture.
-      // The easiest way for a one-off capture is to generate the HTML string
-      // or modify the ref's content directly (less React-idiomatic).
-      // Given `pdfTableRef` directly renders from `filteredParties`, we need
-      // to make a temporary `div` or ensure the `filteredParties` state is sorted.
-
-      // For simplicity and correctness with the existing structure, let's create
-      // a temporary div, populate it with sorted data, and then capture it.
-      const tempDiv = document.createElement('div');
       tempDiv.innerHTML = `
         <style>
           table { width:100%; border-collapse:collapse; margin-top:10px; }
@@ -645,36 +605,54 @@ const PartyCreation: React.FC = () => {
         <table>
           <thead>
             <tr>
-              <th>Sr No</th><th>Serial No</th><th>Party Name</th><th>GST No</th>
-              <th>Mobile No</th><th>State Name</th><th>Station</th><th>Category</th>
-              <th>Opening Balance</th><th>Opening Tax Balance</th><th>Date</th>
-              <th>Agent</th><th>Transporter</th><th>Credit Days</th><th>Credit Amount</th>
+              <th>Sr No</th>
+              <th>Serial No</th>
+              <th>Party Name</th>
+              <th>Customer Type</th>
+              <th>GST No</th>
+              <th>Mobile No</th>
+              <th>State Name</th>
+              <th>Station</th>
+              <th>Category</th>
+              <th>Opening Balance</th>
+              <th>Opening Tax Balance</th>
+              <th>Date</th>
+              <th>Agent</th>
+              <th>Transporter</th>
+              <th>Credit Days</th>
+              <th>Credit Amount</th>
             </tr>
           </thead>
           <tbody>
-            ${partiesForPdf.map((p, idx) => `
+            ${partiesForPdf
+              .map(
+                (p, idx) => `
               <tr>
                 <td>${idx + 1}</td>
-                <td>${p.serialNumber || ''}</td>
-                <td>${p.partyName || ''}</td>
-                <td>${p.gstNo || ''}</td>
-                <td>${p.mobileNo || ''}</td>
-                <td>${p.stateName || ''}</td>
-                <td>${p.station || ''}</td>
-                <td>${p.category?.categoryName || ''}</td>
-                <td>${formatOpeningBalance(p) || ''}</td>
-                <td>${p.openingTaxBalance === null || p.openingTaxBalance === undefined ? '' : String(p.openingTaxBalance)}</td>
-                <td>${p.date || ''}</td>
-                <td>${p.agent?.agentName || ''}</td>
-                <td>${p.transport?.transportName || ''}</td>
-                <td>${p.creditDays === null || p.creditDays === undefined ? '' : String(p.creditDays)}</td>
-                <td>${p.creditAmount === null || p.creditAmount === undefined ? '' : String(p.creditAmount)}</td>
+                <td>${p.serialNumber || ""}</td>
+                <td>${(p.partyName || "").toString().replace(/</g, "&lt;").replace(/>/g, "&gt;")}</td>
+                <td>${formatCustomerType(p.customerType) || ""}</td>
+                <td>${p.gstNo || ""}</td>
+                <td>${p.mobileNo || ""}</td>
+                <td>${p.stateName || ""}</td>
+                <td>${p.station || ""}</td>
+                <td>${p.category?.categoryName || ""}</td>
+                <td>${formatOpeningBalance(p) || ""}</td>
+                <td>${p.openingTaxBalance === null || p.openingTaxBalance === undefined ? "" : String(p.openingTaxBalance)}</td>
+                <td>${p.date || ""}</td>
+                <td>${p.agent?.agentName || ""}</td>
+                <td>${p.transport?.transportName || ""}</td>
+                <td>${p.creditDays === null || p.creditDays === undefined ? "" : String(p.creditDays)}</td>
+                <td>${p.creditAmount === null || p.creditAmount === undefined ? "" : String(p.creditAmount)}</td>
               </tr>
-            `).join('')}
+            `
+              )
+              .join("")}
           </tbody>
         </table>
       `;
-      document.body.appendChild(tempDiv); // Temporarily add to DOM for capture
+
+      document.body.appendChild(tempDiv);
 
       const canvas = await html2canvas(tempDiv, { scale: 2 });
       const imgData = canvas.toDataURL("image/png");
@@ -687,8 +665,8 @@ const PartyCreation: React.FC = () => {
       const imgHeightPx = canvas.height;
 
       const ratio = Math.min(pdfWidth / imgWidthPx, pdfHeight / imgHeightPx);
-      const imgWidth = imgWidthPx * ratio * 0.9; // Adjust scale for better fit
-      const imgHeight = imgHeightPx * ratio * 0.9; // Adjust scale for better fit
+      const imgWidth = imgWidthPx * ratio * 0.92;
+      const imgHeight = imgHeightPx * ratio * 0.92;
 
       const x = (pdfWidth - imgWidth) / 2;
       const y = 10;
@@ -696,8 +674,7 @@ const PartyCreation: React.FC = () => {
       pdf.addImage(imgData, "PNG", x, y, imgWidth, imgHeight);
       pdf.save(`party-list-${Date.now()}.pdf`);
 
-      document.body.removeChild(tempDiv); // Clean up temporary div
-
+      document.body.removeChild(tempDiv);
     } catch (err) {
       console.error(err);
       Swal.fire("Error", "Failed to export PDF", "error");
@@ -828,6 +805,11 @@ const PartyCreation: React.FC = () => {
     cursor: "pointer",
   };
 
+  const visibleColumnCount = useMemo(() => {
+    const ids = Object.keys(columnVisibility) as ColumnId[];
+    return ids.reduce((acc, id) => acc + (columnVisibility[id] ? 1 : 0), 0);
+  }, [columnVisibility]);
+
   // ------------ JSX ------------
   return (
     <Dashboard>
@@ -842,6 +824,7 @@ const PartyCreation: React.FC = () => {
         >
           Party Creation
         </h2>
+
         <form>
           <div style={formRowStyle}>
             <label style={labelStyle}>Serial Number</label>
@@ -876,7 +859,23 @@ const PartyCreation: React.FC = () => {
             />
           </div>
 
+          {/* ✅ Optional Party Type */}
           <div style={formRowStyle}>
+            <label style={labelStyle}>Party Type</label>
+            <select
+              name="customerType"
+              value={formData.customerType ?? ""}
+              onChange={handleChange}
+              style={inputStyle}
+            >
+              <option value="">-- Select Type --</option>
+              {CUSTOMER_TYPES.map((t) => (
+                <option key={t.value} value={t.value}>
+                  {t.label}
+                </option>
+              ))}
+            </select>
+
             <label style={labelStyle}>Mobile No.</label>
             <input
               type="text"
@@ -885,13 +884,16 @@ const PartyCreation: React.FC = () => {
               onChange={handleChange}
               style={inputStyle}
             />
+          </div>
+
+          <div style={formRowStyle}>
             <label style={labelStyle}>Address</label>
             <textarea
               name="address"
               value={formData.address}
               onChange={handleChange}
               style={textareaStyle}
-            ></textarea>
+            />
           </div>
 
           <div style={formRowStyle}>
@@ -912,15 +914,7 @@ const PartyCreation: React.FC = () => {
                 style={inputStyle}
               />
 
-              <label
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "4px",
-                  fontSize: "12px",
-                  whiteSpace: "nowrap",
-                }}
-              >
+              <label style={{ display: "flex", gap: 4, fontSize: 12, whiteSpace: "nowrap" }}>
                 <input
                   type="radio"
                   name="openingBalanceType"
@@ -931,15 +925,7 @@ const PartyCreation: React.FC = () => {
                 Credit
               </label>
 
-              <label
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "4px",
-                  fontSize: "12px",
-                  whiteSpace: "nowrap",
-                }}
-              >
+              <label style={{ display: "flex", gap: 4, fontSize: 12, whiteSpace: "nowrap" }}>
                 <input
                   type="radio"
                   name="openingBalanceType"
@@ -970,6 +956,7 @@ const PartyCreation: React.FC = () => {
               onChange={handleChange}
               style={inputStyle}
             />
+
             <label style={labelStyle}>Category</label>
             <select
               name="category"
@@ -991,10 +978,7 @@ const PartyCreation: React.FC = () => {
             <select
               value={formData.stateName}
               onChange={(e) => {
-                const selected = INDIA_STATES.find(
-                  (s) => s.name === e.target.value
-                );
-
+                const selected = INDIA_STATES.find((s) => s.name === e.target.value);
                 setFormData((prev: any) => ({
                   ...prev,
                   stateName: selected?.name || "",
@@ -1022,11 +1006,7 @@ const PartyCreation: React.FC = () => {
 
           <div style={formRowStyle}>
             <label style={labelStyle}>Station</label>
-            <div
-              ref={stationWrapperRef}
-              style={{ position: "relative", flex: 1 }}
-            >
-              {/* Clickable label area */}
+            <div ref={stationWrapperRef} style={{ position: "relative", flex: 1 }}>
               <div
                 onClick={() => {
                   setIsStationDropdownOpen((prev) => !prev);
@@ -1044,17 +1024,12 @@ const PartyCreation: React.FC = () => {
                   fontSize: 14,
                 }}
               >
-                <span
-                  style={{
-                    color: formData.station ? "#000" : "#6c757d",
-                  }}
-                >
+                <span style={{ color: formData.station ? "#000" : "#6c757d" }}>
                   {formData.station || "Select Station"}
                 </span>
                 <span style={{ fontSize: 12 }}>▼</span>
               </div>
 
-              {/* Dropdown with search + list */}
               {isStationDropdownOpen && (
                 <div style={stationDropdownStyle}>
                   <div style={{ padding: "6px 8px", borderBottom: "1px solid #ddd" }}>
@@ -1072,21 +1047,14 @@ const PartyCreation: React.FC = () => {
                       }}
                     />
                   </div>
-                  <div
-                    style={{
-                      maxHeight: "200px",
-                      overflowY: "auto",
-                    }}
-                  >
+
+                  <div style={{ maxHeight: "200px", overflowY: "auto" }}>
                     {filteredStationOptions.map((st) => (
                       <div
                         key={st}
                         style={stationDropdownItemStyle}
                         onClick={() => {
-                          setFormData((prev: any) => ({
-                            ...prev,
-                            station: st,
-                          }));
+                          setFormData((prev: any) => ({ ...prev, station: st }));
                           setIsStationDropdownOpen(false);
                           setStationSearchTerm("");
                         }}
@@ -1095,7 +1063,6 @@ const PartyCreation: React.FC = () => {
                       </div>
                     ))}
 
-                    {/* Option to use new station if not in list */}
                     {stationSearchTerm.trim() && !stationExistsExact && (
                       <div
                         style={{
@@ -1106,10 +1073,7 @@ const PartyCreation: React.FC = () => {
                         }}
                         onClick={() => {
                           const val = stationSearchTerm.trim();
-                          setFormData((prev: any) => ({
-                            ...prev,
-                            station: val,
-                          }));
+                          setFormData((prev: any) => ({ ...prev, station: val }));
                           setIsStationDropdownOpen(false);
                           setStationSearchTerm("");
                         }}
@@ -1118,18 +1082,11 @@ const PartyCreation: React.FC = () => {
                       </div>
                     )}
 
-                    {filteredStationOptions.length === 0 &&
-                      !stationSearchTerm.trim() && (
-                        <div
-                          style={{
-                            ...stationDropdownItemStyle,
-                            color: "#999",
-                            cursor: "default",
-                          }}
-                        >
-                          No stations available
-                        </div>
-                      )}
+                    {filteredStationOptions.length === 0 && !stationSearchTerm.trim() && (
+                      <div style={{ ...stationDropdownItemStyle, color: "#999", cursor: "default" }}>
+                        No stations available
+                      </div>
+                    )}
                   </div>
                 </div>
               )}
@@ -1202,14 +1159,7 @@ const PartyCreation: React.FC = () => {
             />
           </div>
 
-          <div
-            style={{
-              display: "flex",
-              justifyContent: "center",
-              gap: "10px",
-              marginTop: "30px",
-            }}
-          >
+          <div style={{ display: "flex", justifyContent: "center", gap: 10, marginTop: 30 }}>
             <button type="button" onClick={handleSave} style={buttonStyle}>
               {formData.id ? "Update" : "Save"}
             </button>
@@ -1234,30 +1184,20 @@ const PartyCreation: React.FC = () => {
               <div style={modalHeaderStyle}>
                 <div style={headerTitleStyle}>
                   <span style={{ fontWeight: 600 }}>Party List</span>
-                  <span style={smallTextStyle}>
-                    Rows: {filteredParties.length}
-                  </span>
+                  <span style={smallTextStyle}>Rows: {filteredParties.length}</span>
                 </div>
 
                 <div style={{ display: "flex", gap: 8 }}>
                   <button
                     type="button"
-                    style={{
-                      ...buttonStyle,
-                      backgroundColor: "#6c757d",
-                      padding: "6px 10px",
-                    }}
+                    style={{ ...buttonStyle, backgroundColor: "#6c757d", padding: "6px 10px" }}
                     onClick={() => setIsFullScreen((prev) => !prev)}
                   >
                     {isFullScreen ? "Exit Fullscreen" : "Fullscreen"}
                   </button>
                   <button
                     type="button"
-                    style={{
-                      ...buttonStyle,
-                      backgroundColor: "#dc3545",
-                      padding: "6px 10px",
-                    }}
+                    style={{ ...buttonStyle, backgroundColor: "#dc3545", padding: "6px 10px" }}
                     onClick={() => {
                       setShowListModal(false);
                       setIsFullScreen(false);
@@ -1272,7 +1212,7 @@ const PartyCreation: React.FC = () => {
               <div style={modalBodyStyle}>
                 <input
                   type="text"
-                  placeholder="Search by Serial No, Party Name, GST, Mobile, State..."
+                  placeholder="Search by Serial No, Party Name, Type, GST, Mobile, State..."
                   onChange={handleSearchChange}
                   value={searchTerm}
                   style={{
@@ -1284,14 +1224,7 @@ const PartyCreation: React.FC = () => {
                   }}
                 />
 
-                <div
-                  style={{
-                    display: "flex",
-                    flexWrap: "wrap",
-                    gap: "10px",
-                    marginBottom: "10px",
-                  }}
-                >
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginBottom: 10 }}>
                   <select
                     value={filterState}
                     onChange={(e) => {
@@ -1362,16 +1295,8 @@ const PartyCreation: React.FC = () => {
                   </select>
                 </div>
 
-                {/* Column filters (for table + print) */}
-                <div
-                  style={{
-                    display: "flex",
-                    flexWrap: "wrap",
-                    gap: "8px",
-                    marginBottom: 8,
-                    fontSize: 12,
-                  }}
-                >
+                {/* Column filters */}
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 8, fontSize: 12 }}>
                   <span style={{ fontWeight: 600 }}>Columns:</span>
                   {(Object.keys(columnLabels) as ColumnId[]).map((id) => (
                     <label key={id} style={{ display: "flex", gap: 4 }}>
@@ -1385,274 +1310,65 @@ const PartyCreation: React.FC = () => {
                   ))}
                 </div>
 
-                {/* Scrollable table wrapper (visible, uses columnVisibility) */}
                 <div style={tableWrapperStyle}>
-                  <table
-                    style={{
-                      width: "100%",
-                      minWidth: "1500px",
-                      borderCollapse: "collapse",
-                      fontSize: 13,
-                    }}
-                  >
+                  <table style={{ width: "100%", minWidth: "1600px", borderCollapse: "collapse", fontSize: 13 }}>
                     <thead>
                       <tr>
-                        {columnVisibility.srNo && (
-                          <th style={{ border: "1px solid #ddd", padding: 8 }}>
-                            Sr No
-                          </th>
-                        )}
-                        {columnVisibility.serialNumber && (
-                          <th style={{ border: "1px solid #ddd", padding: 8 }}>
-                            Serial No
-                          </th>
-                        )}
-                        {columnVisibility.partyName && (
-                          <th style={{ border: "1px solid #ddd", padding: 8 }}>
-                            Party Name
-                          </th>
-                        )}
-                        {columnVisibility.gstNo && (
-                          <th style={{ border: "1px solid #ddd", padding: 8 }}>
-                            GST No
-                          </th>
-                        )}
-                        {columnVisibility.mobileNo && (
-                          <th style={{ border: "1px solid #ddd", padding: 8 }}>
-                            Mobile No
-                          </th>
-                        )}
-                        {columnVisibility.stateName && (
-                          <th style={{ border: "1px solid #ddd", padding: 8 }}>
-                            State Name
-                          </th>
-                        )}
-                        {columnVisibility.station && (
-                          <th style={{ border: "1px solid #ddd", padding: 8 }}>
-                            Station
-                          </th>
-                        )}
-                        {columnVisibility.category && (
-                          <th style={{ border: "1px solid #ddd", padding: 8 }}>
-                            Category
-                          </th>
-                        )}
-                        {columnVisibility.openingBalance && (
-                          <th style={{ border: "1px solid #ddd", padding: 8 }}>
-                            Opening Balance
-                          </th>
-                        )}
-                        {columnVisibility.openingTaxBalance && (
-                          <th style={{ border: "1px solid #ddd", padding: 8 }}>
-                            Opening Tax Balance
-                          </th>
-                        )}
-                        {columnVisibility.date && (
-                          <th style={{ border: "1px solid #ddd", padding: 8 }}>
-                            Date
-                          </th>
-                        )}
-                        {columnVisibility.agent && (
-                          <th style={{ border: "1px solid #ddd", padding: 8 }}>
-                            Agent
-                          </th>
-                        )}
-                        {columnVisibility.transport && (
-                          <th style={{ border: "1px solid #ddd", padding: 8 }}>
-                            Transporter
-                          </th>
-                        )}
-                        {columnVisibility.creditDays && (
-                          <th style={{ border: "1px solid #ddd", padding: 8 }}>
-                            Credit Days
-                          </th>
-                        )}
-                        {columnVisibility.creditAmount && (
-                          <th style={{ border: "1px solid #ddd", padding: 8 }}>
-                            Credit Amount
-                          </th>
-                        )}
-                        <th style={{ border: "1px solid #ddd", padding: 12 }}>
-                          Actions
-                        </th>
+                        {columnVisibility.srNo && <th style={{ border: "1px solid #ddd", padding: 8 }}>Sr No</th>}
+                        {columnVisibility.serialNumber && <th style={{ border: "1px solid #ddd", padding: 8 }}>Serial No</th>}
+                        {columnVisibility.partyName && <th style={{ border: "1px solid #ddd", padding: 8 }}>Party Name</th>}
+                        {columnVisibility.customerType && <th style={{ border: "1px solid #ddd", padding: 8 }}>Customer Type</th>}
+                        {columnVisibility.gstNo && <th style={{ border: "1px solid #ddd", padding: 8 }}>GST No</th>}
+                        {columnVisibility.mobileNo && <th style={{ border: "1px solid #ddd", padding: 8 }}>Mobile No</th>}
+                        {columnVisibility.stateName && <th style={{ border: "1px solid #ddd", padding: 8 }}>State Name</th>}
+                        {columnVisibility.station && <th style={{ border: "1px solid #ddd", padding: 8 }}>Station</th>}
+                        {columnVisibility.category && <th style={{ border: "1px solid #ddd", padding: 8 }}>Category</th>}
+                        {columnVisibility.openingBalance && <th style={{ border: "1px solid #ddd", padding: 8 }}>Opening Balance</th>}
+                        {columnVisibility.openingTaxBalance && <th style={{ border: "1px solid #ddd", padding: 8 }}>Opening Tax Balance</th>}
+                        {columnVisibility.date && <th style={{ border: "1px solid #ddd", padding: 8 }}>Date</th>}
+                        {columnVisibility.agent && <th style={{ border: "1px solid #ddd", padding: 8 }}>Agent</th>}
+                        {columnVisibility.transport && <th style={{ border: "1px solid #ddd", padding: 8 }}>Transporter</th>}
+                        {columnVisibility.creditDays && <th style={{ border: "1px solid #ddd", padding: 8 }}>Credit Days</th>}
+                        {columnVisibility.creditAmount && <th style={{ border: "1px solid #ddd", padding: 8 }}>Credit Amount</th>}
+                        <th style={{ border: "1px solid #ddd", padding: 12 }}>Actions</th>
                       </tr>
                     </thead>
-                    <tbody>
-                      {/* Sort for display in modal table too (optional, but good for consistency) */}
-                      {filteredParties.sort((a, b) =>
-                        (a.partyName || "").localeCompare(b.partyName || "")
-                      ).map((p, idx) => (
-                        <tr key={p.id}>
-                          {columnVisibility.srNo && (
-                            <td
-                              style={{
-                                border: "1px solid #eee",
-                                padding: 8,
-                              }}
-                            >
-                              {idx + 1}
-                            </td>
-                          )}
-                          {columnVisibility.serialNumber && (
-                            <td
-                              style={{
-                                border: "1px solid #eee",
-                                padding: 8,
-                              }}
-                            >
-                              {p.serialNumber}
-                            </td>
-                          )}
-                          {columnVisibility.partyName && (
-                            <td
-                              style={{
-                                border: "1px solid #eee",
-                                padding: 8,
-                              }}
-                            >
-                              {p.partyName}
-                            </td>
-                          )}
-                          {columnVisibility.gstNo && (
-                            <td
-                              style={{
-                                border: "1px solid #eee",
-                                padding: 8,
-                              }}
-                            >
-                              {p.gstNo}
-                            </td>
-                          )}
-                          {columnVisibility.mobileNo && (
-                            <td
-                              style={{
-                                border: "1px solid #eee",
-                                padding: 8,
-                              }}
-                            >
-                              {p.mobileNo}
-                            </td>
-                          )}
-                          {columnVisibility.stateName && (
-                            <td
-                              style={{
-                                border: "1px solid #eee",
-                                padding: 8,
-                              }}
-                            >
-                              {p.stateName}
-                            </td>
-                          )}
-                          {columnVisibility.station && (
-                            <td
-                              style={{
-                                border: "1px solid #eee",
-                                padding: 8,
-                              }}
-                            >
-                              {p.station}
-                            </td>
-                          )}
-                          {columnVisibility.category && (
-                            <td
-                              style={{
-                                border: "1px solid #eee",
-                                padding: 8,
-                              }}
-                            >
-                              {p.category?.categoryName}
-                            </td>
-                          )}
-                          {columnVisibility.openingBalance && (
-                            <td
-                              style={{
-                                border: "1px solid #eee",
-                                padding: 8,
-                              }}
-                            >
-                              {formatOpeningBalance(p)}
-                            </td>
-                          )}
-                          {columnVisibility.openingTaxBalance && (
-                            <td
-                              style={{
-                                border: "1px solid #eee",
-                                padding: 8,
-                              }}
-                            >
-                              {p.openingTaxBalance}
-                            </td>
-                          )}
-                          {columnVisibility.date && (
-                            <td
-                              style={{
-                                border: "1px solid #eee",
-                                padding: 8,
-                              }}
-                            >
-                              {p.date}
-                            </td>
-                          )}
-                          {columnVisibility.agent && (
-                            <td
-                              style={{
-                                border: "1px solid #eee",
-                                padding: 8,
-                              }}
-                            >
-                              {p.agent?.agentName}
-                            </td>
-                          )}
-                          {columnVisibility.transport && (
-                            <td
-                              style={{
-                                border: "1px solid #eee",
-                                padding: 8,
-                              }}
-                            >
-                              {p.transport?.transportName}
-                            </td>
-                          )}
-                          {columnVisibility.creditDays && (
-                            <td
-                              style={{
-                                border: "1px solid #eee",
-                                padding: 8,
-                              }}
-                            >
-                              {p.creditDays}
-                            </td>
-                          )}
-                          {columnVisibility.creditAmount && (
-                            <td
-                              style={{
-                                border: "1px solid #eee",
-                                padding: 8,
-                              }}
-                            >
-                              {p.creditAmount}
-                            </td>
-                          )}
 
-                          <td
-                            style={{
-                              border: "1px solid #eee",
-                              padding: 12,
-                            }}
-                          >
+                    <tbody>
+                      {sortedFilteredParties.map((p, idx) => (
+                        <tr key={p.id}>
+                          {columnVisibility.srNo && <td style={{ border: "1px solid #eee", padding: 8 }}>{idx + 1}</td>}
+                          {columnVisibility.serialNumber && <td style={{ border: "1px solid #eee", padding: 8 }}>{p.serialNumber}</td>}
+                          {columnVisibility.partyName && <td style={{ border: "1px solid #eee", padding: 8 }}>{p.partyName}</td>}
+                          {columnVisibility.customerType && <td style={{ border: "1px solid #eee", padding: 8 }}>{formatCustomerType(p.customerType)}</td>}
+                          {columnVisibility.gstNo && <td style={{ border: "1px solid #eee", padding: 8 }}>{p.gstNo}</td>}
+                          {columnVisibility.mobileNo && <td style={{ border: "1px solid #eee", padding: 8 }}>{p.mobileNo}</td>}
+                          {columnVisibility.stateName && <td style={{ border: "1px solid #eee", padding: 8 }}>{p.stateName}</td>}
+                          {columnVisibility.station && <td style={{ border: "1px solid #eee", padding: 8 }}>{p.station}</td>}
+                          {columnVisibility.category && <td style={{ border: "1px solid #eee", padding: 8 }}>{p.category?.categoryName}</td>}
+                          {columnVisibility.openingBalance && <td style={{ border: "1px solid #eee", padding: 8 }}>{formatOpeningBalance(p)}</td>}
+                          {columnVisibility.openingTaxBalance && <td style={{ border: "1px solid #eee", padding: 8 }}>{p.openingTaxBalance}</td>}
+                          {columnVisibility.date && <td style={{ border: "1px solid #eee", padding: 8 }}>{p.date}</td>}
+                          {columnVisibility.agent && <td style={{ border: "1px solid #eee", padding: 8 }}>{p.agent?.agentName}</td>}
+                          {columnVisibility.transport && <td style={{ border: "1px solid #eee", padding: 8 }}>{p.transport?.transportName}</td>}
+                          {columnVisibility.creditDays && <td style={{ border: "1px solid #eee", padding: 8 }}>{p.creditDays}</td>}
+                          {columnVisibility.creditAmount && <td style={{ border: "1px solid #eee", padding: 8 }}>{p.creditAmount}</td>}
+
+                          <td style={{ border: "1px solid #eee", padding: 12 }}>
                             <button
+                              type="button"
                               style={{
                                 ...buttonStyle,
                                 backgroundColor: "green",
                                 padding: "5px 8px",
                                 marginRight: 4,
-                                marginBottom: "5px",
+                                marginBottom: 5,
                               }}
                               onClick={() => {
                                 setFormData({
                                   ...p,
-                                  openingBalanceType:
-                                    p.openingBalanceType || "CR",
+                                  openingBalanceType: p.openingBalanceType || "CR",
+                                  customerType: p.customerType || "", // ✅ null => ""
                                 });
                                 setShowListModal(false);
                                 setIsFullScreen(false);
@@ -1660,12 +1376,10 @@ const PartyCreation: React.FC = () => {
                             >
                               Edit
                             </button>
+
                             <button
-                              style={{
-                                ...buttonStyle,
-                                backgroundColor: "red",
-                                padding: "4px 8px",
-                              }}
+                              type="button"
+                              style={{ ...buttonStyle, backgroundColor: "red", padding: "4px 8px" }}
                               onClick={() => handleDelete(p.id)}
                             >
                               Delete
@@ -1673,12 +1387,10 @@ const PartyCreation: React.FC = () => {
                           </td>
                         </tr>
                       ))}
-                      {filteredParties.length === 0 && (
+
+                      {sortedFilteredParties.length === 0 && (
                         <tr>
-                          <td
-                            colSpan={16}
-                            style={{ textAlign: "center", padding: 10 }}
-                          >
+                          <td colSpan={visibleColumnCount + 1} style={{ textAlign: "center", padding: 10 }}>
                             No matching parties found.
                           </td>
                         </tr>
@@ -1686,133 +1398,13 @@ const PartyCreation: React.FC = () => {
                     </tbody>
                   </table>
                 </div>
-
-                {/* Hidden FULL table (all columns) for PDF export - THIS IS NO LONGER USED, replaced by tempDiv creation */}
-                {/* <div
-                  ref={pdfTableRef}
-                  style={{
-                    position: "absolute",
-                    left: "-9999px",
-                    top: 0,
-                    background: "#fff",
-                    padding: 10,
-                  }}
-                >
-                  <table
-                    style={{
-                      width: "1500px",
-                      borderCollapse: "collapse",
-                      fontSize: 10,
-                    }}
-                  >
-                    <thead>
-                      <tr>
-                        <th style={{ border: "1px solid #ddd", padding: 4 }}>
-                          Sr No
-                        </th>
-                        <th style={{ border: "1px solid #ddd", padding: 4 }}>
-                          Serial No
-                        </th>
-                        <th style={{ border: "1px solid #ddd", padding: 4 }}>
-                          Party Name
-                        </th>
-                        <th style={{ border: "1px solid #ddd", padding: 4 }}>
-                          GST No
-                        </th>
-                        <th style={{ border: "1px solid #ddd", padding: 4 }}>
-                          Mobile No
-                        </th>
-                        <th style={{ border: "1px solid #ddd", padding: 4 }}>
-                          State Name
-                        </th>
-                        <th style={{ border: "1px solid #ddd", padding: 4 }}>
-                          Station
-                        </th>
-                        <th style={{ border: "1px solid #ddd", padding: 4 }}>
-                          Category
-                        </th>
-                        <th style={{ border: "1px solid #ddd", padding: 4 }}>
-                          Opening Balance
-                        </th>
-                        <th style={{ border: "1px solid #ddd", padding: 4 }}>
-                          Opening Tax Balance
-                        </th>
-                        <th style={{ border: "1px solid #ddd", padding: 4 }}>
-                          Date
-                        </th>
-                        <th style={{ border: "1px solid #ddd", padding: 4 }}>
-                          Agent
-                        </th>
-                        <th style={{ border: "1px solid #ddd", padding: 4 }}>
-                          Transporter
-                        </th>
-                        <th style={{ border: "1px solid #ddd", padding: 4 }}>
-                          Credit Days
-                        </th>
-                        <th style={{ border: "1px solid #ddd", padding: 4 }}>
-                          Credit Amount
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                       {filteredParties.map((p, idx) => ( // This will now render sorted if filteredParties itself is sorted.
-                        <tr key={p.id}>
-                          <td style={{ border: "1px solid #eee", padding: 4 }}>
-                            {idx + 1}
-                          </td>
-                          <td style={{ border: "1px solid #eee", padding: 4 }}>
-                            {p.serialNumber}
-                          </td>
-                          <td style={{ border: "1px solid #eee", padding: 4 }}>
-                            {p.partyName}
-                          </td>
-                          <td style={{ border: "1px solid #eee", padding: 4 }}>
-                            {p.gstNo}
-                          </td>
-                          <td style={{ border: "1px solid #eee", padding: 4 }}>
-                            {p.mobileNo}
-                          </td>
-                          <td style={{ border: "1px solid #eee", padding: 4 }}>
-                            {p.stateName}
-                          </td>
-                          <td style={{ border: "1px solid #eee", padding: 4 }}>
-                            {p.station}
-                          </td>
-                          <td style={{ border: "1px solid #eee", padding: 4 }}>
-                            {p.category?.categoryName}
-                          </td>
-                          <td style={{ border: "1px solid #eee", padding: 4 }}>
-                            {formatOpeningBalance(p)}
-                          </td>
-                          <td style={{ border: "1px solid #eee", padding: 4 }}>
-                            {p.openingTaxBalance}
-                          </td>
-                          <td style={{ border: "1px solid #eee", padding: 4 }}>
-                            {p.date}
-                          </td>
-                          <td style={{ border: "1px solid #eee", padding: 4 }}>
-                            {p.agent?.agentName}
-                          </td>
-                          <td style={{ border: "1px solid #eee", padding: 4 }}>
-                            {p.transport?.transportName}
-                          </td>
-                          <td style={{ border: "1px solid #eee", padding: 4 }}>
-                            {p.creditDays}
-                          </td>
-                          <td style={{ border: "1px solid #eee", padding: 4 }}>
-                            {p.creditAmount}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div> */}
               </div>
 
               {/* Footer */}
               <div style={modalFooterStyle}>
                 <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
                   <button
+                    type="button"
                     onClick={handlePrint}
                     style={{
                       padding: "6px 10px",
@@ -1827,6 +1419,7 @@ const PartyCreation: React.FC = () => {
                     Print
                   </button>
                   <button
+                    type="button"
                     onClick={handleExportPDF}
                     style={{
                       padding: "6px 10px",
@@ -1842,9 +1435,7 @@ const PartyCreation: React.FC = () => {
                   </button>
                 </div>
 
-                <span style={smallTextStyle}>
-                  Filtered Parties: {filteredParties.length}
-                </span>
+                <span style={smallTextStyle}>Filtered Parties: {filteredParties.length}</span>
               </div>
             </div>
           </div>
