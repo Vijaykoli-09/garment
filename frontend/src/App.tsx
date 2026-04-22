@@ -3,6 +3,7 @@ import {
   Routes,
   Route,
   Navigate,
+  useNavigate,
 } from "react-router-dom";
 
 import Login from "./pages/Login";
@@ -102,7 +103,19 @@ import PurchaseReturnItem from "./pages/PurchaseMaterial/PurchaseReturnItem";
 
 import AddProduct from "./pages/app/AddProduct";
 import ViewSales from "./pages/app/ViewSales";
-import CustomerRequests from "./pages/app/CustomerRequests";
+import CustomerRequests, { PartyPrefill } from "./pages/app/CustomerRequests";
+
+// Wrapper so we can use useNavigate inside Router context
+function CustomerRequestsPage() {
+  const navigate = useNavigate();
+  return (
+    <CustomerRequests
+      onCreateParty={(prefill) => {
+        navigate("/master/party", { state: { prefill } });
+      }}
+    />
+  );
+}
 
 function App() {
   return (
@@ -209,12 +222,12 @@ function App() {
           <Route path="account-report" element={<AccountStatement />} />
           <Route path="paymentmod-report" element={<PaymentModeReport />} />
           <Route path="stock-adjustment" element={<StockAdjustment />} />
-        </Route>
+        </Route>  
 
  
       {/* application */}
          <Route path="/app/AddProduct" element={<AddProduct />} />
-        <Route path="/app/CustomerRequests" element={<CustomerRequests />} />
+        <Route path="/app/CustomerRequests" element={<CustomerRequestsPage />} />
         <Route path="/app/ViewSales" element={<ViewSales />} />
 
         {/* Dashboard (protected) */}

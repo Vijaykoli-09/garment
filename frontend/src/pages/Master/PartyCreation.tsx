@@ -1,7 +1,9 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
+import { useLocation } from "react-router-dom";
 import api from "../../api/axiosInstance";
 import Swal from "sweetalert2";
 import Dashboard from "../Dashboard";
+import { PartyPrefill } from "../../pages/app/CustomerRequests";
 
 import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
@@ -53,7 +55,12 @@ const columnLabels: Record<ColumnId, string> = {
   creditAmount: "Credit Amount",
 };
 
-const PartyCreation: React.FC = () => {
+const PartyCreation: React.FC<{ prefill?: PartyPrefill | null }> = ({ prefill: prefillProp }) => {
+  // Also accept prefill passed via React Router navigation state
+  // (when admin clicks "Create Party →" in CustomerRequests)
+  const location = useLocation();
+  const routerPrefill = (location.state as { prefill?: PartyPrefill } | null)?.prefill ?? null;
+  const prefill = prefillProp ?? routerPrefill;
   const [formData, setFormData] = useState<any>({
     id: null,
     serialNumber: "",
@@ -76,6 +83,17 @@ const PartyCreation: React.FC = () => {
     station: "",
     customerGrade: "Standard",
   });
+
+  useEffect(() => {
+  if (!prefill) return;
+  setFormData((prev: any) => ({
+    ...prev,
+    partyName: prefill.partyName ?? "",
+    mobileNo:  prefill.mobileNo  ?? "",
+    gstNo:     prefill.gstNo     ?? "",
+    address:   prefill.address   ?? "",
+  }));
+}, [prefill]);
 
   const [allParties, setAllParties] = useState<any[]>([]);
   const [filteredParties, setFilteredParties] = useState<any[]>([]);
@@ -278,8 +296,32 @@ const PartyCreation: React.FC = () => {
         await api.put(`/party/update/${formData.id}`, payload);
         Swal.fire("Updated!", "Party updated successfully", "success");
       } else {
-        await api.post("/party/save", payload);
-        Swal.fire("Added!", "Party saved successfully", "success");
+        const res = await api.post("/party/save", payload);
+
+        // ── Auto-link to customer if we came from CustomerRequests ──
+        if (prefill?.customerId && res.data?.id) {
+          try {
+            await api.put(
+              `/customer/auth/admin/customers/${prefill.customerId}/link-party`,
+              null,
+              { params: { partyId: res.data.id } }
+            );
+            Swal.fire(
+              "Party Created & Linked! 🎉",
+              `Party saved and automatically linked to customer account.`,
+              "success"
+            );
+          } catch {
+            // Party saved but link failed — warn admin
+            Swal.fire(
+              "Party Saved",
+              "Party was saved but automatic linking failed. Please link manually in Customer Requests.",
+              "warning"
+            );
+          }
+        } else {
+          Swal.fire("Added!", "Party saved successfully", "success");
+        }
       }
 
       loadAllParties();
@@ -824,6 +866,31 @@ const PartyCreation: React.FC = () => {
         >
           Party Creation
         </h2>
+
+        {/* ── Prefill banner: shown when navigated from CustomerRequests ── */}
+        {prefill && (
+          <div style={{
+            background: "#eff6ff",
+            border: "1px solid #bfdbfe",
+            borderRadius: 8,
+            padding: "10px 14px",
+            marginBottom: 16,
+            display: "flex",
+            alignItems: "flex-start",
+            gap: 10,
+          }}>
+            <span style={{ fontSize: 18 }}>🔗</span>
+            <div>
+              <div style={{ fontWeight: 700, color: "#1d4ed8", fontSize: 13 }}>
+                Pre-filled from Customer Signup
+              </div>
+              <div style={{ fontSize: 12, color: "#3b82f6", marginTop: 2 }}>
+                Details from <strong>{prefill.partyName}</strong>'s app registration have been filled in.
+                Set the Party Type, then save — the account will be linked automatically.
+              </div>
+            </div>
+          </div>
+        )}
 
         <form>
           <div style={formRowStyle}>

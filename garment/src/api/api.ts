@@ -75,7 +75,7 @@ export const authApi = {
     email: string;
     phone: string;
     password: string;
-    customerType: string;
+    customerType?: string;   // optional — admin sets this during approval
     deliveryAddress: string;
     gstNo?: string;
     brokerName?: string;

@@ -7,15 +7,12 @@ import {
   DocumentTextIcon,
   HomeIcon,
   CreditCardIcon,
-<<<<<<< HEAD
-=======
   ShoppingCartIcon,
   PresentationChartBarIcon,
   ScissorsIcon,
   CubeIcon,
   WrenchScrewdriverIcon,
   BellIcon,
->>>>>>> origin/main
 } from "@heroicons/react/24/solid";
 import AdminPanelSettingsIcon from '@mui/icons-material/AdminPanelSettings';
 import { useLocation, useNavigate } from "react-router-dom";
@@ -26,11 +23,8 @@ import CuttingNavigator from "../navigations/CuttingNavigator";
 import PaymentNavigator from "../navigations/PaymentNavigator";
 import SalesNavigator from "../navigations/SalesNavigator";
 import AdministrationNavigator from "../navigations/AdministrationNavigator";
-<<<<<<< HEAD
-=======
 import MaterialPurchaseNavigator from "../navigations/MaterialPurchaseNavigator";
 
->>>>>>> origin/main
 
 interface DashboardProps {
   children?: React.ReactNode;
