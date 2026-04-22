@@ -85,7 +85,6 @@ export default function AddProduct() {
   const [showModal, setShowModal] = useState(false);
   const [formError, setFormError] = useState("");
   const [pageError, setPageError] = useState("");
-  const [newSize, setNewSize]     = useState("");
   const [uploading, setUploading] = useState(false);
   const [uploadLog, setUploadLog] = useState<string[]>([]);
   const [activeImg, setActiveImg] = useState<Record<number, number>>({});
@@ -204,13 +203,16 @@ export default function AddProduct() {
     });
   };
 
-  const addSize = () => {
-    const sz = newSize.trim().toUpperCase();
-    if (!sz || formData.sizes.includes(sz)) return;
-    setFormData(f => ({ ...f, sizes: [...f.sizes, sz] }));
-    setNewSize("");
+  const PRESET_SIZES = ["S", "M", "L", "XL", "XXL", "XXXL"];
+
+  const toggleSize = (sz: string) => {
+    setFormData(f => ({
+      ...f,
+      sizes: f.sizes.includes(sz)
+        ? f.sizes.filter(x => x !== sz)
+        : [...f.sizes, sz],
+    }));
   };
-  const removeSize = (sz: string) => setFormData(f => ({ ...f, sizes: f.sizes.filter(x => x !== sz) }));
 
   const artIsSelected = !!formData.artNo;
   const subOpts = getSubCategoryOptions(formData.categories);
@@ -561,23 +563,36 @@ export default function AddProduct() {
                   <label style={s.label}>Box Quantity</label>
                   <input type="number" min="1" style={s.input} value={formData.boxQuantity}
                     onChange={e => setFormData(f => ({ ...f, boxQuantity: parseInt(e.target.value) || 12 }))} />
-                  <label style={{ ...s.label, marginTop: 12 }}>Add Sizes</label>
-                  <div style={{ display: "flex", gap: 8 }}>
-                    <input style={{ ...s.input, marginTop: 0 }} placeholder="e.g. M, L, XL"
-                      value={newSize} onChange={e => setNewSize(e.target.value)}
-                      onKeyDown={e => e.key === "Enter" && addSize()} />
-                    <button style={s.addBtn} onClick={addSize} type="button">Add</button>
+                  <label style={{ ...s.label, marginTop: 12 }}>Select Sizes</label>
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 4 }}>
+                    {PRESET_SIZES.map(sz => {
+                      const selected = formData.sizes.includes(sz);
+                      return (
+                        <button
+                          key={sz}
+                          type="button"
+                          onClick={() => toggleSize(sz)}
+                          style={{
+                            padding: "7px 18px",
+                            borderRadius: 8,
+                            border: selected ? "2px solid #4f46e5" : "2px solid #e2e8f0",
+                            background: selected ? "#4f46e5" : "#f8fafc",
+                            color: selected ? "#fff" : "#374151",
+                            fontWeight: 700,
+                            fontSize: 13,
+                            cursor: "pointer",
+                            transition: "all 0.15s",
+                          }}
+                        >
+                          {sz}
+                        </button>
+                      );
+                    })}
                   </div>
                   {formData.sizes.length > 0 && (
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 8 }}>
-                      {formData.sizes.map(sz => (
-                        <span key={sz} style={s.sizeChip}>
-                          {sz}
-                          <button onClick={() => removeSize(sz)}
-                            style={{ marginLeft: 6, background: "none", border: "none", cursor: "pointer", fontSize: 13, fontWeight: 700, color: "#4f46e5" }}>✕</button>
-                        </span>
-                      ))}
-                    </div>
+                    <p style={{ fontSize: 11, color: "#6366f1", marginTop: 8, fontWeight: 600 }}>
+                      ✓ Selected: {formData.sizes.join(", ")}
+                    </p>
                   )}
                 </div>
 
