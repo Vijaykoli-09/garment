@@ -120,8 +120,7 @@ export default function ProfileScreen({ navigation }: any) {
         { emoji: '💳', title: 'Credit Details',  sub: 'View credit usage & limits',  screen: 'CreditCheck' },
         { emoji: '📦', title: 'Order History',   sub: 'View all your past orders',   screen: 'OrderHistory' },
         { emoji: '💰', title: 'Payments',        sub: 'View pending payments',       screen: 'PaymentScreen' },
-        { emoji: '⏳', title: 'Pending Orders',  sub: 'Orders awaiting confirmation', screen: 'PendingOrders' },
-        { emoji: '✅', title: 'Accepted Orders', sub: 'Confirmed & processing',      screen: 'AcceptedOrders' },
+
       ].map(({ emoji, title, sub, screen }) => (
         <TouchableOpacity
           key={screen}

@@ -104,4 +104,23 @@ public class CustomerAuthController {
             return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
         }
     }
+
+    // ── Sync customerType from Party (called after PartyCreation saves) ──
+// PUT /api/admin/customers/{customerId}/sync-type?customerType=WHOLESALER
+@PutMapping("/admin/customers/{customerId}/sync-type")
+public ResponseEntity<?> syncCustomerType(
+        @PathVariable Long customerId,
+        @RequestParam String customerType
+) {
+    try {
+        service.syncCustomerType(customerId, customerType);
+        return ResponseEntity.ok(Map.of(
+                "message", "Customer type synced successfully",
+                "customerId", customerId,
+                "customerType", customerType
+        ));
+    } catch (RuntimeException e) {
+        return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
+    }
+}
 }

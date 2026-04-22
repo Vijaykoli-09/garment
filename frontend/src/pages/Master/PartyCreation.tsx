@@ -300,25 +300,39 @@ const PartyCreation: React.FC<{ prefill?: PartyPrefill | null }> = ({ prefill: p
 
         // ── Auto-link to customer if we came from CustomerRequests ──
         if (prefill?.customerId && res.data?.id) {
-          try {
-            await api.put(
-              `/customer/auth/admin/customers/${prefill.customerId}/link-party`,
-              null,
-              { params: { partyId: res.data.id } }
-            );
-            Swal.fire(
-              "Party Created & Linked! 🎉",
-              `Party saved and automatically linked to customer account.`,
-              "success"
-            );
-          } catch {
-            // Party saved but link failed — warn admin
-            Swal.fire(
-              "Party Saved",
-              "Party was saved but automatic linking failed. Please link manually in Customer Requests.",
-              "warning"
-            );
-          }
+      try {
+  await api.put(
+    `/customer/auth/admin/customers/${prefill.customerId}/link-party`,
+    null,
+    { params: { partyId: res.data.id } }
+  );
+
+  // Sync the party's customerType back to CustomerRegistration
+  if (formData.customerType) {
+    try {
+      await api.put(
+        `/customer/auth/admin/customers/${prefill.customerId}/sync-type`,
+        null,
+        { params: { customerType: formData.customerType } }
+      );
+    } catch {
+      // non-critical — admin can correct via Edit in CustomerRequests
+    }
+  }
+
+  Swal.fire(
+    "Party Created & Linked! 🎉",
+    `Party saved, linked, and customer type synced automatically.`,
+    "success"
+  );
+} catch {
+  // Party saved but link failed — warn admin
+  Swal.fire(
+    "Party Saved",
+    "Party was saved but automatic linking failed. Please link manually in Customer Requests.",
+    "warning"
+  );
+}
         } else {
           Swal.fire("Added!", "Party saved successfully", "success");
         }

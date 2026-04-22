@@ -152,12 +152,11 @@ const CustomerRequests: React.FC<Props> = ({ onCreateParty }) => {
   };
 
   // ── Validate ──────────────────────────────────────────────────────
-  const validate = () => {
-    // Customer type is required when approving
-    if (formStatus === "APPROVED" && !customerType) {
-      setModalError("Please select a customer type before approving.");
-      return false;
-    }
+const validate = () => {
+  if (formStatus === "APPROVED" && modalMode === "edit" && !customerType) {
+    setModalError("Please select a customer type.");
+    return false;
+  }
     if (formStatus === "APPROVED" && creditEnabled) {
       if (!creditLimit || Number(creditLimit) <= 0) {
         setModalError("Credit limit must be greater than 0 when credit is enabled.");

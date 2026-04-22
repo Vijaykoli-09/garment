@@ -6,10 +6,15 @@ package com.garment.DTO;
  */
 public class UpdateCustomerRequest {
 
+        private String customerType;   // set by admin: "Wholesaler" | "Semi_Wholesaler" | "Retailer"
+
     private String status;          // "APPROVED" or "REJECTED"
     private boolean creditEnabled;
     private double creditLimit;
     private boolean advanceOption;
+
+    public String getCustomerType() { return customerType; }
+    public void setCustomerType(String customerType) { this.customerType = customerType; }
 
     public String getStatus() { return status; }
     public void setStatus(String status) { this.status = status; }

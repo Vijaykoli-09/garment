@@ -13,13 +13,13 @@ export interface AppUser {
   name:            string;
   phone:           string;
   email:           string;
-  type:            'Wholesaler' | 'Semi_Wholesaler' | 'Retailer';
+  type:            'Wholesaler' | 'Semi_Wholesaler' | 'Retailer' | null; // null until admin sets it
   token:           string;
   creditEnabled:   boolean;
   creditLimit:     number;
   advanceOption:   boolean;
   accountApproved: boolean;
-  partyId?:        number | null;   // set by admin when they create party record
+  partyId?:        number | null;
   deliveryAddress?: string;
 }
 
@@ -130,7 +130,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           const migratedUser: AppUser = {
             ...savedUser,
             name:          savedUser.name || (savedUser as any).fullName || '',
-            type:          savedUser.type || (savedUser as any).customerType || '',
+            type:          savedUser.type || (savedUser as any).customerType || null,
             creditEnabled: Boolean(savedUser.creditEnabled),
             creditLimit:   Number(savedUser.creditLimit ?? 0),
             advanceOption: Boolean(savedUser.advanceOption),
@@ -157,7 +157,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
               const refreshed: AppUser = {
                 ...migratedUser,
                 name:           fresh.name          ?? fresh.fullName     ?? migratedUser.name,
-                type:           fresh.type          ?? fresh.customerType ?? migratedUser.type,
+                type:           fresh.type          ?? fresh.customerType ?? migratedUser.type ?? null,
                 creditEnabled:  Boolean(fresh.creditEnabled),
                 creditLimit:    Number(fresh.creditLimit ?? 0),
                 advanceOption:  Boolean(fresh.advanceOption),

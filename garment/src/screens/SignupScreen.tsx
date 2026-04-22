@@ -71,10 +71,10 @@ export default function SignupScreen({ navigation }: any) {
     try {
       await authApi.signup({
         fullName:        form.fullName.trim(),
-        email:           form.email.trim() || '',   // empty string if not provided
+        email:           form.email.trim() || '',
         phone:           form.phone.trim(),
         password:        form.password,
-        customerType:    '',                         // admin sets this during approval
+        // customerType not sent — admin sets it during approval
         deliveryAddress: form.deliveryAddress.trim(),
         gstNo:           form.gstNo.toUpperCase().trim(),
         brokerName:      form.brokerName.trim(),
@@ -185,13 +185,7 @@ export default function SignupScreen({ navigation }: any) {
               : <Text style={s.hint}>15-character GST Identification Number (GSTIN)</Text>
             }
 
-            {/* ── Info banner — no type needed ── */}
-            <View style={s.infoBanner}>
-              <Text style={s.infoIcon}>ℹ️</Text>
-              <Text style={s.infoText}>
-                Your account type (Wholesaler / Semi-Wholesaler / Retailer) will be confirmed by our team after reviewing your details.
-              </Text>
-            </View>
+            
 
             {/* ── Referral (optional) ── */}
             <View style={s.dividerRow}>
