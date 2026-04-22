@@ -103,13 +103,12 @@ import PurchaseReturnItem from "./pages/PurchaseMaterial/PurchaseReturnItem";
 
 import AddProduct from "./pages/app/AddProduct";
 import ViewSales from "./pages/app/ViewSales";
-import CustomerRequests, { PartyPrefill } from "./pages/app/CustomerRequests";
-
+import CustomerRequests from "./pages/app/CustomerRequests";
 // Wrapper so we can use useNavigate inside Router context
 function CustomerRequestsPage() {
   const navigate = useNavigate();
   return (
-    <CustomerRequests
+    <CustomerRequests 
       onCreateParty={(prefill) => {
         navigate("/master/party", { state: { prefill } });
       }}
