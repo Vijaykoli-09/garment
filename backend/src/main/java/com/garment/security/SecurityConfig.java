@@ -99,12 +99,15 @@ public class SecurityConfig {
                 .requestMatchers("/api/sale-orders/**").permitAll()
                 .requestMatchers("/api/sale-order-returns/**").permitAll()
                 .requestMatchers("/api/payment/**").permitAll()
+                .requestMatchers("/api/recipt/**").permitAll()
                 .requestMatchers("/api/production-receipt/**").permitAll()
                 .requestMatchers("/api/dispatch-challan/**").permitAll()
                 .requestMatchers("/api/payment/payment-mode/**").permitAll()
                 .requestMatchers("/api/other-dispatch-challan/**").permitAll()
                 .requestMatchers("/api/order-settles/**").permitAll()
-.requestMatchers("/api/customer/auth/admin/**").permitAll()
+                .requestMatchers("/api/customer/auth/admin/**").permitAll()
+                .requestMatchers("/api/art-stock-adjustments/**").permitAll()
+                .requestMatchers("/api/material-stock-adjustments/**").permitAll()
 
                 // ── Mobile orders — JWT required ───────────────────────
                 // JwtAuthFilter uses CustomerUserDetailsService (by phone) for this path

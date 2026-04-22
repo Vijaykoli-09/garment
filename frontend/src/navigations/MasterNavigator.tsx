@@ -31,9 +31,9 @@ const MasterNavigator: React.FC<MasterNavigatorProps> = ({ onNavigate }) => {
         Party Creation
       </button>
 
-      <button style={sidebarSubItemStyle} onClick={() => onNavigate?.("/master/order_register")}>
+      {/* <button style={sidebarSubItemStyle} onClick={() => onNavigate?.("/master/order_register")}>
         Order Register
-      </button>
+      </button> */}
 
       {/* Art & Groups Submenu */}
       <button style={sidebarSubItemStyle} onClick={() => toggle("artGroups")}>

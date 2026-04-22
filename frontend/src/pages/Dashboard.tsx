@@ -7,6 +7,15 @@ import {
   DocumentTextIcon,
   HomeIcon,
   CreditCardIcon,
+<<<<<<< HEAD
+=======
+  ShoppingCartIcon,
+  PresentationChartBarIcon,
+  ScissorsIcon,
+  CubeIcon,
+  WrenchScrewdriverIcon,
+  BellIcon,
+>>>>>>> origin/main
 } from "@heroicons/react/24/solid";
 import AdminPanelSettingsIcon from '@mui/icons-material/AdminPanelSettings';
 import { useLocation, useNavigate } from "react-router-dom";
@@ -17,6 +26,11 @@ import CuttingNavigator from "../navigations/CuttingNavigator";
 import PaymentNavigator from "../navigations/PaymentNavigator";
 import SalesNavigator from "../navigations/SalesNavigator";
 import AdministrationNavigator from "../navigations/AdministrationNavigator";
+<<<<<<< HEAD
+=======
+import MaterialPurchaseNavigator from "../navigations/MaterialPurchaseNavigator";
+
+>>>>>>> origin/main
 
 interface DashboardProps {
   children?: React.ReactNode;
@@ -29,14 +43,28 @@ const Dashboard: React.FC<DashboardProps> = ({ children }) => {
   const [openCutting, setOpenCutting] = useState(false);
   const [openPayments, setOpenPayments] = useState(false);
   const [dropdownOpen, setDropdownOpen] = useState(false);
+  const [notificationOpen, setNotificationOpen] = useState(false);
   const [companyName] = useState<string>("Shri Uday Garments");
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const notificationRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
   const location = useLocation();
   const [openSales, setOpenSales] = useState(false);
+  const [openMaterialPurchase, setOpenMaterialPurchase] = useState(false);
   const [openAdministration, setOpenAdministration] = useState(false);
   const userString = localStorage.getItem("user");
   const user = userString ? JSON.parse(userString) : { name: "User" };
+
+  // Sample notifications — replace with real data
+  const [notifications] = useState([
+    { id: 1, message: "New order #1024 received", time: "2 min ago", read: false },
+    { id: 2, message: "Payment of ₹15,000 confirmed", time: "15 min ago", read: false },
+    { id: 3, message: "Knitting job #88 completed", time: "1 hr ago", read: true },
+    { id: 4, message: "Low stock alert: Grey yarn", time: "3 hr ago", read: true },
+    { id: 5, message: "Cutting batch #45 dispatched", time: "5 hr ago", read: true },
+  ]);
+
+  const unreadCount = notifications.filter((n) => !n.read).length;
 
   const handleLogout = () => {
     localStorage.removeItem("token");
@@ -48,6 +76,9 @@ const Dashboard: React.FC<DashboardProps> = ({ children }) => {
     const handleClickOutside = (event: MouseEvent) => {
       if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
         setDropdownOpen(false);
+      }
+      if (notificationRef.current && !notificationRef.current.contains(event.target as Node)) {
+        setNotificationOpen(false);
       }
     };
     document.addEventListener("mousedown", handleClickOutside);
@@ -71,6 +102,7 @@ const Dashboard: React.FC<DashboardProps> = ({ children }) => {
     const p = location.pathname.toLowerCase();
     if (p.startsWith("/administration")) setOpenAdministration(true);
   }, [location.pathname]);
+
 
   return (
     <div
@@ -100,22 +132,15 @@ const Dashboard: React.FC<DashboardProps> = ({ children }) => {
           height: "100%",
           position: "relative",
           zIndex: 2,
-          overflow: "hidden", // ← prevents the whole layout from growing wider than viewport
+          overflow: "hidden",
         }}
       >
-        {/* ── Sidebar ────────────────────────────────────────────────
-            FIX: added flexShrink: 0 and minWidth: 220
-            Without these, when ViewSales renders a wide table the browser
-            shrinks flex children to fit — collapsing the sidebar down to
-            just enough space for the first few characters of each label.
-            flexShrink: 0 tells the browser "never shrink this element".
-            minWidth: 220 is a hard floor as a second guard.
-        ─────────────────────────────────────────────────────────── */}
+        {/* ── Sidebar ─────────────────────────────────────────────── */}
         <div
           style={{
             width: "220px",
-            minWidth: "220px",    // ← FIX: hard minimum — never shrink below this
-            flexShrink: 0,        // ← FIX: don't shrink when content is wide
+            minWidth: "220px",
+            flexShrink: 0,
             backgroundColor: "rgba(31,41,55,0.95)",
             color: "white",
             display: "flex",
@@ -139,7 +164,7 @@ const Dashboard: React.FC<DashboardProps> = ({ children }) => {
 
           {/* KNITTING */}
           <button style={buttonStyle} onClick={() => setOpenKnitting(!openKnitting)}>
-            <HomeIcon style={iconStyle} /> Knitting
+            <WrenchScrewdriverIcon style={iconStyle} /> Knitting
             <span style={{ marginLeft: "auto" }}>
               {openKnitting ? <ChevronUpIcon style={chevronStyle} /> : <ChevronDownIcon style={chevronStyle} />}
             </span>
@@ -148,7 +173,7 @@ const Dashboard: React.FC<DashboardProps> = ({ children }) => {
 
           {/* CUTTING */}
           <button style={buttonStyle} onClick={() => setOpenCutting(!openCutting)}>
-            <HomeIcon style={iconStyle} /> Cutting
+            <ScissorsIcon style={iconStyle} /> Cutting
             <span style={{ marginLeft: "auto" }}>
               {openCutting ? <ChevronUpIcon style={chevronStyle} /> : <ChevronDownIcon style={chevronStyle} />}
             </span>
@@ -157,7 +182,7 @@ const Dashboard: React.FC<DashboardProps> = ({ children }) => {
 
           {/* PRODUCTION */}
           <button style={buttonStyle} onClick={() => navigate("/production/receipt")}>
-            <HomeIcon style={iconStyle} /> Production
+            <CubeIcon style={iconStyle} /> Production
           </button>
 
           {/* REPORTS */}
@@ -171,7 +196,7 @@ const Dashboard: React.FC<DashboardProps> = ({ children }) => {
 
           {/* SALES */}
           <button style={buttonStyle} onClick={() => setOpenSales(!openSales)}>
-            <HomeIcon style={iconStyle} /> Sales
+            <PresentationChartBarIcon style={iconStyle} /> Sales
             <span style={{ marginLeft: "auto" }}>
               {openSales ? <ChevronUpIcon style={chevronStyle} /> : <ChevronDownIcon style={chevronStyle} />}
             </span>
@@ -186,6 +211,15 @@ const Dashboard: React.FC<DashboardProps> = ({ children }) => {
             </span>
           </button>
           {openPayments && <PaymentNavigator onNavigate={(path) => navigate(path)} />}
+
+          {/* Material Purchase */}
+          <button style={buttonStyle} onClick={() => setOpenMaterialPurchase(!openMaterialPurchase)}>
+            <ShoppingCartIcon style={iconStyle} /> Material Purchase
+            <span style={{ marginLeft: "auto" }}>
+              {openMaterialPurchase ? <ChevronUpIcon style={chevronStyle} /> : <ChevronDownIcon style={chevronStyle} />}
+            </span>
+          </button>
+          {openMaterialPurchase && <MaterialPurchaseNavigator onNavigate={(path) => navigate(path)} />}
 
           {/* ADMINISTRATION */}
           <button style={buttonStyle} onClick={() => setOpenAdministration(!openAdministration)}>
@@ -212,21 +246,14 @@ const Dashboard: React.FC<DashboardProps> = ({ children }) => {
           </button>
         </div>
 
-        {/* ── Right side ──────────────────────────────────────────────
-            FIX: added minWidth: 0
-            Without minWidth: 0, a flex child cannot shrink below its
-            content size. Setting it to 0 allows this area to shrink
-            freely while the sidebar holds its fixed width.
-            The content inside (.padding div) uses overflow which keeps
-            wide tables from expanding the layout.
-        ─────────────────────────────────────────────────────────── */}
+        {/* ── Right side ─────────────────────────────────────────── */}
         <div
           style={{
             flex: 1,
-            minWidth: 0,           // ← FIX: allows this column to shrink without pushing sidebar
+            minWidth: 0,
             display: "flex",
             flexDirection: "column",
-            overflow: "hidden",    // ← content scrolls internally, not the whole page
+            overflow: "hidden",
           }}
         >
           {/* Top bar */}
@@ -240,38 +267,253 @@ const Dashboard: React.FC<DashboardProps> = ({ children }) => {
               padding: "0 20px",
               boxShadow: "0px 1px 4px rgba(0,0,0,0.1)",
               position: "relative",
-              flexShrink: 0,       // ← top bar never shrinks vertically
+              flexShrink: 0,
             }}
           >
             <div style={{ fontWeight: "bold", fontSize: "1.1rem", color: "#111827" }}>
               {companyName}
             </div>
 
-            {/* User dropdown */}
-            <div ref={dropdownRef} style={{ display: "flex", alignItems: "center", position: "relative" }}>
-              <UserCircleIcon
-                style={{ width: "30px", height: "30px", color: "#374151", cursor: "pointer" }}
-                onClick={() => setDropdownOpen(!dropdownOpen)}
-              />
-              <span
-                style={{ marginLeft: "10px", fontWeight: "bold", color: "#111827", cursor: "pointer" }}
-                onClick={() => setDropdownOpen(!dropdownOpen)}
-              >
-                {user.name}
-              </span>
+            {/* Right-side controls: Notification + User dropdown */}
+            <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
 
-              {dropdownOpen && (
-                <div
+              {/* ── Notification Bell ─────────────────────────────── */}
+              <div ref={notificationRef} style={{ position: "relative" }}>
+                <button
+                  onClick={() => {
+                    setNotificationOpen(!notificationOpen);
+                    setDropdownOpen(false); // close user dropdown if open
+                  }}
                   style={{
-                    position: "absolute", top: "50px", right: "0",
-                    backgroundColor: "white", boxShadow: "0px 2px 8px rgba(0,0,0,0.15)",
-                    borderRadius: "8px", overflow: "hidden", zIndex: 100, minWidth: "150px",
+                    background: "none",
+                    border: "none",
+                    cursor: "pointer",
+                    position: "relative",
+                    padding: "4px",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                  }}
+                  title="Notifications"
+                >
+                  <BellIcon style={{ width: "26px", height: "26px", color: "#374151" }} />
+                  {unreadCount > 0 && (
+                    <span
+                      style={{
+                        position: "absolute",
+                        top: "0px",
+                        right: "0px",
+                        backgroundColor: "#EF4444",
+                        color: "white",
+                        fontSize: "0.65rem",
+                        fontWeight: "bold",
+                        width: "18px",
+                        height: "18px",
+                        borderRadius: "50%",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        border: "2px solid #f3f4f6",
+                      }}
+                    >
+                      {unreadCount}
+                    </span>
+                  )}
+                </button>
+
+                {/* Notification popup — 400 × 400 */}
+                {notificationOpen && (
+                  <div
+                    style={{
+                      position: "absolute",
+                      top: "45px",
+                      right: "0",
+                      width: "400px",
+                      height: "400px",
+                      backgroundColor: "#ffffff",
+                      boxShadow: "0px 4px 20px rgba(0,0,0,0.2)",
+                      borderRadius: "12px",
+                      zIndex: 200,
+                      display: "flex",
+                      flexDirection: "column",
+                      overflow: "hidden",
+                    }}
+                  >
+                    {/* Header */}
+                    <div
+                      style={{
+                        padding: "16px 20px",
+                        borderBottom: "1px solid #e5e7eb",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        flexShrink: 0,
+                      }}
+                    >
+                      <span style={{ fontWeight: "bold", fontSize: "1.05rem", color: "#111827" }}>
+                        Notifications
+                      </span>
+                      <span
+                        style={{
+                          fontSize: "0.8rem",
+                          color: "#6366f1",
+                          cursor: "pointer",
+                          fontWeight: 600,
+                        }}
+                        onClick={() => {
+                          // Mark all as read handler — wire to your logic
+                        }}
+                      >
+                        Mark all as read
+                      </span>
+                    </div>
+
+                    {/* Notification list — scrollable */}
+                    <div
+                      style={{
+                        flex: 1,
+                        overflowY: "auto",
+                      }}
+                    >
+                      {notifications.length === 0 ? (
+                        <div
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            height: "100%",
+                            color: "#9ca3af",
+                            fontSize: "0.95rem",
+                          }}
+                        >
+                          No notifications
+                        </div>
+                      ) : (
+                        notifications.map((n) => (
+                          <div
+                            key={n.id}
+                            style={{
+                              padding: "14px 20px",
+                              borderBottom: "1px solid #f3f4f6",
+                              backgroundColor: n.read ? "#ffffff" : "#f0f4ff",
+                              cursor: "pointer",
+                              transition: "background-color 0.15s",
+                            }}
+                            onMouseEnter={(e) => {
+                              (e.currentTarget as HTMLDivElement).style.backgroundColor = "#f9fafb";
+                            }}
+                            onMouseLeave={(e) => {
+                              (e.currentTarget as HTMLDivElement).style.backgroundColor = n.read
+                                ? "#ffffff"
+                                : "#f0f4ff";
+                            }}
+                          >
+                            <div
+                              style={{
+                                display: "flex",
+                                alignItems: "flex-start",
+                                gap: "10px",
+                              }}
+                            >
+                              {!n.read && (
+                                <span
+                                  style={{
+                                    width: "8px",
+                                    height: "8px",
+                                    borderRadius: "50%",
+                                    backgroundColor: "#6366f1",
+                                    marginTop: "6px",
+                                    flexShrink: 0,
+                                  }}
+                                />
+                              )}
+                              <div style={{ flex: 1 }}>
+                                <div
+                                  style={{
+                                    fontSize: "0.9rem",
+                                    color: "#111827",
+                                    fontWeight: n.read ? 400 : 600,
+                                    lineHeight: 1.4,
+                                  }}
+                                >
+                                  {n.message}
+                                </div>
+                                <div
+                                  style={{
+                                    fontSize: "0.75rem",
+                                    color: "#9ca3af",
+                                    marginTop: "4px",
+                                  }}
+                                >
+                                  {n.time}
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        ))
+                      )}
+                    </div>
+
+                    {/* Footer */}
+                    <div
+                      style={{
+                        padding: "12px 20px",
+                        borderTop: "1px solid #e5e7eb",
+                        textAlign: "center",
+                        flexShrink: 0,
+                      }}
+                    >
+                      <span
+                        style={{
+                          fontSize: "0.85rem",
+                          color: "#6366f1",
+                          cursor: "pointer",
+                          fontWeight: 600,
+                        }}
+                        onClick={() => {
+                          setNotificationOpen(false);
+                          navigate("/notifications"); // adjust route as needed
+                        }}
+                      >
+                        View all notifications
+                      </span>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* ── User Dropdown ──────────────────────────────────── */}
+              <div ref={dropdownRef} style={{ display: "flex", alignItems: "center", position: "relative" }}>
+                <UserCircleIcon
+                  style={{ width: "30px", height: "30px", color: "#374151", cursor: "pointer" }}
+                  onClick={() => {
+                    setDropdownOpen(!dropdownOpen);
+                    setNotificationOpen(false); // close notification if open
+                  }}
+                />
+                <span
+                  style={{ marginLeft: "10px", fontWeight: "bold", color: "#111827", cursor: "pointer" }}
+                  onClick={() => {
+                    setDropdownOpen(!dropdownOpen);
+                    setNotificationOpen(false);
                   }}
                 >
-                  <button style={dropdownItemStyle} onClick={() => navigate("/profile")}>Profile</button>
-                  <button style={dropdownItemStyle} onClick={handleLogout}>Logout</button>
-                </div>
-              )}
+                  {user.name}
+                </span>
+
+                {dropdownOpen && (
+                  <div
+                    style={{
+                      position: "absolute", top: "50px", right: "0",
+                      backgroundColor: "white", boxShadow: "0px 2px 8px rgba(0,0,0,0.15)",
+                      borderRadius: "8px", overflow: "hidden", zIndex: 100, minWidth: "150px",
+                    }}
+                  >
+                    <button style={dropdownItemStyle} onClick={() => navigate("/profile")}>Profile</button>
+                    <button style={dropdownItemStyle} onClick={handleLogout}>Logout</button>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
 
@@ -280,8 +522,8 @@ const Dashboard: React.FC<DashboardProps> = ({ children }) => {
             style={{
               flex: 1,
               padding: "20px",
-              overflowY: "auto",   // ← vertical scroll for tall pages
-              overflowX: "hidden", // ← horizontal overflow stays inside, doesn't push sidebar
+              overflowY: "auto",
+              overflowX: "hidden",
             }}
           >
             {children}
