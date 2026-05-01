@@ -104,6 +104,7 @@ import PurchaseReturnItem from "./pages/PurchaseMaterial/PurchaseReturnItem";
 import AddProduct from "./pages/app/AddProduct";
 import ViewSales from "./pages/app/ViewSales";
 import CustomerRequests from "./pages/app/CustomerRequests";
+import NotificationsPage from "./pages/Notifications";
 // Wrapper so we can use useNavigate inside Router context
 function CustomerRequestsPage() {
   const navigate = useNavigate();
@@ -238,7 +239,16 @@ function App() {
             </RequireAuth>
           }
         />
+<Route
+  path="/notifications"
+  element={
+    <Dashboard>
+      <NotificationsPage />
+    </Dashboard>
+  }
+/>
       </Routes>
+
     </Router>
   );
 }

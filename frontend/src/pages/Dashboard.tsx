@@ -1,4 +1,3 @@
-// src/pages/Dashboard.tsx
 import React, { useEffect, useRef, useState } from "react";
 import {
   UserCircleIcon,
@@ -14,8 +13,9 @@ import {
   WrenchScrewdriverIcon,
   BellIcon,
 } from "@heroicons/react/24/solid";
-import AdminPanelSettingsIcon from '@mui/icons-material/AdminPanelSettings';
+import AdminPanelSettingsIcon from "@mui/icons-material/AdminPanelSettings";
 import { useLocation, useNavigate } from "react-router-dom";
+
 import MasterNavigator from "../navigations/MasterNavigator";
 import KnittingNavigator from "../navigations/KnittingNavigator";
 import ReportsNavigator from "../navigations/ReportsNavigator";
@@ -25,6 +25,8 @@ import SalesNavigator from "../navigations/SalesNavigator";
 import AdministrationNavigator from "../navigations/AdministrationNavigator";
 import MaterialPurchaseNavigator from "../navigations/MaterialPurchaseNavigator";
 
+// ✅ use notifications from single file
+import { useNotifications, timeAgo } from "./Notifications"; // adjust path if needed
 
 interface DashboardProps {
   children?: React.ReactNode;
@@ -36,29 +38,33 @@ const Dashboard: React.FC<DashboardProps> = ({ children }) => {
   const [openReport, setOpenReport] = useState(false);
   const [openCutting, setOpenCutting] = useState(false);
   const [openPayments, setOpenPayments] = useState(false);
-  const [dropdownOpen, setDropdownOpen] = useState(false);
-  const [notificationOpen, setNotificationOpen] = useState(false);
-  const [companyName] = useState<string>("Shri Uday Garments");
-  const dropdownRef = useRef<HTMLDivElement>(null);
-  const notificationRef = useRef<HTMLDivElement>(null);
-  const navigate = useNavigate();
-  const location = useLocation();
   const [openSales, setOpenSales] = useState(false);
   const [openMaterialPurchase, setOpenMaterialPurchase] = useState(false);
   const [openAdministration, setOpenAdministration] = useState(false);
+
+  const [dropdownOpen, setDropdownOpen] = useState(false);
+  const [notificationOpen, setNotificationOpen] = useState(false);
+
+  const [companyName] = useState<string>("Shri Uday Garments");
+
+  const dropdownRef = useRef<HTMLDivElement>(null);
+  const notificationRef = useRef<HTMLDivElement>(null);
+
+  const navigate = useNavigate();
+  const location = useLocation();
+
   const userString = localStorage.getItem("user");
   const user = userString ? JSON.parse(userString) : { name: "User" };
 
-  // Sample notifications — replace with real data
-  const [notifications] = useState([
-    { id: 1, message: "New order #1024 received", time: "2 min ago", read: false },
-    { id: 2, message: "Payment of ₹15,000 confirmed", time: "15 min ago", read: false },
-    { id: 3, message: "Knitting job #88 completed", time: "1 hr ago", read: true },
-    { id: 4, message: "Low stock alert: Grey yarn", time: "3 hr ago", read: true },
-    { id: 5, message: "Cutting batch #45 dispatched", time: "5 hr ago", read: true },
-  ]);
-
-  const unreadCount = notifications.filter((n) => !n.read).length;
+  // ✅ real notifications
+  const {
+    notifications,
+    unreadCount,
+    markAllAsRead,
+    markAsRead,
+    refresh,
+    removeNotification, // ✅ remove per notification
+  } = useNotifications();
 
   const handleLogout = () => {
     localStorage.removeItem("token");
@@ -80,23 +86,16 @@ const Dashboard: React.FC<DashboardProps> = ({ children }) => {
   }, []);
 
   useEffect(() => {
-    if (location.pathname.startsWith("/master")) setOpenMaster(true);
-    if (location.pathname.startsWith("/reports")) setOpenReport(true);
-    const p = location.pathname;
+    const p = location.pathname.toLowerCase();
+    if (p.startsWith("/master")) setOpenMaster(true);
+    if (p.startsWith("/reports")) setOpenReport(true);
+
     if (p.startsWith("/knitting") && !p.startsWith("/knitting/cutting")) setOpenKnitting(true);
     if (p.startsWith("/knitting/cutting") || p.startsWith("/cutting")) setOpenCutting(true);
-  }, [location.pathname]);
 
-  useEffect(() => {
-    const p = location.pathname.toLowerCase();
     if (p.startsWith("/sales")) setOpenSales(true);
-  }, [location.pathname]);
-
-  useEffect(() => {
-    const p = location.pathname.toLowerCase();
     if (p.startsWith("/administration")) setOpenAdministration(true);
   }, [location.pathname]);
-
 
   return (
     <div
@@ -113,8 +112,10 @@ const Dashboard: React.FC<DashboardProps> = ({ children }) => {
       <div
         style={{
           position: "absolute",
-          top: 0, left: 0,
-          width: "100%", height: "100%",
+          top: 0,
+          left: 0,
+          width: "100%",
+          height: "100%",
           backgroundColor: "rgba(0,0,0,0.3)",
           zIndex: 1,
         }}
@@ -151,7 +152,11 @@ const Dashboard: React.FC<DashboardProps> = ({ children }) => {
           <button style={buttonStyle} onClick={() => setOpenMaster(!openMaster)}>
             <HomeIcon style={iconStyle} /> Master
             <span style={{ marginLeft: "auto" }}>
-              {openMaster ? <ChevronUpIcon style={chevronStyle} /> : <ChevronDownIcon style={chevronStyle} />}
+              {openMaster ? (
+                <ChevronUpIcon style={chevronStyle} />
+              ) : (
+                <ChevronDownIcon style={chevronStyle} />
+              )}
             </span>
           </button>
           {openMaster && <MasterNavigator onNavigate={(p: string) => navigate(p)} />}
@@ -160,7 +165,11 @@ const Dashboard: React.FC<DashboardProps> = ({ children }) => {
           <button style={buttonStyle} onClick={() => setOpenKnitting(!openKnitting)}>
             <WrenchScrewdriverIcon style={iconStyle} /> Knitting
             <span style={{ marginLeft: "auto" }}>
-              {openKnitting ? <ChevronUpIcon style={chevronStyle} /> : <ChevronDownIcon style={chevronStyle} />}
+              {openKnitting ? (
+                <ChevronUpIcon style={chevronStyle} />
+              ) : (
+                <ChevronDownIcon style={chevronStyle} />
+              )}
             </span>
           </button>
           {openKnitting && <KnittingNavigator onNavigate={(p: string) => navigate(p)} />}
@@ -169,7 +178,11 @@ const Dashboard: React.FC<DashboardProps> = ({ children }) => {
           <button style={buttonStyle} onClick={() => setOpenCutting(!openCutting)}>
             <ScissorsIcon style={iconStyle} /> Cutting
             <span style={{ marginLeft: "auto" }}>
-              {openCutting ? <ChevronUpIcon style={chevronStyle} /> : <ChevronDownIcon style={chevronStyle} />}
+              {openCutting ? (
+                <ChevronUpIcon style={chevronStyle} />
+              ) : (
+                <ChevronDownIcon style={chevronStyle} />
+              )}
             </span>
           </button>
           {openCutting && <CuttingNavigator onNavigate={(p: string) => navigate(p)} />}
@@ -183,7 +196,11 @@ const Dashboard: React.FC<DashboardProps> = ({ children }) => {
           <button style={buttonStyle} onClick={() => setOpenReport(!openReport)}>
             <DocumentTextIcon style={iconStyle} /> Reports
             <span style={{ marginLeft: "auto" }}>
-              {openReport ? <ChevronUpIcon style={chevronStyle} /> : <ChevronDownIcon style={chevronStyle} />}
+              {openReport ? (
+                <ChevronUpIcon style={chevronStyle} />
+              ) : (
+                <ChevronDownIcon style={chevronStyle} />
+              )}
             </span>
           </button>
           {openReport && <ReportsNavigator onNavigate={(p: string) => navigate(p)} />}
@@ -192,7 +209,11 @@ const Dashboard: React.FC<DashboardProps> = ({ children }) => {
           <button style={buttonStyle} onClick={() => setOpenSales(!openSales)}>
             <PresentationChartBarIcon style={iconStyle} /> Sales
             <span style={{ marginLeft: "auto" }}>
-              {openSales ? <ChevronUpIcon style={chevronStyle} /> : <ChevronDownIcon style={chevronStyle} />}
+              {openSales ? (
+                <ChevronUpIcon style={chevronStyle} />
+              ) : (
+                <ChevronDownIcon style={chevronStyle} />
+              )}
             </span>
           </button>
           {openSales && <SalesNavigator onNavigate={(path) => navigate(path)} />}
@@ -201,28 +222,53 @@ const Dashboard: React.FC<DashboardProps> = ({ children }) => {
           <button style={buttonStyle} onClick={() => setOpenPayments(!openPayments)}>
             <CreditCardIcon style={iconStyle} /> Payments
             <span style={{ marginLeft: "auto" }}>
-              {openPayments ? <ChevronUpIcon style={chevronStyle} /> : <ChevronDownIcon style={chevronStyle} />}
+              {openPayments ? (
+                <ChevronUpIcon style={chevronStyle} />
+              ) : (
+                <ChevronDownIcon style={chevronStyle} />
+              )}
             </span>
           </button>
           {openPayments && <PaymentNavigator onNavigate={(path) => navigate(path)} />}
 
           {/* Material Purchase */}
-          <button style={buttonStyle} onClick={() => setOpenMaterialPurchase(!openMaterialPurchase)}>
+          <button
+            style={buttonStyle}
+            onClick={() => setOpenMaterialPurchase(!openMaterialPurchase)}
+          >
             <ShoppingCartIcon style={iconStyle} /> Material Purchase
             <span style={{ marginLeft: "auto" }}>
-              {openMaterialPurchase ? <ChevronUpIcon style={chevronStyle} /> : <ChevronDownIcon style={chevronStyle} />}
+              {openMaterialPurchase ? (
+                <ChevronUpIcon style={chevronStyle} />
+              ) : (
+                <ChevronDownIcon style={chevronStyle} />
+              )}
             </span>
           </button>
-          {openMaterialPurchase && <MaterialPurchaseNavigator onNavigate={(path) => navigate(path)} />}
+          {openMaterialPurchase && (
+            <MaterialPurchaseNavigator onNavigate={(path) => navigate(path)} />
+          )}
 
           {/* ADMINISTRATION */}
-          <button style={buttonStyle} onClick={() => setOpenAdministration(!openAdministration)}>
-            <AdminPanelSettingsIcon style={iconStyle} /> Administration
+          <button
+            style={buttonStyle}
+            onClick={() => setOpenAdministration(!openAdministration)}
+          >
+            <span style={{ display: "inline-flex", alignItems: "center" }}>
+              <AdminPanelSettingsIcon sx={{ fontSize: 20, mr: 1.25 }} />
+            </span>
+            Administration
             <span style={{ marginLeft: "auto" }}>
-              {openAdministration ? <ChevronUpIcon style={chevronStyle} /> : <ChevronDownIcon style={chevronStyle} />}
+              {openAdministration ? (
+                <ChevronUpIcon style={chevronStyle} />
+              ) : (
+                <ChevronDownIcon style={chevronStyle} />
+              )}
             </span>
           </button>
-          {openAdministration && <AdministrationNavigator onNavigate={(path) => navigate(path)} />}
+          {openAdministration && (
+            <AdministrationNavigator onNavigate={(path) => navigate(path)} />
+          )}
 
           {/* CUSTOMER REQUESTS */}
           <button style={buttonStyle} onClick={() => navigate("/app/CustomerRequests")}>
@@ -241,15 +287,7 @@ const Dashboard: React.FC<DashboardProps> = ({ children }) => {
         </div>
 
         {/* ── Right side ─────────────────────────────────────────── */}
-        <div
-          style={{
-            flex: 1,
-            minWidth: 0,
-            display: "flex",
-            flexDirection: "column",
-            overflow: "hidden",
-          }}
-        >
+        <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", overflow: "hidden" }}>
           {/* Top bar */}
           <div
             style={{
@@ -268,15 +306,14 @@ const Dashboard: React.FC<DashboardProps> = ({ children }) => {
               {companyName}
             </div>
 
-            {/* Right-side controls: Notification + User dropdown */}
             <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
-
               {/* ── Notification Bell ─────────────────────────────── */}
               <div ref={notificationRef} style={{ position: "relative" }}>
                 <button
                   onClick={() => {
                     setNotificationOpen(!notificationOpen);
-                    setDropdownOpen(false); // close user dropdown if open
+                    setDropdownOpen(false);
+                    refresh(); // ✅ load latest
                   }}
                   style={{
                     background: "none",
@@ -315,7 +352,6 @@ const Dashboard: React.FC<DashboardProps> = ({ children }) => {
                   )}
                 </button>
 
-                {/* Notification popup — 400 × 400 */}
                 {notificationOpen && (
                   <div
                     style={{
@@ -347,28 +383,26 @@ const Dashboard: React.FC<DashboardProps> = ({ children }) => {
                       <span style={{ fontWeight: "bold", fontSize: "1.05rem", color: "#111827" }}>
                         Notifications
                       </span>
-                      <span
-                        style={{
-                          fontSize: "0.8rem",
-                          color: "#6366f1",
-                          cursor: "pointer",
-                          fontWeight: 600,
-                        }}
-                        onClick={() => {
-                          // Mark all as read handler — wire to your logic
-                        }}
-                      >
-                        Mark all as read
-                      </span>
+
+                      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                        <span
+                          style={{ fontSize: "0.8rem", color: "#6366f1", cursor: "pointer", fontWeight: 600 }}
+                          onClick={() => refresh()}
+                        >
+                          Refresh
+                        </span>
+
+                        <span
+                          style={{ fontSize: "0.8rem", color: "#6366f1", cursor: "pointer", fontWeight: 600 }}
+                          onClick={() => markAllAsRead()}
+                        >
+                          Mark all as read
+                        </span>
+                      </div>
                     </div>
 
-                    {/* Notification list — scrollable */}
-                    <div
-                      style={{
-                        flex: 1,
-                        overflowY: "auto",
-                      }}
-                    >
+                    {/* List */}
+                    <div style={{ flex: 1, overflowY: "auto" }}>
                       {notifications.length === 0 ? (
                         <div
                           style={{
@@ -393,22 +427,13 @@ const Dashboard: React.FC<DashboardProps> = ({ children }) => {
                               cursor: "pointer",
                               transition: "background-color 0.15s",
                             }}
-                            onMouseEnter={(e) => {
-                              (e.currentTarget as HTMLDivElement).style.backgroundColor = "#f9fafb";
-                            }}
-                            onMouseLeave={(e) => {
-                              (e.currentTarget as HTMLDivElement).style.backgroundColor = n.read
-                                ? "#ffffff"
-                                : "#f0f4ff";
+                            onClick={() => {
+                              markAsRead(n.id);
+                              setNotificationOpen(false);
+                              navigate(n.link || "/notifications");
                             }}
                           >
-                            <div
-                              style={{
-                                display: "flex",
-                                alignItems: "flex-start",
-                                gap: "10px",
-                              }}
-                            >
+                            <div style={{ display: "flex", alignItems: "flex-start", gap: "10px" }}>
                               {!n.read && (
                                 <span
                                   style={{
@@ -421,27 +446,39 @@ const Dashboard: React.FC<DashboardProps> = ({ children }) => {
                                   }}
                                 />
                               )}
+
                               <div style={{ flex: 1 }}>
-                                <div
-                                  style={{
-                                    fontSize: "0.9rem",
-                                    color: "#111827",
-                                    fontWeight: n.read ? 400 : 600,
-                                    lineHeight: 1.4,
-                                  }}
-                                >
+                                <div style={{ fontSize: "0.9rem", color: "#111827", fontWeight: n.read ? 400 : 700 }}>
+                                  {n.title}
+                                </div>
+                                <div style={{ fontSize: "0.82rem", color: "#374151", marginTop: 4 }}>
                                   {n.message}
                                 </div>
-                                <div
-                                  style={{
-                                    fontSize: "0.75rem",
-                                    color: "#9ca3af",
-                                    marginTop: "4px",
-                                  }}
-                                >
-                                  {n.time}
+                                <div style={{ fontSize: "0.75rem", color: "#9ca3af", marginTop: 4 }}>
+                                  {timeAgo(n.createdAt)}
                                 </div>
                               </div>
+
+                              {/* ✅ Remove button per notification */}
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation(); // don't navigate
+                                  removeNotification(n.id);
+                                }}
+                                title="Remove"
+                                style={{
+                                  border: "none",
+                                  background: "transparent",
+                                  color: "#EF4444",
+                                  fontSize: "18px",
+                                  fontWeight: 900,
+                                  cursor: "pointer",
+                                  lineHeight: 1,
+                                  padding: "0 4px",
+                                }}
+                              >
+                                ×
+                              </button>
                             </div>
                           </div>
                         ))
@@ -466,7 +503,7 @@ const Dashboard: React.FC<DashboardProps> = ({ children }) => {
                         }}
                         onClick={() => {
                           setNotificationOpen(false);
-                          navigate("/notifications"); // adjust route as needed
+                          navigate("/notifications");
                         }}
                       >
                         View all notifications
@@ -482,7 +519,7 @@ const Dashboard: React.FC<DashboardProps> = ({ children }) => {
                   style={{ width: "30px", height: "30px", color: "#374151", cursor: "pointer" }}
                   onClick={() => {
                     setDropdownOpen(!dropdownOpen);
-                    setNotificationOpen(false); // close notification if open
+                    setNotificationOpen(false);
                   }}
                 />
                 <span
@@ -498,28 +535,31 @@ const Dashboard: React.FC<DashboardProps> = ({ children }) => {
                 {dropdownOpen && (
                   <div
                     style={{
-                      position: "absolute", top: "50px", right: "0",
-                      backgroundColor: "white", boxShadow: "0px 2px 8px rgba(0,0,0,0.15)",
-                      borderRadius: "8px", overflow: "hidden", zIndex: 100, minWidth: "150px",
+                      position: "absolute",
+                      top: "50px",
+                      right: "0",
+                      backgroundColor: "white",
+                      boxShadow: "0px 2px 8px rgba(0,0,0,0.15)",
+                      borderRadius: "8px",
+                      overflow: "hidden",
+                      zIndex: 100,
+                      minWidth: "150px",
                     }}
                   >
-                    <button style={dropdownItemStyle} onClick={() => navigate("/profile")}>Profile</button>
-                    <button style={dropdownItemStyle} onClick={handleLogout}>Logout</button>
+                    <button style={dropdownItemStyle} onClick={() => navigate("/profile")}>
+                      Profile
+                    </button>
+                    <button style={dropdownItemStyle} onClick={handleLogout}>
+                      Logout
+                    </button>
                   </div>
                 )}
               </div>
             </div>
           </div>
 
-          {/* Page content — scrollable */}
-          <div
-            style={{
-              flex: 1,
-              padding: "20px",
-              overflowY: "auto",
-              overflowX: "hidden",
-            }}
-          >
+          {/* Page content */}
+          <div style={{ flex: 1, padding: "20px", overflowY: "auto", overflowX: "hidden" }}>
             {children}
           </div>
         </div>
