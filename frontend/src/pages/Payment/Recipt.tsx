@@ -36,7 +36,8 @@ const sanitizeDecimal = (
   let s = String(raw ?? "");
 
   // keep digits, dot, minus only
-  s = s.replace(/[^\d.\-]/g, "");
+  // ✅ FIX: removed unnecessary escape for '-' (eslint no-useless-escape)
+  s = s.replace(/[^\d.-]/g, "");
 
   // only one leading '-'
   if (!allowNegative) {
@@ -60,7 +61,8 @@ const sanitizeDecimal = (
   return s;
 };
 
-const isPartialNumberText = (s: string) => s === "" || s === "-" || s === "." || s === "-.";
+const isPartialNumberText = (s: string) =>
+  s === "" || s === "-" || s === "." || s === "-.";
 
 // ================= Amount to Words (Indian system) =================
 const numToWordsIndian = (num: number): string => {
@@ -89,7 +91,18 @@ const numToWordsIndian = (num: number): string => {
     "Eighteen",
     "Nineteen",
   ];
-  const tens = ["", "", "Twenty", "Thirty", "Forty", "Fifty", "Sixty", "Seventy", "Eighty", "Ninety"];
+  const tens = [
+    "",
+    "",
+    "Twenty",
+    "Thirty",
+    "Forty",
+    "Fifty",
+    "Sixty",
+    "Seventy",
+    "Eighty",
+    "Ninety",
+  ];
 
   const twoDigits = (x: number) => {
     if (x < 20) return ones[x];
@@ -353,7 +366,7 @@ const PaymentReceiptForm: React.FC = () => {
 
   const [editingId, setEditingId] = useState<number | null>(null);
 
-  // ✅ NEW: typed text states (scroll se number change wala issue fix)
+  // ✅ typed text states
   const [amountText, setAmountText] = useState<string>("");
   const [balanceText, setBalanceText] = useState<string>("");
 
@@ -373,7 +386,8 @@ const PaymentReceiptForm: React.FC = () => {
   const [agentList, setAgentList] = useState<any[]>([]);
   const [agentSearchText, setAgentSearchText] = useState("");
   const [showAgentModal, setShowAgentModal] = useState(false);
-  const [agentModalTarget, setAgentModalTarget] = useState<AgentModalTarget>("agentName");
+  const [agentModalTarget, setAgentModalTarget] =
+    useState<AgentModalTarget>("agentName");
 
   const [showList, setShowList] = useState(false);
   const [receiptList, setReceiptList] = useState<any[]>([]);
@@ -393,18 +407,30 @@ const PaymentReceiptForm: React.FC = () => {
 
   // Base balance (Party/Broker) from ACCOUNT LEDGER
   const [baseBalance, setBaseBalance] = useState<number | null>(null);
-  const [baseBalanceFor, setBaseBalanceFor] = useState<"Party" | "Broker" | null>(null);
+  const [baseBalanceFor, setBaseBalanceFor] = useState<
+    "Party" | "Broker" | null
+  >(null);
 
   // Account sources (ledger)
   const [accDispatch, setAccDispatch] = useState<DispatchChallan[]>([]);
-  const [accOtherDispatch, setAccOtherDispatch] = useState<OtherDispatchChallan[]>([]);
-  const [accPurchaseOrders, setAccPurchaseOrders] = useState<PurchaseOrderDoc[]>([]);
-  const [accPurchaseEntries, setAccPurchaseEntries] = useState<PurchaseEntryDoc[]>([]);
-  const [accPurchaseReturns, setAccPurchaseReturns] = useState<PurchaseReturnDoc[]>([]);
-  const [accJobInwards, setAccJobInwards] = useState<JobInwardChallanDoc[]>([]);
+  const [accOtherDispatch, setAccOtherDispatch] = useState<
+    OtherDispatchChallan[]
+  >([]);
+  const [accPurchaseOrders, setAccPurchaseOrders] = useState<
+    PurchaseOrderDoc[]
+  >([]);
+  const [accPurchaseEntries, setAccPurchaseEntries] = useState<
+    PurchaseEntryDoc[]
+  >([]);
+  const [accPurchaseReturns, setAccPurchaseReturns] = useState<
+    PurchaseReturnDoc[]
+  >([]);
+  const [accJobInwards, setAccJobInwards] = useState<JobInwardChallanDoc[]>(
+    []
+  );
   const [accPayments, setAccPayments] = useState<PaymentDoc[]>([]);
 
-  // ---------- Loaders (useCallback => no deps warnings) ----------
+  // ---------- Loaders ----------
   const loadProcesses = useCallback(() => {
     api
       .get(routesReceipt.processes)
@@ -464,15 +490,16 @@ const PaymentReceiptForm: React.FC = () => {
     };
 
     try {
-      const [dcRaw, odRaw, poRaw, peRaw, prRaw, jobInRaw, payRaw1] = await Promise.all([
-        safeGetArray(routesReceipt.dispatchChallans),
-        safeGetArray(routesReceipt.otherDispatchChallans),
-        safeGetArray(routesReceipt.purchaseOrders),
-        safeGetArray(routesReceipt.purchaseEntries),
-        safeGetArray(routesReceipt.purchaseReturns),
-        safeGetArray(routesReceipt.jobInward),
-        safeGetArray(routesReceipt.payments),
-      ]);
+      const [dcRaw, odRaw, poRaw, peRaw, prRaw, jobInRaw, payRaw1] =
+        await Promise.all([
+          safeGetArray(routesReceipt.dispatchChallans),
+          safeGetArray(routesReceipt.otherDispatchChallans),
+          safeGetArray(routesReceipt.purchaseOrders),
+          safeGetArray(routesReceipt.purchaseEntries),
+          safeGetArray(routesReceipt.purchaseReturns),
+          safeGetArray(routesReceipt.jobInward),
+          safeGetArray(routesReceipt.payments),
+        ]);
 
       const payRaw =
         Array.isArray(payRaw1) && payRaw1.length > 0
@@ -507,7 +534,10 @@ const PaymentReceiptForm: React.FC = () => {
       setAccPurchaseOrders(
         (Array.isArray(poRaw) ? poRaw : []).map((po: any) => {
           const items: any[] = Array.isArray(po.items) ? po.items : [];
-          const amount = items.reduce((s, it) => s + (parseFloat(it.amount ?? 0) || 0), 0);
+          const amount = items.reduce(
+            (s, it) => s + (parseFloat(it.amount ?? 0) || 0),
+            0
+          );
           return {
             id: po.id,
             orderNo: String(po.orderNo ?? ""),
@@ -521,7 +551,10 @@ const PaymentReceiptForm: React.FC = () => {
       setAccPurchaseEntries(
         (Array.isArray(peRaw) ? peRaw : []).map((e: any) => {
           const items: any[] = Array.isArray(e.items) ? e.items : [];
-          const amount = items.reduce((s, it) => s + (parseFloat(it.amount ?? 0) || 0), 0);
+          const amount = items.reduce(
+            (s, it) => s + (parseFloat(it.amount ?? 0) || 0),
+            0
+          );
           return {
             id: e.id,
             challanNo: String(e.challanNo ?? ""),
@@ -535,7 +568,10 @@ const PaymentReceiptForm: React.FC = () => {
       setAccPurchaseReturns(
         (Array.isArray(prRaw) ? prRaw : []).map((r: any) => {
           const items: any[] = Array.isArray(r.items) ? r.items : [];
-          const amount = items.reduce((s, it) => s + (parseFloat(it.amount ?? 0) || 0), 0);
+          const amount = items.reduce(
+            (s, it) => s + (parseFloat(it.amount ?? 0) || 0),
+            0
+          );
           return {
             id: r.id,
             challanNo: String(r.challanNo ?? ""),
@@ -550,7 +586,10 @@ const PaymentReceiptForm: React.FC = () => {
         (Array.isArray(jobInRaw) ? jobInRaw : [])
           .map((d: any) => {
             const rows: any[] = Array.isArray(d.rows) ? d.rows : [];
-            const amount = rows.reduce((s, r) => s + (Number(r.amount) || 0), 0);
+            const amount = rows.reduce(
+              (s, r) => s + (Number(r.amount) || 0),
+              0
+            );
             return {
               id: d.id ?? "",
               challanNo: String(d.challanNo ?? ""),
@@ -595,7 +634,15 @@ const PaymentReceiptForm: React.FC = () => {
     loadPaymentModes();
     loadParties();
     loadAccountSources();
-  }, [loadProcesses, loadEmployees, loadAgents, loadSavedRecords, loadPaymentModes, loadParties, loadAccountSources]);
+  }, [
+    loadProcesses,
+    loadEmployees,
+    loadAgents,
+    loadSavedRecords,
+    loadPaymentModes,
+    loadParties,
+    loadAccountSources,
+  ]);
 
   // Party->Broker mapping
   const partyByName = useMemo(() => {
@@ -617,7 +664,9 @@ const PaymentReceiptForm: React.FC = () => {
 
   const getBrokerNameForDispatch = useCallback(
     (doc: { brokerName?: string; agentName?: string; partyName: string }) => {
-      const direct = String(doc.brokerName ?? "").trim() || String(doc.agentName ?? "").trim();
+      const direct =
+        String(doc.brokerName ?? "").trim() ||
+        String(doc.agentName ?? "").trim();
       if (direct) return direct;
       return getBrokerFromPartyName(doc.partyName);
     },
@@ -724,7 +773,8 @@ const PaymentReceiptForm: React.FC = () => {
       setBaseBalanceFor("Party");
 
       setFormData((prev) => {
-        if (prev.receiptTo !== "Party" || norm(prev.name) !== norm(partyName)) return prev;
+        if (prev.receiptTo !== "Party" || norm(prev.name) !== norm(partyName))
+          return prev;
         const amt = prev.amount === "" ? 0 : Number(prev.amount || 0);
         const nextBal = prev.amount === "" ? bal : bal - amt;
         return { ...prev, balance: nextBal };
@@ -844,7 +894,8 @@ const PaymentReceiptForm: React.FC = () => {
       setBaseBalanceFor("Broker");
 
       setFormData((prev) => {
-        if (prev.receiptTo !== "Broker" || norm(prev.name) !== brokerKey) return prev;
+        if (prev.receiptTo !== "Broker" || norm(prev.name) !== brokerKey)
+          return prev;
         const amt = prev.amount === "" ? 0 : Number(prev.amount || 0);
         const nextBal = prev.amount === "" ? bal : bal - amt;
         return { ...prev, balance: nextBal };
@@ -886,10 +937,15 @@ const PaymentReceiptForm: React.FC = () => {
   ]);
 
   // ✅ amount words
-  const amountInWords = useMemo(() => amountToWordsINR(formData.amount), [formData.amount]);
+  const amountInWords = useMemo(
+    () => amountToWordsINR(formData.amount),
+    [formData.amount]
+  );
 
   // ---------------- Handlers ----------------
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+  const handleChange = (
+    e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>
+  ) => {
     const { name, value } = e.target;
 
     if (name === "receiptTo") {
@@ -905,7 +961,6 @@ const PaymentReceiptForm: React.FC = () => {
         amount: "",
       }));
 
-      // ✅ reset typed values
       setAmountText("");
       setBalanceText("");
 
@@ -936,18 +991,24 @@ const PaymentReceiptForm: React.FC = () => {
       return;
     }
 
-    // ✅ Amount (TEXT input) - scroll will NOT change
+    // ✅ Amount
     if (name === "amount") {
-      const clean = sanitizeDecimal(value, { allowNegative: false, decimals: 2 });
+      const clean = sanitizeDecimal(value, {
+        allowNegative: false,
+        decimals: 2,
+      });
       setAmountText(clean);
 
       const num: number | "" = isPartialNumberText(clean) ? "" : Number(clean);
 
       setFormData((prev) => {
         const isAutoBalance =
-          (prev.receiptTo === "Party" || prev.receiptTo === "Broker") && baseBalance !== null;
+          (prev.receiptTo === "Party" || prev.receiptTo === "Broker") &&
+          baseBalance !== null;
 
-        const nextBal = isAutoBalance ? baseBalance! - (num === "" ? 0 : Number(num)) : prev.balance;
+        const nextBal = isAutoBalance
+          ? baseBalance! - (num === "" ? 0 : Number(num))
+          : prev.balance;
 
         return {
           ...prev,
@@ -958,11 +1019,15 @@ const PaymentReceiptForm: React.FC = () => {
       return;
     }
 
-    // ✅ Balance (TEXT input) only editable for non Party/Broker
+    // ✅ Balance (manual only for non Party/Broker)
     if (name === "balance") {
-      if (formData.receiptTo === "Party" || formData.receiptTo === "Broker") return;
+      if (formData.receiptTo === "Party" || formData.receiptTo === "Broker")
+        return;
 
-      const clean = sanitizeDecimal(value, { allowNegative: true, decimals: 2 });
+      const clean = sanitizeDecimal(value, {
+        allowNegative: true,
+        decimals: 2,
+      });
       setBalanceText(clean);
 
       const num: number | "" = isPartialNumberText(clean) ? "" : Number(clean);
@@ -1034,7 +1099,6 @@ const PaymentReceiptForm: React.FC = () => {
       balance: "",
     }));
 
-    // ✅ reset typed values
     setAmountText("");
     setBalanceText("");
 
@@ -1117,7 +1181,9 @@ const PaymentReceiptForm: React.FC = () => {
 
     return partyList.filter((p) => {
       const name = (p.partyName || "").toLowerCase();
-      const partyProcess = p.process?.processName ? p.process.processName.toLowerCase() : "";
+      const partyProcess = p.process?.processName
+        ? p.process.processName.toLowerCase()
+        : "";
 
       const matchesSearch = !search || name.includes(search);
       const matchesProcess = !processFilter || !partyProcess || partyProcess === processFilter;
@@ -1233,8 +1299,10 @@ const PaymentReceiptForm: React.FC = () => {
           ? rec.agentName || ""
           : rec.partyName || "";
 
-      const amtNum = rec.amount === null || rec.amount === undefined ? "" : Number(rec.amount);
-      const balNum = rec.balance === null || rec.balance === undefined ? "" : Number(rec.balance);
+      const amtNum =
+        rec.amount === null || rec.amount === undefined ? "" : Number(rec.amount);
+      const balNum =
+        rec.balance === null || rec.balance === undefined ? "" : Number(rec.balance);
 
       setFormData({
         entryType: rec.entryType || "",
@@ -1254,7 +1322,7 @@ const PaymentReceiptForm: React.FC = () => {
       setAmountText(amtNum === "" ? "" : String(amtNum));
       setBalanceText(balNum === "" ? "" : String(balNum));
 
-      // Edit mode: baseBalance approx = amount + balance (same as your old behavior)
+      // Edit mode: baseBalance approx = amount + balance
       if (rec.receiptTo === "Party" || rec.receiptTo === "Broker") {
         const amt = Number(rec.amount ?? 0);
         const bal = Number(rec.balance ?? 0);
@@ -1322,7 +1390,6 @@ const PaymentReceiptForm: React.FC = () => {
       date: today,
     });
 
-    // ✅ reset typed values
     setAmountText("");
     setBalanceText("");
 
@@ -1432,7 +1499,8 @@ const PaymentReceiptForm: React.FC = () => {
     }
   };
 
-  const isAgentSelectable = formData.receiptTo !== "Party" && formData.receiptTo !== "Broker";
+  const isAgentSelectable =
+    formData.receiptTo !== "Party" && formData.receiptTo !== "Broker";
 
   const nameLabel =
     formData.receiptTo === "Party"
@@ -1597,7 +1665,9 @@ const PaymentReceiptForm: React.FC = () => {
                 placeholder="Enter amount"
                 className="border p-2 w-full rounded"
               />
-              {amountInWords ? <div className="text-xs text-gray-600 mt-1">{amountInWords}</div> : null}
+              {amountInWords ? (
+                <div className="text-xs text-gray-600 mt-1">{amountInWords}</div>
+              ) : null}
             </div>
 
             {/* Balance + Dr/Cr */}
@@ -1636,18 +1706,19 @@ const PaymentReceiptForm: React.FC = () => {
                 />
               </div>
 
-              {(formData.receiptTo === "Party" || formData.receiptTo === "Broker") && baseBalance !== null && (
-                <div className="text-xs text-gray-600 mt-1">
-                  Base ({baseBalanceFor || "Auto"} as on {formData.receiptDate}): {absVal(baseBalance)}{" "}
-                  {baseBalDrCr}
-                  {formData.amount !== "" && (
-                    <>
-                      {" "}
-                      | Current: {absVal(formData.balance)} {balanceDrCr}
-                    </>
-                  )}
-                </div>
-              )}
+              {(formData.receiptTo === "Party" || formData.receiptTo === "Broker") &&
+                baseBalance !== null && (
+                  <div className="text-xs text-gray-600 mt-1">
+                    Base ({baseBalanceFor || "Auto"} as on {formData.receiptDate}):{" "}
+                    {absVal(baseBalance)} {baseBalDrCr}
+                    {formData.amount !== "" && (
+                      <>
+                        {" "}
+                        | Current: {absVal(formData.balance)} {balanceDrCr}
+                      </>
+                    )}
+                  </div>
+                )}
             </div>
 
             <div className="col-span-2">
@@ -1751,16 +1822,22 @@ const PaymentReceiptForm: React.FC = () => {
                       <tr key={rowKey}>
                         <td className="border p-2 text-center">{idx + 1}</td>
                         <td className="border p-2">
-                          {record.receiptDate ? new Date(record.receiptDate).toLocaleDateString() : "-"}
+                          {record.receiptDate
+                            ? new Date(record.receiptDate).toLocaleDateString()
+                            : "-"}
                         </td>
-                        <td className="border p-2">{record.date ? new Date(record.date).toLocaleDateString() : "-"}</td>
+                        <td className="border p-2">
+                          {record.date ? new Date(record.date).toLocaleDateString() : "-"}
+                        </td>
                         <td className="border p-2">{record.receiptTo}</td>
                         <td className="border p-2">{name || "-"}</td>
                         <td className="border p-2">{record.agentName || "-"}</td>
                         <td className="border p-2">{record.processName || "-"}</td>
                         <td className="border p-2 text-right">{record.amount ?? "-"}</td>
                         <td className="border p-2 text-right">
-                          {record.balance === null || record.balance === undefined ? "-" : balAbs}
+                          {record.balance === null || record.balance === undefined
+                            ? "-"
+                            : balAbs}
                         </td>
                         <td className="border p-2 text-center">{drcr || "-"}</td>
                       </tr>
@@ -2089,7 +2166,9 @@ const PaymentReceiptForm: React.FC = () => {
                     productionRows.map((row: any, idx: number) => (
                       <tr key={row.key || idx}>
                         <td className="border p-2 text-center">{idx + 1}</td>
-                        <td className="border p-2">{row.dated ? new Date(row.dated).toLocaleDateString() : "-"}</td>
+                        <td className="border p-2">
+                          {row.dated ? new Date(row.dated).toLocaleDateString() : "-"}
+                        </td>
                         <td className="border p-2">{row.voucherNo || "-"}</td>
                         <td className="border p-2">{row.employeeName || "-"}</td>
                         <td className="border p-2">{row.processName || "-"}</td>
@@ -2177,7 +2256,9 @@ const PaymentReceiptForm: React.FC = () => {
                           <td className="border p-2">
                             {d.receiptDate ? new Date(d.receiptDate).toLocaleDateString() : "-"}
                           </td>
-                          <td className="border p-2">{d.date ? new Date(d.date).toLocaleDateString() : "-"}</td>
+                          <td className="border p-2">
+                            {d.date ? new Date(d.date).toLocaleDateString() : "-"}
+                          </td>
                           <td className="border p-2">{d.entryType}</td>
                           <td className="border p-2">{d.receiptTo}</td>
                           <td className="border p-2">{name || "-"}</td>
