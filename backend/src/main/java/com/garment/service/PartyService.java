@@ -4,6 +4,7 @@ import com.garment.model.Party;
 import com.garment.repository.PartyRepository;
 import com.garment.repository.TransportRepository;
 import org.springframework.stereotype.Service;
+
 import java.util.List;
 import java.util.Optional;
 
@@ -13,7 +14,7 @@ public class PartyService {
     private final TransportRepository transportRepository;
 
     public PartyService(PartyRepository repository,
-            TransportRepository transportRepository) {
+                        TransportRepository transportRepository) {
         this.repository = repository;
         this.transportRepository = transportRepository;
     }

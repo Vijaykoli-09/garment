@@ -23,8 +23,6 @@ public class Party {
     private String gstNo;
     private Double openingBalance;
 
-    // NEW: store whether Opening Balance is Credit (CR) or Debit (DR)
-    // We'll store "CR" or "DR"
     private String openingBalanceType;
 
     private Double openingTaxBalance;
@@ -41,7 +39,6 @@ public class Party {
     @JoinColumn(name = "agent_serial_no", referencedColumnName = "serialNo")
     private Agent agent;
 
-    // New Fields
     private Integer creditDays;
     private Double creditAmount;
     private String station;
@@ -50,10 +47,12 @@ public class Party {
     @JoinColumn(name = "grade_id", referencedColumnName = "serialNo")
     private CustomerGrade grade;
 
-    // Use Transport as relation
     @ManyToOne
     @JoinColumn(name = "transports_serial_number")
     private Transport transport;
 
-    // Lombok's @Data provides getters/setters, no need to write manually
+    // Optional Party Type (null allowed)
+    @Enumerated(EnumType.STRING)
+    @Column(name = "customer_type")
+    private CustomerType customerType;
 }
