@@ -4,6 +4,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import Dashboard from "../../Dashboard";
 import Swal from "sweetalert2";
 import api from "../../../api/axiosInstance";
+import axios from "axios";
 
 /* ---------------- helpers ---------------- */
 const todayStr = () => {
@@ -15,8 +16,7 @@ const todayStr = () => {
 };
 
 const toNum = (v: any) => {
-  const n =
-    typeof v === "string" ? parseFloat(v) : typeof v === "number" ? v : 0;
+  const n = typeof v === "string" ? parseFloat(v) : typeof v === "number" ? v : 0;
   return Number.isFinite(n) ? n : 0;
 };
 
@@ -110,7 +110,8 @@ interface MatAdjRow {
   qtyDelta?: number;
   qty_delta?: number;
 }
-type Tab = "ART" | "MATERIAL";
+
+type Tab = "ART" | "MATERIAL" | "SIZE";
 
 /* ---------------- component ---------------- */
 const StockTransferAdjust: React.FC = () => {
@@ -127,18 +128,57 @@ const StockTransferAdjust: React.FC = () => {
     const boot = async () => {
       setLoading(true);
       try {
-        const [a, sh, sz, mg, m] = await Promise.all([
+        // ✅ Safe boot: network error se app crash nahi hoga
+        const results = await Promise.allSettled([
           api.get("/arts"),
           api.get("/shade/list"),
           api.get("/sizes"),
           api.get("/material-groups"),
           api.get("/materials"),
         ]);
-        setArts(Array.isArray(a.data) ? a.data : []);
-        setShades(Array.isArray(sh.data) ? sh.data : []);
-        setSizes(Array.isArray(sz.data) ? sz.data : []);
-        setMatGroups(Array.isArray(mg.data) ? mg.data : []);
-        setMaterials(Array.isArray(m.data) ? m.data : []);
+
+        const [a, sh, sz, mg, m] = results;
+
+        if (a.status === "fulfilled") setArts(Array.isArray(a.value.data) ? a.value.data : []);
+        else setArts([]);
+
+        if (sh.status === "fulfilled") setShades(Array.isArray(sh.value.data) ? sh.value.data : []);
+        else setShades([]);
+
+        if (sz.status === "fulfilled") setSizes(Array.isArray(sz.value.data) ? sz.value.data : []);
+        else setSizes([]);
+
+        if (mg.status === "fulfilled") setMatGroups(Array.isArray(mg.value.data) ? mg.value.data : []);
+        else setMatGroups([]);
+
+        if (m.status === "fulfilled") setMaterials(Array.isArray(m.value.data) ? m.value.data : []);
+        else setMaterials([]);
+
+        const failed = results
+          .map((r, i) => ({ r, i }))
+          .filter((x) => x.r.status === "rejected");
+
+        if (failed.length > 0) {
+          const msgLines = failed.map((x) => {
+            const err = (x.r as PromiseRejectedResult).reason;
+            if (axios.isAxiosError(err)) {
+              const url = `${err.config?.baseURL || ""}${err.config?.url || ""}`;
+              return `API failed: ${url} (status: ${err.response?.status ?? "NO_RESPONSE"})`;
+            }
+            return `API failed: index ${x.i}`;
+          });
+
+          Swal.fire({
+            icon: "warning",
+            title: "Some data could not load",
+            html: `<div style="text-align:left;font-size:13px;white-space:pre-line">${msgLines.join(
+              "\n"
+            )}</div>`,
+          });
+        }
+      } catch (e) {
+        console.error(e);
+        Swal.fire("Error", "Failed to load master data.", "error");
       } finally {
         setLoading(false);
       }
@@ -161,7 +201,7 @@ const StockTransferAdjust: React.FC = () => {
     return m;
   }, [materials]);
 
-  /* ======================= ART TAB ======================= */
+  /* ======================= ART TAB (same working logic) ======================= */
   const [asOnArt, setAsOnArt] = useState(todayStr());
   const [shadeCode, setShadeCode] = useState("");
   const [sizeSerial, setSizeSerial] = useState("");
@@ -175,7 +215,6 @@ const StockTransferAdjust: React.FC = () => {
     [sizeSerial, sizes]
   );
 
-  // ✅ NO DEFAULT VALUES
   const [fromArt1, setFromArt1] = useState("");
   const [fromArt2, setFromArt2] = useState("");
   const [toArt, setToArt] = useState("");
@@ -183,8 +222,7 @@ const StockTransferAdjust: React.FC = () => {
   const [qty2, setQty2] = useState("");
   const [remarksArt, setRemarksArt] = useState("");
 
-  const totalOut =
-    (toNum(qty1) > 0 ? toNum(qty1) : 0) + (toNum(qty2) > 0 ? toNum(qty2) : 0);
+  const totalOut = (toNum(qty1) > 0 ? toNum(qty1) : 0) + (toNum(qty2) > 0 ? toNum(qty2) : 0);
 
   const [stk1, setStk1] = useState<ArtStockInfo | null>(null);
   const [stk2, setStk2] = useState<ArtStockInfo | null>(null);
@@ -197,7 +235,6 @@ const StockTransferAdjust: React.FC = () => {
   };
 
   useEffect(() => {
-    // if shade/size changed, old stock becomes stale
     clearArtStocks();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [shadeCode, sizeSerial, asOnArt]);
@@ -212,16 +249,14 @@ const StockTransferAdjust: React.FC = () => {
     let rate = 0;
 
     // 1) Opening from Art detail
-    const det = await api
-      .get<ArtDetailView>(`/arts/${art.serialNumber}`)
-      .then((r) => r.data);
+    const det = await api.get<ArtDetailView>(`/arts/${art.serialNumber}`).then((r) => r.data);
 
     const sizeList: SizeDetail[] =
       Array.isArray(det.sizeDetails) && det.sizeDetails.length > 0
         ? (det.sizeDetails as any)
         : Array.isArray(det.sizes)
-        ? det.sizes
-        : [];
+          ? det.sizes
+          : [];
 
     const sz = sizeList.find((x) => (x.sizeName || "").trim() === sizeName);
     if (sz) {
@@ -236,9 +271,7 @@ const StockTransferAdjust: React.FC = () => {
 
     // 2) Packing incoming
     const packingRes = await api.get<any[]>("/packing-challans");
-    const packingList: any[] = Array.isArray(packingRes.data)
-      ? packingRes.data
-      : [];
+    const packingList: any[] = Array.isArray(packingRes.data) ? packingRes.data : [];
     packingList.forEach((ch) => {
       const rows: any[] = Array.isArray(ch.rows) ? ch.rows : [];
       rows.forEach((r) => {
@@ -248,17 +281,13 @@ const StockTransferAdjust: React.FC = () => {
         const sh = String(r.shadeName || r.shade || "").trim();
         if (sh !== shadeName) return;
 
-        const details: any[] = Array.isArray(r.sizeDetails)
-          ? r.sizeDetails
-          : [];
+        const details: any[] = Array.isArray(r.sizeDetails) ? r.sizeDetails : [];
         if (details.length > 0) {
           details.forEach((sd) => {
             const sName = String(sd.sizeName || sd.size || "").trim();
             if (sName !== sizeName) return;
 
-            const p =
-              toNum(sd.pcs) ||
-              toNum(sd.boxCount || 0) * toNum(sd.perBox || 0);
+            const p = toNum(sd.pcs) || toNum(sd.boxCount || 0) * toNum(sd.perBox || 0);
             pcs += p;
 
             const pb = toNum(sd.perBox);
@@ -285,9 +314,7 @@ const StockTransferAdjust: React.FC = () => {
 
     // 3) Dispatch outgoing
     const dispatchRes = await api.get<any[]>("/dispatch-challan");
-    const dispatchList: any[] = Array.isArray(dispatchRes.data)
-      ? dispatchRes.data
-      : [];
+    const dispatchList: any[] = Array.isArray(dispatchRes.data) ? dispatchRes.data : [];
     dispatchList.forEach((dc) => {
       const rows: any[] = Array.isArray(dc.rows) ? dc.rows : [];
       rows.forEach((r) => {
@@ -300,8 +327,7 @@ const StockTransferAdjust: React.FC = () => {
         const sName = String(r.size || r.sizeName || "").trim();
         if (sName !== sizeName) return;
 
-        const p =
-          toNum(r.pcs) || toNum(r.box || 0) * toNum(r.pcsPerBox || 0);
+        const p = toNum(r.pcs) || toNum(r.box || 0) * toNum(r.pcsPerBox || 0);
         pcs -= p;
 
         const pb = toNum(r.pcsPerBox);
@@ -315,9 +341,7 @@ const StockTransferAdjust: React.FC = () => {
     });
     const adjs = Array.isArray(adjRes.data) ? adjRes.data : [];
     adjs.forEach((a) => {
-      const aArtNo = String(a.art_no || a.artNo || "")
-        .trim()
-        .toUpperCase();
+      const aArtNo = String(a.art_no || a.artNo || "").trim().toUpperCase();
       if (aArtNo !== art.artNo.trim().toUpperCase()) return;
 
       const sh = String(a.shade_name || a.shadeName || "").trim();
@@ -345,15 +369,9 @@ const StockTransferAdjust: React.FC = () => {
       setLoading(true);
 
       const [s1, s2, s3] = await Promise.all([
-        fromArt1
-          ? calcOneArtStock(fromArt1)
-          : Promise.resolve({ pcs: 0, perBox: 0, rate: 0 }),
-        fromArt2
-          ? calcOneArtStock(fromArt2)
-          : Promise.resolve({ pcs: 0, perBox: 0, rate: 0 }),
-        toArt
-          ? calcOneArtStock(toArt)
-          : Promise.resolve({ pcs: 0, perBox: 0, rate: 0 }),
+        fromArt1 ? calcOneArtStock(fromArt1) : Promise.resolve({ pcs: 0, perBox: 0, rate: 0 }),
+        fromArt2 ? calcOneArtStock(fromArt2) : Promise.resolve({ pcs: 0, perBox: 0, rate: 0 }),
+        toArt ? calcOneArtStock(toArt) : Promise.resolve({ pcs: 0, perBox: 0, rate: 0 }),
       ]);
 
       setStk1(fromArt1 ? s1 : null);
@@ -367,7 +385,6 @@ const StockTransferAdjust: React.FC = () => {
     }
   };
 
-  // Auto check when user has enough selection (any art + shade + size)
   useEffect(() => {
     const t = setTimeout(() => {
       if (tab !== "ART") return;
@@ -387,12 +404,9 @@ const StockTransferAdjust: React.FC = () => {
 
     if (!a1 || !a2 || !a3)
       return Swal.fire("Warning", "Select From Art1, From Art2 and To Art.", "warning");
-    if (!shadeName || !sizeName)
-      return Swal.fire("Warning", "Select Shade & Size.", "warning");
-    if (totalOut <= 0)
-      return Swal.fire("Warning", "Enter Qty1 and/or Qty2 (>0).", "warning");
+    if (!shadeName || !sizeName) return Swal.fire("Warning", "Select Shade & Size.", "warning");
+    if (totalOut <= 0) return Swal.fire("Warning", "Enter Qty1 and/or Qty2 (>0).", "warning");
 
-    // validate with current stocks
     await checkArtStocks();
     const s1 = stk1?.pcs ?? 0;
     const s2 = stk2?.pcs ?? 0;
@@ -481,7 +495,6 @@ const StockTransferAdjust: React.FC = () => {
 
       Swal.fire("Saved", "Transfer saved successfully.", "success");
 
-      // clear qty only (keep selections)
       setQty1("");
       setQty2("");
       setRemarksArt("");
@@ -498,16 +511,290 @@ const StockTransferAdjust: React.FC = () => {
   const artStockText = (s: ArtStockInfo | null) => {
     if (!s) return "-";
     const box = s.perBox ? s.pcs / s.perBox : 0;
-    return `Pcs: ${s.pcs.toFixed(2)}${
-      s.perBox ? ` | Box: ${box.toFixed(2)} | PerBox: ${s.perBox}` : ""
-    }${s.rate ? ` | Rate: ${s.rate}` : ""}`;
+    return `Pcs: ${s.pcs.toFixed(2)}${s.perBox ? ` | Box: ${box.toFixed(2)} | PerBox: ${s.perBox}` : ""}${
+      s.rate ? ` | Rate: ${s.rate}` : ""
+    }`;
   };
 
-  /* ======================= MATERIAL TAB ======================= */
+  /* ======================= SIZE TAB (INTEGRATED with /size-stock-transfers) ======================= */
+  const [asOnSize, setAsOnSize] = useState(todayStr());
+  const [sizeArtNo, setSizeArtNo] = useState("");
+  const [sizeShadeCode, setSizeShadeCode] = useState("");
+  const [fromSizeSerial, setFromSizeSerial] = useState("");
+  const [toSizeSerial, setToSizeSerial] = useState("");
+  const [sizeQty, setSizeQty] = useState("");
+  const [remarksSize, setRemarksSize] = useState("");
+
+  const sizeShadeName = useMemo(
+    () => shades.find((s) => s.shadeCode === sizeShadeCode)?.shadeName || "",
+    [sizeShadeCode, shades]
+  );
+
+  const fromSizeName = useMemo(
+    () => sizes.find((s) => s.serialNo === fromSizeSerial)?.sizeName || "",
+    [fromSizeSerial, sizes]
+  );
+
+  const toSizeName = useMemo(
+    () => sizes.find((s) => s.serialNo === toSizeSerial)?.sizeName || "",
+    [toSizeSerial, sizes]
+  );
+
+  const [stkFromSize, setStkFromSize] = useState<ArtStockInfo | null>(null);
+  const [stkToSize, setStkToSize] = useState<ArtStockInfo | null>(null);
+
+  const calcArtStockForParams = async (params: {
+    artNoRaw: string;
+    shadeNameX: string;
+    sizeNameX: string;
+    asOn: string;
+  }): Promise<ArtStockInfo> => {
+    const art = artByNo.get(params.artNoRaw.trim().toUpperCase());
+    if (!art) return { pcs: 0, perBox: 0, rate: 0 };
+    if (!params.shadeNameX || !params.sizeNameX) return { pcs: 0, perBox: 0, rate: 0 };
+
+    let pcs = 0;
+    let perBox = 0;
+    let rate = 0;
+
+    // 1) Opening from Art detail
+    const det = await api.get<ArtDetailView>(`/arts/${art.serialNumber}`).then((r) => r.data);
+
+    const sizeList: SizeDetail[] =
+      Array.isArray(det.sizeDetails) && det.sizeDetails.length > 0
+        ? (det.sizeDetails as any)
+        : Array.isArray(det.sizes)
+          ? det.sizes
+          : [];
+
+    const sz = sizeList.find((x) => (x.sizeName || "").trim() === params.sizeNameX.trim());
+    if (sz) {
+      const pb = toNum(sz.pcs);
+      const box = toNum(sz.box);
+      pcs += box * pb;
+      if (pb > 0) perBox = pb;
+
+      const rt = toNum(sz.rate || det.saleRate || 0);
+      if (rt > 0) rate = rt;
+    }
+
+    // 2) Packing incoming
+    const packingRes = await api.get<any[]>("/packing-challans");
+    const packingList: any[] = Array.isArray(packingRes.data) ? packingRes.data : [];
+    packingList.forEach((ch) => {
+      const rows: any[] = Array.isArray(ch.rows) ? ch.rows : [];
+      rows.forEach((r) => {
+        const rArtNo = String(r.artNo || "").trim().toUpperCase();
+        if (rArtNo !== art.artNo.trim().toUpperCase()) return;
+
+        const sh = String(r.shadeName || r.shade || "").trim();
+        if (sh !== params.shadeNameX) return;
+
+        const details: any[] = Array.isArray(r.sizeDetails) ? r.sizeDetails : [];
+        if (details.length > 0) {
+          details.forEach((sd) => {
+            const sName = String(sd.sizeName || sd.size || "").trim();
+            if (sName !== params.sizeNameX.trim()) return;
+
+            const p = toNum(sd.pcs) || toNum(sd.boxCount || 0) * toNum(sd.perBox || 0);
+            pcs += p;
+
+            const pb = toNum(sd.perBox);
+            if (pb > 0) perBox = pb;
+
+            const rt = toNum(sd.rate);
+            if (rt > 0) rate = rt;
+          });
+        } else {
+          const sName = String(r.sizeName || r.size || "").trim();
+          if (sName !== params.sizeNameX.trim()) return;
+
+          const p = toNum(r.pcs) || toNum(r.box || 0) * toNum(r.perBox || 0);
+          pcs += p;
+
+          const pb = toNum(r.perBox);
+          if (pb > 0) perBox = pb;
+
+          const rt = toNum(r.rate);
+          if (rt > 0) rate = rt;
+        }
+      });
+    });
+
+    // 3) Dispatch outgoing
+    const dispatchRes = await api.get<any[]>("/dispatch-challan");
+    const dispatchList: any[] = Array.isArray(dispatchRes.data) ? dispatchRes.data : [];
+    dispatchList.forEach((dc) => {
+      const rows: any[] = Array.isArray(dc.rows) ? dc.rows : [];
+      rows.forEach((r) => {
+        const rArtNo = String(r.artNo || "").trim().toUpperCase();
+        if (rArtNo !== art.artNo.trim().toUpperCase()) return;
+
+        const sh = String(r.shade || r.shadeName || "").trim();
+        if (sh !== params.shadeNameX) return;
+
+        const sName = String(r.size || r.sizeName || "").trim();
+        if (sName !== params.sizeNameX.trim()) return;
+
+        const p = toNum(r.pcs) || toNum(r.box || 0) * toNum(r.pcsPerBox || 0);
+        pcs -= p;
+
+        const pb = toNum(r.pcsPerBox);
+        if (pb > 0) perBox = pb;
+      });
+    });
+
+    // 4) Adjustments (GET)
+    const adjRes = await api.get<ArtAdjRow[]>("/art-stock-adjustments", {
+      params: { toDate: params.asOn, limit: 10000 },
+    });
+    const adjs = Array.isArray(adjRes.data) ? adjRes.data : [];
+    adjs.forEach((a) => {
+      const aArtNo = String(a.art_no || a.artNo || "").trim().toUpperCase();
+      if (aArtNo !== art.artNo.trim().toUpperCase()) return;
+
+      const sh = String(a.shade_name || a.shadeName || "").trim();
+      const sn = String(a.size_name || a.sizeName || "").trim();
+      if (sh !== params.shadeNameX) return;
+      if (sn !== params.sizeNameX.trim()) return;
+
+      pcs += toNum(a.pcs_delta ?? a.pcsDelta);
+
+      const pb = toNum(a.per_box ?? a.perBox);
+      if (pb > 0) perBox = pb;
+
+      const rt = toNum(a.rate);
+      if (rt > 0) rate = rt;
+    });
+
+    return { pcs, perBox, rate };
+  };
+
+  const checkSizeStocks = async () => {
+    const art = artByNo.get(sizeArtNo.trim().toUpperCase());
+    if (!art) return Swal.fire("Warning", "Select Art first.", "warning");
+    if (!sizeShadeName) return Swal.fire("Warning", "Select Shade first.", "warning");
+    if (!fromSizeSerial || !toSizeSerial) return Swal.fire("Warning", "Select From Size & To Size.", "warning");
+    if (fromSizeSerial === toSizeSerial)
+      return Swal.fire("Warning", "From Size and To Size cannot be same.", "warning");
+
+    try {
+      setLoading(true);
+      const [sFrom, sTo] = await Promise.all([
+        calcArtStockForParams({
+          artNoRaw: art.artNo,
+          shadeNameX: sizeShadeName,
+          sizeNameX: fromSizeName,
+          asOn: asOnSize,
+        }),
+        calcArtStockForParams({
+          artNoRaw: art.artNo,
+          shadeNameX: sizeShadeName,
+          sizeNameX: toSizeName,
+          asOn: asOnSize,
+        }),
+      ]);
+
+      setStkFromSize(sFrom);
+      setStkToSize(sTo);
+    } catch (e) {
+      console.error(e);
+      Swal.fire("Error", "Failed to load size stock.", "error");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    const t = setTimeout(() => {
+      if (tab !== "SIZE") return;
+      if (!sizeArtNo || !sizeShadeCode || !fromSizeSerial || !toSizeSerial) return;
+      if (fromSizeSerial === toSizeSerial) return;
+      checkSizeStocks();
+    }, 450);
+
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab, sizeArtNo, sizeShadeCode, fromSizeSerial, toSizeSerial, asOnSize]);
+
+  const saveSizeTransfer = async () => {
+    const art = artByNo.get(sizeArtNo.trim().toUpperCase());
+    if (!art) return Swal.fire("Warning", "Select Art.", "warning");
+    if (!sizeShadeName) return Swal.fire("Warning", "Select Shade.", "warning");
+    if (!fromSizeSerial || !toSizeSerial)
+      return Swal.fire("Warning", "Select From Size and To Size.", "warning");
+    if (fromSizeSerial === toSizeSerial)
+      return Swal.fire("Warning", "From Size and To Size cannot be same.", "warning");
+
+    const qty = toNum(sizeQty);
+    if (qty <= 0) return Swal.fire("Warning", "Enter Qty (>0).", "warning");
+
+    // validate with current from-size stock
+    await checkSizeStocks();
+    const available = stkFromSize?.pcs ?? 0;
+    if (qty > available) {
+      return Swal.fire("Warning", `From Size stock is ${available}. You entered ${qty}`, "warning");
+    }
+
+    const ref = `SIZTRF-${Date.now()}`;
+    const rem = (remarksSize || "").trim();
+
+    const ok = await Swal.fire({
+      icon: "question",
+      title: "Confirm Size Transfer?",
+      html: `<div style="text-align:left;font-size:13px">
+        <div><b>Art:</b> ${art.artNo} - ${art.artName}</div>
+        <div><b>Shade:</b> ${sizeShadeName}</div>
+        <div><b>From Size:</b> ${fromSizeName} (OUT: ${qty})</div>
+        <div><b>To Size:</b> ${toSizeName} (IN: ${qty})</div>
+      </div>`,
+      showCancelButton: true,
+      confirmButtonText: "Save",
+    });
+    if (!ok.isConfirmed) return;
+
+    try {
+      setLoading(true);
+
+      // ✅ Single backend call (your new backend)
+      await api.post("/size-stock-transfers", {
+        adjDate: asOnSize,
+        artSerial: art.serialNumber,
+        artGroup: art.artGroup,
+        artNo: art.artNo,
+        artName: art.artName,
+
+        shadeCode: sizeShadeCode,
+        shadeName: sizeShadeName,
+
+        fromSizeSerial,
+        fromSizeName,
+        toSizeSerial,
+        toSizeName,
+
+        qty: qty,
+        ref,
+        remarks: rem,
+      });
+
+      Swal.fire("Saved", "Size transfer saved successfully.", "success");
+
+      setSizeQty("");
+      setRemarksSize("");
+
+      await checkSizeStocks(); // refresh
+    } catch (e) {
+      console.error(e);
+      Swal.fire("Error", "Save failed. Check backend API /size-stock-transfers.", "error");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  /* ======================= MATERIAL TAB (same working logic) ======================= */
   const [asOnMat, setAsOnMat] = useState(todayStr());
   const [mShade, setMShade] = useState("");
 
-  // ✅ NO DEFAULT VALUES
   const [g1, setG1] = useState("");
   const [i1, setI1] = useState("");
   const [mq1, setMq1] = useState("");
@@ -520,8 +807,7 @@ const StockTransferAdjust: React.FC = () => {
   const [i3, setI3] = useState("");
   const [mRem, setMRem] = useState("");
 
-  const mTotal =
-    (toNum(mq1) > 0 ? toNum(mq1) : 0) + (toNum(mq2) > 0 ? toNum(mq2) : 0);
+  const mTotal = (toNum(mq1) > 0 ? toNum(mq1) : 0) + (toNum(mq2) > 0 ? toNum(mq2) : 0);
 
   const [mb1, setMb1] = useState<number | null>(null);
   const [mb2, setMb2] = useState<number | null>(null);
@@ -555,9 +841,7 @@ const StockTransferAdjust: React.FC = () => {
     } else {
       const sn = mShade.trim().toLowerCase();
       bal = rows
-        .filter(
-          (r) => String(r.shadeName || "").trim().toLowerCase() === sn
-        )
+        .filter((r) => String(r.shadeName || "").trim().toLowerCase() === sn)
         .reduce((acc, r) => acc + toNum(r.balance), 0);
     }
 
@@ -574,9 +858,7 @@ const StockTransferAdjust: React.FC = () => {
       if (ag !== groupId || ai !== itemId) return;
 
       if (mShade.trim()) {
-        const ash = String(a.shade_name ?? a.shadeName ?? "")
-          .trim()
-          .toLowerCase();
+        const ash = String(a.shade_name ?? a.shadeName ?? "").trim().toLowerCase();
         if (ash !== sn) return;
       }
       bal += toNum(a.qty_delta ?? a.qtyDelta);
@@ -630,10 +912,8 @@ const StockTransferAdjust: React.FC = () => {
     if (mTotal <= 0) return Swal.fire("Warning", "Enter Qty (>0).", "warning");
 
     await checkMaterialStocks();
-    if (mb1 !== null && toNum(mq1) > mb1)
-      return Swal.fire("Warning", `Item-1 balance is ${mb1}`, "warning");
-    if (mb2 !== null && toNum(mq2) > mb2)
-      return Swal.fire("Warning", `Item-2 balance is ${mb2}`, "warning");
+    if (mb1 !== null && toNum(mq1) > mb1) return Swal.fire("Warning", `Item-1 balance is ${mb1}`, "warning");
+    if (mb2 !== null && toNum(mq2) > mb2) return Swal.fire("Warning", `Item-2 balance is ${mb2}`, "warning");
 
     const ref = `MATTRF-${Date.now()}`;
     const rem = (mRem || "").trim();
@@ -698,7 +978,6 @@ const StockTransferAdjust: React.FC = () => {
 
       Swal.fire("Saved", "Material transfer saved.", "success");
 
-      // clear qty only (keep selections)
       setMq1("");
       setMq2("");
       setMRem("");
@@ -712,30 +991,36 @@ const StockTransferAdjust: React.FC = () => {
     }
   };
 
+  /* ------------------------------- UI ------------------------------- */
   return (
     <Dashboard>
       <div className="p-6 bg-gray-50 min-h-screen">
         <div className="bg-white rounded-2xl shadow-md p-5 w-full max-w-6xl mx-auto">
           <div className="flex items-center justify-between mb-4">
-            <h2 className="text-xl font-semibold">
-              2 Source → 1 Target (Stock show + adjust)
-            </h2>
+            <h2 className="text-xl font-semibold">2 Source → 1 Target (Stock show + adjust)</h2>
+
             <div className="flex gap-2">
               <button
                 className={`px-4 py-2 rounded border text-sm ${
-                  tab === "ART"
-                    ? "bg-blue-600 text-white"
-                    : "bg-white text-gray-700"
+                  tab === "ART" ? "bg-blue-600 text-white" : "bg-white text-gray-700"
                 }`}
                 onClick={() => setTab("ART")}
               >
                 Art
               </button>
+
               <button
                 className={`px-4 py-2 rounded border text-sm ${
-                  tab === "MATERIAL"
-                    ? "bg-blue-600 text-white"
-                    : "bg-white text-gray-700"
+                  tab === "SIZE" ? "bg-blue-600 text-white" : "bg-white text-gray-700"
+                }`}
+                onClick={() => setTab("SIZE")}
+              >
+                Size
+              </button>
+
+              <button
+                className={`px-4 py-2 rounded border text-sm ${
+                  tab === "MATERIAL" ? "bg-blue-600 text-white" : "bg-white text-gray-700"
                 }`}
                 onClick={() => setTab("MATERIAL")}
               >
@@ -744,6 +1029,16 @@ const StockTransferAdjust: React.FC = () => {
             </div>
           </div>
 
+          {/* shared datalist */}
+          <datalist id="artList">
+            {arts.map((a) => (
+              <option key={a.serialNumber} value={a.artNo}>
+                {a.artNo} - {a.artName}
+              </option>
+            ))}
+          </datalist>
+
+          {/* ======================= ART TAB ======================= */}
           {tab === "ART" ? (
             <div className="border rounded-xl p-4">
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
@@ -787,14 +1082,6 @@ const StockTransferAdjust: React.FC = () => {
                   </select>
                 </div>
               </div>
-
-              <datalist id="artList">
-                {arts.map((a) => (
-                  <option key={a.serialNumber} value={a.artNo}>
-                    {a.artNo} - {a.artName}
-                  </option>
-                ))}
-              </datalist>
 
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mt-4">
                 <div className="border rounded p-3">
@@ -884,7 +1171,133 @@ const StockTransferAdjust: React.FC = () => {
                 </button>
               </div>
             </div>
-          ) : (
+          ) : null}
+
+          {/* ======================= SIZE TAB ======================= */}
+          {tab === "SIZE" ? (
+            <div className="border rounded-xl p-4">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div>
+                  <div className="text-sm font-semibold mb-1">As On Date</div>
+                  <input
+                    className="border rounded px-3 py-2 w-full"
+                    type="date"
+                    value={asOnSize}
+                    onChange={(e) => setAsOnSize(e.target.value)}
+                  />
+                </div>
+
+                <div>
+                  <div className="text-sm font-semibold mb-1">Art</div>
+                  <input
+                    className="border rounded px-3 py-2 w-full"
+                    list="artList"
+                    value={sizeArtNo}
+                    onChange={(e) => setSizeArtNo(e.target.value)}
+                    placeholder="Select Art No"
+                  />
+                </div>
+
+                <div>
+                  <div className="text-sm font-semibold mb-1">Shade</div>
+                  <select
+                    className="border rounded px-3 py-2 w-full"
+                    value={sizeShadeCode}
+                    onChange={(e) => setSizeShadeCode(e.target.value)}
+                  >
+                    <option value="">--Select--</option>
+                    {shades.map((s) => (
+                      <option key={s.shadeCode} value={s.shadeCode}>
+                        {s.shadeName}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-4">
+                <div className="border rounded p-3">
+                  <div className="text-sm font-semibold mb-1">FROM Size</div>
+                  <select
+                    className="border rounded px-3 py-2 w-full"
+                    value={fromSizeSerial}
+                    onChange={(e) => setFromSizeSerial(e.target.value)}
+                  >
+                    <option value="">--Select--</option>
+                    {sizes.map((s) => (
+                      <option key={s.serialNo} value={s.serialNo}>
+                        {s.sizeName}
+                      </option>
+                    ))}
+                  </select>
+                  <div className="text-xs text-gray-600 mt-2">
+                    Stock: <b>{artStockText(stkFromSize)}</b>
+                  </div>
+                </div>
+
+                <div className="border rounded p-3">
+                  <div className="text-sm font-semibold mb-1">TO Size</div>
+                  <select
+                    className="border rounded px-3 py-2 w-full"
+                    value={toSizeSerial}
+                    onChange={(e) => setToSizeSerial(e.target.value)}
+                  >
+                    <option value="">--Select--</option>
+                    {sizes.map((s) => (
+                      <option key={s.serialNo} value={s.serialNo}>
+                        {s.sizeName}
+                      </option>
+                    ))}
+                  </select>
+                  <div className="text-xs text-gray-600 mt-2">
+                    Stock: <b>{artStockText(stkToSize)}</b>
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-4">
+                <div>
+                  <div className="text-sm font-semibold mb-1">Qty (Pcs)</div>
+                  <input
+                    className="border rounded px-3 py-2 w-full"
+                    value={sizeQty}
+                    onChange={(e) => setSizeQty(e.target.value)}
+                    placeholder="0"
+                  />
+                </div>
+
+                <div>
+                  <div className="text-sm font-semibold mb-1">Remarks</div>
+                  <input
+                    className="border rounded px-3 py-2 w-full"
+                    value={remarksSize}
+                    onChange={(e) => setRemarksSize(e.target.value)}
+                    placeholder="optional"
+                  />
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-2 mt-4">
+                <button
+                  disabled={loading}
+                  onClick={checkSizeStocks}
+                  className="px-4 py-2 rounded bg-gray-700 text-white text-sm font-semibold disabled:opacity-60"
+                >
+                  {loading ? "..." : "Check Stock"}
+                </button>
+                <button
+                  disabled={loading}
+                  onClick={saveSizeTransfer}
+                  className="px-5 py-2 rounded bg-blue-600 text-white font-semibold disabled:opacity-60"
+                >
+                  {loading ? "Saving..." : "Save Size Transfer"}
+                </button>
+              </div>
+            </div>
+          ) : null}
+
+          {/* ======================= MATERIAL TAB ======================= */}
+          {tab === "MATERIAL" ? (
             <div className="border rounded-xl p-4">
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                 <div>
@@ -1069,7 +1482,7 @@ const StockTransferAdjust: React.FC = () => {
                 </button>
               </div>
             </div>
-          )}
+          ) : null}
         </div>
       </div>
     </Dashboard>
