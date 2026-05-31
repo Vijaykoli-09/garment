@@ -41,15 +41,15 @@ public class CuttingEntry {
     @Column(name = "total_cons_amount")
     private String totalConsAmount;
 
-    // NEW: Issue To + Branch
+    // Issue To + Branch
     @Column(name = "issue_to", length = 16)
     private String issueTo; // "Inside" | "Outside"
 
     @Column(name = "issue_branch_id")
-    private Long issueBranchId; // Location ID
+    private Long issueBranchId;
 
     @Column(name = "issue_branch_name")
-    private String issueBranchName; // Branch name snapshot
+    private String issueBranchName;
 
     @Column(name = "created_at")
     private LocalDateTime createdAt;
@@ -62,6 +62,10 @@ public class CuttingEntry {
 
     @OneToMany(mappedBy = "cuttingEntry", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<CuttingStockRow> stockRows = new ArrayList<>();
+
+    // ✅ NEW: Size rows
+    @OneToMany(mappedBy = "cuttingEntry", cascade = CascadeType.ALL, orphanRemoval = true)
+    private List<CuttingSizeRow> sizeRows = new ArrayList<>();
 
     @PrePersist
     public void onCreate() {
@@ -78,8 +82,15 @@ public class CuttingEntry {
         lotRows.add(r);
         r.setCuttingEntry(this);
     }
+
     public void addStockRow(CuttingStockRow r) {
         stockRows.add(r);
+        r.setCuttingEntry(this);
+    }
+
+    // ✅ NEW helper
+    public void addSizeRow(CuttingSizeRow r) {
+        sizeRows.add(r);
         r.setCuttingEntry(this);
     }
 }

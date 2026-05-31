@@ -16,14 +16,16 @@ public class CuttingEntryDTO {
     private String totalPcs;
     private String totalCuttingAmount;
     private String totalConsumption;
-    private String totalKho;          // header total
+    private String totalKho;
     private String totalConsAmount;
 
-    // NEW: Issue To + Branch
-    private String issueTo;           // "Inside" | "Outside"
-    private Long issueBranchId;       // Location id
-    private String issueBranchName;   // Branch name snapshot
+    private String issueTo;
+    private Long issueBranchId;
+    private String issueBranchName;
 
     private List<CuttingLotRowDTO> lotRows;
     private List<CuttingStockRowDTO> stockRows;
+
+    // ✅ NEW
+    private List<CuttingSizeRowDTO> sizeRows;
 }
