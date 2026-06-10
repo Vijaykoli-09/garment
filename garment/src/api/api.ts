@@ -3,7 +3,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { CartItem, AppUser } from '../context/AppContext';
 
 export const BASE_URL = 'https://garment-1-1v21.onrender.com/api';
-// export const BASE_URL = 'http://192.168.31.42:8080/api';
+// export const BASE_URL = 'http://192.168.1.25:8080/api';
 
 // ════════════════════════════════════════════════════════════════════
 // AXIOS INSTANCE
@@ -70,23 +70,67 @@ export const SessionStorage = {
 // AUTH API
 // ════════════════════════════════════════════════════════════════════
 export const authApi = {
+
+  // ── Customer signup (existing) ──────────────────────────────────
   signup: (data: {
     fullName: string;
     email: string;
     phone: string;
     password: string;
-    customerType?: string;   // optional — admin sets this during approval
+    customerType?: string;
     deliveryAddress: string;
     gstNo?: string;
     brokerName?: string;
     brokerPhone?: string;
   }) => api.post('/customer/auth/signup', data),
 
+  // ── Customer login (existing) ───────────────────────────────────
+  // Works for BOTH regular customers AND party users (same endpoint,
+  // same JWT flow — party user's phone + password hits /customer/auth/login)
   login: (phone: string, password: string) =>
     api.post('/customer/auth/login', { phone, password }),
 
+  // ── Profile refresh (existing) ──────────────────────────────────
   getProfile: () =>
     api.get('/customer/auth/profile'),
+
+  // ══════════════════════════════════════════════════════════════════
+  // PARTY GST LOGIN — 2 new methods
+  // ══════════════════════════════════════════════════════════════════
+
+  /**
+   * Step 1: Verify GST number against the party table.
+   *
+   * POST /api/party/auth/verify-gst
+   * Body: { gstNo: "27AABCU9603R1ZX" }
+   *
+   * Success 200:
+   *   { partyId: 5, partyName: "Ravi Traders", phone: "9876543210" }
+   *
+   * Errors:
+   *   404 { code: "GST_NOT_FOUND",       error: "..." }
+   *   409 { code: "ALREADY_REGISTERED",  error: "..." }  ← party already has credentials
+   */
+  verifyPartyGst: (gstNo: string) =>
+    api.post('/party/auth/verify-gst', { gstNo }),
+
+  /**
+   * Step 2: Set password for the party.
+   * Phone is already known (from verify-gst step), no need to send it again.
+   *
+   * POST /api/party/auth/set-password
+   * Body: { partyId: 5, password: "secret123" }
+   *
+   * Success 200:
+   *   { message: "Password set. You can now login." }
+   *
+   * Errors:
+   *   404 { code: "PARTY_NOT_FOUND",     error: "..." }
+   *   409 { code: "ALREADY_REGISTERED",  error: "..." }
+   */
+setPartyPassword: (data: { partyId: number; phone: string; password: string }) =>
+      api.post('/party/auth/set-password', data),
+
 };
 
 // ════════════════════════════════════════════════════════════════════
@@ -192,24 +236,6 @@ export const orderApi = {
 // ════════════════════════════════════════════════════════════════════
 // SALE ORDER API
 // ════════════════════════════════════════════════════════════════════
-//
-// Builds SaleOrderSaveDTO from app cart and posts to /api/sale-orders
-//
-// Confirmed mapping:
-//   CartItem.artSerialNumber  → row.artSerial
-//   CartItem.artNo            → row.artNo
-//   CartItem.artName          → row.description
-//   CartItem.shade            → row.shade  (shadeName, backend resolves shadeCode)
-//   CartItem.boxes            → row.peti   ("20")
-//   CartItem.pcsPerBox        → row.sizesQty[selectedSize]  ("12")
-//   CartItem.pricePerPc       → row.sizesRate[selectedSize] ("20.8333")
-//   CartItem.selectedSize     → key in sizesQty + sizesRate maps
-//
-// One CartItem = one sale order row
-// partyName = user.name, partyId = null (app users have no partyId)
-// orderNo   = "" → backend auto-generates O/YYYY-NNNN
-// dated     = today
-
 function buildSaleOrderPayload(cart: CartItem[], user: AppUser) {
   const today = new Date();
   const yyyy  = today.getFullYear();
@@ -224,26 +250,23 @@ function buildSaleOrderPayload(cart: CartItem[], user: AppUser) {
     description: item.artName         ?? '',
     peti:        String(item.boxes),
     remarks:     '',
-    sizes:       {},                                                         // legacy — empty
-    sizesQty:  { [item.selectedSize]: String(item.pcsPerBox) },             // { "M": "12" }
-    sizesRate: { [item.selectedSize]: String(item.pricePerPc.toFixed(4)) }, // { "M": "20.8333" }
+    sizes:       {},
+    sizesQty:  { [item.selectedSize]: String(item.pcsPerBox) },
+    sizesRate: { [item.selectedSize]: String(item.pricePerPc.toFixed(4)) },
   }));
 
   return {
-    orderNo:      '',                                   // blank → backend auto-generates
-    dated,                                              // today yyyy-MM-dd
+    orderNo:      '',
+    dated,
     deliveryDate: null,
-    partyId:      null,                                 // app users have no partyId
-    partyName:    user.name,                            // shown in admin web
-    remarks:      `App Order | ${user.phone}`,          // helps admin identify app orders
+    partyId:      null,
+    partyName:    user.name,
+    remarks:      `App Order | ${user.phone}`,
     rows,
   };
 }
 
 export const saleOrderApi = {
-  // Fire-and-forget after payment success.
-  // Caller must catch errors — payment is already done, this is just
-  // admin notification. Failure here does NOT affect customer.
   createFromAppCart: (cart: CartItem[], user: AppUser) =>
     api.post('/sale-orders', buildSaleOrderPayload(cart, user)),
 };
