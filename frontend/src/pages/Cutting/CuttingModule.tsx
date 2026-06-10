@@ -941,6 +941,36 @@ const CuttingModule: React.FC = () => {
     return !(lotOk && stockOk);
   }, [date, employeeId, rows, stockRows, issueTo, issueBranchId]);
 
+  // ✅ NEW BUTTON: detect if user has started filling
+  const hasAnyData = useMemo(() => {
+    const lotDirty =
+      rows.some(
+        (r) =>
+          (r.cutLotNo || "").trim() ||
+          (r.artNo || "").trim() ||
+          (r.itemName || "").trim() ||
+          toNum(r.pcs) > 0 ||
+          toNum(r.rate) > 0
+      ) || false;
+
+    const stockDirty =
+      stockRows.some(
+        (r) =>
+          (r.itemName || "").trim() ||
+          (r.shade || "").trim() ||
+          toNum(r.consumption) > 0 ||
+          toNum(r.kho) > 0 ||
+          toNum(r.consRate) > 0
+      ) || false;
+
+    const headerDirty =
+      !!employeeId ||
+      issueTo === "Outside" ||
+      (String(issueBranchId || "").trim() !== "");
+
+    return lotDirty || stockDirty || headerDirty;
+  }, [rows, stockRows, employeeId, issueTo, issueBranchId]);
+
   // ---------- Actions ----------
   const handleSave = async () => {
     const { ok, payload, msg } = buildValidatedPayload();
@@ -1023,6 +1053,22 @@ const CuttingModule: React.FC = () => {
       showConfirmButton: false,
     });
     await resetForm(true);
+  };
+
+  // ✅ NEW BUTTON handler
+  const handleNew = async () => {
+    if (hasAnyData) {
+      const res = await Swal.fire({
+        icon: "question",
+        title: "Start New Entry?",
+        text: "Current unsaved changes will be cleared.",
+        showCancelButton: true,
+        confirmButtonText: "Yes, New",
+        cancelButtonText: "Cancel",
+      });
+      if (!res.isConfirmed) return;
+    }
+    await resetForm(true); // keep date, generate next serial, clear rows
   };
 
   // ---- View List: sorted by serialNo (challan no) ----
@@ -1898,6 +1944,15 @@ const CuttingModule: React.FC = () => {
             </button>
 
             <div className="grow" />
+
+            {/* ✅ NEW BUTTON ADDED HERE */}
+            <button
+              onClick={handleNew}
+              className="px-4 py-2 bg-slate-600 text-white rounded"
+              title="Clear form and start new entry"
+            >
+              New
+            </button>
 
             <button
               onClick={handleSave}

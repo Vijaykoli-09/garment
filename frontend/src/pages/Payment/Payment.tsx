@@ -120,15 +120,15 @@ type FormDataState = {
   paymentTo: PaymentToType;
   paymentDate: string;
   processName: string;
-  partyName: string; // Party/Employee/Other display/input
+  partyName: string;
   paymentThrough: string;
   amount: number | "";
-  balance: number | ""; // store SIGNED number internally
+  balance: number | "";
   remarks: string;
   date: string;
 };
 
-// ================= Utils (LOCAL-safe dates) =================
+// ================= Utils =================
 const pad2 = (n: number) => String(n).padStart(2, "0");
 
 const parseYMDLocalToTS = (ymd: string) => {
@@ -202,7 +202,112 @@ const drCrLabel = (signed: number) => {
   return { side, abs, text: `${fmt2(abs)} ${side}` };
 };
 
-// ================= DR/CR RULE (same as Account Statement) =================
+// ✅ no-useless-escape fixed here: [^\d.-] (no \-)
+const sanitizeDecimal = (raw: string, opts?: { allowNegative?: boolean; decimals?: number }) => {
+  const allowNegative = !!opts?.allowNegative;
+  const decimals = typeof opts?.decimals === "number" ? opts.decimals : 2;
+
+  let s = String(raw ?? "");
+  s = s.replace(/[^\d.-]/g, ""); // keep digits, dot, minus
+
+  if (!allowNegative) s = s.replace(/-/g, "");
+  else s = s.replace(/(?!^)-/g, "");
+
+  const parts = s.split(".");
+  if (parts.length > 2) s = parts[0] + "." + parts.slice(1).join("");
+
+  if (s.includes(".")) {
+    const [a, b = ""] = s.split(".");
+    s = a + "." + b.slice(0, decimals);
+  }
+  return s;
+};
+
+const isPartialNumberText = (s: string) => s === "" || s === "-" || s === "." || s === "-.";
+
+// ================= Amount to Words (Indian system) =================
+const numToWordsIndian = (num: number): string => {
+  const n = Math.floor(Math.abs(Number(num) || 0));
+  if (n === 0) return "Zero";
+
+  const ones = [
+    "",
+    "One",
+    "Two",
+    "Three",
+    "Four",
+    "Five",
+    "Six",
+    "Seven",
+    "Eight",
+    "Nine",
+    "Ten",
+    "Eleven",
+    "Twelve",
+    "Thirteen",
+    "Fourteen",
+    "Fifteen",
+    "Sixteen",
+    "Seventeen",
+    "Eighteen",
+    "Nineteen",
+  ];
+  const tens = ["", "", "Twenty", "Thirty", "Forty", "Fifty", "Sixty", "Seventy", "Eighty", "Ninety"];
+
+  const twoDigits = (x: number) => {
+    if (x < 20) return ones[x];
+    const t = Math.floor(x / 10);
+    const o = x % 10;
+    return `${tens[t]}${o ? " " + ones[o] : ""}`.trim();
+  };
+
+  const threeDigits = (x: number) => {
+    const h = Math.floor(x / 100);
+    const r = x % 100;
+    let out = "";
+    if (h) out += `${ones[h]} Hundred`;
+    if (r) out += `${out ? " " : ""}${twoDigits(r)}`;
+    return out.trim();
+  };
+
+  let x = n;
+  const parts: string[] = [];
+
+  const crore = Math.floor(x / 10000000);
+  x %= 10000000;
+  if (crore) parts.push(`${twoDigits(crore)} Crore`);
+
+  const lakh = Math.floor(x / 100000);
+  x %= 100000;
+  if (lakh) parts.push(`${twoDigits(lakh)} Lakh`);
+
+  const thousand = Math.floor(x / 1000);
+  x %= 1000;
+  if (thousand) parts.push(`${twoDigits(thousand)} Thousand`);
+
+  if (x) parts.push(threeDigits(x));
+
+  return parts.join(" ").replace(/\s+/g, " ").trim();
+};
+
+const amountToWordsINR = (val: number | "" | null | undefined) => {
+  if (val === "" || val === null || val === undefined) return "";
+  const amt = Number(val);
+  if (!Number.isFinite(amt)) return "";
+
+  const sign = amt < 0 ? "Minus " : "";
+  const abs = Math.abs(amt);
+
+  const rupees = Math.floor(abs);
+  const paise = Math.round((abs - rupees) * 100);
+
+  const rupeeWords = `${numToWordsIndian(rupees)} Rupees`;
+  const paiseWords = paise ? ` and ${numToWordsIndian(paise)} Paise` : "";
+
+  return `${sign}${rupeeWords}${paiseWords} Only`;
+};
+
+// ================= DR/CR RULE =================
 type TxType =
   | "Dispatch"
   | "OtherDispatch"
@@ -222,16 +327,10 @@ const getDrCr = (source: TxType, amount: number) => {
   if (source === "PurchaseOrder") return { debit: 0, credit: amt };
   if (source === "PurchaseEntry") return { debit: 0, credit: amt };
 
-  // Dispatch Return => CR (mapped to OtherDispatch)
   if (source === "OtherDispatch") return { debit: 0, credit: amt };
-
-  // Purchase Return => DR
   if (source === "PurchaseReturn") return { debit: amt, credit: 0 };
-
-  // Job Inward => CR
   if (source === "JobInward") return { debit: 0, credit: amt };
 
-  // Default Dispatch => DR
   return { debit: amt, credit: 0 };
 };
 
@@ -252,6 +351,10 @@ const PaymentForm: React.FC = () => {
   });
 
   const [editingId, setEditingId] = useState<number | null>(null);
+
+  // ✅ typed text (prevents wheel-change issues)
+  const [amountText, setAmountText] = useState<string>("");
+  const [balanceText, setBalanceText] = useState<string>("");
 
   // Lists and modals
   const [employeeList, setEmployeeList] = useState<any[]>([]);
@@ -360,7 +463,7 @@ const PaymentForm: React.FC = () => {
     }
   };
 
-  // -------- Party statement sources (Account Statement) --------
+  // -------- Party statement sources --------
   const loadPartySources = async () => {
     const safeGet = async <T,>(url: string): Promise<T> => {
       try {
@@ -400,7 +503,6 @@ const PaymentForm: React.FC = () => {
 
       const recRaw = await safeGetReceipts();
 
-      // partyId -> partyName mapping (used by job inward if it sends partyId)
       const partyArr = Array.isArray(partyRaw) ? partyRaw : [];
       const partyIdToName = new Map<string, string>();
       partyArr.forEach((p: any) => partyIdToName.set(String(p.id), String(p.partyName || "").trim()));
@@ -474,9 +576,7 @@ const PaymentForm: React.FC = () => {
             const rows: any[] = Array.isArray(d.rows) ? d.rows : [];
             const amount = rows.reduce((s, r) => s + (Number(r.amount) || 0), 0);
             const partyName =
-              String(d.partyName ?? "").trim() ||
-              partyIdToName.get(String(d.partyId ?? "")) ||
-              "";
+              String(d.partyName ?? "").trim() || partyIdToName.get(String(d.partyId ?? "")) || "";
             return {
               id: d.id ?? "",
               challanNo: String(d.challanNo ?? ""),
@@ -537,14 +637,13 @@ const PaymentForm: React.FC = () => {
     return rows;
   }, [cuttingEntries, productionReceipts]);
 
-  // ================= Employee Net (Salary Report style) =================
+  // ================= Employee Net =================
   const computedEmployeeNet = useMemo(() => {
     if (formData.paymentTo !== "Employee") return null;
 
     const empName = (selectedEmployee?.name || formData.partyName || "").trim();
     if (!empName) return null;
 
-    // Range: 1st of month -> paymentDate
     const toISO = formData.paymentDate || today;
     const fromISO = getFirstOfMonthIsoFrom(toISO);
 
@@ -595,14 +694,13 @@ const PaymentForm: React.FC = () => {
       fromISO,
       toISO,
       netSigned: round2(netSigned),
-      // optional explanation values:
       grossCurrent: round2(grossCurrent),
       advCurrent: round2(advCurrent),
       opening: round2(opening),
     };
   }, [formData.paymentTo, formData.partyName, formData.paymentDate, savedRecords, salaryRows, selectedEmployee, today]);
 
-  // ================= Party Balance (Closing as on Payment Date) =================
+  // ================= Party Balance =================
   const computedPartyBalance = useMemo(() => {
     if (formData.paymentTo !== "Party") return null;
 
@@ -624,29 +722,18 @@ const PaymentForm: React.FC = () => {
       signed += debit - credit;
     };
 
-    // Dispatch => DR
     dispatchChallans.forEach((d) => add("Dispatch", d.date || d.dated || "", d.netAmt, d.partyName));
-
-    // OtherDispatch => CR (Dispatch Return)
     otherDispatchChallans.forEach((d) => add("OtherDispatch", d.date || "", d.netAmt, d.partyName));
-
-    // Purchase => CR
     purchaseOrders.forEach((d) => add("PurchaseOrder", d.date || "", d.amount, d.partyName));
     purchaseEntries.forEach((d) => add("PurchaseEntry", d.date || "", d.amount, d.partyName));
-
-    // Purchase Return => DR
     purchaseReturns.forEach((d) => add("PurchaseReturn", d.date || "", d.amount, d.partyName));
-
-    // JobInward => CR
     jobInwards.forEach((d) => add("JobInward", d.date || "", d.amount, d.partyName));
 
-    // Party Payments => DR
     const partyPayments = (Array.isArray(savedRecords) ? savedRecords : []).filter(
       (p) => String(p.paymentTo || "").trim() === "Party"
     );
     partyPayments.forEach((p) => add("Payment", p.paymentDate ?? p.date ?? "", p.amount, p.partyName));
 
-    // Party Receipts => CR
     receipts.forEach((r) => {
       const receiptTo = String(r.receiptTo ?? r.paymentTo ?? "").trim();
       if (receiptTo && receiptTo !== "Party") return;
@@ -658,10 +745,8 @@ const PaymentForm: React.FC = () => {
 
     return {
       asOn: toISO,
-      signedBalance: signed, // SIGNED number used in backend
-      display: drcr.text, // e.g. "1,250.00 DR" / "450.00 CR"
-      side: drcr.side,
-      abs: round2(drcr.abs),
+      signedBalance: signed,
+      display: drcr.text,
     };
   }, [
     formData.paymentTo,
@@ -678,7 +763,7 @@ const PaymentForm: React.FC = () => {
     receipts,
   ]);
 
-  // ================= Auto-fill numeric balance into state =================
+  // auto-fill balance
   useEffect(() => {
     if (formData.paymentTo === "Employee" && computedEmployeeNet) {
       setFormData((prev) => ({ ...prev, balance: computedEmployeeNet.netSigned }));
@@ -690,18 +775,14 @@ const PaymentForm: React.FC = () => {
     }
   }, [computedEmployeeNet, computedPartyBalance, formData.paymentTo]);
 
-  // ================= Balance display (DR/CR) =================
   const balanceDisplayText = useMemo(() => {
     if (formData.paymentTo === "Party" && computedPartyBalance) return computedPartyBalance.display;
-
-    if (formData.paymentTo === "Employee" && computedEmployeeNet) {
-      // If you also want DR/CR for employee:
-      return drCrLabel(computedEmployeeNet.netSigned).text;
-    }
-
+    if (formData.paymentTo === "Employee" && computedEmployeeNet) return drCrLabel(computedEmployeeNet.netSigned).text;
     if (typeof formData.balance === "number") return fmt2(formData.balance);
     return formData.balance === "" ? "" : String(formData.balance);
   }, [formData.paymentTo, computedPartyBalance, computedEmployeeNet, formData.balance]);
+
+  const amountInWords = useMemo(() => amountToWordsINR(formData.amount), [formData.amount]);
 
   // ================= Input change =================
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
@@ -714,15 +795,26 @@ const PaymentForm: React.FC = () => {
         paymentTo: value as PaymentToType,
         partyName: "",
         balance: "",
+        amount: "",
       }));
+      setAmountText("");
+      setBalanceText("");
       return;
     }
 
-    if (name === "amount" || name === "balance") {
-      setFormData((prev) => ({
-        ...prev,
-        [name]: value === "" ? "" : Number(value),
-      }));
+    if (name === "amount") {
+      const clean = sanitizeDecimal(value, { allowNegative: false, decimals: 2 });
+      setAmountText(clean);
+      const num: number | "" = isPartialNumberText(clean) ? "" : Number(clean);
+      setFormData((prev) => ({ ...prev, amount: num }));
+      return;
+    }
+
+    if (name === "balance") {
+      const clean = sanitizeDecimal(value, { allowNegative: true, decimals: 2 });
+      setBalanceText(clean);
+      const num: number | "" = isPartialNumberText(clean) ? "" : Number(clean);
+      setFormData((prev) => ({ ...prev, balance: num }));
       return;
     }
 
@@ -809,9 +901,8 @@ const PaymentForm: React.FC = () => {
       processName: formData.processName,
       paymentThrough: formData.paymentThrough,
       amount: formData.amount === "" ? null : formData.amount,
-      balance: formData.balance === "" ? null : formData.balance, // SIGNED numeric
+      balance: formData.balance === "" ? null : formData.balance,
       remarks: formData.remarks,
-
       partyName: formData.paymentTo !== "Employee" ? formData.partyName : "",
       employeeName: formData.paymentTo === "Employee" ? formData.partyName : "",
     };
@@ -822,7 +913,6 @@ const PaymentForm: React.FC = () => {
     return payload;
   };
 
-  // ================= Save / Update =================
   const handleSave = async () => {
     const payload = buildPayload();
 
@@ -836,7 +926,7 @@ const PaymentForm: React.FC = () => {
       }
       setEditingId(null);
       handleAddNew(false);
-      loadSavedRecords(); // refresh => balances update
+      loadSavedRecords();
     } catch (error: any) {
       console.error("Error saving payment:", error);
 
@@ -849,7 +939,9 @@ const PaymentForm: React.FC = () => {
 
       Swal.fire(
         "Error",
-        serverMsg ? `${serverMsg}${status ? ` (HTTP ${status})` : ""}` : `Failed to save${status ? ` (HTTP ${status})` : ""}`,
+        serverMsg
+          ? `${serverMsg}${status ? ` (HTTP ${status})` : ""}`
+          : `Failed to save${status ? ` (HTTP ${status})` : ""}`,
         "error"
       );
     }
@@ -872,8 +964,10 @@ const PaymentForm: React.FC = () => {
       const res = await api.get(routes.get(id));
       const rec: PaymentRecord = res.data;
 
-      const partyOrEmpName =
-        rec.paymentTo === "Employee" ? String(rec.employeeName || "") : String(rec.partyName || "");
+      const partyOrEmpName = rec.paymentTo === "Employee" ? String(rec.employeeName || "") : String(rec.partyName || "");
+
+      const amtNum = rec.amount === undefined || rec.amount === null || rec.amount === "" ? "" : Number(rec.amount);
+      const balNum = rec.balance === undefined || rec.balance === null || rec.balance === "" ? "" : Number(rec.balance);
 
       setFormData({
         paymentTo: (rec.paymentTo as PaymentToType) || "",
@@ -881,11 +975,14 @@ const PaymentForm: React.FC = () => {
         processName: rec.processName || "",
         partyName: partyOrEmpName,
         paymentThrough: rec.paymentThrough || "Cash",
-        amount: rec.amount === undefined || rec.amount === null || rec.amount === "" ? "" : Number(rec.amount),
-        balance: rec.balance === undefined || rec.balance === null || rec.balance === "" ? "" : Number(rec.balance),
+        amount: amtNum,
+        balance: balNum,
         remarks: rec.remarks || "",
         date: rec.date || today,
       });
+
+      setAmountText(amtNum === "" ? "" : String(amtNum));
+      setBalanceText(balNum === "" ? "" : String(balNum));
 
       if (rec.paymentTo === "Employee") {
         setSelectedEmployee({
@@ -950,6 +1047,8 @@ const PaymentForm: React.FC = () => {
       remarks: "",
       date: today,
     });
+    setAmountText("");
+    setBalanceText("");
     setEditingId(null);
     if (showToast) Swal.fire("Cleared", "Ready for new entry", "success");
   };
@@ -966,12 +1065,7 @@ const PaymentForm: React.FC = () => {
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block mb-1 font-semibold">Payment To</label>
-              <select
-                name="paymentTo"
-                value={formData.paymentTo}
-                onChange={handleChange}
-                className="border p-2 w-full rounded"
-              >
+              <select name="paymentTo" value={formData.paymentTo} onChange={handleChange} className="border p-2 w-full rounded">
                 <option value="">Select</option>
                 <option value="Party">Party</option>
                 <option value="Employee">Employee</option>
@@ -983,24 +1077,12 @@ const PaymentForm: React.FC = () => {
               <div className="flex gap-4">
                 <div className="flex-1">
                   <label className="block mb-1 font-semibold">Payment Date</label>
-                  <input
-                    type="date"
-                    name="paymentDate"
-                    value={formData.paymentDate}
-                    onChange={handleChange}
-                    className="border p-2 w-full rounded"
-                  />
+                  <input type="date" name="paymentDate" value={formData.paymentDate} onChange={handleChange} className="border p-2 w-full rounded" />
                 </div>
 
                 <div className="flex-1">
                   <label className="block mb-1 font-semibold">Date</label>
-                  <input
-                    type="date"
-                    name="date"
-                    value={formData.date}
-                    onChange={handleChange}
-                    className="border p-2 w-full rounded"
-                  />
+                  <input type="date" name="date" value={formData.date} onChange={handleChange} className="border p-2 w-full rounded" />
                 </div>
               </div>
             </div>
@@ -1036,12 +1118,7 @@ const PaymentForm: React.FC = () => {
 
             <div className="col-span-2">
               <label className="block mb-1 font-semibold">Payment Through</label>
-              <select
-                name="paymentThrough"
-                value={formData.paymentThrough}
-                onChange={handleChange}
-                className="border p-2 w-full rounded"
-              >
+              <select name="paymentThrough" value={formData.paymentThrough} onChange={handleChange} className="border p-2 w-full rounded">
                 <option value="Cash">Cash</option>
                 {paymentModes.map((pm) => {
                   const label = `${pm.bankNameOrUpiId}-${pm.accountNo}`;
@@ -1054,62 +1131,48 @@ const PaymentForm: React.FC = () => {
               </select>
             </div>
 
+            {/* ✅ Amount (TEXT) */}
             <div>
               <label className="block mb-1 font-semibold">Amount</label>
               <input
-                type="number"
+                type="text"
+                inputMode="decimal"
                 name="amount"
-                value={formData.amount}
+                value={amountText}
                 onChange={handleChange}
                 className="border p-2 w-full rounded"
+                placeholder="Enter amount"
               />
+              {amountInWords ? <div className="text-xs text-gray-600 mt-1">{amountInWords}</div> : null}
             </div>
 
             <div>
-              <label className="block mb-1 font-semibold">
-                Balance (DR/CR){" "}
-                {formData.paymentTo === "Party" && computedPartyBalance ? (
-                  <span className="text-xs font-normal text-gray-600">(As on {computedPartyBalance.asOn})</span>
-                ) : null}
-                {formData.paymentTo === "Employee" && computedEmployeeNet ? (
-                  <span className="text-xs font-normal text-gray-600">
-                    (Net {computedEmployeeNet.fromISO} to {computedEmployeeNet.toISO})
-                  </span>
-                ) : null}
-              </label>
+              <label className="block mb-1 font-semibold">Balance (DR/CR)</label>
 
-              {/* Show DR/CR text when auto (Party/Employee), else number input */}
               {isBalanceAuto ? (
-                <input
-                  type="text"
-                  value={balanceDisplayText}
-                  readOnly
-                  className="border p-2 w-full rounded bg-gray-50"
-                />
+                <input type="text" value={balanceDisplayText} readOnly className="border p-2 w-full rounded bg-gray-50" />
               ) : (
                 <input
-                  type="number"
+                  type="text"
+                  inputMode="decimal"
                   name="balance"
-                  value={formData.balance}
+                  value={balanceText}
                   onChange={handleChange}
                   className="border p-2 w-full rounded"
+                  placeholder="Enter balance"
                 />
               )}
 
               {formData.paymentTo === "Party" && (
                 <div className="text-xs text-gray-600 mt-1">
-                  {balanceInfoLoading
-                    ? "Loading Account Statement data..."
-                    : computedPartyBalance
-                      ? `Party Balance = ${computedPartyBalance.display}`
-                      : "Select party to calculate balance"}
+                  {balanceInfoLoading ? "Loading Account Statement data..." : computedPartyBalance ? `Party Balance = ${computedPartyBalance.display}` : "Select party to calculate balance"}
                 </div>
               )}
 
               {formData.paymentTo === "Employee" && (
                 <div className="text-xs text-gray-600 mt-1">
                   {computedEmployeeNet
-                    ? `Employee Net = ${drCrLabel(computedEmployeeNet.netSigned).text} (Gross ${computedEmployeeNet.grossCurrent} - ADV ${computedEmployeeNet.advCurrent} + Opening ${computedEmployeeNet.opening})`
+                    ? `Employee Net = ${drCrLabel(computedEmployeeNet.netSigned).text}`
                     : "Select employee to calculate balance"}
                 </div>
               )}
@@ -1117,50 +1180,29 @@ const PaymentForm: React.FC = () => {
 
             <div className="col-span-2">
               <label className="block mb-1 font-semibold">Remarks</label>
-              <input
-                type="text"
-                name="remarks"
-                value={formData.remarks}
-                onChange={handleChange}
-                className="border p-2 w-full rounded"
-              />
+              <input type="text" name="remarks" value={formData.remarks} onChange={handleChange} className="border p-2 w-full rounded" />
             </div>
           </div>
 
           <div className="flex flex-wrap justify-between mt-6">
             <div>
-              <button
-                onClick={() => handleAddNew()}
-                className="bg-blue-500 text-white px-4 py-2 rounded mr-2 hover:bg-blue-600"
-              >
+              <button onClick={() => handleAddNew()} className="bg-blue-500 text-white px-4 py-2 rounded mr-2 hover:bg-blue-600">
                 Add New
               </button>
 
-              <button
-                onClick={handleSave}
-                className="bg-green-500 text-white px-4 py-2 rounded mr-2 hover:bg-green-600"
-              >
+              <button onClick={handleSave} className="bg-green-500 text-white px-4 py-2 rounded mr-2 hover:bg-green-600">
                 {editingId ? "Update" : "Save"}
               </button>
 
-              <button
-                onClick={openList}
-                className="px-4 py-2 bg-yellow-500 text-white rounded mr-2 hover:bg-yellow-600"
-              >
+              <button onClick={openList} className="px-4 py-2 bg-yellow-500 text-white rounded mr-2 hover:bg-yellow-600">
                 List
               </button>
 
-              <button
-                onClick={() => handleDelete()}
-                className="bg-red-500 text-white px-4 py-2 rounded mr-2 hover:bg-red-600"
-              >
+              <button onClick={() => handleDelete()} className="bg-red-500 text-white px-4 py-2 rounded mr-2 hover:bg-red-600">
                 Delete
               </button>
 
-              <button
-                onClick={() => navigate(-1)}
-                className="bg-gray-500 text-white px-4 py-2 rounded hover:bg-gray-600"
-              >
+              <button onClick={() => navigate(-1)} className="bg-gray-500 text-white px-4 py-2 rounded hover:bg-gray-600">
                 Exit
               </button>
             </div>
@@ -1189,9 +1231,7 @@ const PaymentForm: React.FC = () => {
                     return (
                       <tr key={record.id}>
                         <td className="border p-2 text-center">{idx + 1}</td>
-                        <td className="border p-2">
-                          {record.paymentDate ? new Date(record.paymentDate).toLocaleDateString() : "-"}
-                        </td>
+                        <td className="border p-2">{record.paymentDate ? new Date(record.paymentDate).toLocaleDateString() : "-"}</td>
                         <td className="border p-2">{String(record.paymentTo || "-")}</td>
                         <td className="border p-2">{name || "-"}</td>
                         <td className="border p-2">{record.processName || "-"}</td>
@@ -1233,10 +1273,7 @@ const PaymentForm: React.FC = () => {
                       <td className="border p-2">{e.name || e.employeeName}</td>
                       <td className="border p-2">{e.code || e.employeeCode}</td>
                       <td className="border p-2 text-center">
-                        <button
-                          onClick={() => selectEmployee(e)}
-                          className="px-3 py-1 bg-green-500 text-white rounded hover:bg-green-600"
-                        >
+                        <button onClick={() => selectEmployee(e)} className="px-3 py-1 bg-green-500 text-white rounded hover:bg-green-600">
                           Select
                         </button>
                       </td>
@@ -1253,10 +1290,7 @@ const PaymentForm: React.FC = () => {
               </table>
             </div>
             <div className="flex justify-center mt-4">
-              <button
-                onClick={() => setShowEmployeeModal(false)}
-                className="px-5 py-2 bg-gray-300 hover:bg-gray-400 rounded"
-              >
+              <button onClick={() => setShowEmployeeModal(false)} className="px-5 py-2 bg-gray-300 hover:bg-gray-400 rounded">
                 Close
               </button>
             </div>
@@ -1289,10 +1323,7 @@ const PaymentForm: React.FC = () => {
                     <tr key={idx}>
                       <td className="border p-2">{name}</td>
                       <td className="border p-2 text-center">
-                        <button
-                          onClick={() => selectParty(name)}
-                          className="px-3 py-1 bg-green-500 text-white rounded hover:bg-green-600"
-                        >
+                        <button onClick={() => selectParty(name)} className="px-3 py-1 bg-green-500 text-white rounded hover:bg-green-600">
                           Select
                         </button>
                       </td>
@@ -1309,10 +1340,7 @@ const PaymentForm: React.FC = () => {
               </table>
             </div>
             <div className="flex justify-center mt-4">
-              <button
-                onClick={() => setShowPartyModal(false)}
-                className="px-5 py-2 bg-gray-300 hover:bg-gray-400 rounded"
-              >
+              <button onClick={() => setShowPartyModal(false)} className="px-5 py-2 bg-gray-300 hover:bg-gray-400 rounded">
                 Close
               </button>
             </div>
@@ -1347,10 +1375,7 @@ const PaymentForm: React.FC = () => {
                       <td className="border p-2">{p.processName}</td>
                       <td className="border p-2">{p.category}</td>
                       <td className="border p-2 text-center">
-                        <button
-                          onClick={() => selectProcess(p)}
-                          className="px-3 py-1 bg-green-500 text-white rounded hover:bg-green-600"
-                        >
+                        <button onClick={() => selectProcess(p)} className="px-3 py-1 bg-green-500 text-white rounded hover:bg-green-600">
                           Select
                         </button>
                       </td>
@@ -1367,10 +1392,7 @@ const PaymentForm: React.FC = () => {
               </table>
             </div>
             <div className="flex justify-center mt-4">
-              <button
-                onClick={() => setShowProcessModal(false)}
-                className="px-5 py-2 bg-gray-300 hover:bg-gray-400 rounded"
-              >
+              <button onClick={() => setShowProcessModal(false)} className="px-5 py-2 bg-gray-300 hover:bg-gray-400 rounded">
                 Close
               </button>
             </div>
@@ -1417,24 +1439,16 @@ const PaymentForm: React.FC = () => {
                       return (
                         <tr key={d.id}>
                           <td className="border p-2 text-center">{i + 1}</td>
-                          <td className="border p-2">
-                            {d.paymentDate ? new Date(d.paymentDate).toLocaleDateString() : "-"}
-                          </td>
+                          <td className="border p-2">{d.paymentDate ? new Date(d.paymentDate).toLocaleDateString() : "-"}</td>
                           <td className="border p-2">{d.paymentTo}</td>
                           <td className="border p-2">{name || "-"}</td>
                           <td className="border p-2">{d.processName || "-"}</td>
                           <td className="border p-2 text-right">{d.amount ?? "-"}</td>
                           <td className="border p-2 text-center">
-                            <button
-                              onClick={() => handleEdit(d.id)}
-                              className="px-2 py-1 bg-blue-500 text-white rounded mr-1 hover:bg-blue-600"
-                            >
+                            <button onClick={() => handleEdit(d.id)} className="px-2 py-1 bg-blue-500 text-white rounded mr-1 hover:bg-blue-600">
                               Edit
                             </button>
-                            <button
-                              onClick={() => handleDelete(d.id)}
-                              className="px-2 py-1 bg-red-500 text-white rounded hover:bg-red-600"
-                            >
+                            <button onClick={() => handleDelete(d.id)} className="px-2 py-1 bg-red-500 text-white rounded hover:bg-red-600">
                               Delete
                             </button>
                           </td>
@@ -1447,10 +1461,7 @@ const PaymentForm: React.FC = () => {
             </div>
 
             <div className="flex justify-center mt-5">
-              <button
-                onClick={() => setShowList(false)}
-                className="px-5 py-2 bg-gray-300 hover:bg-gray-400 rounded"
-              >
+              <button onClick={() => setShowList(false)} className="px-5 py-2 bg-gray-300 hover:bg-gray-400 rounded">
                 Close
               </button>
             </div>
@@ -1458,6 +1469,7 @@ const PaymentForm: React.FC = () => {
         </div>
       )}
     </Dashboard>
+    
   );
 };
 
