@@ -15,9 +15,7 @@ public class WebConfig {
             public void addCorsMappings(CorsRegistry registry) {
                 registry.addMapping("/**") // allow all endpoints
                         .allowedOrigins(
-                                "http://localhost:3000",
-                                "https://garments.ashdipitsolutions.in",
-                                "https://shriudaygarments.com", 
+                                "http://localhost:3000", 
                                 "https://garment-six.vercel.app"
                         )
                         .allowedMethods("GET", "POST", "PUT", "DELETE", "OPTIONS")

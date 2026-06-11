@@ -36,26 +36,18 @@ public class CustomerRegistrationService {
         if (repo.existsByPhone(req.getPhone())) {
             throw new RuntimeException("Phone number already registered.");
         }
-        if (repo.existsByEmail(req.getEmail())) {
-            throw new RuntimeException("Email already registered.");
-        }
+       if (req.getEmail() != null && !req.getEmail().isBlank() && repo.existsByEmail(req.getEmail())) {
+    throw new RuntimeException("Email already registered.");
+}
 
-        // 2. Map customerType string → enum
-        CustomerType type;
-        try {
-            // Handle "Semi-Wholesaler" → "Semi_Wholesaler"
-            type = CustomerType.valueOf(req.getCustomerType().replace("-", "_"));
-        } catch (IllegalArgumentException e) {
-            throw new RuntimeException("Invalid customer type: " + req.getCustomerType());
-        }
-
-        // 3. Build entity
+        // 2. Build entity — customerType is intentionally null here.
+        //    Admin will set it when approving the customer via CustomerRequests page.
         CustomerRegistration customer = new CustomerRegistration();
         customer.setFullName(req.getFullName());
         customer.setEmail(req.getEmail());
         customer.setPhone(req.getPhone());
         customer.setPassword(passwordEncoder.encode(req.getPassword()));
-        customer.setCustomerType(type);
+        // customerType is NOT set here — admin sets it during approval
         customer.setDeliveryAddress(req.getDeliveryAddress());
         customer.setGstNo(req.getGstNo());
         customer.setBrokerName(req.getBrokerName());
@@ -100,11 +92,11 @@ public class CustomerRegistrationService {
                 customer.getFullName(),
                 customer.getPhone(),
                 customer.getEmail(),
-                customer.getCustomerType().name(),
+                customer.getCustomerType() != null ? customer.getCustomerType().name() : null,
                 Boolean.TRUE.equals(customer.getCreditEnabled()),
                 customer.getCreditLimit() != null ? customer.getCreditLimit() : 0.0,
                 Boolean.TRUE.equals(customer.getAdvanceOption()),
-                customer.getPartyId()   // ← pass partyId (null until admin links it)
+                customer.getPartyId()
         );
     }
 
@@ -142,6 +134,18 @@ public class CustomerRegistrationService {
         customer.setAdvanceOption(req.isAdvanceOption());
         customer.setReviewedAt(LocalDateTime.now());
 
+        // Set customer type if provided by admin during approval
+        if (req.getCustomerType() != null && !req.getCustomerType().isBlank()) {
+            try {
+                CustomerType type = CustomerType.valueOf(
+                    req.getCustomerType().replace("-", "_").replace(" ", "_")
+                );
+                customer.setCustomerType(type);
+            } catch (IllegalArgumentException e) {
+                throw new RuntimeException("Invalid customer type: " + req.getCustomerType());
+            }
+        }
+
         return repo.save(customer);
     }
 
@@ -175,11 +179,11 @@ public class CustomerRegistrationService {
                 customer.getFullName(),
                 customer.getPhone(),
                 customer.getEmail(),
-                customer.getCustomerType().name(),
+                customer.getCustomerType() != null ? customer.getCustomerType().name() : null,
                 Boolean.TRUE.equals(customer.getCreditEnabled()),
                 customer.getCreditLimit() != null ? customer.getCreditLimit() : 0.0,
                 Boolean.TRUE.equals(customer.getAdvanceOption()),
-                customer.getPartyId()   // ← pass partyId (null until admin links it)
+                customer.getPartyId()
         );
     }
 
@@ -214,6 +218,17 @@ public class CustomerRegistrationService {
             customer.setCreditEnabled(req.isCreditEnabled());
             customer.setCreditLimit(req.isCreditEnabled() ? req.getCreditLimit() : 0.0);
             customer.setAdvanceOption(req.isAdvanceOption());
+            // Update customer type if admin provides it
+            if (req.getCustomerType() != null && !req.getCustomerType().isBlank()) {
+                try {
+                    CustomerType type = CustomerType.valueOf(
+                        req.getCustomerType().replace("-", "_").replace(" ", "_")
+                    );
+                    customer.setCustomerType(type);
+                } catch (IllegalArgumentException e) {
+                    throw new RuntimeException("Invalid customer type: " + req.getCustomerType());
+                }
+            }
         } else {
             // Rejected: clear payment config
             customer.setCreditEnabled(false);
@@ -236,4 +251,34 @@ public class CustomerRegistrationService {
         customer.setPartyId(partyId);
         return repo.save(customer);
     }
+    // ────────────────────────────────────────────────────────────────
+// ADMIN: Sync customerType from Party → CustomerRegistration
+// Called automatically after party is saved in PartyCreation and
+// auto-linked. Keeps customerType in sync without admin re-entering it.
+// ────────────────────────────────────────────────────────────────
+public CustomerRegistration syncCustomerType(Long customerId, String customerTypeStr) {
+    CustomerRegistration customer = repo.findById(customerId)
+            .orElseThrow(() -> new RuntimeException("Customer not found with id: " + customerId));
+
+    if (customerTypeStr != null && !customerTypeStr.isBlank()) {
+        try {
+            // Party uses: WHOLESALER, SEMI_WHOLESALER, RETAILER
+            // CustomerRegistration uses: Wholesaler, Semi_Wholesaler, Retailer
+            // Map party enum → registration enum
+            CustomerType type = switch (customerTypeStr.toUpperCase()) {
+                case "WHOLESALER"      -> CustomerType.Wholesaler;
+                case "SEMI_WHOLESALER" -> CustomerType.Semi_Wholesaler;
+                case "RETAILER"        -> CustomerType.Retailer;
+                default -> CustomerType.valueOf(
+                    customerTypeStr.replace("-", "_").replace(" ", "_")
+                );
+            };
+            customer.setCustomerType(type);
+            return repo.save(customer);
+        } catch (IllegalArgumentException e) {
+            throw new RuntimeException("Invalid customer type: " + customerTypeStr);
+        }
+    }
+    return customer; // nothing to sync if type is null/blank
+}
 }

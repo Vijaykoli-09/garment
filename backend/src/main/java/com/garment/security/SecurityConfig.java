@@ -109,6 +109,8 @@ public class SecurityConfig {
                 .requestMatchers("/api/art-stock-adjustments/**").permitAll()
                 .requestMatchers("/api/material-stock-adjustments/**").permitAll()
                 .requestMatchers("/api/location/**").permitAll()
+                .requestMatchers("/api/purchase/entry-item/**").permitAll()
+                .requestMatchers("/api/purchase/order-item/**").permitAll()
 
                 // ── Mobile orders — JWT required ───────────────────────
                 // JwtAuthFilter uses CustomerUserDetailsService (by phone) for this path

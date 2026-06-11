@@ -15,7 +15,7 @@ public class CustomerRegistration {
     @Column(nullable = false)
     private String fullName;
 
-    @Column(nullable = false, unique = true)
+    @Column(unique = true)
     private String email;
 
     @Column(nullable = false, unique = true, length = 10)
@@ -25,7 +25,7 @@ public class CustomerRegistration {
     private String password; // BCrypt hashed
 
     @Enumerated(EnumType.STRING)
-    @Column(nullable = false)
+    @Column(nullable = true)   // null until admin sets type during approval
     private CustomerType customerType;
 
     private String deliveryAddress;

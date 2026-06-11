@@ -13,8 +13,7 @@ import CreditCheckScreen from '../screens/CreditCheckScreen';
 import OrderHistoryScreen from '../screens/OrderHistoryScreen';
 import PaymentScreen from '../screens/PaymentScreen';
 import ProfileScreen from '../screens/ProfileScreen';
-import PendingOrdersScreen from '../screens/PendingOrdersScreen';
-import AcceptedOrdersScreen from '../screens/AcceptedOrdersScreen';
+
 import OrderDetailScreen from '../screens/OrderDetailScreen';
 import CreditOrdersScreen from '../screens/CreditOrdersScreen';
 
@@ -147,16 +146,7 @@ export default function MainNavigator() {
         component={ProfileScreen}
         options={{ title: 'My Profile' }}
       />
-      <Stack.Screen
-        name="PendingOrders"
-        component={PendingOrdersScreen}
-        options={{ title: 'Pending Orders' }}
-      />
-      <Stack.Screen
-        name="AcceptedOrders"
-        component={AcceptedOrdersScreen}
-        options={{ title: 'Accepted Orders' }}
-      />
+     
       <Stack.Screen
         name="OrderDetail"
         component={OrderDetailScreen}

@@ -9,6 +9,8 @@ import api from "../../api/axiosInstance";
 const OVERDUE_DAYS = 60;
 
 // ================= Types =================
+type BalanceType = "CR" | "DR";
+
 interface Party {
   id: number;
   serialNumber?: string;
@@ -19,6 +21,10 @@ interface Party {
 interface Agent {
   serialNo: string | number;
   agentName: string;
+
+  // ✅ coming from AgentCreation master
+  openingBalance?: number | null;
+  openingBalanceType?: BalanceType; // "CR" | "DR"
 }
 
 interface DispatchChallan {
@@ -30,7 +36,6 @@ interface DispatchChallan {
   brokerName?: string;
   netAmt?: number | string;
 
-  // for details (line items)
   items?: any[];
 }
 
@@ -42,7 +47,6 @@ interface OtherDispatchChallan {
   brokerName?: string;
   netAmt?: number | string;
 
-  // for details (line items)
   items?: any[];
 }
 
@@ -53,7 +57,6 @@ interface PurchaseOrderDoc {
   partyName: string;
   amount: number;
 
-  // for details (line items)
   items?: any[];
 }
 
@@ -64,7 +67,6 @@ interface PurchaseEntryDoc {
   partyName: string;
   amount: number;
 
-  // for details (line items)
   items?: any[];
 }
 
@@ -75,7 +77,6 @@ interface PurchaseReturnDoc {
   partyName: string;
   amount: number;
 
-  // for details (line items)
   items?: any[];
 }
 
@@ -112,7 +113,6 @@ interface JobOutwardChallanDoc {
   partyName: string;
   totalPcs: number;
 
-  // for details (line items)
   rows?: any[];
 }
 
@@ -123,7 +123,6 @@ interface JobInwardChallanDoc {
   partyName: string;
   amount: number;
 
-  // for details (line items)
   rows?: any[];
 }
 
@@ -309,7 +308,7 @@ const AccountStatement: React.FC = () => {
   // popup once per report
   const overdueAlertKeyRef = useRef<string>("");
 
-  // ✅ Drill-down (click date -> show details on same page)
+  // Drill-down
   const [selectedTx, setSelectedTx] = useState<DisplayRowWithDays | null>(null);
   const detailRef = useRef<HTMLDivElement | null>(null);
 
@@ -370,6 +369,8 @@ const AccountStatement: React.FC = () => {
 
         const partyArr = Array.isArray(partyRaw) ? partyRaw : [];
         setParties(partyArr);
+
+        // ✅ agents includes openingBalance + openingBalanceType
         setAgents(Array.isArray(agentRaw) ? agentRaw : []);
 
         const partyIdToName = new Map<string, string>();
@@ -467,9 +468,7 @@ const AccountStatement: React.FC = () => {
                 challanNo: String(d.orderChallanNo ?? d.challanNo ?? ""),
                 date: String(d.date ?? ""),
                 partyName:
-                  String(d.partyName ?? "") ||
-                  partyIdToName.get(String(d.partyId ?? "")) ||
-                  "",
+                  String(d.partyName ?? "") || partyIdToName.get(String(d.partyId ?? "")) || "",
                 totalPcs,
                 rows,
               } as JobOutwardChallanDoc;
@@ -487,9 +486,7 @@ const AccountStatement: React.FC = () => {
                 challanNo: String(d.challanNo ?? ""),
                 date: String(d.date ?? ""),
                 partyName:
-                  String(d.partyName ?? "") ||
-                  partyIdToName.get(String(d.partyId ?? "")) ||
-                  "",
+                  String(d.partyName ?? "") || partyIdToName.get(String(d.partyId ?? "")) || "",
                 amount,
                 rows,
               } as JobInwardChallanDoc;
@@ -497,16 +494,14 @@ const AccountStatement: React.FC = () => {
             .filter((x) => x.partyName && x.date && x.challanNo),
         );
 
-        // include Broker payments too (if present)
+        // include Broker payments too
         setPayments(
           (Array.isArray(payRaw) ? payRaw : [])
             .map((p: any) => {
               const paymentTo = String(p.paymentTo ?? p.payment_to ?? "").trim();
               const partyName = paymentTo === "Party" ? String(p.partyName ?? "").trim() : "";
               const brokerName =
-                paymentTo === "Broker"
-                  ? String(p.agentName ?? p.brokerName ?? "").trim()
-                  : "";
+                paymentTo === "Broker" ? String(p.agentName ?? p.brokerName ?? "").trim() : "";
 
               return {
                 id: p.id,
@@ -524,16 +519,13 @@ const AccountStatement: React.FC = () => {
             .filter((p) => p.partyName || p.brokerName),
         );
 
-        // include Broker receipts too (receiptTo=Broker)
+        // include Broker receipts too
         setReceipts(
           (Array.isArray(recRaw) ? recRaw : [])
             .map((r: any) => {
               const receiptTo = String(r.receiptTo ?? r.paymentTo ?? "").trim();
               const partyName = receiptTo === "Party" ? String(r.partyName ?? "").trim() : "";
-              const brokerName =
-                receiptTo === "Broker"
-                  ? String(r.agentName ?? r.brokerName ?? "").trim()
-                  : String(r.agentName ?? r.brokerName ?? "").trim();
+              const brokerName = String(r.agentName ?? r.brokerName ?? "").trim();
 
               return {
                 id: r.id,
@@ -589,8 +581,24 @@ const AccountStatement: React.FC = () => {
     [getBrokerFromPartyName],
   );
 
+  // ✅ Agent master opening (DR=+, CR=-)
+  const getAgentOpeningSigned = useCallback(
+    (brokerName: string) => {
+      const b = norm(brokerName);
+      if (!b) return 0;
+
+      const agent = agents.find((a) => norm(a.agentName) === b);
+      if (!agent) return 0;
+
+      const amt = toNum(agent.openingBalance ?? 0);
+      const typ: BalanceType = (agent.openingBalanceType as BalanceType) || "DR";
+      return typ === "CR" ? -amt : amt;
+    },
+    [agents],
+  );
+
   /**
-   * ✅ YOUR REQUIRED DR/CR RULES
+   * ✅ DR/CR RULES
    */
   const getDrCr = useCallback((source: TxType, amount: number) => {
     const amt = toNum(amount);
@@ -671,17 +679,13 @@ const AccountStatement: React.FC = () => {
     agents.forEach((a) => a.agentName && set.add(a.agentName.trim()));
     parties.forEach((p) => p.agent?.agentName && set.add(p.agent.agentName.trim()));
     brokerInfos.forEach((b) => b.name && set.add(b.name.trim()));
-    return Array.from(set).sort((a, b) =>
-      a.localeCompare(b, undefined, { sensitivity: "base" }),
-    );
+    return Array.from(set).sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }));
   }, [agents, parties, brokerInfos]);
 
   const allPartyNames = useMemo(() => {
     const set = new Set<string>();
     parties.forEach((p) => p.partyName && set.add(p.partyName.trim()));
-    return Array.from(set).sort((a, b) =>
-      a.localeCompare(b, undefined, { sensitivity: "base" }),
-    );
+    return Array.from(set).sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }));
   }, [parties]);
 
   const brokerToParties = useMemo(() => {
@@ -696,9 +700,7 @@ const AccountStatement: React.FC = () => {
     const term = comboQuery.trim().toLowerCase();
 
     if (searchBy === "broker") {
-      const list = term
-        ? allBrokerNames.filter((b) => b.toLowerCase().includes(term))
-        : allBrokerNames;
+      const list = term ? allBrokerNames.filter((b) => b.toLowerCase().includes(term)) : allBrokerNames;
 
       return list.map((bname) => {
         const partiesList = brokerToParties.get(norm(bname)) || [];
@@ -709,9 +711,7 @@ const AccountStatement: React.FC = () => {
       });
     }
 
-    const list = term
-      ? allPartyNames.filter((p) => p.toLowerCase().includes(term))
-      : allPartyNames;
+    const list = term ? allPartyNames.filter((p) => p.toLowerCase().includes(term)) : allPartyNames;
 
     return list.map((pname) => {
       const bname = getBrokerFromPartyName(pname);
@@ -900,9 +900,7 @@ const AccountStatement: React.FC = () => {
 
       // Payments
       payments.forEach((p) => {
-        const bName =
-          (p.brokerName || "").trim() ||
-          (p.partyName ? getBrokerFromPartyName(p.partyName) : "");
+        const bName = (p.brokerName || "").trim() || (p.partyName ? getBrokerFromPartyName(p.partyName) : "");
 
         if (!brokerOk(bName)) return;
 
@@ -925,9 +923,7 @@ const AccountStatement: React.FC = () => {
 
       // Receipts
       receipts.forEach((r) => {
-        const bName =
-          (r.brokerName || "").trim() ||
-          (r.partyName ? getBrokerFromPartyName(r.partyName) : "");
+        const bName = (r.brokerName || "").trim() || (r.partyName ? getBrokerFromPartyName(r.partyName) : "");
 
         if (!brokerOk(bName)) return;
 
@@ -950,7 +946,11 @@ const AccountStatement: React.FC = () => {
       const baseRows: BaseTransaction[] = [];
 
       if (showOpening) {
-        let openingBal = 0;
+        // ✅ Opening starts with Agent master opening ONLY when broker selected AND no party filter
+        let openingBal =
+          effectiveBroker && !effectiveParty ? getAgentOpeningSigned(effectiveBroker) : 0;
+
+        // Add all docs before fromDate
         const openingDocs = docs.filter((d) => toTime(d.date) < fromT);
         for (const d of openingDocs) {
           const { debit, credit } = getDrCr(d.source, d.amount);
@@ -1064,9 +1064,7 @@ const AccountStatement: React.FC = () => {
       .filter((r) => r.type !== "Opening" && r.days >= OVERDUE_DAYS)
       .map((r) => {
         const b =
-          (r.brokerName || "").trim() ||
-          (r.partyName ? getBrokerFromPartyName(r.partyName) : "") ||
-          "-";
+          (r.brokerName || "").trim() || (r.partyName ? getBrokerFromPartyName(r.partyName) : "") || "-";
 
         return {
           partyName: r.partyName || "-",
@@ -1143,23 +1141,11 @@ const AccountStatement: React.FC = () => {
   }, [rowsWithDays, transactionFilter]);
 
   // ---------- Totals ----------
-  const totalDebitAll = useMemo(
-    () => transactions.reduce((s, t) => s + (t.debit || 0), 0),
-    [transactions],
-  );
-  const totalCreditAll = useMemo(
-    () => transactions.reduce((s, t) => s + (t.credit || 0), 0),
-    [transactions],
-  );
+  const totalDebitAll = useMemo(() => transactions.reduce((s, t) => s + (t.debit || 0), 0), [transactions]);
+  const totalCreditAll = useMemo(() => transactions.reduce((s, t) => s + (t.credit || 0), 0), [transactions]);
 
-  const totalDebitFiltered = useMemo(
-    () => filteredRows.reduce((s, r) => s + (r.debit || 0), 0),
-    [filteredRows],
-  );
-  const totalCreditFiltered = useMemo(
-    () => filteredRows.reduce((s, r) => s + (r.credit || 0), 0),
-    [filteredRows],
-  );
+  const totalDebitFiltered = useMemo(() => filteredRows.reduce((s, r) => s + (r.debit || 0), 0), [filteredRows]);
+  const totalCreditFiltered = useMemo(() => filteredRows.reduce((s, r) => s + (r.credit || 0), 0), [filteredRows]);
 
   const openingBalance = useMemo(() => {
     const op = transactions.find((t) => t.type === "Opening");
@@ -1172,10 +1158,7 @@ const AccountStatement: React.FC = () => {
     return sortedRowsAll[sortedRowsAll.length - 1].balance;
   }, [sortedRowsAll]);
 
-  const netMovementFiltered = useMemo(
-    () => totalDebitFiltered - totalCreditFiltered,
-    [totalDebitFiltered, totalCreditFiltered],
-  );
+  const netMovementFiltered = useMemo(() => totalDebitFiltered - totalCreditFiltered, [totalDebitFiltered, totalCreditFiltered]);
 
   const totals = useMemo(
     () => ({
@@ -1187,7 +1170,7 @@ const AccountStatement: React.FC = () => {
     [filteredRows.length, totalDebitFiltered, totalCreditFiltered, netMovementFiltered],
   );
 
-  // ================= Drill-down Details (click date) =================
+  // ================= Drill-down Details =================
   const findDocDetailsForTx = useCallback(
     (tx: DisplayRowWithDays) => {
       if (!tx || tx.type === "Opening") return null;
@@ -1288,11 +1271,10 @@ const AccountStatement: React.FC = () => {
     }, 50);
   };
 
-  // ✅ HIDE THESE COLUMNS FROM Items/Rows TABLE
+  // HIDE columns in items table
   const normalizeItemKey = (k: string) => String(k || "").replace(/[^a-z0-9]/gi, "").toLowerCase();
   const isHiddenItemKey = (k: string) => {
     const nk = normalizeItemKey(k);
-    // remove: lot no, bale no, barcode, id (including common variations)
     return (
       nk === "id" ||
       nk === "barcode" ||
@@ -1316,7 +1298,6 @@ const AccountStatement: React.FC = () => {
       ),
     );
 
-    // ✅ remove unwanted columns (lot no, bale no, barcode, id)
     const keys = keysAll.filter((k) => !isHiddenItemKey(k)).slice(0, 12);
 
     if (keys.length === 0) {
@@ -1357,14 +1338,12 @@ const AccountStatement: React.FC = () => {
             </tbody>
           </table>
         </div>
-        {arr.length > 200 && (
-          <div className="text-[11px] text-gray-500 mt-1">Showing first 200 rows only.</div>
-        )}
+        {arr.length > 200 && <div className="text-[11px] text-gray-500 mt-1">Showing first 200 rows only.</div>}
       </div>
     );
   };
 
-  // ✅ PRINT
+  // PRINT
   const handlePrintReport = () => {
     if (typeof window === "undefined" || typeof document === "undefined") return;
     if (!filteredRows.length) {
@@ -1372,9 +1351,7 @@ const AccountStatement: React.FC = () => {
       return;
     }
 
-    const partyLine = selectedParty
-      ? ` &nbsp; | &nbsp; <strong>Party:</strong> ${selectedParty}`
-      : "";
+    const partyLine = selectedParty ? ` &nbsp; | &nbsp; <strong>Party:</strong> ${selectedParty}` : "";
 
     const rowsHtml = filteredRows
       .map((r) => {
@@ -1406,8 +1383,7 @@ const AccountStatement: React.FC = () => {
       })
       .join("");
 
-    const filterLine =
-      transactionFilter === "all" ? "All" : `Only: ${typeLabel(transactionFilter)}`;
+    const filterLine = transactionFilter === "all" ? "All" : `Only: ${typeLabel(transactionFilter)}`;
 
     const html = `<!doctype html>
 <html>
@@ -1447,9 +1423,7 @@ const AccountStatement: React.FC = () => {
       </div>
 
       <div style="margin-top:6px; color:#444;">
-        (Reference) Total Debit (All): ${fmtNumber(totalDebitAll)} | Total Credit (All): ${fmtNumber(
-          totalCreditAll,
-        )}
+        (Reference) Total Debit (All): ${fmtNumber(totalDebitAll)} | Total Credit (All): ${fmtNumber(totalCreditAll)}
       </div>
 
       <div style="margin-top:6px; color:#444;">
@@ -1544,9 +1518,7 @@ const AccountStatement: React.FC = () => {
 
           {loading && <div className="text-sm text-gray-600 mb-2">Loading master data...</div>}
           {error && <div className="text-sm text-red-600 mb-2">Error: {error}</div>}
-          {reportPreparing && !loading && (
-            <div className="text-sm text-blue-600 mb-2">Preparing report...</div>
-          )}
+          {reportPreparing && !loading && <div className="text-sm text-blue-600 mb-2">Preparing report...</div>}
 
           <div className="grid grid-cols-12 gap-3 items-end">
             <div className="col-span-4">
@@ -1624,9 +1596,7 @@ const AccountStatement: React.FC = () => {
                         {o.label}
                       </button>
                     ))}
-                    {comboOptions.length === 0 && (
-                      <div className="px-3 py-2 text-sm text-gray-500">No match</div>
-                    )}
+                    {comboOptions.length === 0 && <div className="px-3 py-2 text-sm text-gray-500">No match</div>}
                   </div>
                 )}
               </div>
@@ -1685,19 +1655,13 @@ const AccountStatement: React.FC = () => {
             >
               Show
             </button>
-            <button
-              className="px-4 py-2 border rounded hover:bg-gray-100"
-              onClick={resetAll}
-              disabled={loading || reportPreparing}
-            >
+            <button className="px-4 py-2 border rounded hover:bg-gray-100" onClick={resetAll} disabled={loading || reportPreparing}>
               Reset
             </button>
 
             <div className="ml-auto text-sm text-gray-600">
-              Rows (Filtered): <strong>{totals.rows}</strong> | Debit (Filtered):{" "}
-              <strong>{fmtNumber(totals.debit)}</strong> | Credit (Filtered):{" "}
-              <strong>{fmtNumber(totals.credit)}</strong> | Net (Filtered):{" "}
-              <strong>{fmtNumber(totals.net)}</strong>
+              Rows (Filtered): <strong>{totals.rows}</strong> | Debit (Filtered): <strong>{fmtNumber(totals.debit)}</strong> | Credit (Filtered):{" "}
+              <strong>{fmtNumber(totals.credit)}</strong> | Net (Filtered): <strong>{fmtNumber(totals.net)}</strong>
             </div>
           </div>
         </div>
@@ -1728,13 +1692,11 @@ const AccountStatement: React.FC = () => {
                         | <strong>Party:</strong> {selectedParty}
                       </>
                     ) : null}
-                    {"  "} | <strong>From:</strong> {fmtDateHeader(fromDate)} |{" "}
-                    <strong>To:</strong> {fmtDateHeader(toDate)}
+                    {"  "} | <strong>From:</strong> {fmtDateHeader(fromDate)} | <strong>To:</strong> {fmtDateHeader(toDate)}
                   </div>
 
                   <div className="text-xs text-gray-600 mt-1">
-                    Rows (Filtered): {totals.rows} | Debit (Filtered): {fmtNumber(totals.debit)} |
-                    Credit (Filtered): {fmtNumber(totals.credit)} | Net (Filtered):{" "}
+                    Rows (Filtered): {totals.rows} | Debit (Filtered): {fmtNumber(totals.debit)} | Credit (Filtered): {fmtNumber(totals.credit)} | Net (Filtered):{" "}
                     {fmtNumber(totals.net)}
                     <span className="text-gray-400">
                       {" "}
@@ -1774,17 +1736,11 @@ const AccountStatement: React.FC = () => {
                 </div>
 
                 <div className="flex items-center gap-2">
-                  <button
-                    className="px-2 py-1 border rounded text-sm hover:bg-gray-100"
-                    onClick={() => setFullScreen(!fullScreen)}
-                  >
+                  <button className="px-2 py-1 border rounded text-sm hover:bg-gray-100" onClick={() => setFullScreen(!fullScreen)}>
                     {fullScreen ? "Exit Fullscreen" : "Fullscreen"}
                   </button>
 
-                  <button
-                    className="px-2 py-1 border rounded text-sm hover:bg-gray-100"
-                    onClick={handlePrintReport}
-                  >
+                  <button className="px-2 py-1 border rounded text-sm hover:bg-gray-100" onClick={handlePrintReport}>
                     Print
                   </button>
 
@@ -1800,10 +1756,7 @@ const AccountStatement: React.FC = () => {
                 </div>
               </div>
 
-              <div
-                className="p-2 overflow-auto"
-                style={{ height: fullScreen ? "calc(100vh - 72px)" : "78vh" }}
-              >
+              <div className="p-2 overflow-auto" style={{ height: fullScreen ? "calc(100vh - 72px)" : "78vh" }}>
                 {overdueRowsAll.length > 0 && (
                   <div className="mb-2 border border-red-300 bg-red-50 rounded p-2 text-xs">
                     <div className="font-semibold text-red-700">
@@ -1812,7 +1765,7 @@ const AccountStatement: React.FC = () => {
                   </div>
                 )}
 
-                {/* ✅ Details section (same page) */}
+                {/* Details section */}
                 <div ref={detailRef} />
                 {selectedTx && selectedTxDetails && (
                   <div className="mb-3 border rounded p-3 bg-gray-50">
@@ -1823,68 +1776,40 @@ const AccountStatement: React.FC = () => {
                           ({typeLabel(selectedTx.type)} / {selectedTx.orderNo})
                         </span>
                       </div>
-                      <button
-                        type="button"
-                        className="px-2 py-1 border rounded text-xs hover:bg-white"
-                        onClick={() => setSelectedTx(null)}
-                      >
+                      <button type="button" className="px-2 py-1 border rounded text-xs hover:bg-white" onClick={() => setSelectedTx(null)}>
                         Close Details
                       </button>
                     </div>
 
-                    {/* ✅ Only useful details (NO document fields list, NO raw rows, NO raw json) */}
                     <div className="mt-2 grid grid-cols-12 gap-2 text-xs">
                       <div className="col-span-12 lg:col-span-3 text-gray-600">Date</div>
-                      <div className="col-span-12 lg:col-span-9 text-gray-900">
-                        {fmtDateHeader(selectedTx.date)}
-                      </div>
+                      <div className="col-span-12 lg:col-span-9 text-gray-900">{fmtDateHeader(selectedTx.date)}</div>
 
                       <div className="col-span-12 lg:col-span-3 text-gray-600">Party</div>
-                      <div className="col-span-12 lg:col-span-9 text-gray-900">
-                        {selectedTx.partyName || "-"}
-                      </div>
+                      <div className="col-span-12 lg:col-span-9 text-gray-900">{selectedTx.partyName || "-"}</div>
 
                       <div className="col-span-12 lg:col-span-3 text-gray-600">Broker</div>
-                      <div className="col-span-12 lg:col-span-9 text-gray-900">
-                        {selectedTx.brokerName || "-"}
-                      </div>
+                      <div className="col-span-12 lg:col-span-9 text-gray-900">{selectedTx.brokerName || "-"}</div>
 
                       <div className="col-span-12 lg:col-span-3 text-gray-600">Challan No</div>
-                      <div className="col-span-12 lg:col-span-9 text-gray-900">
-                        {selectedTx.orderNo || "-"}
-                      </div>
+                      <div className="col-span-12 lg:col-span-9 text-gray-900">{selectedTx.orderNo || "-"}</div>
 
                       <div className="col-span-12 lg:col-span-3 text-gray-600">Debit</div>
-                      <div className="col-span-12 lg:col-span-9 text-gray-900">
-                        {fmtNumber(selectedTx.debit)}
-                      </div>
+                      <div className="col-span-12 lg:col-span-9 text-gray-900">{fmtNumber(selectedTx.debit)}</div>
 
                       <div className="col-span-12 lg:col-span-3 text-gray-600">Credit</div>
-                      <div className="col-span-12 lg:col-span-9 text-gray-900">
-                        {fmtNumber(selectedTx.credit)}
-                      </div>
+                      <div className="col-span-12 lg:col-span-9 text-gray-900">{fmtNumber(selectedTx.credit)}</div>
 
                       <div className="col-span-12 lg:col-span-3 text-gray-600">Balance</div>
-                      <div className="col-span-12 lg:col-span-9 text-gray-900">
-                        {fmtNumber(selectedTx.balance)}
-                      </div>
+                      <div className="col-span-12 lg:col-span-9 text-gray-900">{fmtNumber(selectedTx.balance)}</div>
 
                       <div className="col-span-12 lg:col-span-3 text-gray-600">Days</div>
-                      <div className="col-span-12 lg:col-span-9 text-gray-900">
-                        {selectedTx.days}
-                      </div>
+                      <div className="col-span-12 lg:col-span-9 text-gray-900">{selectedTx.days}</div>
                     </div>
 
-                    {/* Line items */}
                     {(() => {
                       const doc: any = selectedTxDetails.doc;
-                      if (!doc) {
-                        return (
-                          <div className="mt-3 text-xs text-gray-500">
-                            Details not found for this entry.
-                          </div>
-                        );
-                      }
+                      if (!doc) return <div className="mt-3 text-xs text-gray-500">Details not found for this entry.</div>;
 
                       const rows: any[] =
                         Array.isArray(doc.items) && doc.items.length
@@ -1893,11 +1818,7 @@ const AccountStatement: React.FC = () => {
                             ? doc.rows
                             : [];
 
-                      return rows.length ? (
-                        renderArrayTable(rows, "Items / Rows")
-                      ) : (
-                        <div className="mt-3 text-xs text-gray-500">No items/rows found.</div>
-                      );
+                      return rows.length ? renderArrayTable(rows, "Items / Rows") : <div className="mt-3 text-xs text-gray-500">No items/rows found.</div>;
                     })()}
                   </div>
                 )}
@@ -1933,14 +1854,12 @@ const AccountStatement: React.FC = () => {
                                 ? "bg-white"
                                 : "bg-gray-50";
 
-                        const partyCell =
-                          r.partyName || (r.brokerName ? `Broker: ${r.brokerName}` : "");
+                        const partyCell = r.partyName || (r.brokerName ? `Broker: ${r.brokerName}` : "");
 
                         return (
                           <tr key={`${r.type}-${r.id}-${r.srNo}`} className={rowClass}>
                             <td className="px-2 py-1 border">{r.srNo}</td>
 
-                            {/* ✅ CLICK DATE -> SHOW DETAILS */}
                             <td className="px-2 py-1 border">
                               {r.type === "Opening" ? (
                                 fmtDateHeader(r.date)
@@ -1963,13 +1882,7 @@ const AccountStatement: React.FC = () => {
                             <td className="px-2 py-1 border text-right">{fmtNumber(r.credit)}</td>
                             <td className="px-2 py-1 border text-right">{fmtNumber(r.balance)}</td>
                             <td className="px-2 py-1 border">{typeLabel(r.type)}</td>
-                            <td
-                              className={`px-2 py-1 border text-right ${
-                                overdue ? "text-red-700 font-bold" : ""
-                              }`}
-                            >
-                              {r.days}
-                            </td>
+                            <td className={`px-2 py-1 border text-right ${overdue ? "text-red-700 font-bold" : ""}`}>{r.days}</td>
                           </tr>
                         );
                       })}
@@ -1982,7 +1895,6 @@ const AccountStatement: React.FC = () => {
                         </tr>
                       )}
 
-                      {/* Summary */}
                       {filteredRows.length > 0 && (
                         <tr>
                           <td colSpan={10} className="p-0">
@@ -2002,8 +1914,7 @@ const AccountStatement: React.FC = () => {
                                     </div>
 
                                     <div className="text-xs text-gray-500 mt-2">
-                                      (All Tx) Dr: {fmtNumber(totalDebitAll)} | Cr:{" "}
-                                      {fmtNumber(totalCreditAll)}
+                                      (All Tx) Dr: {fmtNumber(totalDebitAll)} | Cr: {fmtNumber(totalCreditAll)}
                                     </div>
                                   </div>
 
@@ -2011,33 +1922,23 @@ const AccountStatement: React.FC = () => {
                                     <div className="text-sm font-semibold">Balance Summary (All)</div>
                                     <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
                                       <div className="text-gray-700">Opening Balance:</div>
-                                      <div className="text-right text-gray-900">
-                                        {fmtNumber(openingBalance)}
-                                      </div>
+                                      <div className="text-right text-gray-900">{fmtNumber(openingBalance)}</div>
                                       <div className="text-gray-700">Closing Balance:</div>
-                                      <div className="text-right text-gray-900">
-                                        {fmtNumber(closingBalanceAll)}
-                                      </div>
+                                      <div className="text-right text-gray-900">{fmtNumber(closingBalanceAll)}</div>
                                     </div>
                                   </div>
 
                                   <div className="col-span-3 text-right">
                                     <div className="text-sm font-semibold">
-                                      {transactionFilter === "all"
-                                        ? "Net Position (All)"
-                                        : "Net (Filtered)"}
+                                      {transactionFilter === "all" ? "Net Position (All)" : "Net (Filtered)"}
                                     </div>
                                     <div className="text-lg text-black font-bold bg-yellow-200 inline-block px-3 py-1 rounded mt-2">
-                                      {transactionFilter === "all"
-                                        ? fmtNumber(closingBalanceAll)
-                                        : fmtNumber(totals.net)}
+                                      {transactionFilter === "all" ? fmtNumber(closingBalanceAll) : fmtNumber(totals.net)}
                                     </div>
                                   </div>
                                 </div>
 
-                                <div className="mt-3 text-xs text-gray-600">
-                                  Red row = {OVERDUE_DAYS}+ days.
-                                </div>
+                                <div className="mt-3 text-xs text-gray-600">Red row = {OVERDUE_DAYS}+ days.</div>
                               </div>
                             </div>
                           </td>

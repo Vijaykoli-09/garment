@@ -9,4 +9,5 @@ public interface PurchasePendingService {
 	  List<PurchasePendingRowDTO> getPending(PurchasePendingRequest req);
 	  List<Object[]> getFilterParties();
 	  List<Object[]> getFilterItems();
+      List<PurchasePendingRowDTO> getPendingReport(PurchasePendingRequest req);
 }

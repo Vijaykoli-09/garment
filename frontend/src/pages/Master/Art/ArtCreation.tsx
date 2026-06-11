@@ -1,4 +1,4 @@
-// ArtCreationForm.tsx
+// src/pages/Master/Art/ArtCreation.tsx
 import type React from "react";
 import { useState, useEffect, useMemo } from "react";
 import Dashboard from "../../Dashboard";
@@ -50,7 +50,6 @@ interface ArtDetailView {
   sizes: SizeDetail[];
   sizeDetails?: SizeDetailWithBoxPcsRate[];
   accessories: AccessoryDetail[];
-
   accessoryDetails?: AccessoryDetailModalResponseDTO[];
 }
 
@@ -155,7 +154,7 @@ interface AccessoryFromCreation {
   materialName: string;
 }
 
-// ✅ FIX: keep backend id in modal row so delete/update works reliably
+// keep backend id in modal row so delete/update works reliably
 interface AccessoryRowInModal {
   id?: number;
   sno: number;
@@ -185,7 +184,7 @@ interface AccessoryDetailModalResponseDTO {
   amount: string;
 }
 
-const ArtCreationForm: React.FC = () => {
+const ArtCreation: React.FC = () => {
   const [formData, setFormData] = useState<FormData>({
     serialNumber: "",
     artGroup: "",
@@ -206,54 +205,28 @@ const ArtCreationForm: React.FC = () => {
   const [artList, setArtList] = useState<ArtListView[]>([]);
   const [artListForCopy, setArtListForCopy] = useState<ArtListView[]>([]);
   const [processRows, setProcessRows] = useState<ProcessRow[]>([]);
-  const [availableProcesses, setAvailableProcesses] = useState<
-    ProcessFromCreation[]
-  >([]);
-  const [availableShades, setAvailableShades] = useState<ShadeFromCreation[]>(
-    []
-  );
+  const [availableProcesses, setAvailableProcesses] = useState<ProcessFromCreation[]>([]);
+  const [availableShades, setAvailableShades] = useState<ShadeFromCreation[]>([]);
   const [selectedShades, setSelectedShades] = useState<ShadeFromCreation[]>([]);
   const [availableSizes, setAvailableSizes] = useState<SizeFromCreation[]>([]);
   const [selectedSizes, setSelectedSizes] = useState<SizeFromCreation[]>([]);
-  const [availableMaterials, setAvailableMaterials] = useState<
-    MaterialFromCreation[]
-  >([]);
-  const [selectedAccessories, setSelectedAccessories] = useState<
-    MaterialFromCreation[]
-  >([]);
-  const [availableArtGroups, setAvailableArtGroups] = useState<
-    ArtGroupFromCreation[]
-  >([]);
-  const [isAccessoriesModalOpen, setIsAccessoriesModalOpen] =
-    useState<boolean>(false);
+  const [availableMaterials, setAvailableMaterials] = useState<MaterialFromCreation[]>([]);
+  const [selectedAccessories, setSelectedAccessories] = useState<MaterialFromCreation[]>([]);
+  const [availableArtGroups, setAvailableArtGroups] = useState<ArtGroupFromCreation[]>([]);
+  const [isAccessoriesModalOpen, setIsAccessoriesModalOpen] = useState<boolean>(false);
   const [searchQuery, setSearchQuery] = useState<string>("");
-  const [selectedProcessForAccessories, setSelectedProcessForAccessories] =
-    useState<string>("");
+  const [selectedProcessForAccessories, setSelectedProcessForAccessories] = useState<string>("");
   const [, setAccessoriesByProcess] = useState<AccessoryFromCreation[]>([]);
-  const [filteredMaterialsForProcess, setFilteredMaterialsForProcess] =
-    useState<string[]>([]);
-  const [accessoryRowsInModal, setAccessoryRowsInModal] = useState<
-    AccessoryRowInModal[]
-  >([]);
+  const [filteredMaterialsForProcess, setFilteredMaterialsForProcess] = useState<string[]>([]);
+  const [accessoryRowsInModal, setAccessoryRowsInModal] = useState<AccessoryRowInModal[]>([]);
 
-  // ✅ FIX: store process-wise accessory detail rows here
-  const [accessoryDetails, setAccessoryDetails] = useState<
-    AccessoryDetailModalResponseDTO[]
-  >([]);
+  // store process-wise accessory detail rows here
+  const [accessoryDetails, setAccessoryDetails] = useState<AccessoryDetailModalResponseDTO[]>([]);
 
   const [isSizeModalOpen, setIsSizeModalOpen] = useState<boolean>(false);
-  const [currentSizeSelection, setCurrentSizeSelection] =
-    useState<string>("");
-  const [sizeDetails, setSizeDetails] = useState({
-    box: "",
-    pcs: "",
-    rate: "",
-  });
-  const [manualAccessoryInput, setManualAccessoryInput] = useState({
-    name: "",
-    qty: "",
-    rate: "",
-  });
+  const [currentSizeSelection, setCurrentSizeSelection] = useState<string>("");
+  const [sizeDetails, setSizeDetails] = useState({ box: "", pcs: "", rate: "" });
+  const [manualAccessoryInput, setManualAccessoryInput] = useState({ name: "", qty: "", rate: "" });
 
   useEffect(() => {
     loadArts();
@@ -262,19 +235,18 @@ const ArtCreationForm: React.FC = () => {
     loadAvailableSizes();
     loadAvailableArtGroups();
     loadAvailableMaterials();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
     if (!editingArt) {
       generateSerialNumber();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editingArt]);
 
   const totals = useMemo(() => {
-    const totalRate = processRows.reduce(
-      (sum, row) => sum + (parseFloat(row.rate) || 0),
-      0
-    );
+    const totalRate = processRows.reduce((sum, row) => sum + (parseFloat(row.rate) || 0), 0);
     return { totalRate };
   }, [processRows]);
 
@@ -300,30 +272,20 @@ const ArtCreationForm: React.FC = () => {
       console.error("Failed to load arts:", error);
       setArtList([]);
       setArtListForCopy([]);
-      Swal.fire({
-        icon: "error",
-        title: "Error",
-        text: "Failed to load arts list",
-      });
+      Swal.fire({ icon: "error", title: "Error", text: "Failed to load arts list" });
     } finally {
       setLoading(false);
     }
   };
 
-  const loadArtDetail = async (
-    serialNumber: string
-  ): Promise<ArtDetailView | null> => {
+  const loadArtDetail = async (serialNumber: string): Promise<ArtDetailView | null> => {
     try {
       setLoading(true);
       const response = await api.get<ArtDetailView>(`/arts/${serialNumber}`);
       return response.data;
     } catch (error) {
       console.error("Failed to load art detail:", error);
-      Swal.fire({
-        icon: "error",
-        title: "Error",
-        text: "Failed to load art details",
-      });
+      Swal.fire({ icon: "error", title: "Error", text: "Failed to load art details" });
       return null;
     } finally {
       setLoading(false);
@@ -336,9 +298,7 @@ const ArtCreationForm: React.FC = () => {
       return;
     }
 
-    const selectedArt = artListForCopy.find(
-      (art) => art.artName === selectedArtName
-    );
+    const selectedArt = artListForCopy.find((art) => art.artName === selectedArtName);
 
     if (selectedArt) {
       setFormData((prev) => ({ ...prev, copyFromArtName: selectedArtName }));
@@ -365,11 +325,7 @@ const ArtCreationForm: React.FC = () => {
           showConfirmButton: false,
         });
       } else {
-        Swal.fire({
-          icon: "info",
-          title: "No Processes",
-          text: "No processes found in the selected art",
-        });
+        Swal.fire({ icon: "info", title: "No Processes", text: "No processes found in the selected art" });
       }
     }
   };
@@ -426,12 +382,8 @@ const ArtCreationForm: React.FC = () => {
 
   const loadAccessoriesByProcess = async (processName: string) => {
     try {
-      const response = await api.get<AccessoryFromCreation[]>(
-        "/accessories/list"
-      );
-      const filtered = response.data.filter(
-        (acc) => acc.processName === processName
-      );
+      const response = await api.get<AccessoryFromCreation[]>("/accessories/list");
+      const filtered = response.data.filter((acc) => acc.processName === processName);
       setAccessoriesByProcess(filtered);
       setFilteredMaterialsForProcess(filtered.map((acc) => acc.materialName));
     } catch (error) {
@@ -457,10 +409,7 @@ const ArtCreationForm: React.FC = () => {
   const updateArt = async (serialNumber: string, artData: any) => {
     try {
       setLoading(true);
-      const response = await api.put<ArtDetailView>(
-        `/arts/${serialNumber}`,
-        artData
-      );
+      const response = await api.put<ArtDetailView>(`/arts/${serialNumber}`, artData);
       return response.data;
     } catch (error) {
       console.error("Failed to update art:", error);
@@ -490,11 +439,8 @@ const ArtCreationForm: React.FC = () => {
     }));
   };
 
-  // ✅ FIX: upsert accessoryDetails per process; if rows empty, it removes that process details
-  const upsertAccessoryDetailsForProcess = (
-    processName: string,
-    rows: AccessoryRowInModal[]
-  ) => {
+  // upsert accessoryDetails per process; if rows empty, it removes that process details
+  const upsertAccessoryDetailsForProcess = (processName: string, rows: AccessoryRowInModal[]) => {
     const proc = (processName || "").trim();
     if (!proc) return;
 
@@ -510,10 +456,7 @@ const ArtCreationForm: React.FC = () => {
         amount: r.amount || "0.00",
       }));
 
-    setAccessoryDetails((prev) => [
-      ...prev.filter((d) => (d.processName || "").trim() !== proc),
-      ...normalized,
-    ]);
+    setAccessoryDetails((prev) => [...prev.filter((d) => (d.processName || "").trim() !== proc), ...normalized]);
   };
 
   const handleSubmit = async () => {
@@ -568,8 +511,6 @@ const ArtCreationForm: React.FC = () => {
           minimumStock: accessory.minimumStock,
           maximumStock: accessory.maximumStock,
         })),
-
-        // ✅ FIX: send accessoryDetails (include id)
         accessoryDetails: accessoryDetails.map((d) => ({
           id: d.id,
           processName: d.processName,
@@ -583,22 +524,10 @@ const ArtCreationForm: React.FC = () => {
 
       if (editingArt) {
         await updateArt(editingArt.serialNumber, requestPayload);
-        Swal.fire({
-          icon: "success",
-          title: "Updated!",
-          text: "Art updated successfully!",
-          timer: 2000,
-          showConfirmButton: false,
-        });
+        Swal.fire({ icon: "success", title: "Updated!", text: "Art updated successfully!", timer: 1500, showConfirmButton: false });
       } else {
         await saveArt(requestPayload);
-        Swal.fire({
-          icon: "success",
-          title: "Created!",
-          text: "Art created successfully!",
-          timer: 2000,
-          showConfirmButton: false,
-        });
+        Swal.fire({ icon: "success", title: "Created!", text: "Art created successfully!", timer: 1500, showConfirmButton: false });
       }
 
       await loadArts();
@@ -624,11 +553,7 @@ const ArtCreationForm: React.FC = () => {
       setEditingArt(null);
     } catch (error) {
       console.error("Error saving art:", error);
-      Swal.fire({
-        icon: "error",
-        title: "Error",
-        text: "Failed to save art. Please try again.",
-      });
+      Swal.fire({ icon: "error", title: "Error", text: "Failed to save art. Please try again." });
     }
   };
 
@@ -658,30 +583,26 @@ const ArtCreationForm: React.FC = () => {
       workOnArt: artDetail.workOnArt,
     });
 
-    if (artDetail.processes?.length) {
-      setProcessRows(
-        artDetail.processes.map((p) => ({
-          sno: p.sno,
-          processName: p.processName || "",
-          rate: p.rate || "",
-          rate1: p.rate1 || "",
-          sizeWid: p.sizeWid || "",
-          sizeWidAct: p.sizeWidAct || "",
-          itemRef: p.itemRef || "",
-          process: p.process || "",
-        }))
-      );
-    } else setProcessRows([]);
+    setProcessRows(
+      (artDetail.processes || []).map((p) => ({
+        sno: p.sno,
+        processName: p.processName || "",
+        rate: p.rate || "",
+        rate1: p.rate1 || "",
+        sizeWid: p.sizeWid || "",
+        sizeWidAct: p.sizeWidAct || "",
+        itemRef: p.itemRef || "",
+        process: p.process || "",
+      }))
+    );
 
-    if (artDetail.shades?.length) {
-      setSelectedShades(
-        artDetail.shades.map((s) => ({
-          shadeCode: s.shadeCode,
-          shadeName: s.shadeName,
-          colorFamily: s.colorFamily,
-        }))
-      );
-    } else setSelectedShades([]);
+    setSelectedShades(
+      (artDetail.shades || []).map((s) => ({
+        shadeCode: s.shadeCode,
+        shadeName: s.shadeName,
+        colorFamily: s.colorFamily,
+      }))
+    );
 
     if (artDetail.sizeDetails?.length) {
       setSelectedSizes(
@@ -710,36 +631,31 @@ const ArtCreationForm: React.FC = () => {
       );
     } else setSelectedSizes([]);
 
-    if (artDetail.accessories?.length) {
-      setSelectedAccessories(
-        artDetail.accessories.map((a) => ({
-          id: a.materialId,
-          serialNumber: a.serialNumber,
-          materialGroupId: a.materialGroupId,
-          materialGroupName: a.materialGroupName,
-          materialName: a.materialName,
-          code: a.code,
-          materialUnit: a.materialUnit,
-          minimumStock: a.minimumStock,
-          maximumStock: a.maximumStock,
-        }))
-      );
-    } else setSelectedAccessories([]);
+    setSelectedAccessories(
+      (artDetail.accessories || []).map((a) => ({
+        id: a.materialId,
+        serialNumber: a.serialNumber,
+        materialGroupId: a.materialGroupId,
+        materialGroupName: a.materialGroupName,
+        materialName: a.materialName,
+        code: a.code,
+        materialUnit: a.materialUnit,
+        minimumStock: a.minimumStock,
+        maximumStock: a.maximumStock,
+      }))
+    );
 
-    // ✅ FIX: load accessoryDetails for edit
-    if (artDetail.accessoryDetails?.length) {
-      setAccessoryDetails(
-        artDetail.accessoryDetails.map((d) => ({
-          id: d.id,
-          processName: d.processName,
-          sno: d.sno,
-          accessoryName: d.accessoryName,
-          qty: d.qty,
-          rate: d.rate,
-          amount: d.amount,
-        }))
-      );
-    } else setAccessoryDetails([]);
+    setAccessoryDetails(
+      (artDetail.accessoryDetails || []).map((d) => ({
+        id: d.id,
+        processName: d.processName,
+        sno: d.sno,
+        accessoryName: d.accessoryName,
+        qty: d.qty,
+        rate: d.rate,
+        amount: d.amount,
+      }))
+    );
 
     setIsModalOpen(false);
   };
@@ -759,39 +675,21 @@ const ArtCreationForm: React.FC = () => {
     try {
       await deleteArtFromBackend(artToDelete.serialNumber);
       await loadArts();
-      Swal.fire({
-        icon: "success",
-        title: "Deleted!",
-        text: "Art deleted successfully!",
-        timer: 2000,
-        showConfirmButton: false,
-      });
+      Swal.fire({ icon: "success", title: "Deleted!", text: "Art deleted successfully!", timer: 1500, showConfirmButton: false });
     } catch {
-      Swal.fire({
-        icon: "error",
-        title: "Error",
-        text: "Failed to delete art. Please try again.",
-      });
+      Swal.fire({ icon: "error", title: "Error", text: "Failed to delete art. Please try again." });
     }
   };
 
   const handleEdit = () => {
     if (!editingArt) {
-      Swal.fire({
-        icon: "info",
-        title: "No Art Selected",
-        text: "No art selected for editing",
-      });
+      Swal.fire({ icon: "info", title: "No Art Selected", text: "No art selected for editing" });
     }
   };
 
   const handleDelete = async () => {
     if (!editingArt) {
-      Swal.fire({
-        icon: "info",
-        title: "No Art Selected",
-        text: "No art selected for deletion",
-      });
+      Swal.fire({ icon: "info", title: "No Art Selected", text: "No art selected for deletion" });
       return;
     }
 
@@ -830,38 +728,22 @@ const ArtCreationForm: React.FC = () => {
       setAccessoryDetails([]);
       setEditingArt(null);
 
-      Swal.fire({
-        icon: "success",
-        title: "Deleted!",
-        text: "Art deleted successfully!",
-        timer: 2000,
-        showConfirmButton: false,
-      });
+      Swal.fire({ icon: "success", title: "Deleted!", text: "Art deleted successfully!", timer: 1500, showConfirmButton: false });
     } catch {
-      Swal.fire({
-        icon: "error",
-        title: "Error",
-        text: "Failed to delete art. Please try again.",
-      });
+      Swal.fire({ icon: "error", title: "Error", text: "Failed to delete art. Please try again." });
     }
   };
 
   const handleRemoveShade = (shadeCodeToRemove: string) => {
-    setSelectedShades(
-      selectedShades.filter((shade) => shade.shadeCode !== shadeCodeToRemove)
-    );
+    setSelectedShades(selectedShades.filter((shade) => shade.shadeCode !== shadeCodeToRemove));
   };
 
   const handleRemoveSize = (serialNoToRemove: string) => {
-    setSelectedSizes(
-      selectedSizes.filter((size) => size.serialNo !== serialNoToRemove)
-    );
+    setSelectedSizes(selectedSizes.filter((size) => size.serialNo !== serialNoToRemove));
   };
 
   const handleRemoveAccessory = (idToRemove: number) => {
-    setSelectedAccessories(
-      selectedAccessories.filter((accessory) => accessory.id !== idToRemove)
-    );
+    setSelectedAccessories(selectedAccessories.filter((accessory) => accessory.id !== idToRemove));
   };
 
   const handleRemoveProcessRow = (index: number) => {
@@ -869,14 +751,8 @@ const ArtCreationForm: React.FC = () => {
     setProcessRows(updatedRows.map((row, i) => ({ ...row, sno: i + 1 })));
   };
 
-  const handleProcessRowChange = (
-    index: number,
-    field: keyof ProcessRow,
-    value: string
-  ) => {
-    setProcessRows((prev) =>
-      prev.map((row, i) => (i === index ? { ...row, [field]: value } : row))
-    );
+  const handleProcessRowChange = (index: number, field: keyof ProcessRow, value: string) => {
+    setProcessRows((prev) => prev.map((row, i) => (i === index ? { ...row, [field]: value } : row)));
   };
 
   const generateSerialNumber = () => {
@@ -905,13 +781,10 @@ const ArtCreationForm: React.FC = () => {
     setManualAccessoryInput({ name: "", qty: "", rate: "" });
   };
 
-  // ✅ FIX: process change par current process rows save + next process rows load
+  // process change par current process rows save + next process rows load
   const handleProcessSelectionForAccessories = async (processName: string) => {
     if (selectedProcessForAccessories?.trim()) {
-      upsertAccessoryDetailsForProcess(
-        selectedProcessForAccessories,
-        accessoryRowsInModal
-      );
+      upsertAccessoryDetailsForProcess(selectedProcessForAccessories, accessoryRowsInModal);
     }
 
     setSelectedProcessForAccessories(processName);
@@ -942,21 +815,15 @@ const ArtCreationForm: React.FC = () => {
     }
   };
 
-  const handleAccessoryRowChange = (
-    index: number,
-    field: "qty" | "rate" | "amount",
-    value: string
-  ) => {
+  const handleAccessoryRowChange = (index: number, field: "qty" | "rate" | "amount", value: string) => {
     setAccessoryRowsInModal((prev) =>
       prev.map((row, i) => {
         if (i !== index) return row;
         const newRow: AccessoryRowInModal = { ...row, [field]: value };
 
         if (field === "qty" || field === "rate") {
-          const qty =
-            Number.parseFloat(field === "qty" ? value : row.qty) || 0;
-          const rate =
-            Number.parseFloat(field === "rate" ? value : row.rate) || 0;
+          const qty = Number.parseFloat(field === "qty" ? value : row.qty) || 0;
+          const rate = Number.parseFloat(field === "rate" ? value : row.rate) || 0;
           newRow.amount = (qty * rate).toFixed(2);
         }
         return newRow;
@@ -964,27 +831,18 @@ const ArtCreationForm: React.FC = () => {
     );
   };
 
-  // ✅ FIX: delete row should still allow Save even when list becomes empty
   const handleRemoveAccessoryRow = (index: number) => {
     const updatedRows = accessoryRowsInModal.filter((_, i) => i !== index);
     setAccessoryRowsInModal(updatedRows.map((row, i) => ({ ...row, sno: i + 1 })));
   };
 
   const calculateTotal = () => {
-    return accessoryRowsInModal
-      .reduce((sum, row) => sum + (Number.parseFloat(row.amount) || 0), 0)
-      .toFixed(2);
+    return accessoryRowsInModal.reduce((sum, row) => sum + (Number.parseFloat(row.amount) || 0), 0).toFixed(2);
   };
 
   const handleAddManualAccessory = () => {
     if (!manualAccessoryInput.name.trim()) {
-      Swal.fire({
-        icon: "warning",
-        title: "Missing Name",
-        text: "Please enter accessory name",
-        timer: 2000,
-        showConfirmButton: false,
-      });
+      Swal.fire({ icon: "warning", title: "Missing Name", text: "Please enter accessory name", timer: 1500, showConfirmButton: false });
       return;
     }
 
@@ -1003,28 +861,14 @@ const ArtCreationForm: React.FC = () => {
     setAccessoryRowsInModal([...accessoryRowsInModal, newRow]);
     setManualAccessoryInput({ name: "", qty: "", rate: "" });
 
-    Swal.fire({
-      icon: "success",
-      title: "Added!",
-      text: "Manual accessory added successfully!",
-      timer: 1200,
-      showConfirmButton: false,
-    });
+    Swal.fire({ icon: "success", title: "Added!", text: "Accessory added successfully!", timer: 900, showConfirmButton: false });
   };
 
-  // ✅ FIX: SAVE should work even when all rows deleted (0 rows)
   const handleSaveAccessoryFromModal = () => {
-    // ✅ persist current modal rows into accessoryDetails (even if empty => delete)
-    upsertAccessoryDetailsForProcess(
-      selectedProcessForAccessories,
-      accessoryRowsInModal
-    );
+    upsertAccessoryDetailsForProcess(selectedProcessForAccessories, accessoryRowsInModal);
 
-    // keep your old behavior: update selectedAccessories too (single batched update)
     setSelectedAccessories((prev) => {
-      const byName = new Map<string, MaterialFromCreation>(
-        prev.map((m) => [m.materialName, m])
-      );
+      const byName = new Map<string, MaterialFromCreation>(prev.map((m) => [m.materialName, m]));
 
       for (const row of accessoryRowsInModal) {
         const name = (row.accessoryName || "").trim();
@@ -1057,26 +901,17 @@ const ArtCreationForm: React.FC = () => {
     Swal.fire({
       icon: "success",
       title: "Saved!",
-      text:
-        accessoryRowsInModal.length === 0
-          ? "All accessory rows removed and saved."
-          : "Accessory details saved.",
-      timer: 1200,
+      text: accessoryRowsInModal.length === 0 ? "All accessory rows removed and saved." : "Accessory details saved.",
+      timer: 1000,
       showConfirmButton: false,
     });
   };
 
-  // ✅ FIX: CLOSE should also save deletions
   const handleAddAccessoryFromModal = () => {
-    upsertAccessoryDetailsForProcess(
-      selectedProcessForAccessories,
-      accessoryRowsInModal
-    );
+    upsertAccessoryDetailsForProcess(selectedProcessForAccessories, accessoryRowsInModal);
 
     setSelectedAccessories((prev) => {
-      const byName = new Map<string, MaterialFromCreation>(
-        prev.map((m) => [m.materialName, m])
-      );
+      const byName = new Map<string, MaterialFromCreation>(prev.map((m) => [m.materialName, m]));
 
       for (const row of accessoryRowsInModal) {
         const name = (row.accessoryName || "").trim();
@@ -1106,21 +941,11 @@ const ArtCreationForm: React.FC = () => {
       return Array.from(byName.values());
     });
 
-    Swal.fire({
-      icon: "success",
-      title: "Done!",
-      text:
-        accessoryRowsInModal.length === 0
-          ? "All accessory rows removed."
-          : "Accessory details saved.",
-      timer: 1000,
-      showConfirmButton: false,
-    });
-
+    Swal.fire({ icon: "success", title: "Done!", timer: 800, showConfirmButton: false });
     handleCloseAccessoriesModal();
   };
 
-  // ----------------- SIZE modal (same) -----------------
+  // SIZE modal
   const handleSizeSelect = (serialNo: string) => {
     if (!serialNo) return;
 
@@ -1128,13 +953,7 @@ const ArtCreationForm: React.FC = () => {
     if (!selectedSize) return;
 
     if (selectedSizes.find((size) => size.serialNo === selectedSize.serialNo)) {
-      Swal.fire({
-        icon: "info",
-        title: "Already Selected",
-        text: "This size is already selected!",
-        timer: 2000,
-        showConfirmButton: false,
-      });
+      Swal.fire({ icon: "info", title: "Already Selected", text: "This size is already selected!", timer: 1200, showConfirmButton: false });
       return;
     }
 
@@ -1148,11 +967,7 @@ const ArtCreationForm: React.FC = () => {
     if (!selectedSize) return;
 
     if (!sizeDetails.box || !sizeDetails.pcs || !sizeDetails.rate) {
-      Swal.fire({
-        icon: "warning",
-        title: "Incomplete Data",
-        text: "Please fill all fields: Box, Pcs, and Rate",
-      });
+      Swal.fire({ icon: "warning", title: "Incomplete Data", text: "Please fill all fields: Box, Pcs, and Rate" });
       return;
     }
 
@@ -1168,16 +983,10 @@ const ArtCreationForm: React.FC = () => {
     setCurrentSizeSelection("");
     setSizeDetails({ box: "", pcs: "", rate: "" });
 
-    Swal.fire({
-      icon: "success",
-      title: "Added!",
-      text: `Size ${selectedSize.sizeName} added successfully!`,
-      timer: 1200,
-      showConfirmButton: false,
-    });
+    Swal.fire({ icon: "success", title: "Added!", timer: 900, showConfirmButton: false });
   };
 
-  // ----------------- STYLES (same) -----------------
+  // Styles
   const containerStyle: React.CSSProperties = {
     maxWidth: "1200px",
     margin: "30px auto",
@@ -1231,17 +1040,9 @@ const ArtCreationForm: React.FC = () => {
     cursor: "pointer",
   };
 
-  const tableStyle: React.CSSProperties = {
-    width: "100%",
-    borderCollapse: "collapse" as const,
-    fontSize: "13px",
-  };
+  const tableStyle: React.CSSProperties = { width: "100%", borderCollapse: "collapse", fontSize: "13px" };
 
-  const thtd: React.CSSProperties = {
-    border: "1px solid #ccc",
-    padding: "6px",
-    textAlign: "left" as const,
-  };
+  const thtd: React.CSSProperties = { border: "1px solid #ccc", padding: "6px", textAlign: "left" };
 
   const tableInputStyle: React.CSSProperties = {
     width: "100%",
@@ -1262,7 +1063,7 @@ const ArtCreationForm: React.FC = () => {
   };
 
   const modalOverlayStyle: React.CSSProperties = {
-    position: "fixed" as const,
+    position: "fixed",
     top: 0,
     left: 0,
     right: 0,
@@ -1312,36 +1113,20 @@ const ArtCreationForm: React.FC = () => {
     fontWeight: "bold",
   };
 
-  const editButtonStyle: React.CSSProperties = {
-    ...actionButtonStyle,
-    backgroundColor: "#28a745",
-    color: "white",
-  };
-
-  const deleteButtonStyle: React.CSSProperties = {
-    ...actionButtonStyle,
-    backgroundColor: "#dc3545",
-    color: "white",
-  };
+  const editButtonStyle: React.CSSProperties = { ...actionButtonStyle, backgroundColor: "#28a745", color: "white" };
+  const deleteButtonStyle: React.CSSProperties = { ...actionButtonStyle, backgroundColor: "#dc3545", color: "white" };
 
   return (
     <Dashboard>
       <div style={containerStyle}>
         <h2 style={{ textAlign: "center", marginBottom: "15px" }}>
           ART CREATION{" "}
-          {editingArt && (
-            <span style={{ fontSize: "14px", color: "#666" }}>
-              (Editing: {editingArt.artName})
-            </span>
-          )}
-          {loading && (
-            <span style={{ fontSize: "12px", color: "#007bff", marginLeft: "10px" }}>
-              Loading...
-            </span>
-          )}
+          {editingArt && <span style={{ fontSize: "14px", color: "#666" }}>(Editing: {editingArt.artName})</span>}
+          {loading && <span style={{ fontSize: "12px", color: "#007bff", marginLeft: "10px" }}>Loading...</span>}
         </h2>
 
         <div style={layoutStyle}>
+          {/* LEFT */}
           <div style={leftStyle}>
             <div>
               <div style={formRowStyle}>
@@ -1353,11 +1138,7 @@ const ArtCreationForm: React.FC = () => {
                   onChange={handleInputChange}
                   style={{ ...inputStyle, maxWidth: "400px" }}
                   disabled={loading || !!editingArt}
-                  title={
-                    editingArt
-                      ? "Serial Number cannot be changed during edit."
-                      : undefined
-                  }
+                  title={editingArt ? "Serial Number cannot be changed during edit." : undefined}
                 />
               </div>
 
@@ -1366,56 +1147,29 @@ const ArtCreationForm: React.FC = () => {
                 <select
                   name="artGroup"
                   value={formData.artGroup}
-                  onChange={(e) => {
-                    setFormData((prev) => ({
-                      ...prev,
-                      artGroup: e.target.value,
-                    }));
-                  }}
+                  onChange={(e) => setFormData((prev) => ({ ...prev, artGroup: e.target.value }))}
                   style={inputStyle}
                   disabled={loading}
                 >
                   <option value="">Select Art Group...</option>
-                  {Array.isArray(availableArtGroups) &&
-                    availableArtGroups.map((artGroup) => {
-                      if (!artGroup?.artGroupName) return null;
-                      return (
-                        <option
-                          key={
-                            artGroup.serialNo ||
-                            Math.random().toString(36).substr(2, 9)
-                          }
-                          value={artGroup.artGroupName}
-                        >
-                          {artGroup.artGroupName}
-                        </option>
-                      );
-                    })}
+                  {availableArtGroups.map((g) =>
+                    g?.artGroupName ? (
+                      <option key={g.serialNo} value={g.artGroupName}>
+                        {g.artGroupName}
+                      </option>
+                    ) : null
+                  )}
                 </select>
               </div>
 
               <div style={formRowStyle}>
                 <label style={labelStyle}>Art No</label>
-                <input
-                  type="text"
-                  name="artNo"
-                  value={formData.artNo}
-                  onChange={handleInputChange}
-                  style={inputStyle}
-                  disabled={loading}
-                />
+                <input type="text" name="artNo" value={formData.artNo} onChange={handleInputChange} style={inputStyle} disabled={loading} />
               </div>
 
               <div style={formRowStyle}>
                 <label style={labelStyle}>Description</label>
-                <input
-                  type="text"
-                  name="artName"
-                  value={formData.artName}
-                  onChange={handleInputChange}
-                  style={inputStyle}
-                  disabled={loading}
-                />
+                <input type="text" name="artName" value={formData.artName} onChange={handleInputChange} style={inputStyle} disabled={loading} />
               </div>
 
               <div style={formRowStyle}>
@@ -1438,97 +1192,40 @@ const ArtCreationForm: React.FC = () => {
 
               <div style={formRowStyle}>
                 <label style={labelStyle}>Opening Stock</label>
-                <input
-                  type="text"
-                  name="styleRate"
-                  value={formData.styleRate}
-                  onChange={handleInputChange}
-                  style={inputStyle}
-                  disabled={loading}
-                />
+                <input type="text" name="styleRate" value={formData.styleRate} onChange={handleInputChange} style={inputStyle} disabled={loading} />
               </div>
 
               <div style={formRowStyle}>
                 <label style={labelStyle}>Sale Rate</label>
-                <input
-                  type="text"
-                  name="saleRate"
-                  value={formData.saleRate}
-                  onChange={handleInputChange}
-                  style={inputStyle}
-                  disabled={loading}
-                />
+                <input type="text" name="saleRate" value={formData.saleRate} onChange={handleInputChange} style={inputStyle} disabled={loading} />
               </div>
 
               <div style={formRowStyle}>
                 <label style={labelStyle}>Style Name</label>
-                <input
-                  type="text"
-                  name="styleName"
-                  value={formData.styleName}
-                  onChange={handleInputChange}
-                  style={{ ...inputStyle, flex: 3 }}
-                  disabled={loading}
-                />
+                <input type="text" name="styleName" value={formData.styleName} onChange={handleInputChange} style={{ ...inputStyle, flex: 3 }} disabled={loading} />
               </div>
 
               <div style={formRowStyle}>
                 <label style={labelStyle}>Opening Balance</label>
-                <input
-                  type="text"
-                  name="openingBalance"
-                  value={formData.openingBalance}
-                  onChange={handleInputChange}
-                  style={inputStyle}
-                  disabled={loading}
-                />
+                <input type="text" name="openingBalance" value={formData.openingBalance} onChange={handleInputChange} style={inputStyle} disabled={loading} />
               </div>
 
               <div style={formRowStyle}>
                 <label style={labelStyle}>Brand Name</label>
-                <input
-                  type="text"
-                  name="brandName"
-                  value={formData.brandName}
-                  onChange={handleInputChange}
-                  style={inputStyle}
-                  disabled={loading}
-                />
+                <input type="text" name="brandName" value={formData.brandName} onChange={handleInputChange} style={inputStyle} disabled={loading} />
               </div>
-
-              <div style={formRowStyle}></div>
             </div>
 
-            <div
-              style={{
-                display: "flex",
-                justifyContent: "space-between",
-                alignItems: "center",
-                marginTop: 10,
-                marginBottom: 6,
-              }}
-            >
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 10, marginBottom: 6 }}>
               <div style={{ fontWeight: "bold" }}>Supplier</div>
               {formData.copyFromArtName && (
-                <div
-                  style={{
-                    fontSize: "12px",
-                    color: "#4caf50",
-                    fontWeight: "bold",
-                  }}
-                >
+                <div style={{ fontSize: "12px", color: "#4caf50", fontWeight: "bold" }}>
                   Processes copied from: {formData.copyFromArtName}
                 </div>
               )}
             </div>
 
-            <div
-              style={{
-                border: "1px solid #ccc",
-                borderRadius: 6,
-                overflow: "hidden",
-              }}
-            >
+            <div style={{ border: "1px solid #ccc", borderRadius: 6, overflow: "hidden" }}>
               <table style={tableStyle}>
                 <thead>
                   <tr>
@@ -1550,358 +1247,144 @@ const ArtCreationForm: React.FC = () => {
                       <td style={{ ...thtd, background: "#ffe5e5" }}>
                         <select
                           value={row.processName}
-                          onChange={(e) =>
-                            handleProcessRowChange(
-                              index,
-                              "processName",
-                              e.target.value
-                            )
-                          }
-                          style={{
-                            ...tableInputStyle,
-                            fontWeight: 600,
-                            width: "100%",
-                            padding: "4px",
-                            border: "1px solid #ddd",
-                            borderRadius: "3px",
-                          }}
+                          onChange={(e) => handleProcessRowChange(index, "processName", e.target.value)}
+                          style={{ ...tableInputStyle, fontWeight: 600, width: "100%", padding: 4, border: "1px solid #ddd", borderRadius: 3 }}
                         >
                           <option value="">Select Process...</option>
-                          {availableProcesses.map((process) => (
-                            <option
-                              key={process.serialNo}
-                              value={process.processName}
-                            >
-                              {process.processName} ({process.category})
+                          {availableProcesses.map((p) => (
+                            <option key={p.serialNo} value={p.processName}>
+                              {p.processName} ({p.category})
                             </option>
                           ))}
                         </select>
                       </td>
                       <td style={thtd}>
-                        <input
-                          type="text"
-                          value={row.rate}
-                          onChange={(e) =>
-                            handleProcessRowChange(index, "rate", e.target.value)
-                          }
-                          style={tableInputStyle}
-                          placeholder="Rate"
-                        />
+                        <input value={row.rate} onChange={(e) => handleProcessRowChange(index, "rate", e.target.value)} style={tableInputStyle} placeholder="Rate" />
                       </td>
                       <td style={thtd}>
-                        <input
-                          type="text"
-                          value={row.rate1}
-                          onChange={(e) =>
-                            handleProcessRowChange(
-                              index,
-                              "rate1",
-                              e.target.value
-                            )
-                          }
-                          style={tableInputStyle}
-                          placeholder="Rate1"
-                        />
+                        <input value={row.rate1} onChange={(e) => handleProcessRowChange(index, "rate1", e.target.value)} style={tableInputStyle} placeholder="Rate1" />
                       </td>
                       <td style={thtd}>
-                        <input
-                          type="text"
-                          value={row.sizeWid}
-                          onChange={(e) =>
-                            handleProcessRowChange(
-                              index,
-                              "sizeWid",
-                              e.target.value
-                            )
-                          }
-                          style={tableInputStyle}
-                          placeholder="Size Wis"
-                        />
+                        <input value={row.sizeWid} onChange={(e) => handleProcessRowChange(index, "sizeWid", e.target.value)} style={tableInputStyle} placeholder="Size Wis" />
                       </td>
                       <td style={thtd}>
-                        <input
-                          type="text"
-                          value={row.sizeWidAct}
-                          onChange={(e) =>
-                            handleProcessRowChange(
-                              index,
-                              "sizeWidAct",
-                              e.target.value
-                            )
-                          }
-                          style={tableInputStyle}
-                          placeholder="Size Wis Act"
-                        />
+                        <input value={row.sizeWidAct} onChange={(e) => handleProcessRowChange(index, "sizeWidAct", e.target.value)} style={tableInputStyle} placeholder="Size Wis Act" />
                       </td>
                       <td style={thtd}>
-                        <input
-                          type="text"
-                          value={row.itemRef}
-                          onChange={(e) =>
-                            handleProcessRowChange(
-                              index,
-                              "itemRef",
-                              e.target.value
-                            )
-                          }
-                          style={tableInputStyle}
-                          placeholder="Item Ref"
-                        />
+                        <input value={row.itemRef} onChange={(e) => handleProcessRowChange(index, "itemRef", e.target.value)} style={tableInputStyle} placeholder="Item Ref" />
                       </td>
                       <td style={thtd}>
-                        <input
-                          type="text"
-                          value={row.process}
-                          onChange={(e) =>
-                            handleProcessRowChange(
-                              index,
-                              "process",
-                              e.target.value
-                            )
-                          }
-                          style={tableInputStyle}
-                          placeholder="Process"
-                        />
+                        <input value={row.process} onChange={(e) => handleProcessRowChange(index, "process", e.target.value)} style={tableInputStyle} placeholder="Process" />
                       </td>
                       <td style={thtd}>
-                        <button
-                          type="button"
-                          onClick={() => handleRemoveProcessRow(index)}
-                          style={removeButtonStyle}
-                          title="Remove Row"
-                        >
+                        <button type="button" onClick={() => handleRemoveProcessRow(index)} style={removeButtonStyle}>
                           Remove
                         </button>
                       </td>
                     </tr>
                   ))}
+
                   <tr style={{ backgroundColor: "#f0f8ff" }}>
                     <td style={thtd}>+</td>
                     <td style={{ ...thtd, background: "#e3f2fd" }}>
                       <select
                         onChange={(e) => {
                           if (e.target.value) {
-                            const selectedProcess = availableProcesses.find(
-                              (process) => process.serialNo === e.target.value
-                            );
+                            const selectedProcess = availableProcesses.find((p) => p.serialNo === e.target.value);
                             if (selectedProcess) {
-                              const newRow: ProcessRow = {
-                                sno: processRows.length + 1,
-                                processName: selectedProcess.processName,
-                                rate: "",
-                                rate1: "",
-                                sizeWid: "",
-                                sizeWidAct: "",
-                                itemRef: "",
-                                process: "",
-                              };
-                              setProcessRows([...processRows, newRow]);
+                              setProcessRows((prev) => [
+                                ...prev,
+                                { sno: prev.length + 1, processName: selectedProcess.processName, rate: "", rate1: "", sizeWid: "", sizeWidAct: "", itemRef: "", process: "" },
+                              ]);
                             }
                             e.target.value = "";
                           }
                         }}
-                        style={{
-                          ...tableInputStyle,
-                          fontWeight: 600,
-                          width: "100%",
-                          padding: "4px",
-                          border: "1px solid #2196f3",
-                          borderRadius: "3px",
-                          backgroundColor: "#fff",
-                        }}
+                        style={{ ...tableInputStyle, fontWeight: 600, width: "100%", padding: 4, border: "1px solid #2196f3", borderRadius: 3, backgroundColor: "#fff" }}
                         disabled={loading}
                       >
                         <option value="">Add Process</option>
-                        {availableProcesses.map((process) => (
-                          <option
-                            key={process.serialNo}
-                            value={process.serialNo}
-                          >
-                            {process.processName} ({process.category})
+                        {availableProcesses.map((p) => (
+                          <option key={p.serialNo} value={p.serialNo}>
+                            {p.processName} ({p.category})
                           </option>
                         ))}
                       </select>
                     </td>
                     <td style={thtd} colSpan={7}>
-                      <span
-                        style={{
-                          fontSize: "12px",
-                          color: "#666",
-                          fontStyle: "italic",
-                        }}
-                      >
-                        Select a process to add a new row
-                      </span>
+                      <span style={{ fontSize: 12, color: "#666", fontStyle: "italic" }}>Select a process to add a new row</span>
                     </td>
                   </tr>
                 </tbody>
               </table>
 
-              <div
-                style={{
-                  borderTop: "1px solid #ccc",
-                  padding: "10px 8px",
-                  background: "#f9fbff",
-                }}
-              >
-                <div
-                  style={{
-                    display: "flex",
-                    gap: "16px",
-                    alignItems: "center",
-                    flexWrap: "wrap" as const,
-                  }}
-                >
-                  <div style={{ fontWeight: "bold", color: "#0d47a1" }}>
-                    Process Total
-                  </div>
-                  <div style={{ fontSize: "13px" }}>
-                    Rate Total:{" "}
-                    <span style={{ fontWeight: 600 }}>
-                      {totals.totalRate.toFixed(2)}
-                    </span>
+              <div style={{ borderTop: "1px solid #ccc", padding: "10px 8px", background: "#f9fbff" }}>
+                <div style={{ display: "flex", gap: 16, alignItems: "center", flexWrap: "wrap" }}>
+                  <div style={{ fontWeight: "bold", color: "#0d47a1" }}>Process Total</div>
+                  <div style={{ fontSize: 13 }}>
+                    Rate Total: <span style={{ fontWeight: 700 }}>{totals.totalRate.toFixed(2)}</span>
                   </div>
                 </div>
               </div>
             </div>
           </div>
 
-          {/* RIGHT SIDE */}
+          {/* RIGHT */}
           <div style={rightStyle}>
             <div style={{ fontSize: 12, marginBottom: 6 }}>Rate Change?</div>
 
-            <div
-              style={{
-                border: "1px solid #ccc",
-                borderRadius: 8,
-                padding: 12,
-                marginBottom: 12,
-              }}
-            >
-              <div style={{ fontWeight: 600, marginBottom: 8 }}>
-                Consumption Detail
-              </div>
+            <div style={{ border: "1px solid #ccc", borderRadius: 8, padding: 12, marginBottom: 12 }}>
+              <div style={{ fontWeight: 700, marginBottom: 8 }}>Consumption Detail</div>
 
-              <div
-                style={{ display: "grid", gridTemplateColumns: "1fr", gap: 8 }}
-              >
+              <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 8 }}>
                 <div>
-                  <label
-                    style={{
-                      fontSize: "12px",
-                      fontWeight: "bold",
-                      marginBottom: "4px",
-                      display: "block",
-                    }}
-                  >
-                    Select Accessories:
-                  </label>
-                  <button
-                    type="button"
-                    onClick={handleOpenAccessoriesModal}
-                    style={{
-                      ...smallButtonStyle,
-                      backgroundColor: "#fff3e0",
-                      fontSize: "12px",
-                      cursor: "pointer",
-                    }}
-                  >
+                  <label style={{ fontSize: 12, fontWeight: "bold", marginBottom: 4, display: "block" }}>Select Accessories:</label>
+                  <button type="button" onClick={handleOpenAccessoriesModal} style={{ ...smallButtonStyle, backgroundColor: "#fff3e0", fontSize: 12 }}>
                     Open Accessories Modal
                   </button>
                 </div>
 
                 <div>
-                  <label
-                    style={{
-                      fontSize: "12px",
-                      fontWeight: "bold",
-                      marginBottom: "4px",
-                      display: "block",
-                    }}
-                  >
-                    Select Shade:
-                  </label>
+                  <label style={{ fontSize: 12, fontWeight: "bold", marginBottom: 4, display: "block" }}>Select Shade:</label>
                   <select
                     onChange={(e) => {
                       if (e.target.value) {
-                        const selectedShade = availableShades.find(
-                          (shade) => shade.shadeCode === e.target.value
-                        );
-                        if (selectedShade) {
-                          if (
-                            selectedShades.find(
-                              (shade) =>
-                                shade.shadeCode === selectedShade.shadeCode
-                            )
-                          ) {
-                            Swal.fire({
-                              icon: "info",
-                              title: "Already Selected",
-                              text: "This shade is already selected!",
-                              timer: 2000,
-                              showConfirmButton: false,
-                            });
+                        const s = availableShades.find((x) => x.shadeCode === e.target.value);
+                        if (s) {
+                          if (selectedShades.find((x) => x.shadeCode === s.shadeCode)) {
+                            Swal.fire({ icon: "info", title: "Already Selected", timer: 1000, showConfirmButton: false });
                           } else {
-                            setSelectedShades([...selectedShades, selectedShade]);
+                            setSelectedShades((prev) => [...prev, s]);
                           }
                         }
                         e.target.value = "";
                       }
                     }}
-                    style={{
-                      ...smallButtonStyle,
-                      backgroundColor: "#e3f2fd",
-                      fontSize: "12px",
-                    }}
+                    style={{ ...smallButtonStyle, backgroundColor: "#e3f2fd", fontSize: 12 }}
                   >
                     <option value="">Select Shade...</option>
-                    {availableShades.map((shade) => (
-                      <option key={shade.shadeCode} value={shade.shadeCode}>
-                        {shade.shadeName} ({shade.colorFamily})
+                    {availableShades.map((s) => (
+                      <option key={s.shadeCode} value={s.shadeCode}>
+                        {s.shadeName} ({s.colorFamily})
                       </option>
                     ))}
                   </select>
                 </div>
 
                 <div>
-                  <label
-                    style={{
-                      fontSize: "12px",
-                      fontWeight: "bold",
-                      marginBottom: "4px",
-                      display: "block",
-                    }}
-                  >
-                    Select Size:
-                  </label>
+                  <label style={{ fontSize: 12, fontWeight: "bold", marginBottom: 4, display: "block" }}>Select Size:</label>
                   <select
                     onChange={(e) => {
                       handleSizeSelect(e.target.value);
                       e.target.value = "";
                     }}
-                    style={{
-                      ...smallButtonStyle,
-                      backgroundColor: "#f3e5f5",
-                      fontSize: "12px",
-                    }}
+                    style={{ ...smallButtonStyle, backgroundColor: "#f3e5f5", fontSize: 12 }}
                     value=""
                   >
                     <option value="">Select Size...</option>
                     {availableSizes.map((size) => (
                       <option key={size.serialNo} value={size.serialNo}>
-                        {size.sizeName}{" "}
-                        {(() => {
-                          if (!size.artGroup) return "";
-                          if (typeof size.artGroup === "string")
-                            return `(${size.artGroup})`;
-                          if (
-                            typeof size.artGroup === "object" &&
-                            "artGroupName" in size.artGroup
-                          ) {
-                            return `(${size.artGroup.artGroupName})`;
-                          }
-                          return "";
-                        })()}
+                        {size.sizeName}
                       </option>
                     ))}
                   </select>
@@ -1909,52 +1392,33 @@ const ArtCreationForm: React.FC = () => {
               </div>
             </div>
 
+            {/* Selected Accessories */}
             {selectedAccessories.length > 0 && (
-              <div
-                style={{
-                  border: "1px solid #ccc",
-                  borderRadius: 8,
-                  padding: 12,
-                  marginBottom: 12,
-                }}
-              >
-                <div
-                  style={{ fontWeight: 600, marginBottom: 8, color: "#ff9800" }}
-                >
-                  Selected Accessories ({selectedAccessories.length})
-                </div>
-                <div style={{ maxHeight: "200px", overflowY: "auto" }}>
-                  {selectedAccessories.map((accessory, index) => (
+              <div style={{ border: "1px solid #ccc", borderRadius: 8, padding: 12, marginBottom: 12 }}>
+                <div style={{ fontWeight: 700, marginBottom: 8, color: "#ff9800" }}>Selected Accessories ({selectedAccessories.length})</div>
+                <div style={{ maxHeight: 200, overflowY: "auto" }}>
+                  {selectedAccessories.map((a, idx) => (
                     <div
-                      key={accessory.id}
+                      key={a.id}
                       style={{
                         display: "flex",
                         justifyContent: "space-between",
                         alignItems: "center",
                         padding: "4px 8px",
-                        marginBottom: "4px",
-                        backgroundColor: index % 2 === 0 ? "#f8f9fa" : "#ffffff",
-                        borderRadius: "4px",
-                        fontSize: "12px",
+                        marginBottom: 4,
+                        backgroundColor: idx % 2 === 0 ? "#f8f9fa" : "#fff",
+                        borderRadius: 4,
+                        fontSize: 12,
                       }}
                     >
                       <div>
-                        <div style={{ fontWeight: "bold", color: "#333" }}>
-                          {accessory.materialName}
-                        </div>
+                        <div style={{ fontWeight: 700 }}>{a.materialName}</div>
                         <div style={{ color: "#666" }}>
-                          {accessory.code} | {accessory.materialGroupName}
+                          {a.code} | {a.materialGroupName}
                         </div>
-                        <div style={{ color: "#888", fontSize: "10px" }}>
-                          Unit: {accessory.materialUnit}
-                        </div>
+                        <div style={{ color: "#888", fontSize: 10 }}>Unit: {a.materialUnit}</div>
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => handleRemoveAccessory(accessory.id)}
-                        style={removeButtonStyle}
-                        title="Remove Accessory"
-                      >
+                      <button type="button" onClick={() => handleRemoveAccessory(a.id)} style={removeButtonStyle}>
                         ×
                       </button>
                     </div>
@@ -1963,49 +1427,32 @@ const ArtCreationForm: React.FC = () => {
               </div>
             )}
 
+            {/* Selected Shades */}
             {selectedShades.length > 0 && (
-              <div
-                style={{
-                  border: "1px solid #ccc",
-                  borderRadius: 8,
-                  padding: 12,
-                  marginBottom: 12,
-                }}
-              >
-                <div
-                  style={{ fontWeight: 600, marginBottom: 8, color: "#007bff" }}
-                >
-                  Selected Shades ({selectedShades.length})
-                </div>
-                <div style={{ maxHeight: "200px", overflowY: "auto" }}>
-                  {selectedShades.map((shade, index) => (
+              <div style={{ border: "1px solid #ccc", borderRadius: 8, padding: 12, marginBottom: 12 }}>
+                <div style={{ fontWeight: 700, marginBottom: 8, color: "#007bff" }}>Selected Shades ({selectedShades.length})</div>
+                <div style={{ maxHeight: 200, overflowY: "auto" }}>
+                  {selectedShades.map((s, idx) => (
                     <div
-                      key={shade.shadeCode}
+                      key={s.shadeCode}
                       style={{
                         display: "flex",
                         justifyContent: "space-between",
                         alignItems: "center",
                         padding: "4px 8px",
-                        marginBottom: "4px",
-                        backgroundColor: index % 2 === 0 ? "#f8f9fa" : "#ffffff",
-                        borderRadius: "4px",
-                        fontSize: "12px",
+                        marginBottom: 4,
+                        backgroundColor: idx % 2 === 0 ? "#f8f9fa" : "#fff",
+                        borderRadius: 4,
+                        fontSize: 12,
                       }}
                     >
                       <div>
-                        <div style={{ fontWeight: "bold", color: "#333" }}>
-                          {shade.shadeName}
-                        </div>
+                        <div style={{ fontWeight: 700 }}>{s.shadeName}</div>
                         <div style={{ color: "#666" }}>
-                          {shade.shadeCode} | {shade.colorFamily}
+                          {s.shadeCode} | {s.colorFamily}
                         </div>
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => handleRemoveShade(shade.shadeCode)}
-                        style={removeButtonStyle}
-                        title="Remove Shade"
-                      >
+                      <button type="button" onClick={() => handleRemoveShade(s.shadeCode)} style={removeButtonStyle}>
                         ×
                       </button>
                     </div>
@@ -2014,132 +1461,48 @@ const ArtCreationForm: React.FC = () => {
               </div>
             )}
 
+            {/* Selected Sizes */}
             {selectedSizes.length > 0 && (
-              <div
-                style={{
-                  border: "1px solid #ccc",
-                  borderRadius: 8,
-                  padding: 12,
-                  marginBottom: 12,
-                }}
-              >
-                <div style={{ fontWeight: 600, marginBottom: 8, color: "#9c27b0" }}>
-                  Selected Sizes ({selectedSizes.length})
-                </div>
-                <div style={{ maxHeight: "300px", overflowY: "auto" }}>
-                  <table
-                    style={{
-                      width: "100%",
-                      borderCollapse: "collapse",
-                      fontSize: "11px",
-                    }}
-                  >
+              <div style={{ border: "1px solid #ccc", borderRadius: 8, padding: 12, marginBottom: 12 }}>
+                <div style={{ fontWeight: 700, marginBottom: 8, color: "#9c27b0" }}>Selected Sizes ({selectedSizes.length})</div>
+                <div style={{ maxHeight: 300, overflowY: "auto" }}>
+                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
                     <thead>
                       <tr style={{ backgroundColor: "#f3e5f5" }}>
-                        <th style={{ ...thtd, padding: "6px", fontSize: "10px" }}>Size</th>
-                        <th style={{ ...thtd, padding: "6px", fontSize: "10px" }}>Group</th>
-                        <th style={{ ...thtd, padding: "6px", fontSize: "10px", textAlign: "center" }}>Box</th>
-                        <th style={{ ...thtd, padding: "6px", fontSize: "10px", textAlign: "center" }}>Pcs</th>
-                        <th style={{ ...thtd, padding: "6px", fontSize: "10px", textAlign: "right" }}>Rate</th>
-                        <th style={{ ...thtd, padding: "6px", fontSize: "10px", textAlign: "center" }}>Action</th>
+                        <th style={{ ...thtd, fontSize: 10 }}>Size</th>
+                        <th style={{ ...thtd, fontSize: 10, textAlign: "center" }}>Box</th>
+                        <th style={{ ...thtd, fontSize: 10, textAlign: "center" }}>Pcs</th>
+                        <th style={{ ...thtd, fontSize: 10, textAlign: "right" }}>Rate</th>
+                        <th style={{ ...thtd, fontSize: 10, textAlign: "center" }}>Action</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {selectedSizes.map((size, index) => (
-                        <tr
-                          key={size.serialNo}
-                          style={{
-                            backgroundColor:
-                              index % 2 === 0 ? "#f8f9fa" : "#ffffff",
-                          }}
-                        >
-                          <td style={{ ...thtd, padding: "6px", fontWeight: "bold" }}>
-                            {size.sizeName}
-                          </td>
-                          <td style={{ ...thtd, padding: "6px", fontSize: "10px", color: "#666" }}>
-                            {(() => {
-                              if (!size.artGroup) return "-";
-                              if (typeof size.artGroup === "string") return size.artGroup;
-                              if (typeof size.artGroup === "object" && "artGroupName" in size.artGroup) {
-                                return size.artGroup.artGroupName;
-                              }
-                              return "-";
-                            })()}
-                          </td>
-                          <td style={{ ...thtd, padding: "4px", textAlign: "center" }}>
+                      {selectedSizes.map((s, idx) => (
+                        <tr key={s.serialNo} style={{ backgroundColor: idx % 2 === 0 ? "#fff" : "#f8f9fa" }}>
+                          <td style={{ ...thtd, fontWeight: 700 }}>{s.sizeName}</td>
+                          <td style={{ ...thtd, textAlign: "center" }}>
                             <input
-                              type="text"
-                              value={size.box || ""}
-                              onChange={(e) => {
-                                const updatedSizes = selectedSizes.map((s, i) =>
-                                  i === index ? { ...s, box: e.target.value } : s
-                                );
-                                setSelectedSizes(updatedSizes);
-                              }}
-                              style={{
-                                width: "100%",
-                                padding: "4px",
-                                border: "1px solid #ddd",
-                                borderRadius: "3px",
-                                fontSize: "11px",
-                                textAlign: "center",
-                              }}
-                              placeholder="Box"
+                              value={s.box || ""}
+                              onChange={(e) => setSelectedSizes((prev) => prev.map((x, i) => (i === idx ? { ...x, box: e.target.value } : x)))}
+                              style={{ width: "100%", padding: 4, border: "1px solid #ddd", borderRadius: 3, textAlign: "center", fontSize: 11 }}
                             />
                           </td>
-                          <td style={{ ...thtd, padding: "4px", textAlign: "center" }}>
+                          <td style={{ ...thtd, textAlign: "center" }}>
                             <input
-                              type="text"
-                              value={size.pcs || ""}
-                              onChange={(e) => {
-                                const updatedSizes = selectedSizes.map((s, i) =>
-                                  i === index ? { ...s, pcs: e.target.value } : s
-                                );
-                                setSelectedSizes(updatedSizes);
-                              }}
-                              style={{
-                                width: "100%",
-                                padding: "4px",
-                                border: "1px solid #ddd",
-                                borderRadius: "3px",
-                                fontSize: "11px",
-                                textAlign: "center",
-                              }}
-                              placeholder="Pcs"
+                              value={s.pcs || ""}
+                              onChange={(e) => setSelectedSizes((prev) => prev.map((x, i) => (i === idx ? { ...x, pcs: e.target.value } : x)))}
+                              style={{ width: "100%", padding: 4, border: "1px solid #ddd", borderRadius: 3, textAlign: "center", fontSize: 11 }}
                             />
                           </td>
-                          <td style={{ ...thtd, padding: "4px", textAlign: "right" }}>
+                          <td style={{ ...thtd, textAlign: "right" }}>
                             <input
-                              type="text"
-                              value={size.rate || ""}
-                              onChange={(e) => {
-                                const updatedSizes = selectedSizes.map((s, i) =>
-                                  i === index ? { ...s, rate: e.target.value } : s
-                                );
-                                setSelectedSizes(updatedSizes);
-                              }}
-                              style={{
-                                width: "100%",
-                                padding: "4px",
-                                border: "1px solid #ddd",
-                                borderRadius: "3px",
-                                fontSize: "11px",
-                                textAlign: "right",
-                              }}
-                              placeholder="Rate"
+                              value={s.rate || ""}
+                              onChange={(e) => setSelectedSizes((prev) => prev.map((x, i) => (i === idx ? { ...x, rate: e.target.value } : x)))}
+                              style={{ width: "100%", padding: 4, border: "1px solid #ddd", borderRadius: 3, textAlign: "right", fontSize: 11 }}
                             />
                           </td>
-                          <td style={{ ...thtd, padding: "6px", textAlign: "center" }}>
-                            <button
-                              type="button"
-                              onClick={() => handleRemoveSize(size.serialNo)}
-                              style={{
-                                ...removeButtonStyle,
-                                fontSize: "10px",
-                                padding: "2px 6px",
-                              }}
-                              title="Remove Size"
-                            >
+                          <td style={{ ...thtd, textAlign: "center" }}>
+                            <button type="button" onClick={() => handleRemoveSize(s.serialNo)} style={removeButtonStyle}>
                               ×
                             </button>
                           </td>
@@ -2153,15 +1516,8 @@ const ArtCreationForm: React.FC = () => {
           </div>
         </div>
 
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "center",
-            gap: "10px",
-            marginTop: "20px",
-            flexWrap: "wrap" as const,
-          }}
-        >
+        {/* Footer buttons */}
+        <div style={{ display: "flex", justifyContent: "center", gap: 10, marginTop: 20, flexWrap: "wrap" }}>
           <button type="button" onClick={handleSubmit} style={buttonStyle} disabled={loading}>
             {loading ? "Saving..." : editingArt ? "Update" : "Save"}
           </button>
@@ -2180,36 +1536,25 @@ const ArtCreationForm: React.FC = () => {
       {/* ACCESSORIES MODAL */}
       {isAccessoriesModalOpen && (
         <div style={modalOverlayStyle} onClick={handleCloseAccessoriesModal}>
-          <div
-            style={{ ...modalStyle, maxWidth: "700px", backgroundColor: "#e6e6fa" }}
-            onClick={(e) => e.stopPropagation()}
-          >
+          <div style={{ ...modalStyle, maxWidth: "700px", backgroundColor: "#e6e6fa" }} onClick={(e) => e.stopPropagation()}>
             <div style={{ ...modalHeaderStyle, backgroundColor: "#e6e6fa", borderBottom: "2px solid #9370db" }}>
-              <h3 style={{ margin: 0, fontSize: "16px", color: "#4b0082" }}>Enter Accessory Detail</h3>
+              <h3 style={{ margin: 0, fontSize: 16, color: "#4b0082" }}>Enter Accessory Detail</h3>
               <button style={closeButtonStyle} onClick={handleCloseAccessoriesModal}>
                 &times;
               </button>
             </div>
 
-            <div style={{ marginBottom: "15px" }}>
-              <label style={{ fontSize: "13px", fontWeight: "bold", marginBottom: "6px", display: "block" }}>
-                Process Name:
-              </label>
+            <div style={{ marginBottom: 15 }}>
+              <label style={{ fontSize: 13, fontWeight: "bold", marginBottom: 6, display: "block" }}>Process Name:</label>
               <select
                 value={selectedProcessForAccessories}
                 onChange={(e) => handleProcessSelectionForAccessories(e.target.value)}
-                style={{
-                  width: "100%",
-                  padding: "6px",
-                  fontSize: "13px",
-                  border: "1px solid #ccc",
-                  borderRadius: "4px",
-                }}
+                style={{ width: "100%", padding: 6, fontSize: 13, border: "1px solid #ccc", borderRadius: 4 }}
               >
                 <option value="">-- Select Process --</option>
-                {availableProcesses.map((process) => (
-                  <option key={process.serialNo} value={process.processName}>
-                    {process.processName}
+                {availableProcesses.map((p) => (
+                  <option key={p.serialNo} value={p.processName}>
+                    {p.processName}
                   </option>
                 ))}
               </select>
@@ -2217,137 +1562,99 @@ const ArtCreationForm: React.FC = () => {
 
             {selectedProcessForAccessories && (
               <>
-                <div
-                  style={{
-                    border: "1px solid #9370db",
-                    borderRadius: "4px",
-                    overflow: "hidden",
-                    backgroundColor: "white",
-                  }}
-                >
-                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "12px" }}>
+                <div style={{ border: "1px solid #9370db", borderRadius: 4, overflow: "hidden", backgroundColor: "white" }}>
+                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
                     <thead>
                       <tr style={{ backgroundColor: "#d8bfd8" }}>
-                        <th style={{ ...thtd, padding: "8px", fontWeight: "bold", borderColor: "#9370db" }}>S No</th>
-                        <th style={{ ...thtd, padding: "8px", fontWeight: "bold", borderColor: "#9370db" }}>
-                          Accessory Name
-                        </th>
-                        <th style={{ ...thtd, padding: "8px", fontWeight: "bold", borderColor: "#9370db" }}>Qty</th>
-                        <th style={{ ...thtd, padding: "8px", fontWeight: "bold", borderColor: "#9370db" }}>Rate</th>
-                        <th style={{ ...thtd, padding: "8px", fontWeight: "bold", borderColor: "#9370db" }}>Amount</th>
-                        <th style={{ ...thtd, padding: "8px", fontWeight: "bold", borderColor: "#9370db" }}>Action</th>
+                        <th style={{ ...thtd, padding: 8, fontWeight: "bold", borderColor: "#9370db" }}>S No</th>
+                        <th style={{ ...thtd, padding: 8, fontWeight: "bold", borderColor: "#9370db" }}>Accessory Name</th>
+                        <th style={{ ...thtd, padding: 8, fontWeight: "bold", borderColor: "#9370db" }}>Qty</th>
+                        <th style={{ ...thtd, padding: 8, fontWeight: "bold", borderColor: "#9370db" }}>Rate</th>
+                        <th style={{ ...thtd, padding: 8, fontWeight: "bold", borderColor: "#9370db" }}>Amount</th>
+                        <th style={{ ...thtd, padding: 8, fontWeight: "bold", borderColor: "#9370db" }}>Action</th>
                       </tr>
                     </thead>
+
                     <tbody>
                       {accessoryRowsInModal.map((row, index) => (
-                        <tr key={index} style={{ backgroundColor: index % 2 === 0 ? "#ffffff" : "#f8f8ff" }}>
-                          <td style={{ ...thtd, padding: "6px", borderColor: "#d8bfd8", textAlign: "center" }}>
-                            {row.sno}
-                          </td>
-                          <td style={{ ...thtd, padding: "6px", borderColor: "#d8bfd8" }}>{row.accessoryName}</td>
-                          <td style={{ ...thtd, padding: "6px", borderColor: "#d8bfd8" }}>
+                        <tr key={index} style={{ backgroundColor: index % 2 === 0 ? "#fff" : "#f8f8ff" }}>
+                          <td style={{ ...thtd, padding: 6, textAlign: "center" }}>{row.sno}</td>
+                          <td style={{ ...thtd, padding: 6 }}>{row.accessoryName}</td>
+                          <td style={{ ...thtd, padding: 6 }}>
                             <input
                               type="number"
                               value={row.qty}
                               onChange={(e) => handleAccessoryRowChange(index, "qty", e.target.value)}
-                              style={{
-                                width: "100%",
-                                padding: "4px",
-                                border: "1px solid #ccc",
-                                borderRadius: "3px",
-                                fontSize: "12px",
-                              }}
-                              placeholder="0.00"
+                              style={{ width: "100%", padding: 4, border: "1px solid #ccc", borderRadius: 3, fontSize: 12 }}
                               step="0.01"
                             />
                           </td>
-                          <td style={{ ...thtd, padding: "6px", borderColor: "#d8bfd8" }}>
+                          <td style={{ ...thtd, padding: 6 }}>
                             <input
                               type="number"
                               value={row.rate}
                               onChange={(e) => handleAccessoryRowChange(index, "rate", e.target.value)}
-                              style={{
-                                width: "100%",
-                                padding: "4px",
-                                border: "1px solid #ccc",
-                                borderRadius: "3px",
-                                fontSize: "12px",
-                              }}
-                              placeholder="0.00"
+                              style={{ width: "100%", padding: 4, border: "1px solid #ccc", borderRadius: 3, fontSize: 12 }}
                               step="0.01"
                             />
                           </td>
-                          <td style={{ ...thtd, padding: "6px", borderColor: "#d8bfd8", textAlign: "right" }}>
-                            {row.amount}
-                          </td>
-                          <td style={{ ...thtd, padding: "6px", borderColor: "#d8bfd8", textAlign: "center" }}>
-                            <button
-                              onClick={() => handleRemoveAccessoryRow(index)}
-                              style={{ ...removeButtonStyle, padding: "4px 8px", fontSize: "11px" }}
-                            >
+                          <td style={{ ...thtd, padding: 6, textAlign: "right" }}>{row.amount}</td>
+                          <td style={{ ...thtd, padding: 6, textAlign: "center" }}>
+                            <button onClick={() => handleRemoveAccessoryRow(index)} style={{ ...removeButtonStyle, padding: "4px 8px", fontSize: 11 }}>
                               Delete Row
                             </button>
                           </td>
                         </tr>
                       ))}
 
+                      {/* ✅ ONLY REPLACED: Manual input => dropdown searchable via datalist (Material Creation list) */}
                       <tr style={{ backgroundColor: "#fff8dc" }}>
-                        <td style={{ ...thtd, padding: "6px", borderColor: "#9370db", textAlign: "center" }}>+</td>
-                        <td style={{ ...thtd, padding: "6px", borderColor: "#9370db" }}>
+                        <td style={{ ...thtd, padding: 6, borderColor: "#9370db", textAlign: "center" }}>+</td>
+
+                        <td style={{ ...thtd, padding: 6, borderColor: "#9370db" }}>
                           <input
                             type="text"
+                            list="material-master-datalist"
                             value={manualAccessoryInput.name}
                             onChange={(e) => setManualAccessoryInput({ ...manualAccessoryInput, name: e.target.value })}
-                            placeholder="Enter accessory name manually"
-                            style={{
-                              width: "100%",
-                              padding: "4px",
-                              border: "1px solid #9370db",
-                              borderRadius: "3px",
-                              fontSize: "12px",
-                            }}
+                            placeholder="Search & select material..."
+                            style={{ width: "100%", padding: 4, border: "1px solid #9370db", borderRadius: 3, fontSize: 12 }}
                           />
+                          <datalist id="material-master-datalist">
+                            {availableMaterials.map((m) => (
+                              <option key={m.id} value={m.materialName} />
+                            ))}
+                          </datalist>
                         </td>
-                        <td style={{ ...thtd, padding: "6px", borderColor: "#9370db" }}>
+
+                        <td style={{ ...thtd, padding: 6, borderColor: "#9370db" }}>
                           <input
                             type="number"
                             value={manualAccessoryInput.qty}
                             onChange={(e) => setManualAccessoryInput({ ...manualAccessoryInput, qty: e.target.value })}
                             placeholder="0.00"
                             step="0.01"
-                            style={{
-                              width: "100%",
-                              padding: "4px",
-                              border: "1px solid #ccc",
-                              borderRadius: "3px",
-                              fontSize: "12px",
-                            }}
+                            style={{ width: "100%", padding: 4, border: "1px solid #ccc", borderRadius: 3, fontSize: 12 }}
                           />
                         </td>
-                        <td style={{ ...thtd, padding: "6px", borderColor: "#9370db" }}>
+
+                        <td style={{ ...thtd, padding: 6, borderColor: "#9370db" }}>
                           <input
                             type="number"
                             value={manualAccessoryInput.rate}
                             onChange={(e) => setManualAccessoryInput({ ...manualAccessoryInput, rate: e.target.value })}
                             placeholder="0.00"
                             step="0.01"
-                            style={{
-                              width: "100%",
-                              padding: "4px",
-                              border: "1px solid #ccc",
-                              borderRadius: "3px",
-                              fontSize: "12px",
-                            }}
+                            style={{ width: "100%", padding: 4, border: "1px solid #ccc", borderRadius: 3, fontSize: 12 }}
                           />
                         </td>
-                        <td style={{ ...thtd, padding: "6px", borderColor: "#9370db", textAlign: "right" }}>
+
+                        <td style={{ ...thtd, padding: 6, borderColor: "#9370db", textAlign: "right" }}>
                           {((parseFloat(manualAccessoryInput.qty) || 0) * (parseFloat(manualAccessoryInput.rate) || 0)).toFixed(2)}
                         </td>
-                        <td style={{ ...thtd, padding: "6px", borderColor: "#9370db", textAlign: "center" }}>
-                          <button
-                            onClick={handleAddManualAccessory}
-                            style={{ ...buttonStyle, padding: "4px 8px", fontSize: "11px", backgroundColor: "#4caf50" }}
-                          >
+
+                        <td style={{ ...thtd, padding: 6, borderColor: "#9370db", textAlign: "center" }}>
+                          <button onClick={handleAddManualAccessory} style={{ ...buttonStyle, padding: "4px 8px", fontSize: 11, backgroundColor: "#4caf50" }}>
                             Add
                           </button>
                         </td>
@@ -2355,8 +1662,8 @@ const ArtCreationForm: React.FC = () => {
 
                       {filteredMaterialsForProcess.length > 0 && (
                         <tr style={{ backgroundColor: "#f0e6ff" }}>
-                          <td style={{ ...thtd, padding: "6px", borderColor: "#9370db", textAlign: "center" }}>+</td>
-                          <td style={{ ...thtd, padding: "6px", borderColor: "#9370db" }} colSpan={5}>
+                          <td style={{ ...thtd, padding: 6, borderColor: "#9370db", textAlign: "center" }}>+</td>
+                          <td style={{ ...thtd, padding: 6, borderColor: "#9370db" }} colSpan={5}>
                             <select
                               onChange={(e) => {
                                 if (e.target.value) {
@@ -2371,14 +1678,7 @@ const ArtCreationForm: React.FC = () => {
                                   e.target.value = "";
                                 }
                               }}
-                              style={{
-                                width: "100%",
-                                padding: "4px",
-                                border: "1px solid #9370db",
-                                borderRadius: "3px",
-                                fontSize: "12px",
-                                fontWeight: "bold",
-                              }}
+                              style={{ width: "100%", padding: 4, border: "1px solid #9370db", borderRadius: 3, fontSize: 12, fontWeight: "bold" }}
                             >
                               <option value="">-- Or Select from List --</option>
                               {filteredMaterialsForProcess.map((materialName, idx) => (
@@ -2399,34 +1699,31 @@ const ArtCreationForm: React.FC = () => {
                     display: "flex",
                     justifyContent: "space-between",
                     alignItems: "center",
-                    marginTop: "15px",
-                    padding: "10px",
+                    marginTop: 15,
+                    padding: 10,
                     backgroundColor: "white",
-                    borderRadius: "4px",
+                    borderRadius: 4,
                     border: "1px solid #9370db",
                   }}
                 >
-                  <div style={{ display: "flex", gap: "10px" }}>
-                    {/* ✅ FIX: Save should NOT be disabled when rows are 0 (so deletions can be saved) */}
+                  <div style={{ display: "flex", gap: 10 }}>
                     <button
                       onClick={handleSaveAccessoryFromModal}
-                      style={{ ...buttonStyle, backgroundColor: "#007bff", padding: "6px 16px", fontSize: "13px" }}
+                      style={{ ...buttonStyle, backgroundColor: "#007bff", padding: "6px 16px", fontSize: 13 }}
                       disabled={!selectedProcessForAccessories}
                     >
                       Save
                     </button>
-
-                    {/* ✅ FIX: Close should also be enabled for empty rows */}
                     <button
                       onClick={handleAddAccessoryFromModal}
-                      style={{ ...buttonStyle, backgroundColor: "#4caf50", padding: "6px 16px", fontSize: "13px" }}
+                      style={{ ...buttonStyle, backgroundColor: "#4caf50", padding: "6px 16px", fontSize: 13 }}
                       disabled={!selectedProcessForAccessories}
                     >
                       Close
                     </button>
                   </div>
 
-                  <div style={{ fontWeight: "bold", fontSize: "14px" }}>
+                  <div style={{ fontWeight: "bold", fontSize: 14 }}>
                     Total: <span style={{ color: "#4b0082" }}>{calculateTotal()}</span>
                   </div>
                 </div>
@@ -2439,25 +1736,17 @@ const ArtCreationForm: React.FC = () => {
       {/* ART LIST MODAL */}
       {isModalOpen && (
         <div style={modalOverlayStyle} onClick={handleCloseModal}>
-          <div
-            style={{ ...modalStyle, maxWidth: "1100px" }}
-            onClick={(e) => e.stopPropagation()}
-          >
+          <div style={{ ...modalStyle, maxWidth: "1100px" }} onClick={(e) => e.stopPropagation()}>
             <div style={modalHeaderStyle}>
               <h3 style={{ margin: 0 }}>
-                Art List{" "}
-                {loading && (
-                  <span style={{ fontSize: "12px", color: "#007bff" }}>
-                    (Loading...)
-                  </span>
-                )}
+                Art List {loading && <span style={{ fontSize: 12, color: "#007bff" }}>(Loading...)</span>}
               </h3>
               <button style={closeButtonStyle} onClick={handleCloseModal}>
                 &times;
               </button>
             </div>
 
-            <div style={{ marginBottom: "15px" }}>
+            <div style={{ marginBottom: 15 }}>
               <input
                 type="text"
                 placeholder="Search by Art No, Art Name, Serial Number, or Art Group..."
@@ -2467,26 +1756,23 @@ const ArtCreationForm: React.FC = () => {
                   width: "100%",
                   padding: "10px 15px",
                   border: "2px solid #007bff",
-                  borderRadius: "6px",
-                  fontSize: "14px",
+                  borderRadius: 6,
+                  fontSize: 14,
                   boxSizing: "border-box",
                   outline: "none",
                 }}
-                onFocus={(e) => (e.target.style.borderColor = "#0056b3")}
-                onBlur={(e) => (e.target.style.borderColor = "#007bff")}
               />
               {searchQuery && (
-                <div style={{ marginTop: "8px", fontSize: "12px", color: "#666" }}>
-                  Found {filteredArtList.length} result
-                  {filteredArtList.length !== 1 ? "s" : ""}
+                <div style={{ marginTop: 8, fontSize: 12, color: "#666" }}>
+                  Found {filteredArtList.length} result{filteredArtList.length !== 1 ? "s" : ""}
                   <button
                     onClick={() => setSearchQuery("")}
                     style={{
-                      marginLeft: "10px",
+                      marginLeft: 10,
                       padding: "2px 8px",
-                      fontSize: "11px",
+                      fontSize: 11,
                       border: "1px solid #dc3545",
-                      borderRadius: "3px",
+                      borderRadius: 3,
                       backgroundColor: "white",
                       color: "#dc3545",
                       cursor: "pointer",
@@ -2499,94 +1785,45 @@ const ArtCreationForm: React.FC = () => {
             </div>
 
             <div style={{ overflow: "auto", maxHeight: "60vh" }}>
-              <table
-                style={{
-                  width: "100%",
-                  borderCollapse: "collapse",
-                  fontSize: "13px",
-                  minWidth: "1000px",
-                }}
-              >
-                <thead
-                  style={{
-                    position: "sticky",
-                    top: 0,
-                    backgroundColor: "#f8f9fa",
-                    zIndex: 1,
-                  }}
-                >
+              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, minWidth: 1000 }}>
+                <thead style={{ position: "sticky", top: 0, backgroundColor: "#f8f9fa", zIndex: 1 }}>
                   <tr>
-                    <th style={{ ...thtd, textAlign: "center", width: "50px" }}>
-                      S.No
-                    </th>
-                    <th style={{ ...thtd, textAlign: "left", width: "130px" }}>
-                      Serial Number
-                    </th>
-                    <th style={{ ...thtd, textAlign: "left", width: "110px" }}>
-                      Art Group
-                    </th>
-                    <th style={{ ...thtd, textAlign: "left", minWidth: "150px" }}>
-                      Art Name
-                    </th>
-                    <th style={{ ...thtd, textAlign: "left", width: "100px" }}>
-                      Art No
-                    </th>
-                    <th style={{ ...thtd, textAlign: "left", width: "120px" }}>
-                      Style Name
-                    </th>
-                    <th style={{ ...thtd, textAlign: "right", width: "90px" }}>
-                      Sale Rate
-                    </th>
-                    <th style={{ ...thtd, textAlign: "left", width: "80px" }}>
-                      Season
-                    </th>
-                    <th style={{ ...thtd, textAlign: "left", width: "110px" }}>
-                      Brand Name
-                    </th>
-                    <th style={{ ...thtd, textAlign: "center", width: "130px" }}>
-                      Actions
-                    </th>
+                    <th style={{ ...thtd, textAlign: "center", width: 50 }}>S.No</th>
+                    <th style={{ ...thtd, width: 130 }}>Serial Number</th>
+                    <th style={{ ...thtd, width: 110 }}>Art Group</th>
+                    <th style={{ ...thtd, minWidth: 150 }}>Art Name</th>
+                    <th style={{ ...thtd, width: 100 }}>Art No</th>
+                    <th style={{ ...thtd, width: 120 }}>Style Name</th>
+                    <th style={{ ...thtd, textAlign: "right", width: 90 }}>Sale Rate</th>
+                    <th style={{ ...thtd, width: 80 }}>Season</th>
+                    <th style={{ ...thtd, width: 110 }}>Brand Name</th>
+                    <th style={{ ...thtd, textAlign: "center", width: 130 }}>Actions</th>
                   </tr>
                 </thead>
                 <tbody>
                   {filteredArtList.length === 0 ? (
                     <tr>
-                      <td colSpan={10} style={{ ...thtd, textAlign: "center", padding: "40px", color: "#999" }}>
+                      <td colSpan={10} style={{ ...thtd, textAlign: "center", padding: 40, color: "#999" }}>
                         {searchQuery ? "No arts found matching your search" : "No arts available"}
                       </td>
                     </tr>
                   ) : (
                     filteredArtList.map((art, index) => (
-                      <tr
-                        key={art.serialNumber}
-                        style={{
-                          backgroundColor: index % 2 === 0 ? "#ffffff" : "#f9f9f9",
-                        }}
-                      >
+                      <tr key={art.serialNumber} style={{ backgroundColor: index % 2 === 0 ? "#fff" : "#f9f9f9" }}>
                         <td style={{ ...thtd, textAlign: "center" }}>{index + 1}</td>
                         <td style={{ ...thtd, fontFamily: "monospace" }}>{art.serialNumber}</td>
                         <td style={thtd}>{art.artGroup || "-"}</td>
                         <td style={{ ...thtd, fontWeight: 500 }}>{art.artName}</td>
                         <td style={{ ...thtd, fontWeight: "bold", color: "#0066cc" }}>{art.artNo || "-"}</td>
                         <td style={thtd}>{art.styleName || "-"}</td>
-                        <td style={{ ...thtd, textAlign: "right", fontWeight: "bold" }}>
-                          {art.saleRate ? `₹${art.saleRate}` : "-"}
-                        </td>
+                        <td style={{ ...thtd, textAlign: "right", fontWeight: "bold" }}>{art.saleRate ? `₹${art.saleRate}` : "-"}</td>
                         <td style={thtd}>{art.season || "-"}</td>
                         <td style={thtd}>{art.brandName || "-"}</td>
                         <td style={{ ...thtd, textAlign: "center" }}>
-                          <button
-                            style={editButtonStyle}
-                            onClick={() => handleEditArt(art)}
-                            disabled={loading}
-                          >
+                          <button style={editButtonStyle} onClick={() => handleEditArt(art)} disabled={loading}>
                             Edit
                           </button>
-                          <button
-                            style={deleteButtonStyle}
-                            onClick={() => handleDeleteArt(art)}
-                            disabled={loading}
-                          >
+                          <button style={deleteButtonStyle} onClick={() => handleDeleteArt(art)} disabled={loading}>
                             Delete
                           </button>
                         </td>
@@ -2612,76 +1849,51 @@ const ArtCreationForm: React.FC = () => {
       {/* SIZE MODAL */}
       {isSizeModalOpen && (
         <div style={modalOverlayStyle} onClick={() => setIsSizeModalOpen(false)}>
-          <div
-            style={{ ...modalStyle, maxWidth: "450px", backgroundColor: "#f3e5f5" }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div
-              style={{
-                ...modalHeaderStyle,
-                backgroundColor: "#f3e5f5",
-                borderBottom: "2px solid #9c27b0",
-              }}
-            >
-              <h3 style={{ margin: 0, fontSize: "16px", color: "#9c27b0" }}>
-                Enter Details for Size:{" "}
-                {availableSizes.find((s) => s.serialNo === currentSizeSelection)?.sizeName || ""}
+          <div style={{ ...modalStyle, maxWidth: 450, backgroundColor: "#f3e5f5" }} onClick={(e) => e.stopPropagation()}>
+            <div style={{ ...modalHeaderStyle, backgroundColor: "#f3e5f5", borderBottom: "2px solid #9c27b0" }}>
+              <h3 style={{ margin: 0, fontSize: 16, color: "#9c27b0" }}>
+                Enter Details for Size: {availableSizes.find((s) => s.serialNo === currentSizeSelection)?.sizeName || ""}
               </h3>
               <button style={closeButtonStyle} onClick={() => setIsSizeModalOpen(false)}>
                 &times;
               </button>
             </div>
 
-            <div style={{ marginBottom: "16px" }}>
-              <label style={{ display: "block", marginBottom: "6px", fontWeight: "bold", fontSize: "13px" }}>
-                Box:
-              </label>
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ display: "block", marginBottom: 6, fontWeight: "bold", fontSize: 13 }}>Box:</label>
               <input
                 type="text"
                 value={sizeDetails.box}
                 onChange={(e) => setSizeDetails({ ...sizeDetails, box: e.target.value })}
-                placeholder="Enter box quantity"
-                style={{ width: "100%", padding: "8px", border: "1px solid #9c27b0", borderRadius: "4px" }}
+                style={{ width: "100%", padding: 8, border: "1px solid #9c27b0", borderRadius: 4 }}
               />
             </div>
 
-            <div style={{ marginBottom: "16px" }}>
-              <label style={{ display: "block", marginBottom: "6px", fontWeight: "bold", fontSize: "13px" }}>
-                Pcs:
-              </label>
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ display: "block", marginBottom: 6, fontWeight: "bold", fontSize: 13 }}>Pcs:</label>
               <input
                 type="text"
                 value={sizeDetails.pcs}
                 onChange={(e) => setSizeDetails({ ...sizeDetails, pcs: e.target.value })}
-                placeholder="Enter pieces"
-                style={{ width: "100%", padding: "8px", border: "1px solid #9c27b0", borderRadius: "4px" }}
+                style={{ width: "100%", padding: 8, border: "1px solid #9c27b0", borderRadius: 4 }}
               />
             </div>
 
-            <div style={{ marginBottom: "20px" }}>
-              <label style={{ display: "block", marginBottom: "6px", fontWeight: "bold", fontSize: "13px" }}>
-                Rate:
-              </label>
+            <div style={{ marginBottom: 20 }}>
+              <label style={{ display: "block", marginBottom: 6, fontWeight: "bold", fontSize: 13 }}>Rate:</label>
               <input
                 type="text"
                 value={sizeDetails.rate}
                 onChange={(e) => setSizeDetails({ ...sizeDetails, rate: e.target.value })}
-                placeholder="Enter rate"
-                style={{ width: "100%", padding: "8px", border: "1px solid #9c27b0", borderRadius: "4px" }}
+                style={{ width: "100%", padding: 8, border: "1px solid #9c27b0", borderRadius: 4 }}
               />
             </div>
 
-            <div style={{ display: "flex", gap: "10px", justifyContent: "flex-end" }}>
-              <button
-                onClick={() => setIsSizeModalOpen(false)}
-                style={{ padding: "8px 16px", border: "1px solid #ccc", borderRadius: "4px" }}
-              >
+            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+              <button onClick={() => setIsSizeModalOpen(false)} style={{ padding: "8px 16px", border: "1px solid #ccc", borderRadius: 4 }}>
                 Cancel
               </button>
-              <button
-                onClick={handleSaveSize}
-                style={{ padding: "8px 16px", border: "none", borderRadius: "4px", backgroundColor: "#9c27b0", color: "white" }}
-              >
+              <button onClick={handleSaveSize} style={{ padding: "8px 16px", border: "none", borderRadius: 4, backgroundColor: "#9c27b0", color: "white" }}>
                 Save
               </button>
             </div>
@@ -2692,4 +1904,4 @@ const ArtCreationForm: React.FC = () => {
   );
 };
 
-export default ArtCreationForm;
+export default ArtCreation;

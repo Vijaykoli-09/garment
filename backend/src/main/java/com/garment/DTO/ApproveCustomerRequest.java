@@ -2,9 +2,13 @@ package com.garment.DTO;
 
 public class ApproveCustomerRequest {
 
+    private String customerType;   // set by admin: "Wholesaler" | "Semi_Wholesaler" | "Retailer"
     private boolean creditEnabled;
     private double creditLimit;
-    private boolean advanceOption; // 30% advance + 70% credit
+    private boolean advanceOption;
+
+    public String getCustomerType() { return customerType; }
+    public void setCustomerType(String customerType) { this.customerType = customerType; }
 
     public boolean isCreditEnabled() { return creditEnabled; }
     public void setCreditEnabled(boolean creditEnabled) { this.creditEnabled = creditEnabled; }
