@@ -6,6 +6,7 @@ import java.util.Map;
 import java.util.stream.Collectors;
 
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.CrossOrigin;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -21,7 +22,9 @@ import lombok.RequiredArgsConstructor;
 @RestController
 @RequiredArgsConstructor
 // @CrossOrigin(origins = "http://localhost:3000")
+@CrossOrigin(originPatterns = "*")
 @RequestMapping("/api/purchase")
+
 public class MaterialPurchasePendingController {
 
     private final MaterialPurchasePendingService service;
