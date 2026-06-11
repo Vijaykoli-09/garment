@@ -43,11 +43,16 @@ public class SecurityConfig {
                 .requestMatchers("/api/auth/**").permitAll()
 
                 // ── Mobile customer auth ─────────────────────────────
-                // login and signup are public (no token yet)
                 .requestMatchers("/api/customer/auth/login").permitAll()
                 .requestMatchers("/api/customer/auth/signup").permitAll()
-                // profile requires a valid JWT — used to refresh credit settings
                 .requestMatchers("/api/customer/auth/profile").authenticated()
+
+                // ── Party GST login (NEW) ─────────────────────────────
+                // Both endpoints are public — no token exists yet at this point.
+                // verify-gst: party enters GST, we return their phone (no sensitive data)
+                // set-password: party sets their password, we create their account
+                .requestMatchers("/api/party/auth/verify-gst").permitAll()
+                .requestMatchers("/api/party/auth/set-password").permitAll()
 
                 // ── Admin & product endpoints (open) ──────────────────
                 .requestMatchers("/api/admin/customers/**").permitAll()
@@ -113,12 +118,11 @@ public class SecurityConfig {
                 .requestMatchers("/api/purchase/order-item/**").permitAll()
 
                 // ── Mobile orders — JWT required ───────────────────────
-                // JwtAuthFilter uses CustomerUserDetailsService (by phone) for this path
                 .requestMatchers("/api/orders/**").authenticated()
 
                 .anyRequest().authenticated()
             )
-            .userDetailsService(customUserDetailsService)  // web admin default
+            .userDetailsService(customUserDetailsService)
             .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class);
 
         return http.build();

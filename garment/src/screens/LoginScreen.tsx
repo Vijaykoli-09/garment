@@ -1,3 +1,14 @@
+/**
+ * LoginScreen.tsx  (updated)
+ *
+ * Changes from original:
+ *  1. Added a divider "or continue as" after the Login button
+ *  2. Added "Party Login (GST)" button → navigates to PartyGst screen
+ *
+ * Register in your Auth navigator:
+ *   <Stack.Screen name="PartyGst" component={PartyGstScreen} />
+ */
+
 import React, { useContext, useState } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, StyleSheet,
@@ -52,8 +63,11 @@ export default function LoginScreen({ navigation }: any) {
   };
 
   return (
-    <LinearGradient colors={['#1e3a8a', '#2563eb', '#1e40af']}
-      start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={s.bg}>
+    <LinearGradient
+      colors={['#1e3a8a', '#2563eb', '#1e40af']}
+      start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
+      style={s.bg}
+    >
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         style={{ flex: 1 }}
@@ -111,7 +125,7 @@ export default function LoginScreen({ navigation }: any) {
             </View>
             {errors.password ? <Text style={s.err}>{errors.password}</Text> : null}
 
-            {/* Button */}
+            {/* Login Button */}
             <TouchableOpacity onPress={handleLogin} disabled={loading} style={{ marginTop: 22 }}>
               <LinearGradient colors={['#10b981', '#059669']} style={s.btn}>
                 {loading
@@ -119,6 +133,34 @@ export default function LoginScreen({ navigation }: any) {
                   : <Text style={s.btnTxt}>Login →</Text>}
               </LinearGradient>
             </TouchableOpacity>
+
+            {/* ── Divider ────────────────────────────────────────────── */}
+            <View style={s.dividerRow}>
+              <View style={s.dividerLine} />
+              <Text style={s.dividerTxt}>or continue as</Text>
+              <View style={s.dividerLine} />
+            </View>
+
+            {/* ── Party Login Button ─────────────────────────────────── */}
+            <TouchableOpacity
+              activeOpacity={0.85}
+              onPress={() => navigation.navigate('PartyGst')}
+            >
+              <LinearGradient
+                colors={['#7c3aed', '#6d28d9']}
+                start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
+                style={s.partyBtn}
+              >
+                <View style={s.partyBtnInner}>
+                  <View>
+                    <Text style={s.partyBtnTitle}>🏪  Party Login</Text>
+                    <Text style={s.partyBtnSub}>Already a party? Login with your GST no.</Text>
+                  </View>
+                  <Text style={s.partyBtnArrow}>→</Text>
+                </View>
+              </LinearGradient>
+            </TouchableOpacity>
+
           </View>
 
           {/* Footer */}
@@ -136,39 +178,64 @@ export default function LoginScreen({ navigation }: any) {
 }
 
 const s = StyleSheet.create({
-  bg: { flex: 1 },
+  bg:     { flex: 1 },
   scroll: { flexGrow: 1, justifyContent: 'center', padding: 20 },
-  hero: { alignItems: 'center', marginBottom: 32 },
-  circle: {
+
+  hero:    { alignItems: 'center', marginBottom: 32 },
+  circle:  {
     width: 84, height: 84, borderRadius: 42,
     backgroundColor: 'rgba(255,255,255,0.2)',
     justifyContent: 'center', alignItems: 'center',
     borderWidth: 2, borderColor: 'rgba(255,255,255,0.35)', marginBottom: 14,
   },
-  emoji: { fontSize: 42 },
-  brand: { fontSize: 26, fontWeight: '800', color: '#fff' },
+  emoji:   { fontSize: 42 },
+  brand:   { fontSize: 26, fontWeight: '800', color: '#fff' },
   tagline: { fontSize: 14, color: 'rgba(255,255,255,0.7)', marginTop: 6 },
+
   card: {
     backgroundColor: '#fff', borderRadius: 20, padding: 24,
     shadowColor: '#000', shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.2, shadowRadius: 16, elevation: 8,
   },
   cardTitle: { fontSize: 17, fontWeight: '700', color: '#1f2937', marginBottom: 20 },
-  label: { fontSize: 11, fontWeight: '700', color: '#374151', marginBottom: 6, marginTop: 14, textTransform: 'uppercase', letterSpacing: 0.5 },
+
+  label: {
+    fontSize: 11, fontWeight: '700', color: '#374151',
+    marginBottom: 6, marginTop: 14, textTransform: 'uppercase', letterSpacing: 0.5,
+  },
   row: {
     flexDirection: 'row', alignItems: 'center',
     borderWidth: 1.5, borderColor: '#e5e7eb', borderRadius: 10,
     paddingHorizontal: 12, backgroundColor: '#f9fafb',
   },
-  rowErr: { borderColor: '#ef4444' },
-  prefix: { fontSize: 13, color: '#374151', fontWeight: '600', marginRight: 8 },
-  icon: { fontSize: 15, marginRight: 8 },
-  input: { flex: 1, paddingVertical: 13, fontSize: 14, color: '#111827' },
-  toggle: { color: '#2563eb', fontWeight: '700', fontSize: 12 },
-  err: { color: '#ef4444', fontSize: 11, marginTop: 4, fontWeight: '500' },
-  btn: { borderRadius: 12, paddingVertical: 15, alignItems: 'center' },
+  rowErr:  { borderColor: '#ef4444' },
+  prefix:  { fontSize: 13, color: '#374151', fontWeight: '600', marginRight: 8 },
+  icon:    { fontSize: 15, marginRight: 8 },
+  input:   { flex: 1, paddingVertical: 13, fontSize: 14, color: '#111827' },
+  toggle:  { color: '#2563eb', fontWeight: '700', fontSize: 12 },
+  err:     { color: '#ef4444', fontSize: 11, marginTop: 4, fontWeight: '500' },
+
+  btn:    { borderRadius: 12, paddingVertical: 15, alignItems: 'center' },
   btnTxt: { color: '#fff', fontSize: 16, fontWeight: '800' },
-  footer: { flexDirection: 'row', justifyContent: 'center', marginTop: 28 },
+
+  // Divider
+  dividerRow:  { flexDirection: 'row', alignItems: 'center', marginTop: 22, marginBottom: 16 },
+  dividerLine: { flex: 1, height: 1, backgroundColor: '#e5e7eb' },
+  dividerTxt:  { marginHorizontal: 10, fontSize: 12, color: '#9ca3af', fontWeight: '600' },
+
+  // Party button
+  partyBtn:       { borderRadius: 12, overflow: 'hidden' },
+  partyBtnInner:  {
+    flexDirection: 'row', alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 14, paddingHorizontal: 18,
+  },
+  partyBtnTitle:  { fontSize: 15, fontWeight: '800', color: '#fff', marginBottom: 3 },
+  partyBtnSub:    { fontSize: 12, color: 'rgba(255,255,255,0.75)' },
+  partyBtnArrow:  { fontSize: 20, color: '#fff', fontWeight: '600' },
+
+  // Footer
+  footer:    { flexDirection: 'row', justifyContent: 'center', marginTop: 28 },
   footerTxt: { color: 'rgba(255,255,255,0.8)', fontSize: 14 },
   footerLink: { color: '#fff', fontWeight: '800', fontSize: 14 },
 });

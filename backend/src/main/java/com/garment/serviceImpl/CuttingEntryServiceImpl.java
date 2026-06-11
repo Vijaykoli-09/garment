@@ -56,9 +56,13 @@ public class CuttingEntryServiceImpl implements CuttingEntryService {
 
     @Override
     public CuttingEntryDTO update(String serialNo, CuttingEntryDTO dto) {
-        CuttingEntry e = repo.findById(serialNo).orElseThrow(() -> new RuntimeException("Not found: " + serialNo));
+        CuttingEntry e = repo.findById(serialNo)
+                .orElseThrow(() -> new RuntimeException("Not found: " + serialNo));
+
         e.getLotRows().clear();
         e.getStockRows().clear();
+        e.getSizeRows().clear(); // ✅ NEW
+
         toEntity(dto, e);
         repo.save(e);
         return toDTO(e);
@@ -67,7 +71,8 @@ public class CuttingEntryServiceImpl implements CuttingEntryService {
     @Override
     @Transactional(readOnly = true)
     public CuttingEntryDTO get(String serialNo) {
-        CuttingEntry e = repo.findById(serialNo).orElseThrow(() -> new RuntimeException("Not found: " + serialNo));
+        CuttingEntry e = repo.findById(serialNo)
+                .orElseThrow(() -> new RuntimeException("Not found: " + serialNo));
         return toDTO(e);
     }
 
@@ -90,9 +95,10 @@ public class CuttingEntryServiceImpl implements CuttingEntryService {
         e.setEmployeeId(nS(dto.getEmployeeId()));
         e.setEmployeeName(nS(dto.getEmployeeName()));
 
-        // NEW: Issue To + Branch
+        // Issue To + Branch
         String issueToNorm = normalizeIssueTo(dto.getIssueTo());
         e.setIssueTo(issueToNorm);
+
         if ("Outside".equals(issueToNorm)) {
             e.setIssueBranchId(dto.getIssueBranchId());
             e.setIssueBranchName(nS(dto.getIssueBranchName()));
@@ -100,7 +106,6 @@ public class CuttingEntryServiceImpl implements CuttingEntryService {
                 throw new RuntimeException("Issue Branch is required when Issue To = Outside");
             }
         } else {
-            // Inside or null => clear branch
             e.setIssueBranchId(null);
             e.setIssueBranchName(null);
         }
@@ -142,7 +147,21 @@ public class CuttingEntryServiceImpl implements CuttingEntryService {
             }
         }
 
-        // Compute totals (including totalKho)
+        // ✅ NEW: size rows
+        if (dto.getSizeRows() != null) {
+            for (CuttingSizeRowDTO r : dto.getSizeRows()) {
+                CuttingSizeRow row = new CuttingSizeRow();
+                row.setLotSno(r.getLotSno());
+                row.setSize(nS(r.getSize()));
+                row.setBox(nS(r.getBox()));
+                row.setPcsPerBox(nS(r.getPcsPerBox()));
+                row.setTotalPcs(nS(r.getTotalPcs()));
+                row.setCuttingEntry(e);
+                e.getSizeRows().add(row);
+            }
+        }
+
+        // Compute totals (existing logic)
         computeTotals(e);
         return e;
     }
@@ -151,15 +170,16 @@ public class CuttingEntryServiceImpl implements CuttingEntryService {
         CuttingEntryDTO dto = new CuttingEntryDTO();
         dto.setSerialNo(e.getSerialNo());
         dto.setDate(e.getDate());
-        dto.setEmployeeId(outS(e.getEmployeeId()));   // sanitize "undefined"/"null" to ""
+
+        dto.setEmployeeId(outS(e.getEmployeeId()));
         dto.setEmployeeName(outS(e.getEmployeeName()));
+
         dto.setTotalPcs(e.getTotalPcs());
         dto.setTotalCuttingAmount(e.getTotalCuttingAmount());
         dto.setTotalConsumption(e.getTotalConsumption());
         dto.setTotalKho(e.getTotalKho());
         dto.setTotalConsAmount(e.getTotalConsAmount());
 
-        // NEW: Issue To + Branch
         dto.setIssueTo(e.getIssueTo());
         dto.setIssueBranchId(e.getIssueBranchId());
         dto.setIssueBranchName(e.getIssueBranchName());
@@ -193,6 +213,18 @@ public class CuttingEntryServiceImpl implements CuttingEntryService {
             return rd;
         }).collect(Collectors.toList()));
 
+        // ✅ NEW: size rows to DTO
+        dto.setSizeRows(e.getSizeRows().stream().map(r -> {
+            CuttingSizeRowDTO rd = new CuttingSizeRowDTO();
+            rd.setId(r.getId());
+            rd.setLotSno(r.getLotSno());
+            rd.setSize(r.getSize());
+            rd.setBox(r.getBox());
+            rd.setPcsPerBox(r.getPcsPerBox());
+            rd.setTotalPcs(r.getTotalPcs());
+            return rd;
+        }).collect(Collectors.toList()));
+
         return dto;
     }
 
@@ -219,17 +251,23 @@ public class CuttingEntryServiceImpl implements CuttingEntryService {
         if ("undefined".equalsIgnoreCase(s) || "null".equalsIgnoreCase(s)) return "";
         return s;
     }
+
     private static String outS(String s) {
         if (s == null) return null;
         s = s.trim();
         if ("undefined".equalsIgnoreCase(s) || "null".equalsIgnoreCase(s)) return "";
         return s;
     }
-    private static double d(String s) { try { return Double.parseDouble(s); } catch (Exception e) { return 0d; } }
+
+    private static double d(String s) {
+        try { return Double.parseDouble(s); } catch (Exception e) { return 0d; }
+    }
+
     private static String fmt(double v, int scale) {
-        if (scale == 0) return String.valueOf((long)Math.round(v));
+        if (scale == 0) return String.valueOf((long) Math.round(v));
         return String.format("%." + scale + "f", v);
     }
+
     private static String normalizeIssueTo(String v) {
         if (v == null || v.isBlank()) return null;
         String s = v.trim().toLowerCase();
