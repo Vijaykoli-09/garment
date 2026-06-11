@@ -1,6 +1,5 @@
 package com.garment.controller;
 
-
 import java.util.List;
 
 import org.springframework.web.bind.annotation.CrossOrigin;
@@ -18,8 +17,7 @@ import com.garment.DTO.MaterialPurchaseOrderResponseDto;
 import com.garment.service.MaterialPurchaseOrderService;
 
 @RestController
-@RequestMapping("/api/purchase/order-item")
-// @CrossOrigin(origins = "http://localhost:3000")
+@RequestMapping("/api/purchase/orders")
 @CrossOrigin(originPatterns = "*")
 public class MaterialPurchaseOrderController {
 
@@ -29,34 +27,30 @@ public class MaterialPurchaseOrderController {
         this.service = service;
     }
 
-    // matches frontend: GET /api/purchase/order-item/next-order-no
     @GetMapping("/next-order-no")
     public String nextOrderNo() {
         return service.getNextOrderNo();
     }
 
-    // matches frontend: POST /api/purchase/order-item
     @PostMapping
-    public MaterialPurchaseOrderResponseDto create(@RequestBody MaterialPurchaseOrderRequestDto dto) {
+    public MaterialPurchaseOrderResponseDto create(
+            @RequestBody MaterialPurchaseOrderRequestDto dto) {
         return service.create(dto);
     }
 
-    // matches frontend: PUT /api/purchase/order-item/{id}
     @PutMapping("/{id}")
     public MaterialPurchaseOrderResponseDto update(
             @PathVariable Long id,
-            @RequestBody MaterialPurchaseOrderRequestDto dto
-    ) {
+            @RequestBody MaterialPurchaseOrderRequestDto dto) {
+
         return service.update(id, dto);
     }
 
-    // matches frontend: GET /api/purchase/order-item
     @GetMapping
     public List<MaterialPurchaseOrderResponseDto> getAll() {
         return service.getAll();
     }
 
-    // matches frontend: DELETE /api/purchase/order-item/{id}
     @DeleteMapping("/{id}")
     public void delete(@PathVariable Long id) {
         service.delete(id);

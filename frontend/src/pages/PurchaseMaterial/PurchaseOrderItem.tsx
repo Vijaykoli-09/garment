@@ -38,7 +38,7 @@ const PurchaseOrder: React.FC = () => {
   // ============================
   const fetchNextOrderNo = useCallback(async () => {
     try {
-      const res = await api.get("/purchase/order-item/next-order-no");
+      const res = await api.get("/purchase/orders/next-order-no");
       setOrderNo(res.data); // e.g. "2025/1001"
     } catch (err) {
       console.error("Failed to fetch next order no", err);
@@ -168,7 +168,7 @@ const PurchaseOrder: React.FC = () => {
       if (selectedOrderId) {
         // UPDATE existing order
         await api.put(
-          `/purchase/order-item/${selectedOrderId}`,
+          `/purchase/orders/${selectedOrderId}`,
           payload
         );
         Swal.fire({
@@ -181,7 +181,7 @@ const PurchaseOrder: React.FC = () => {
         // OrderNo update nahi karein (backend same hi rakhega)
       } else {
         // CREATE new order
-        const res = await api.post("/purchase/order-item", payload);
+        const res = await api.post("/purchase/orders", payload);
         Swal.fire({
           icon: "success",
           title: "Saved!",
@@ -212,7 +212,7 @@ const PurchaseOrder: React.FC = () => {
         return;
       }
       setShowOrderList(true);
-      const res = await api.get("/purchase/order-item");
+      const res = await api.get("/purchase/orders");
       const data = res.data;
       const enriched = data.map((order: any) => ({
         ...order,
@@ -286,7 +286,7 @@ const PurchaseOrder: React.FC = () => {
     });
     if (confirm.isConfirmed) {
       try {
-        await api.delete(`/purchase/order-item/${id}`);
+        await api.delete(`/purchase/orders/${id}`);
         Swal.fire("Deleted!", "Order removed successfully.", "success");
         setOrders((prev) => prev.filter((o) => o.id !== id));
         setFilteredOrders((prev) => prev.filter((o) => o.id !== id));
@@ -406,15 +406,15 @@ const PurchaseOrder: React.FC = () => {
           </thead>
           <tbody>
             ${printableRows
-              .map((r, i) => {
-                const groupName =
-                  groups.find((g) => g.id === r.materialGroupId)?.materialGroup || "";
-                const materialName =
-                  materials.find((m) => m.id === r.materialId)?.materialName || "";
-                const shadeName =
-                  shades.find((s) => s.shadeCode === r.shadeCode)?.shadeName || "";
+        .map((r, i) => {
+          const groupName =
+            groups.find((g) => g.id === r.materialGroupId)?.materialGroup || "";
+          const materialName =
+            materials.find((m) => m.id === r.materialId)?.materialName || "";
+          const shadeName =
+            shades.find((s) => s.shadeCode === r.shadeCode)?.shadeName || "";
 
-                return `
+          return `
                 <tr>
                   <td>${i + 1}</td>
                   <td>${groupName}</td>
@@ -426,8 +426,8 @@ const PurchaseOrder: React.FC = () => {
                   <td>${r.rate}</td>
                   <td>${r.amount}</td>
                 </tr>`;
-              })
-              .join("")}
+        })
+        .join("")}
           </tbody>
 
           <tfoot>
@@ -458,7 +458,7 @@ const PurchaseOrder: React.FC = () => {
       <div className="p-6 bg-gray-100 min-h-screen">
         <div className="bg-white p-6 rounded-lg shadow-md">
           <h2 className="text-2xl font-bold text-center mb-4">
-           Material Purchase Order
+            Material Purchase Order
           </h2>
 
           {/* Header */}
