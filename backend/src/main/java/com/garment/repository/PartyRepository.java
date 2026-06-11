@@ -14,4 +14,7 @@ public interface PartyRepository extends JpaRepository<Party, Long> {
     List<Party> findByAgent_AgentName(String agentName);
 
     List<Party> findByCategory_CategoryName(String categoryName);
+
+    Party findByGstNo(String gstNo);
+
 }

@@ -4,6 +4,8 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import SplashScreen from '../screens/SplashScreen';
 import LoginScreen from '../screens/LoginScreen';
 import SignupScreen from '../screens/SignupScreen';
+import PartyGstScreen from '../screens/PartyGstScreen';
+
 
 const Stack = createNativeStackNavigator();
 
@@ -25,6 +27,8 @@ export default function AuthNavigator() {
         component={SignupScreen}
         options={{ headerShown: false }}
       />
+      <Stack.Screen name="PartyGst" component={PartyGstScreen} options={{ headerShown: false }} />
+
     </Stack.Navigator>
   );
 }
