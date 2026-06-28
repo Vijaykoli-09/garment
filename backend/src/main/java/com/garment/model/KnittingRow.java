@@ -1,6 +1,7 @@
 package com.garment.model;
 
 import com.fasterxml.jackson.annotation.JsonBackReference;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import jakarta.persistence.*;
 import lombok.Data;
 
@@ -14,20 +15,24 @@ public class KnittingRow {
     private Long id;
 
     private String fabricLotNo;
-    private String shade;
-    private String processing;
+
+    private Double shortage;
+    private Double percentage;
+
     private Integer rolls;
     private Double weight;
     private Double knittingRate;
 
-    // Reference to Fabrication (use serialNo as id in your model)
-    @ManyToOne
+    private Double yarnRate;
+
+    @ManyToOne(fetch = FetchType.EAGER)
     @JoinColumn(name = "fabrication_serial_no", referencedColumnName = "serial_no")
+    @JsonIgnoreProperties({"hibernateLazyInitializer", "handler"})
     private Fabrication fabrication;
 
-    // Reference to Yarn (serial_no)
-    @ManyToOne
+    @ManyToOne(fetch = FetchType.EAGER)
     @JoinColumn(name = "yarn_serial_no", referencedColumnName = "serial_no")
+    @JsonIgnoreProperties({"hibernateLazyInitializer", "handler"})
     private Yarn yarn;
 
     @ManyToOne
