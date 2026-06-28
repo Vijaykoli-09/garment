@@ -28,7 +28,7 @@ const getPrefixFromLot = (lot: string): string => {
   return m ? m[1] || DEFAULT_LOT_PREFIX : DEFAULT_LOT_PREFIX;
 };
 
-// Format lot: prefix + 4-digit number
+// Format lot: prefix + number
 const formatLot = (num: number, prefix: string) =>
   `${prefix}${String(num).padStart(2, "0")}`;
 
@@ -48,8 +48,11 @@ interface RowData {
   fabricLotNo: string;
   item: string;
   fabricationName?: string;
-  shade: string;
-  processing: string;
+
+  // removed: shade, processing
+  shortage: string;
+  percentage: string;
+
   rolls: string;
   weight: string;
   knittingRate: string;
@@ -131,8 +134,8 @@ const KnittingInwardChallan: React.FC = () => {
         fabricLotNo: firstLot,
         item: "",
         fabricationName: "",
-        shade: "",
-        processing: "",
+        shortage: "",
+        percentage: "",
         rolls: "",
         weight: "",
         knittingRate: "",
@@ -200,8 +203,8 @@ const KnittingInwardChallan: React.FC = () => {
           fabricLotNo: newLot,
           item: "",
           fabricationName: "",
-          shade: "",
-          processing: "",
+          shortage: "",
+          percentage: "",
           rolls: "",
           weight: "",
           knittingRate: "",
@@ -223,9 +226,7 @@ const KnittingInwardChallan: React.FC = () => {
   // Toggle row checkbox
   const toggleRowSelect = (id: number) => {
     setRows((prev) =>
-      prev.map((r) =>
-        r.id === id ? { ...r, selected: !r.selected } : r
-      )
+      prev.map((r) => (r.id === id ? { ...r, selected: !r.selected } : r))
     );
   };
 
@@ -513,7 +514,7 @@ const KnittingInwardChallan: React.FC = () => {
         }
       }
 
-      // Append rows for any remaining selections (Fabric Lot No auto, no skip)
+      // Append rows for any remaining selections
       let latestId = next.reduce((m, r) => Math.max(m, r.id), 0);
       let nextNum = getNextNumberFromRows(next);
       const prefix =
@@ -531,8 +532,8 @@ const KnittingInwardChallan: React.FC = () => {
           fabricLotNo: newLot,
           item: String(fr.serialNo),
           fabricationName: fr.fabricName,
-          shade: "",
-          processing: "",
+          shortage: "",
+          percentage: "",
           rolls: "",
           weight: "",
           knittingRate: "",
@@ -551,7 +552,7 @@ const KnittingInwardChallan: React.FC = () => {
     setSelectedFabSerials(new Set());
   };
 
-  // Row ko "empty" maana hai ya nahi -> yahi function use kareinge
+  // Row ko "empty" maana hai ya nahi
   const rowHasFabrication = (r: RowData) =>
     String(r.item || "").trim() !== "" ||
     String(r.fabricationName || "").trim() !== "";
@@ -592,7 +593,7 @@ const KnittingInwardChallan: React.FC = () => {
       (currentPrefix && currentPrefix.trim()) || DEFAULT_LOT_PREFIX;
 
     workingRows = workingRows.map((r) => {
-      if (!idsToSave.has(r.id)) return r; // is row ko save hi nahi karna
+      if (!idsToSave.has(r.id)) return r;
       const trimmed = String(r.fabricLotNo || "").trim();
       if (trimmed) return r;
       const lot = formatLot(num, prefix);
@@ -620,15 +621,15 @@ const KnittingInwardChallan: React.FC = () => {
 
     const payload = {
       challanNo,
-      dated: dated ? new Date(dated).toISOString() : null,
+     dated: dated || null,
       party: { id: Number(accountHead) },
       totalRolls: pRolls,
       totalWeight: pWeight,
       totalAmount: pAmount,
       rows: rowsForPayload.map((r) => ({
         fabricLotNo: r.fabricLotNo,
-        shade: r.shade,
-        processing: r.processing,
+        shortage: Number(r.shortage) || 0,
+        percentage: Number(r.percentage) || 0,
         rolls: Number(r.rolls) || 0,
         weight: Number(r.weight) || 0,
         knittingRate: Number(r.knittingRate) || 0,
@@ -738,11 +739,11 @@ const KnittingInwardChallan: React.FC = () => {
             fabricLotNo: row.fabricLotNo || "",
             item: fabSerial || "",
             fabricationName: nameFromBackend,
-            shade: row.shade || "",
-            processing: row.processing || "",
-            rolls: String(row.rolls || ""),
-            weight: String(row.weight || ""),
-            knittingRate: String(row.knittingRate || ""),
+            shortage: String(row.shortage ?? ""),
+            percentage: String(row.percentage ?? ""),
+            rolls: String(row.rolls ?? ""),
+            weight: String(row.weight ?? ""),
+            knittingRate: String(row.knittingRate ?? ""),
             yarnRate: yRate,
             unit: "Kg",
             selected: false,
@@ -792,8 +793,8 @@ const KnittingInwardChallan: React.FC = () => {
             <td>${i + 1}</td>
             <td>${r.fabricLotNo || "-"}</td>
             <td>${fabName}</td>
-            <td>${r.shade || "-"}</td>
-            <td>${r.processing || "-"}</td>
+            <td>${r.shortage || "-"}</td>
+            <td>${r.percentage || "-"}</td>
             <td>${r.rolls || "-"}</td>
             <td>${r.weight || "-"}</td>
             <td>${r.unit || "Kg"}</td>
@@ -837,8 +838,8 @@ const KnittingInwardChallan: React.FC = () => {
                 <th>#</th>
                 <th>Fabric Lot No</th>
                 <th>Fabrication</th>
-                <th>Shade</th>
-                <th>Processing</th>
+                <th>Shortage</th>
+                <th>Percentage</th>
                 <th>Rolls</th>
                 <th>Weight</th>
                 <th>Unit</th>
@@ -871,27 +872,60 @@ const KnittingInwardChallan: React.FC = () => {
   };
 
   // Issue To
-  const handleIssueTo = async () => {
-    const res = await Swal.fire({
-      title: "Issue To",
-      text: "Proceed to issue this fabric to Dyeing Outward?",
-      icon: "question",
-      showCancelButton: true,
-      confirmButtonText: "Yes, Proceed",
-    });
+ // Put this inside KnittingInwardChallan.tsx (replace your handleIssueTo)
+const handleIssueTo = async () => {
+  const res = await Swal.fire({
+    title: "Issue To",
+    text: "Proceed to issue selected fabric to Dyeing Outward?",
+    icon: "question",
+    showCancelButton: true,
+    confirmButtonText: "Yes, Proceed",
+  });
 
-    if (!res.isConfirmed) return;
+  if (!res.isConfirmed) return;
 
-    await Swal.fire({
-      icon: "success",
-      title: "Issued!",
-      text: "Fabric issued successfully.",
-      timer: 900,
-      showConfirmButton: false,
-    });
+  // rows to issue: selected if any selected else all with fabrication
+  const anySelected = rows.some((r) => r.selected);
+  const base = anySelected ? rows.filter((r) => r.selected) : rows;
 
-    navigate("/knitting/dyeing/outward-challan");
+  const issueRows = base
+    .filter((r) => String(r.item || "").trim() !== "")
+    .map((r) => ({
+      fabricLotNo: r.fabricLotNo,
+      fabricationName: r.fabricationName || "",
+      fabricationSerialNo: r.item,
+      rolls: Number(r.rolls) || 0,
+      weight: Number(r.weight) || 0,
+      knittingRate: Number(r.knittingRate) || 0,
+      yarnRate: Number(r.yarnRate) || 0,
+      shortage: Number((r as any).shortage) || 0,     // if exists in your inward UI
+      percentage: Number((r as any).percentage) || 0, // if exists in your inward UI
+      // NOTE: If your backend returns row.id on edit/list, include it from backend.
+      // In this screen you may not have knittingRowId, so we will fallback later in DyeingOutward.
+      knittingRowId: null,
+      knittingInwardId: editingId || null,
+    }));
+
+  if (issueRows.length === 0) {
+    Swal.fire("Error", "Please select at least one row with fabrication", "error");
+    return;
+  }
+
+  const partyObj = partyList.find((p) => String(p.id) === String(accountHead));
+  const payloadForDyeingOutward = {
+    partyId: accountHead ? Number(accountHead) : null,
+    partyName: partyObj?.partyName || "",
+    dated: dated || "",
+    rows: issueRows,
   };
+
+  sessionStorage.setItem(
+    "knittingIssueToDyeingOutwardData",
+    JSON.stringify(payloadForDyeingOutward)
+  );
+
+  navigate("/knitting/dyeing/outward-challan");
+};
 
   // Filtered List for modal
   const filteredListView = Array.isArray(knittingList)
@@ -957,8 +991,8 @@ const KnittingInwardChallan: React.FC = () => {
                   <th className="border p-2 text-center">Select</th>
                   <th className="border p-2">Fabric Lot No.</th>
                   <th className="border p-2">Fabrication</th>
-                  <th className="border p-2">Shade</th>
-                  <th className="border p-2">Processing</th>
+                  <th className="border p-2">Shortage</th>
+                  <th className="border p-2">Percentage</th>
                   <th className="border p-2">Rolls</th>
                   <th className="border p-2">Weight</th>
                   <th className="border p-2">Unit</th>
@@ -1018,25 +1052,29 @@ const KnittingInwardChallan: React.FC = () => {
                         />
                       </td>
 
+                      {/* Shortage */}
                       <td className="border p-1">
                         <input
-                          type="text"
-                          value={r.shade}
+                          type="number"
+                          value={r.shortage}
                           onChange={(e) =>
-                            handleRowChange(r.id, "shade", e.target.value)
+                            handleRowChange(r.id, "shortage", e.target.value)
                           }
-                          className="border p-1 rounded w-full"
+                          className="border p-1 rounded w-full text-right"
+                          placeholder="0"
                         />
                       </td>
 
+                      {/* Percentage */}
                       <td className="border p-1">
                         <input
-                          type="text"
-                          value={r.processing}
+                          type="number"
+                          value={r.percentage}
                           onChange={(e) =>
-                            handleRowChange(r.id, "processing", e.target.value)
+                            handleRowChange(r.id, "percentage", e.target.value)
                           }
-                          className="border p-1 rounded w-full"
+                          className="border p-1 rounded w-full text-right"
+                          placeholder="0"
                         />
                       </td>
 
