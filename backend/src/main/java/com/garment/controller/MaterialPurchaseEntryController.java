@@ -20,8 +20,8 @@ import com.garment.service.MaterialPurchaseEntryService;
 
 @RestController
 @RequestMapping("/api")
-// @CrossOrigin(origins = "http://localhost:3000") // adjust as needed
-@CrossOrigin(originPatterns = "*")
+@CrossOrigin(origins = "http://localhost:3000") // adjust as needed
+// @CrossOrigin(originPatterns = "*")
 public class MaterialPurchaseEntryController {
 
     private final MaterialPurchaseEntryService service;
@@ -68,7 +68,7 @@ public class MaterialPurchaseEntryController {
     }
 
     // GET /purchase-entry/draft-by-party/{partyId}
-    @GetMapping("/purchase-entry/draft-by-party/{partyId}")
+    @GetMapping("/purchase-entry/draft/{partyId}")
     public List<Object> getDraftByParty(@PathVariable Long partyId) {
         return service.getDraftByParty(partyId);
     }

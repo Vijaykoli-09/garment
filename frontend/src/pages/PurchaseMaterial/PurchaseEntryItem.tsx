@@ -221,7 +221,7 @@ const PurchaseEntry: React.FC = () => {
 
   const fetchDraftByParty = async () => {
     try {
-      const res = await api.get(`/purchase-entry/draft-by-party/${partyId}`);
+      const res = await api.get(`/purchase-entry/draft/${partyId}`);
 
       const mappedRows = res.data.map((item: any, index: number) => ({
         id: index + 1,

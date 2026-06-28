@@ -2,6 +2,7 @@ package com.garment.controller;
 
 import java.util.List;
 
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.CrossOrigin;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -15,10 +16,11 @@ import org.springframework.web.bind.annotation.RestController;
 import com.garment.DTO.MaterialPurchaseOrderRequestDto;
 import com.garment.DTO.MaterialPurchaseOrderResponseDto;
 import com.garment.service.MaterialPurchaseOrderService;
+import com.garment.serviceImpl.MaterialPurchaseOrderServiceImpl;
 
 @RestController
 @RequestMapping("/api/purchase/orders")
-@CrossOrigin(originPatterns = "*")
+@CrossOrigin(originPatterns = "http://localhost:3000")
 public class MaterialPurchaseOrderController {
 
     private final MaterialPurchaseOrderService service;
@@ -47,8 +49,12 @@ public class MaterialPurchaseOrderController {
     }
 
     @GetMapping
-    public List<MaterialPurchaseOrderResponseDto> getAll() {
-        return service.getAll();
+    public ResponseEntity<List<MaterialPurchaseOrderResponseDto>> getAll() {
+        if (service instanceof MaterialPurchaseOrderServiceImpl impl) {
+            List<MaterialPurchaseOrderResponseDto> orders = impl.getAll();
+            return ResponseEntity.ok(orders);
+        }
+        throw new RuntimeException("Service Impl not found");
     }
 
     @DeleteMapping("/{id}")

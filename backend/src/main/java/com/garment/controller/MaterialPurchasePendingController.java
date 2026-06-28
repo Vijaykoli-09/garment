@@ -29,23 +29,32 @@ public class MaterialPurchasePendingController {
 
     private final MaterialPurchasePendingService service;
 
-    // React calls: GET /purchase/order-item
-    @GetMapping("/order-item")
-    public ResponseEntity<List<Map<String, Object>>> orderItems() {
-        List<Map<String, Object>> list = service.getMaterials().stream()
-                .map(a -> {
-                    Map<String, Object> m = new HashMap<>();
-                    m.put("id", ((Number) a[0]).longValue());
-                    m.put("itemName", (String) a[1]); // FE expects itemName
-                    return m;
-                })
-                .collect(Collectors.toList());
-        return ResponseEntity.ok(list);
+    @GetMapping("/order-list")
+public ResponseEntity<List<Map<String, Object>>> orderItems() {
+
+    List<Object[]> raw = service.getMaterials();
+
+    if (!raw.isEmpty()) {
+        System.out.println("getMaterials()[0] = " + java.util.Arrays.toString(raw.get(0)));
     }
 
+    List<Map<String, Object>> list = raw.stream()
+        .map(a -> {
+            Map<String, Object> m = new HashMap<>();
+            m.put("id", ((Number) a[0]).longValue());
+
+            // safer conversion (prevents blank due to non-string types)
+            m.put("itemName", a.length > 1 && a[1] != null ? a[1].toString() : "");
+
+            return m;
+        })
+        .toList();
+
+    return ResponseEntity.ok(list);
+}
     // React calls: POST /purchase/pending-order-item
     @PostMapping("/pending-order-item")
-    public ResponseEntity<List<MaterialPurchasePendingRowDTO>> pending(@RequestBody MaterialPurchasePendingRequest req) {
+    public ResponseEntity<Object> pending(@RequestBody MaterialPurchasePendingRequest req) {
         return ResponseEntity.ok(service.getPending(req));
     }
 }

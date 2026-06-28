@@ -726,7 +726,7 @@ const PurchaseOrder: React.FC = () => {
                         <th className="border p-2 text-center">Order No</th>
                         <th className="border p-2 text-center">Party Name</th>
                         <th className="border p-2 text-center">Date</th>
-                        <th className="border p-2 text-center">Yarn Name</th>
+                        {/* <th className="border p-2 text-center">Yarn Name</th> */}
                         <th className="border p-2 text-center">Material Name</th>
                         <th className="border p-2 text-center">Total Qty</th>
                         <th className="border p-2 text-center">Total Amount</th>
@@ -769,11 +769,11 @@ const PurchaseOrder: React.FC = () => {
                               <td className="border p-2 text-center">
                                 {order.date}
                               </td>
-                              <td className="border p-2 text-center">
+                              {/* <td className="border p-2 text-center">
                                 {(order.items || [])
                                   .map((i: any) => i.yarnName || "-")
                                   .join(", ")}
-                              </td>
+                              </td> */}
                               <td className="border p-2 text-center">
                                 {(order.items || [])
                                   .map((i: any) => i.materialName || "-")
