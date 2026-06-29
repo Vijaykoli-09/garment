@@ -30,7 +30,7 @@ private String vehicleNo;
 private String through;
 
 
-@OneToMany(cascade = CascadeType.ALL, orphanRemoval = true)
+@OneToMany(cascade = CascadeType.ALL, orphanRemoval = true , fetch = FetchType.EAGER)
 @JoinColumn(name = "dyeing_outward_id")
 private List<DyeingOutwardRow> rows = new ArrayList<>();
 }

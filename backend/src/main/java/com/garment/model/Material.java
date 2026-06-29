@@ -1,17 +1,12 @@
 package com.garment.model;
 
-import jakarta.persistence.Entity;
-import jakarta.persistence.GeneratedValue;
-import jakarta.persistence.GenerationType;
-import jakarta.persistence.Id;
-import jakarta.persistence.JoinColumn;
-import jakarta.persistence.ManyToOne;
-import jakarta.persistence.Table;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
-
+@JsonIgnoreProperties({"hibernateLazyInitializer", "handler"})
 @Entity
 @Table(name = "material")
 @Data   
@@ -25,7 +20,8 @@ public class Material {
 
 	    private String serialNumber;
 
-	    @ManyToOne
+	    @ManyToOne(fetch = FetchType.EAGER)
+		@JsonIgnoreProperties({"hibernateLazyInitializer", "handler"})
 	    @JoinColumn(name = "material_group_id") // FK to material_group
 	    private MaterialGroup materialGroup;
 
