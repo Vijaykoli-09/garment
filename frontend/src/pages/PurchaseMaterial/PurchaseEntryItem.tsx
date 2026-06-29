@@ -47,7 +47,7 @@ interface Shade {
 //   yarnName: string;
 // }
 
-const PurchaseEntry: React.FC = () => {
+const PurchaseEntryItem: React.FC = () => {
   // const navigate = useNavigate();
 
   const [rows, setRows] = useState<RowData[]>([]);
@@ -221,7 +221,7 @@ const PurchaseEntry: React.FC = () => {
 
   const fetchDraftByParty = async () => {
     try {
-      const res = await api.get(`/purchase-entry/draft-by-party/${partyId}`);
+      const res = await api.get(`/purchase-entry/draft/${partyId}`);
 
       const mappedRows = res.data.map((item: any, index: number) => ({
         id: index + 1,
@@ -932,4 +932,4 @@ const PurchaseEntry: React.FC = () => {
   );
 };
 
-export default PurchaseEntry;
+export default PurchaseEntryItem;

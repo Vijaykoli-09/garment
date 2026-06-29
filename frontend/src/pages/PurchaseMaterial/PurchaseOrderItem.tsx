@@ -16,7 +16,7 @@ interface RowData {
   amount: string;
 }
 
-const PurchaseOrder: React.FC = () => {
+const PurchaseOrderItem: React.FC = () => {
   const [rows, setRows] = useState<RowData[]>([]);
   const [orderNo, setOrderNo] = useState("");
   const [partyId, setPartyId] = useState("");
@@ -824,4 +824,4 @@ const PurchaseOrder: React.FC = () => {
   );
 };
 
-export default PurchaseOrder;
+export default PurchaseOrderItem;

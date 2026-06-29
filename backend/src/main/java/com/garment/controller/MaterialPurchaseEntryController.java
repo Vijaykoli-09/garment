@@ -68,7 +68,7 @@ public class MaterialPurchaseEntryController {
     }
 
     // GET /purchase-entry/draft-by-party/{partyId}
-    @GetMapping("/purchase-entry/draft-by-party/{partyId}")
+    @GetMapping("/purchase-entry/draft/{partyId}")
     public List<Object> getDraftByParty(@PathVariable Long partyId) {
         return service.getDraftByParty(partyId);
     }
