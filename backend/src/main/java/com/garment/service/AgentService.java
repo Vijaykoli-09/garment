@@ -8,6 +8,7 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.Map;
 
 @Service
 public class AgentService {
@@ -69,5 +70,20 @@ public class AgentService {
                     "Agent not found with serialNo: " + serialNo);
         }
         repository.deleteById(serialNo);
+    }
+
+    // ══════════════════════════════════════════════════════════════════
+    // BROKER LOGIN (mobile app) — phone-only lookup, no password.
+    // Returns a plain map so the controller can send either
+    // { exists: true, agent: {...} } or { exists: false } without
+    // needing a dedicated DTO class.
+    // ══════════════════════════════════════════════════════════════════
+    public Map<String, Object> checkPhone(String contactNo) {
+        return repository.findFirstByContactNo(contactNo)
+                .<Map<String, Object>>map(agent -> Map.of(
+                        "exists", true,
+                        "agent", agent
+                ))
+                .orElseGet(() -> Map.of("exists", false));
     }
 }

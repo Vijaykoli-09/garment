@@ -54,4 +54,13 @@ public class PartyService {
     public List<Party> getPartiesByAgentSerial(String serialNo) {
         return repository.findByAgent_SerialNo(serialNo);
     }
+
+    // Powers the Broker Dashboard's party search bar.
+    // Blank/null search falls back to the full list for that broker.
+    public List<Party> searchPartiesByAgent(String serialNo, String search) {
+        if (search == null || search.isBlank()) {
+            return repository.findByAgent_SerialNo(serialNo);
+        }
+        return repository.searchByAgentSerialNo(serialNo, search.trim());
+    }
 }

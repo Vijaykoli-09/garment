@@ -3,7 +3,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { CartItem, AppUser } from '../context/AppContext';
 
 export const BASE_URL = 'https://garment-1-1v21.onrender.com/api';
-// export const BASE_URL = 'http://192.168.1.25:8080/api';
+// export const BASE_URL = 'http://192.168.1.8:8080/api';
 
 // ════════════════════════════════════════════════════════════════════
 // AXIOS INSTANCE
@@ -64,6 +64,28 @@ export const SessionStorage = {
       AsyncStorage.removeItem('auth_token'),
       AsyncStorage.removeItem('auth_user'),
     ]),
+};
+
+// ════════════════════════════════════════════════════════════════════
+// BROKER SESSION HELPERS
+// ════════════════════════════════════════════════════════════════════
+// Broker (Agent) login is phone-only, no password/JWT — so this is a
+// separate lightweight session, independent of SessionStorage above.
+// Keeping it separate means broker sessions can't collide with, or get
+// wiped by, customer/party auth logic (e.g. the 401 interceptor above).
+const BROKER_STORAGE_KEY = 'broker_session';
+
+export const BrokerSessionStorage = {
+  saveBroker: (agent: object) =>
+    AsyncStorage.setItem(BROKER_STORAGE_KEY, JSON.stringify(agent)),
+
+  getBroker: async () => {
+    const raw = await AsyncStorage.getItem(BROKER_STORAGE_KEY);
+    return raw ? JSON.parse(raw) : null;
+  },
+
+  clear: () =>
+    AsyncStorage.removeItem(BROKER_STORAGE_KEY),
 };
 
 // ════════════════════════════════════════════════════════════════════
@@ -131,6 +153,65 @@ export const authApi = {
 setPartyPassword: (data: { partyId: number; phone: string; password: string }) =>
       api.post('/party/auth/set-password', data),
 
+};
+
+// ════════════════════════════════════════════════════════════════════
+// PARTY API (broker-scoped)
+// ════════════════════════════════════════════════════════════════════
+export interface PartyDto {
+  id:                  number;
+  serialNumber?:        string;
+  partyName:            string;
+  address?:             string;
+  mobileNo?:            string;
+  gstNo?:               string;
+  openingBalance?:      number;
+  openingBalanceType?:  string;
+  stateName?:           string;
+  stateCode?:           string;
+  station?:             string;
+  creditDays?:          number;
+  creditAmount?:        number;
+  customerType?:        string;
+}
+
+export const partyApi = {
+  /**
+   * Parties linked to a specific broker (Agent), with optional search
+   * across name / mobile / GST no.
+   * GET /api/party/by-agent/{serialNo}?search=...
+   */
+  getByAgent: (agentSerialNo: string, search?: string) =>
+    api.get<PartyDto[]>(`/party/by-agent/${agentSerialNo}`, {
+      params: search ? { search } : {},
+    }),
+};
+
+// ════════════════════════════════════════════════════════════════════
+// AGENT (BROKER) API
+// ════════════════════════════════════════════════════════════════════
+export interface AgentDto {
+  serialNo:            string;
+  agentName:           string;
+  contactNo:            string;
+  email?:               string;
+  address?:             string;
+  city?:                string;
+  state?:               string;
+  zipCode?:             string;
+  openingBalance?:      number;
+  openingBalanceType?:  string; // "CR" | "DR"
+}
+
+export const agentApi = {
+  /**
+   * Broker Login — phone-only lookup against the `agents` table.
+   * GET /api/agent/check-phone/{contactNo}
+   *   -> { exists: true,  agent: AgentDto }
+   *   -> { exists: false }
+   */
+  checkPhone: (contactNo: string) =>
+    api.get<{ exists: boolean; agent?: AgentDto }>(`/agent/check-phone/${contactNo}`),
 };
 
 // ════════════════════════════════════════════════════════════════════
@@ -269,6 +350,40 @@ function buildSaleOrderPayload(cart: CartItem[], user: AppUser) {
 export const saleOrderApi = {
   createFromAppCart: (cart: CartItem[], user: AppUser) =>
     api.post('/sale-orders', buildSaleOrderPayload(cart, user)),
+};
+
+
+// ════════════════════════════════════════════════════════════════════
+// ADD THIS TO api.ts
+// (paste near partyApi — uses the same `api` axios instance already
+// defined at the top of that file)
+// ════════════════════════════════════════════════════════════════════
+
+export interface PartyOrderDto {
+  id: number;
+  source: 'WEB' | 'APP';
+  orderNo: string;
+  date: string;               // ISO date, e.g. "2026-07-03"
+  amount?: number | null;     // WEB: sum(qty*rate) across rows; APP: totalAmount
+  status?: string | null;     // null for WEB orders today
+  paymentStatus?: string | null;
+  totalPeti?: number | null;  // WEB only
+  totalPcs?: number | null;   // WEB only
+}
+
+export const partyOrderApi = {
+  /**
+   * All orders (web + app, merged, newest first) for one party.
+   * GET /api/party/{partyId}/orders?fromDate=...&toDate=...
+   * fromDate/toDate are optional — omit both to get everything.
+   */
+  getByParty: (partyId: number, fromDate?: string, toDate?: string) =>
+    api.get<PartyOrderDto[]>(`/party/${partyId}/orders`, {
+      params: {
+        ...(fromDate ? { fromDate } : {}),
+        ...(toDate ? { toDate } : {}),
+      },
+    }),
 };
 
 export default api;

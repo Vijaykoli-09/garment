@@ -1,12 +1,13 @@
 /**
  * LoginScreen.tsx  (updated)
  *
- * Changes from original:
- *  1. Added a divider "or continue as" after the Login button
- *  2. Added "Party Login (GST)" button → navigates to PartyGst screen
+ * Changes from previous version:
+ *  1. Added "Broker Login" button below Party Login → navigates to BrokerLogin screen
  *
  * Register in your Auth navigator:
  *   <Stack.Screen name="PartyGst" component={PartyGstScreen} />
+ *   <Stack.Screen name="BrokerLogin" component={BrokerLoginScreen} />
+ *   <Stack.Screen name="BrokerDashboard" component={BrokerDashboardScreen} />
  */
 
 import React, { useContext, useState } from 'react';
@@ -161,6 +162,27 @@ export default function LoginScreen({ navigation }: any) {
               </LinearGradient>
             </TouchableOpacity>
 
+            {/* ── Broker Login Button ────────────────────────────────── */}
+            <TouchableOpacity
+              activeOpacity={0.85}
+              style={{ marginTop: 12 }}
+              onPress={() => navigation.navigate('BrokerLogin')}
+            >
+              <LinearGradient
+                colors={['#f59e0b', '#d97706']}
+                start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
+                style={s.partyBtn}
+              >
+                <View style={s.partyBtnInner}>
+                  <View>
+                    <Text style={s.partyBtnTitle}>🤝  Broker Login</Text>
+                    <Text style={s.partyBtnSub}>Already a broker? Login with your phone no.</Text>
+                  </View>
+                  <Text style={s.partyBtnArrow}>→</Text>
+                </View>
+              </LinearGradient>
+            </TouchableOpacity>
+
           </View>
 
           {/* Footer */}
@@ -223,7 +245,7 @@ const s = StyleSheet.create({
   dividerLine: { flex: 1, height: 1, backgroundColor: '#e5e7eb' },
   dividerTxt:  { marginHorizontal: 10, fontSize: 12, color: '#9ca3af', fontWeight: '600' },
 
-  // Party button
+  // Party / Broker button (shared style)
   partyBtn:       { borderRadius: 12, overflow: 'hidden' },
   partyBtnInner:  {
     flexDirection: 'row', alignItems: 'center',

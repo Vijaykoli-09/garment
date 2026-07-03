@@ -6,10 +6,11 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/agent")
-@CrossOrigin(origins = "http://localhost:3000")
+@CrossOrigin(originPatterns = "*")
 public class AgentController {
 
     private final AgentService service;
@@ -42,5 +43,18 @@ public class AgentController {
     public ResponseEntity<Void> delete(@PathVariable String serialNo) {
         service.delete(serialNo);
         return ResponseEntity.noContent().build();
+    }
+
+    // ══════════════════════════════════════════════════════════════════
+    // Mobile "Broker Login" — phone-only lookup, no password required.
+    // Already public via SecurityConfig's "/api/agent/**" permitAll rule.
+    //
+    // GET /api/agent/check-phone/{contactNo}
+    //   200 { "exists": true,  "agent": { serialNo, agentName, contactNo, ... } }
+    //   200 { "exists": false }
+    // ══════════════════════════════════════════════════════════════════
+    @GetMapping("/check-phone/{contactNo}")
+    public ResponseEntity<Map<String, Object>> checkPhone(@PathVariable String contactNo) {
+        return ResponseEntity.ok(service.checkPhone(contactNo));
     }
 }

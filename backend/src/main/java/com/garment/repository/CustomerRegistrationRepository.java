@@ -20,4 +20,9 @@ public interface CustomerRegistrationRepository extends JpaRepository<CustomerRe
 
     // All, newest first
     List<CustomerRegistration> findAllByOrderByCreatedAtDesc();
+
+    // ── NEW: for broker "party orders" screen ─────────────────────────
+    // A party could in theory have more than one linked customer login
+    // (e.g. re-registered), so this returns a list rather than Optional.
+    List<CustomerRegistration> findByPartyId(Long partyId);
 }

@@ -18,4 +18,8 @@ public interface SaleOrderRepository extends JpaRepository<SaleOrder, Long> {
     // For pendency
     List<SaleOrder> findByDatedBefore(LocalDate fromDate);
     List<SaleOrder> findByDatedBetween(LocalDate fromDate, LocalDate toDate);
+
+    // ── NEW: for broker "party orders" screen ─────────────────────────
+    List<SaleOrder> findByPartyIdOrderByDatedDesc(Long partyId);
+    List<SaleOrder> findByPartyIdAndDatedBetweenOrderByDatedDesc(Long partyId, LocalDate fromDate, LocalDate toDate);
 }
