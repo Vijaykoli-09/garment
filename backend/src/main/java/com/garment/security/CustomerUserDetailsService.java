@@ -3,6 +3,8 @@ package com.garment.security;
 import com.garment.entity.CustomerRegistration;
 import com.garment.entity.CustomerRegistration.AccountStatus;
 import com.garment.repository.CustomerRegistrationRepository;
+
+import org.springframework.context.annotation.Primary;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.userdetails.User;
 import org.springframework.security.core.userdetails.UserDetails;
@@ -19,6 +21,7 @@ import java.util.List;
  * If admin rejects a customer AFTER they got a token, their
  * next API call will correctly return 403 instead of succeeding.
  */
+
 @Service
 public class CustomerUserDetailsService implements UserDetailsService {
 

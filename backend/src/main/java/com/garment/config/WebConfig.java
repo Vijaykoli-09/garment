@@ -16,8 +16,6 @@ public class WebConfig {
                 registry.addMapping("/**") // allow all endpoints
                         .allowedOrigins(
                                 "http://localhost:3000",
-                                "https://garments.ashdipitsolutions.in",
-                                "https://shriudaygarments.com", 
                                 "https://garment-six.vercel.app"
                         )
                         .allowedMethods("GET", "POST", "PUT", "DELETE", "OPTIONS")

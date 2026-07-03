@@ -13,7 +13,7 @@ const Login: React.FC = () => {
     e.preventDefault();
     try {
       const response = await api.post("/auth/login", { email, password });
-      localStorage.setItem("token", response.data);
+      localStorage.setItem("token", response.data.token);
 
       Swal.fire({
         icon: "success",

@@ -1,5 +1,6 @@
 package com.garment.model;
 
+import com.fasterxml.jackson.annotation.JsonFormat;
 import com.fasterxml.jackson.annotation.JsonManagedReference;
 import jakarta.persistence.*;
 import lombok.Data;
@@ -20,6 +21,7 @@ public class KnittingInward {
     @Column(name = "challan_no", unique = true, nullable = false)
     private String challanNo;
 
+    @JsonFormat(pattern = "yyyy-MM-dd")
     private LocalDate dated;
 
     @ManyToOne(fetch = FetchType.EAGER)

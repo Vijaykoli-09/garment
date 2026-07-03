@@ -1,19 +1,13 @@
 "use client";
 
-import React, {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Dashboard from "../Dashboard";
 import Swal from "sweetalert2";
 import api from "../../api/axiosInstance";
 
 // ================= Types =================
 type CuttingRow = {
-  id: number;
+  id: number; // UI-only
   cutLotNo: string;
   artNo: string;
   itemName: string;
@@ -21,18 +15,36 @@ type CuttingRow = {
   pcs: string;
   rate: string;
   amount: string;
+  artSerialNumber?: string;
 };
 
 type StockDetailRow = {
-  id: number;
+  id: number; // UI-only
   finishingInwardRowId?: number | null;
   itemName: string;
   shade: string;
   unit: string;
   consumption: string;
-  kho: string; // manual KHO
+  kho: string;
   consRate: string;
   consAmount: string;
+};
+
+type SizeEntryRow = {
+  id: number; // UI-only
+  cuttingRowId: number; // link to CuttingRow.id
+  size: string;
+  box: string;
+  pcs: string; // pcs per box
+};
+
+type CuttingSizeRowDTO = {
+  id?: number | null;
+  lotSno: number; // CuttingLotRowDTO.sno
+  size: string;
+  box: string;
+  pcsPerBox: string;
+  totalPcs: string;
 };
 
 type Employee = {
@@ -57,8 +69,8 @@ type FinishingInwardRow = {
   shade?: string;
   rolls?: string;
   weight?: string;
-  rate?: string; // Finishing Rate
-  rateFND?: string; // KYR + Dyeing (Sum)
+  rate?: string; // finishing rate
+  rateFND?: string; // KYR + Dyeing sum
 };
 
 type FinishingInwardDoc = {
@@ -73,7 +85,7 @@ type IssueTo = "Inside" | "Outside";
 
 type CuttingEntryDTO = {
   serialNo: string;
-  date: string;
+  date: string; // YYYY-MM-DD
   employeeId?: string;
   employeeName?: string;
 
@@ -88,7 +100,7 @@ type CuttingEntryDTO = {
   issueBranchName?: string;
 
   lotRows: {
-    id?: number;
+    id?: number | null;
     sno?: number;
     cutLotNo: string;
     artNo: string;
@@ -98,8 +110,9 @@ type CuttingEntryDTO = {
     rate: string;
     amount: string;
   }[];
+
   stockRows: {
-    id?: number;
+    id?: number | null;
     sno?: number;
     finishingInwardRowId?: number | null;
     itemName: string;
@@ -110,6 +123,9 @@ type CuttingEntryDTO = {
     consRate: string;
     consAmount: string;
   }[];
+
+  // ✅ backend integration
+  sizeRows?: CuttingSizeRowDTO[];
 };
 
 type Shade = { shadeCode: string; shadeName: string };
@@ -126,17 +142,85 @@ type ArtProcess = {
   rate?: string | number;
   rate1?: string | number;
 };
+
 type ArtDetail = {
   serialNumber: string;
   artName?: string;
   artNo?: string;
   processes?: ArtProcess[];
+
+  // sizes may be available in your art API (if present)
+  sizes?: any[];
+  sizeRows?: any[];
+  sizeDetails?: any[];
+  artSizes?: any[];
 };
 
 // ================= Utils =================
 const toNum = (v: any) =>
   v === null || v === undefined || v === "" || isNaN(Number(v)) ? 0 : Number(v);
 const fmt = (v: number, d = 2) => v.toFixed(d);
+
+const extractSizesFromArtDetail = (detail: any): string[] => {
+  if (!detail) return [];
+  const raw =
+    detail?.sizes ||
+    detail?.sizeRows ||
+    detail?.sizeDetails ||
+    detail?.artSizes ||
+    [];
+
+  if (!Array.isArray(raw)) return [];
+
+  const asStr = raw
+    .map((x: any) => {
+      if (typeof x === "string") return x;
+      if (typeof x === "number") return String(x);
+      return (
+        x?.sizeName ??
+        x?.size ??
+        x?.name ??
+        x?.label ??
+        x?.value ??
+        x?.sizeCode ??
+        ""
+      );
+    })
+    .map((s: any) => String(s || "").trim())
+    .filter(Boolean);
+
+  return Array.from(new Set(asStr)).sort((a, b) =>
+    a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" })
+  );
+};
+
+const sizeRowTotalPcs = (sr: SizeEntryRow) => toNum(sr.box) * toNum(sr.pcs);
+
+// ✅ text-input for numbers (no wheel increment/decrement)
+type NumTextInputProps = Omit<
+  React.InputHTMLAttributes<HTMLInputElement>,
+  "type" | "value" | "onChange"
+> & {
+  value: string;
+  onChangeValue: (v: string) => void;
+};
+
+const NumTextInput: React.FC<NumTextInputProps> = ({
+  value,
+  onChangeValue,
+  className = "",
+  ...rest
+}) => (
+  <input
+    {...rest}
+    type="text"
+    inputMode="decimal"
+    value={value}
+    onChange={(e) => onChangeValue(e.target.value)}
+    onWheel={(e) => (e.currentTarget as HTMLInputElement).blur()}
+    className={className}
+  />
+);
 
 // ================= API helpers =================
 const getNextSerial = async (dateISO: string) =>
@@ -148,19 +232,21 @@ const getNextSerial = async (dateISO: string) =>
 
 const listCuttings = async () =>
   (await api.get<CuttingEntryDTO[]>("/cutting-entries")).data;
+
 const getCutting = async (serialNo: string) =>
   (await api.get<CuttingEntryDTO>(`/cutting-entries/${serialNo}`)).data;
+
 const saveCutting = async (payload: CuttingEntryDTO) =>
   (await api.post<CuttingEntryDTO>("/cutting-entries", payload)).data;
+
 const updateCutting = async (serialNo: string, payload: CuttingEntryDTO) =>
-  (await api.put<CuttingEntryDTO>(`/cutting-entries/${serialNo}`, payload))
-    .data;
+  (await api.put<CuttingEntryDTO>(`/cutting-entries/${serialNo}`, payload)).data;
+
 const deleteCutting = async (serialNo: string) => {
   await api.delete(`/cutting-entries/${serialNo}`);
 };
 
-const listEmployees = async () =>
-  (await api.get<Employee[]>("/employees")).data;
+const listEmployees = async () => (await api.get<Employee[]>("/employees")).data;
 const listArts = async () => (await api.get<ArtListItem[]>("/arts")).data;
 const getArtDetail = async (serialNumber: string) =>
   (await api.get<ArtDetail>(`/arts/${serialNumber}`)).data;
@@ -169,9 +255,7 @@ const listFinishingRows = async (): Promise<FinishingInwardRow[]> => {
   const res = await api.get<FinishingInwardDoc[]>("/finishing-inwards");
   const docs = Array.isArray(res.data) ? res.data : [];
   const flat: FinishingInwardRow[] = [];
-  for (const d of docs) {
-    for (const r of d.rows || []) flat.push(r);
-  }
+  for (const d of docs) for (const r of d.rows || []) flat.push(r);
   return flat;
 };
 
@@ -189,13 +273,14 @@ const listShades = async (): Promise<Shade[]> => {
 const listLocations = async (): Promise<Location[]> =>
   (await api.get<Location[]>("/locations")).data;
 
-// Extract Cutting process rate by IssueTo
+// Extract Cutting rate by IssueTo
 const extractCuttingRate = (
   detail: ArtDetail | undefined,
   issueTo: IssueTo
 ): number => {
   const list = detail?.processes || [];
   if (!list || list.length === 0) return 0;
+
   const norm = (s?: string) => (s || "").trim().toLowerCase();
   const procs = list.map((p) => ({ ...p, _n: norm(p.processName) }));
 
@@ -212,8 +297,57 @@ const extractCuttingRate = (
   if (!chosen) chosen = procs.find((p) => p._n === "cutting");
   if (!chosen) chosen = procs.find((p) => p._n.includes("cut"));
 
-  const rateVal = toNum(chosen?.rate);
-  return rateVal;
+  return toNum(chosen?.rate);
+};
+
+// ============ Cutting Lot Uniqueness Check ============
+const checkDuplicateCutLots = async (
+  payload: CuttingEntryDTO
+): Promise<string | null> => {
+  const norm = (s: string) => s.trim().toUpperCase();
+
+  const currentLots = (payload.lotRows || [])
+    .map((r) => norm(r.cutLotNo || ""))
+    .filter((v) => v);
+
+  if (currentLots.length === 0) return null;
+
+  // duplicate inside same entry
+  const selfMap = new Map<string, number>();
+  for (const lot of currentLots) selfMap.set(lot, (selfMap.get(lot) || 0) + 1);
+  const selfDups = Array.from(selfMap.entries())
+    .filter(([, c]) => c > 1)
+    .map(([lot]) => lot);
+
+  if (selfDups.length > 0) {
+    return `Cutting Lot No(s) ${selfDups.join(", ")} duplicated within this entry.`;
+  }
+
+  // check other entries
+  let allEntries: CuttingEntryDTO[];
+  try {
+    allEntries = await listCuttings();
+  } catch (e) {
+    console.error(e);
+    return "Could not verify Cutting Lot No uniqueness. Please try again later.";
+  }
+
+  const others = (allEntries || []).filter((e) => e.serialNo !== payload.serialNo);
+
+  const usedLots = new Set<string>();
+  for (const e of others) {
+    for (const r of e.lotRows || []) {
+      const lot = norm(r.cutLotNo || "");
+      if (lot) usedLots.add(lot);
+    }
+  }
+
+  const conflicts = Array.from(new Set(currentLots.filter((lot) => usedLots.has(lot))));
+  if (conflicts.length > 0) {
+    return `Cutting Lot No(s) ${conflicts.join(", ")} already used in another cutting entry.`;
+  }
+
+  return null;
 };
 
 // ================= Shade Dropdown =================
@@ -241,9 +375,7 @@ const ShadeDropdown: React.FC<ShadeDropdownProps> = ({
   const inputRef = useRef<HTMLInputElement | null>(null);
 
   const selected = useMemo(() => {
-    const v = String(value || "")
-      .trim()
-      .toLowerCase();
+    const v = String(value || "").trim().toLowerCase();
     if (!v) return null;
     return options.find((s) => s.shadeName.trim().toLowerCase() === v) || null;
   }, [options, value]);
@@ -398,68 +530,6 @@ const ShadeDropdown: React.FC<ShadeDropdownProps> = ({
   );
 };
 
-// ============ Cutting Lot Uniqueness Check ============
-
-const checkDuplicateCutLots = async (
-  payload: CuttingEntryDTO
-): Promise<string | null> => {
-  const norm = (s: string) => s.trim().toUpperCase();
-
-  // 1) Current entry lot numbers (non-empty)
-  const currentLots = (payload.lotRows || [])
-    .map((r) => norm(r.cutLotNo || ""))
-    .filter((v) => v);
-
-  if (currentLots.length === 0) return null;
-
-  // 1a) Duplicate in the same entry?
-  const selfMap = new Map<string, number>();
-  for (const lot of currentLots) {
-    selfMap.set(lot, (selfMap.get(lot) || 0) + 1);
-  }
-  const selfDups = Array.from(selfMap.entries())
-    .filter(([, c]) => c > 1)
-    .map(([lot]) => lot);
-
-  if (selfDups.length > 0) {
-    const listStr = selfDups.join(", ");
-    const verb = selfDups.length > 1 ? "are" : "is";
-    return `Cutting Lot No(s) ${listStr} ${verb} duplicated within this cutting entry. Each Cutting Lot No must be unique inside a single entry.`;
-  }
-
-  // 2) Check against other entries
-  let allEntries: CuttingEntryDTO[];
-  try {
-    allEntries = await listCuttings();
-  } catch (e) {
-    console.error("Failed to load cutting entries for uniqueness check:", e);
-    return "Could not verify Cutting Lot No uniqueness. Please try again later.";
-  }
-
-  if (!allEntries || allEntries.length === 0) return null;
-
-  const others = allEntries.filter((e) => e.serialNo !== payload.serialNo);
-
-  const usedLots = new Set<string>();
-  for (const e of others) {
-    for (const r of e.lotRows || []) {
-      const lot = norm(r.cutLotNo || "");
-      if (lot) usedLots.add(lot);
-    }
-  }
-
-  const conflicts = Array.from(
-    new Set(currentLots.filter((lot) => usedLots.has(lot)))
-  );
-  if (conflicts.length > 0) {
-    const listStr = conflicts.join(", ");
-    const verb = conflicts.length > 1 ? "are" : "is";
-    return `Cutting Lot No(s) ${listStr} ${verb} already used in another cutting entry. Each Cutting Lot No can only be used once across all cutting entries.`;
-  }
-
-  return null;
-};
-
 // ================= Component =================
 const CuttingModule: React.FC = () => {
   // Header
@@ -470,11 +540,21 @@ const CuttingModule: React.FC = () => {
   const [employeeId, setEmployeeId] = useState<string>("");
   const [employeeName, setEmployeeName] = useState<string>("");
 
+  const [isEditing, setIsEditing] = useState(false);
+
   // Cutting Lot Details
   const [rows, setRows] = useState<CuttingRow[]>([]);
 
   // Cutting Stock Details
   const [stockRows, setStockRows] = useState<StockDetailRow[]>([]);
+
+  // ✅ Size entry state
+  const [sizeRowsMap, setSizeRowsMap] = useState<Record<number, SizeEntryRow[]>>(
+    {}
+  );
+  const [activeCuttingRowId, setActiveCuttingRowId] = useState<number | null>(
+    null
+  );
 
   // Masters
   const [employees, setEmployees] = useState<Employee[]>([]);
@@ -516,8 +596,6 @@ const CuttingModule: React.FC = () => {
   const [listSearch, setListSearch] = useState("");
   const [entryList, setEntryList] = useState<CuttingEntryDTO[]>([]);
 
-  const printRef = useRef<HTMLDivElement>(null);
-
   // ---------- Helpers ----------
   const resolveEmployeeName = useCallback(
     (empCode?: string | null) => {
@@ -539,11 +617,13 @@ const CuttingModule: React.FC = () => {
 
   const rateKey = (serial: string, it: IssueTo) => `${serial}|${it}`;
 
+  // ---------- Add rows ----------
   const addCuttingRow = useCallback(() => {
+    const newId = Date.now() + Math.floor(Math.random() * 1000);
     setRows((prev) => [
       ...prev,
       {
-        id: Date.now() + Math.floor(Math.random() * 1000),
+        id: newId,
         cutLotNo: "",
         artNo: "",
         itemName: "",
@@ -551,9 +631,12 @@ const CuttingModule: React.FC = () => {
         pcs: "",
         rate: "",
         amount: "",
+        artSerialNumber: "",
       },
     ]);
+    setActiveCuttingRowId(newId);
   }, []);
+
   const addStockRow = useCallback(() => {
     setStockRows((prev) => [
       ...prev,
@@ -571,19 +654,30 @@ const CuttingModule: React.FC = () => {
     ]);
   }, []);
 
+  // ---------- Reset ----------
   const resetForm = useCallback(
     async (keepDate = true) => {
+      setIsEditing(false);
+
       const d = keepDate ? date : new Date().toISOString().slice(0, 10);
       const next = await getNextSerial(d);
+
       setSerialNo(next);
       if (!keepDate) setDate(d);
+
       setEmployeeId("");
       setEmployeeName("");
+
       setIssueTo("Inside");
       setIssueBranchId("");
       setIssueBranchName("");
+
       setRows([]);
       setStockRows([]);
+
+      setSizeRowsMap({});
+      setActiveCuttingRowId(null);
+
       setTimeout(() => {
         addCuttingRow();
         addStockRow();
@@ -592,13 +686,16 @@ const CuttingModule: React.FC = () => {
     [date, addCuttingRow, addStockRow]
   );
 
+  // ---------- Initial load ----------
   useEffect(() => {
     (async () => {
       try {
         setSerialNo(await getNextSerial(date));
       } catch {}
+
       if (rows.length === 0) addCuttingRow();
       if (stockRows.length === 0) addStockRow();
+
       try {
         setEmployees(await listEmployees());
       } catch {}
@@ -614,11 +711,12 @@ const CuttingModule: React.FC = () => {
 
   useEffect(() => {
     (async () => {
+      if (isEditing) return;
       try {
         setSerialNo(await getNextSerial(date));
       } catch {}
     })();
-  }, [date]);
+  }, [date, isEditing]);
 
   const handleEmployeeChange = (val: string, labelText?: string) => {
     setEmployeeId(val);
@@ -626,7 +724,7 @@ const CuttingModule: React.FC = () => {
     setEmployeeName(nm);
   };
 
-  // ---------- Masters ----------
+  // ---------- Art / Finishing modals ----------
   const openArtModal = async (rowId: number) => {
     setArtRowId(rowId);
     setArtSearch("");
@@ -637,6 +735,7 @@ const CuttingModule: React.FC = () => {
       } catch {}
     }
   };
+
   const openFinishModal = async (rowId: number) => {
     setFinishRowId(rowId);
     setFinishSearch("");
@@ -646,11 +745,13 @@ const CuttingModule: React.FC = () => {
     } catch {}
   };
 
+  // ---------- Rate loading ----------
   const ensureRateLoaded = useCallback(
     async (a: ArtListItem, it: IssueTo) => {
       const key = rateKey(a.serialNumber, it);
       if (key in rateCache) return rateCache[key];
       if (fetchingRatesRef.current.has(key)) return undefined;
+
       fetchingRatesRef.current.add(key);
       try {
         const detail = await getArtDetail(a.serialNumber);
@@ -689,15 +790,47 @@ const CuttingModule: React.FC = () => {
 
   useEffect(() => {
     if (!artModalOpen) return;
-    const top = filteredArts.slice(0, 50);
-    top.forEach((a) => {
+    filteredArts.slice(0, 50).forEach((a) => {
       const key = rateKey(a.serialNumber, issueTo);
-      if (!(key in rateCache)) {
-        ensureRateLoaded(a, issueTo);
-      }
+      if (!(key in rateCache)) ensureRateLoaded(a, issueTo);
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [artModalOpen, filteredArts, issueTo]);
+
+  // ---------- Size rows init from ArtDetail ----------
+  const initSizeRowsForCuttingRow = useCallback(
+    async (cuttingRowId: number, artSerial: string) => {
+      try {
+        const detail = await getArtDetail(artSerial);
+        const sizes = extractSizesFromArtDetail(detail);
+        const baseSizes = sizes.length > 0 ? sizes : ["-"];
+
+        const next: SizeEntryRow[] = baseSizes.map((sz, idx) => ({
+          id: Date.now() + idx + Math.floor(Math.random() * 1000),
+          cuttingRowId,
+          size: String(sz),
+          box: "",
+          pcs: "",
+        }));
+
+        setSizeRowsMap((prev) => ({ ...prev, [cuttingRowId]: next }));
+      } catch {
+        setSizeRowsMap((prev) => ({
+          ...prev,
+          [cuttingRowId]: [
+            {
+              id: Date.now() + Math.floor(Math.random() * 1000),
+              cuttingRowId,
+              size: "-",
+              box: "",
+              pcs: "",
+            },
+          ],
+        }));
+      }
+    },
+    []
+  );
 
   // ---------- Row handlers ----------
   const handleCuttingChange = (
@@ -715,7 +848,10 @@ const CuttingModule: React.FC = () => {
         return next;
       })
     );
+
+    // ✅ FIX: Cutting Lot PCS change -> size table auto change NOT DONE
   };
+
   const handleStockChange = (
     id: number,
     field: keyof StockDetailRow,
@@ -733,8 +869,40 @@ const CuttingModule: React.FC = () => {
     );
   };
 
+  const handleSizeChange = (
+    cuttingRowId: number,
+    sizeRowId: number,
+    field: keyof Pick<SizeEntryRow, "box" | "pcs">,
+    value: string
+  ) => {
+    setSizeRowsMap((prev) => {
+      const current = prev[cuttingRowId] || [];
+      const updated = current.map((sr) =>
+        sr.id === sizeRowId ? ({ ...sr, [field]: value } as SizeEntryRow) : sr
+      );
+
+      // ✅ Size total -> Cutting pcs update
+      const totalSizePcs = updated.reduce((s, r) => s + sizeRowTotalPcs(r), 0);
+
+      setRows((prevRows) =>
+        prevRows.map((r) => {
+          if (r.id !== cuttingRowId) return r;
+          const rate = toNum(r.rate);
+          const pcsStr = totalSizePcs > 0 ? String(totalSizePcs) : "";
+          const amount =
+            totalSizePcs && rate ? (totalSizePcs * rate).toFixed(2) : "";
+          return { ...r, pcs: pcsStr, amount };
+        })
+      );
+
+      return { ...prev, [cuttingRowId]: updated };
+    });
+  };
+
+  // ---------- Apply selections ----------
   const applyArtToRow = async (a: ArtListItem) => {
     if (artRowId == null) return;
+
     const key = rateKey(a.serialNumber, issueTo);
 
     let finalRate: number;
@@ -765,9 +933,14 @@ const CuttingModule: React.FC = () => {
           itemName: a.artName || "",
           rate: finalRate ? String(finalRate) : "",
           amount,
+          artSerialNumber: a.serialNumber,
         };
       })
     );
+
+    await initSizeRowsForCuttingRow(artRowId, a.serialNumber);
+    setActiveCuttingRowId(artRowId);
+
     setArtModalOpen(false);
     setArtRowId(null);
   };
@@ -808,7 +981,6 @@ const CuttingModule: React.FC = () => {
     () => rows.reduce((s, r) => s + toNum(r.amount), 0),
     [rows]
   );
-
   const totalConsumption = useMemo(
     () => stockRows.reduce((s, r) => s + toNum(r.consumption), 0),
     [stockRows]
@@ -829,7 +1001,18 @@ const CuttingModule: React.FC = () => {
       : "0.0000";
   }, [totalPcs, totalConsumption, totalKho]);
 
-  // ---------- PRUNE + VALIDATE ----------
+  // ---------- Active size rows ----------
+  const activeSizeRows = useMemo(() => {
+    if (activeCuttingRowId == null) return [];
+    return sizeRowsMap[activeCuttingRowId] || [];
+  }, [sizeRowsMap, activeCuttingRowId]);
+
+  const activeSizeTotalPcs = useMemo(
+    () => activeSizeRows.reduce((s, r) => s + sizeRowTotalPcs(r), 0),
+    [activeSizeRows]
+  );
+
+  // ---------- Validate + build payload (✅ includes sizeRows) ----------
   const buildValidatedPayload = (): {
     ok: boolean;
     payload?: CuttingEntryDTO;
@@ -838,13 +1021,16 @@ const CuttingModule: React.FC = () => {
     if (!date) return { ok: false, msg: "Date is required" };
     if (!employeeId)
       return { ok: false, msg: "Please select Employee (Cutting)" };
+    if (issueTo === "Outside" && !issueBranchId)
+      return { ok: false, msg: "Please select Issue Branch (for Outside)" };
 
     const empNameResolved =
       (employeeName || "").trim() || resolveEmployeeName(employeeId) || "";
 
-    const lotRowsPruned = rows
-      .map((r, idx) => ({
-        sno: idx + 1,
+    // keep cuttingRowId for size mapping
+    const lotRowsWithKey = rows
+      .map((r) => ({
+        cuttingRowId: r.id,
         cutLotNo: (r.cutLotNo || "").trim(),
         artNo: (r.artNo || "").trim(),
         itemName: (r.itemName || "").trim(),
@@ -855,11 +1041,22 @@ const CuttingModule: React.FC = () => {
       }))
       .filter((r) => (r.artNo || r.itemName) && toNum(r.pcs) > 0);
 
-    if (lotRowsPruned.length === 0)
+    if (lotRowsWithKey.length === 0)
       return {
         ok: false,
         msg: "Add at least one Lot row with Art/Item and PCs > 0",
       };
+
+    const lotRows = lotRowsWithKey.map((r, idx) => ({
+      sno: idx + 1,
+      cutLotNo: r.cutLotNo,
+      artNo: r.artNo,
+      itemName: r.itemName,
+      shade: r.shade,
+      pcs: r.pcs,
+      rate: r.rate,
+      amount: r.amount,
+    }));
 
     const stockRowsPruned = stockRows
       .map((r, idx) => ({
@@ -886,30 +1083,46 @@ const CuttingModule: React.FC = () => {
         msg: "Add at least one Stock row with Item + (Consumption or KHO) + Rate > 0",
       };
 
+    // ✅ Build sizeRows payload for backend
+    const sizeRows: CuttingSizeRowDTO[] = [];
+    for (let i = 0; i < lotRowsWithKey.length; i++) {
+      const lot = lotRowsWithKey[i];
+      const lotSno = i + 1;
+
+      const list = sizeRowsMap[lot.cuttingRowId] || [];
+      for (const sr of list) {
+        const total = sizeRowTotalPcs(sr);
+
+        if (!(sr.size || "").trim() && !sr.box && !sr.pcs) continue;
+
+        sizeRows.push({
+          lotSno,
+          size: (sr.size || "").trim(),
+          box: (sr.box || "").trim(),
+          pcsPerBox: (sr.pcs || "").trim(),
+          totalPcs: String(total),
+        });
+      }
+    }
+
     const branchNameResolved =
       issueTo === "Outside"
         ? issueBranchName || resolveBranchName(issueBranchId)
         : "";
-
-    if (issueTo === "Outside" && !issueBranchId) {
-      return {
-        ok: false,
-        msg: "Please select Issue Branch (for Outside)",
-      };
-    }
 
     const payload: CuttingEntryDTO = {
       serialNo,
       date,
       employeeId,
       employeeName: empNameResolved,
+
       issueTo,
       issueBranchId: issueTo === "Outside" ? issueBranchId : undefined,
       issueBranchName: issueTo === "Outside" ? branchNameResolved : undefined,
 
-      totalPcs: String(lotRowsPruned.reduce((s, r) => s + toNum(r.pcs), 0)),
+      totalPcs: String(lotRows.reduce((s, r) => s + toNum(r.pcs), 0)),
       totalCuttingAmount: fmt(
-        lotRowsPruned.reduce((s, r) => s + toNum(r.amount), 0),
+        lotRows.reduce((s, r) => s + toNum(r.amount), 0),
         2
       ),
       totalConsumption: stockRowsPruned
@@ -922,15 +1135,20 @@ const CuttingModule: React.FC = () => {
         stockRowsPruned.reduce((s, r) => s + toNum(r.consAmount), 0),
         2
       ),
-      lotRows: lotRowsPruned,
+
+      lotRows,
       stockRows: stockRowsPruned,
+
+      sizeRows,
     };
+
     return { ok: true, payload };
   };
 
   const formInvalid = useMemo(() => {
     if (!date || !employeeId) return true;
     if (issueTo === "Outside" && !issueBranchId) return true;
+
     const lotOk = rows.some((r) => (r.artNo || r.itemName) && toNum(r.pcs) > 0);
     const stockOk = stockRows.some(
       (r) =>
@@ -941,57 +1159,262 @@ const CuttingModule: React.FC = () => {
     return !(lotOk && stockOk);
   }, [date, employeeId, rows, stockRows, issueTo, issueBranchId]);
 
-  // ✅ NEW BUTTON: detect if user has started filling
   const hasAnyData = useMemo(() => {
-    const lotDirty =
-      rows.some(
-        (r) =>
-          (r.cutLotNo || "").trim() ||
-          (r.artNo || "").trim() ||
-          (r.itemName || "").trim() ||
-          toNum(r.pcs) > 0 ||
-          toNum(r.rate) > 0
-      ) || false;
+    const lotDirty = rows.some(
+      (r) =>
+        (r.cutLotNo || "").trim() ||
+        (r.artNo || "").trim() ||
+        (r.itemName || "").trim() ||
+        toNum(r.pcs) > 0 ||
+        toNum(r.rate) > 0
+    );
 
-    const stockDirty =
-      stockRows.some(
-        (r) =>
-          (r.itemName || "").trim() ||
-          (r.shade || "").trim() ||
-          toNum(r.consumption) > 0 ||
-          toNum(r.kho) > 0 ||
-          toNum(r.consRate) > 0
-      ) || false;
+    const stockDirty = stockRows.some(
+      (r) =>
+        (r.itemName || "").trim() ||
+        (r.shade || "").trim() ||
+        toNum(r.consumption) > 0 ||
+        toNum(r.kho) > 0 ||
+        toNum(r.consRate) > 0
+    );
+
+    const sizeDirty = Object.values(sizeRowsMap).some((list) =>
+      (list || []).some(
+        (x) => (x.size || "").trim() || toNum(x.box) > 0 || toNum(x.pcs) > 0
+      )
+    );
 
     const headerDirty =
       !!employeeId ||
       issueTo === "Outside" ||
-      (String(issueBranchId || "").trim() !== "");
+      String(issueBranchId || "").trim() !== "";
 
-    return lotDirty || stockDirty || headerDirty;
-  }, [rows, stockRows, employeeId, issueTo, issueBranchId]);
+    return lotDirty || stockDirty || sizeDirty || headerDirty;
+  }, [rows, stockRows, sizeRowsMap, employeeId, issueTo, issueBranchId]);
+
+  // ---------- Print (✅ includes SIZE) ----------
+  const handlePrint = () => {
+    const printWindow = window.open("", "_blank");
+    if (!printWindow) return;
+
+    const empDisplay =
+      (employeeName || "").trim() || resolveEmployeeName(employeeId) || employeeId || "-";
+
+    const branchDisplay =
+      issueTo === "Outside"
+        ? issueBranchName || resolveBranchName(issueBranchId) || "-"
+        : "-";
+
+    const pcsTotal = rows.reduce((s, x) => s + toNum(x.pcs), 0);
+
+    const lotRowsHTML = rows
+      .map(
+        (r, i) => `
+          <tr>
+            <td>${i + 1}</td>
+            <td>${r.cutLotNo || "-"}</td>
+            <td>${r.artNo || "-"}</td>
+            <td>${r.itemName || "-"}</td>
+            <td>${r.shade || "-"}</td>
+            <td style="text-align:right">${r.pcs || "-"}</td>
+            <td style="text-align:right">${r.rate || "-"}</td>
+            <td style="text-align:right">${r.amount || "-"}</td>
+          </tr>
+        `
+      )
+      .join("");
+
+    const stockRowsHTML = stockRows
+      .map((r, i) => {
+        const cons = toNum(r.consumption);
+        const kho = toNum(r.kho);
+        const perPcs = pcsTotal > 0 ? ((cons + kho) / pcsTotal).toFixed(4) : "";
+        const perPcsRate =
+          toNum(perPcs) && toNum(r.consRate)
+            ? (toNum(perPcs) * toNum(r.consRate)).toFixed(2)
+            : "";
+        return `
+          <tr>
+            <td>${i + 1}</td>
+            <td>${r.itemName || "-"}</td>
+            <td>${r.shade || "-"}</td>
+            <td style="text-align:right">${r.consumption || "-"}</td>
+            <td style="text-align:right">${r.kho || "-"}</td>
+            <td>${r.unit || "-"}</td>
+            <td style="text-align:right">${perPcs || "-"}</td>
+            <td style="text-align:right">${r.consRate || "-"}</td>
+            <td style="text-align:right">${perPcsRate || "-"}</td>
+            <td style="text-align:right">${r.consAmount || "-"}</td>
+          </tr>`;
+      })
+      .join("");
+
+    // ✅ Size print: flattened (lot-wise)
+    const sizePrintRows: string[] = [];
+    let sizeGrandTotal = 0;
+
+    rows.forEach((lotRow, idx) => {
+      const lotSno = idx + 1;
+      const sizeList = sizeRowsMap[lotRow.id] || [];
+      if (!sizeList || sizeList.length === 0) return;
+
+      sizeList.forEach((sr, sidx) => {
+        const total = sizeRowTotalPcs(sr);
+        sizeGrandTotal += total;
+        sizePrintRows.push(`
+          <tr>
+            <td>${lotSno}</td>
+            <td>${lotRow.cutLotNo || "-"}</td>
+            <td>${lotRow.artNo || "-"}</td>
+            <td>${lotRow.itemName || "-"}</td>
+            <td>${sr.size || "-"}</td>
+            <td style="text-align:right">${sr.box || "-"}</td>
+            <td style="text-align:right">${sr.pcs || "-"}</td>
+            <td style="text-align:right">${total ? total : "-"}</td>
+          </tr>
+        `);
+      });
+    });
+
+    const sizeRowsHTML = sizePrintRows.join("");
+
+    const totals = {
+      pcs: pcsTotal,
+      lotAmount: rows.reduce((s, r) => s + toNum(r.amount), 0),
+      cons: stockRows.reduce((s, r) => s + toNum(r.consumption), 0),
+      kho: stockRows.reduce((s, r) => s + toNum(r.kho), 0),
+      consAmount: stockRows.reduce((s, r) => s + toNum(r.consAmount), 0),
+      avgPerPcs:
+        pcsTotal > 0
+          ? (
+              (stockRows.reduce((s, r) => s + toNum(r.consumption), 0) +
+                stockRows.reduce((s, r) => s + toNum(r.kho), 0)) /
+              pcsTotal
+            ).toFixed(4)
+          : "0.0000",
+    };
+
+    const html = `
+      <html>
+        <head>
+          <title>Cutting Entry - ${serialNo}</title>
+          <style>
+            body { font-family: Arial, sans-serif; margin: 20px; }
+            h2 { text-align: center; margin: 8px 0 16px; }
+            h3 { margin: 18px 0 8px; }
+            table { width: 100%; border-collapse: collapse; font-size: 12px; }
+            th, td { border: 1px solid #555; padding: 6px; text-align: center; }
+            th { background: #f0f0f0; }
+            .info p { margin: 2px 0; }
+            .totals { margin-top: 10px; font-weight: bold; }
+            .right { text-align: right; }
+          </style>
+        </head>
+        <body>
+          <h2>Cutting Entry</h2>
+
+          <div class="info">
+            <p><b>Serial:</b> ${serialNo || "-"}</p>
+            <p><b>Date:</b> ${date || "-"}</p>
+            <p><b>Employee:</b> ${empDisplay || "-"}</p>
+            <p><b>Issue To:</b> ${issueTo || "-"}</p>
+            <p><b>Branch:</b> ${issueTo === "Outside" ? branchDisplay : "-"}</p>
+          </div>
+
+          <h3>Lot Details</h3>
+          <table>
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Cutting Lot No</th>
+                <th>Art No</th>
+                <th>Item Name</th>
+                <th>Shade</th>
+                <th>PCs</th>
+                <th>Rate</th>
+                <th>Amount</th>
+              </tr>
+            </thead>
+            <tbody>${lotRowsHTML || `<tr><td colspan="8">No rows</td></tr>`}</tbody>
+          </table>
+
+          <div class="totals">
+            <div>Total PCs: ${totals.pcs}</div>
+            <div>Total Cutting Amount: ₹${totals.lotAmount.toFixed(2)}</div>
+          </div>
+
+          <h3>Stock Consumption</h3>
+          <table>
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Fabric Name</th>
+                <th>Shade</th>
+                <th>Consumption</th>
+                <th>KHO</th>
+                <th>Unit</th>
+                <th>Avg/Per Pcs</th>
+                <th>Fabric Rate</th>
+                <th>Per Pcs Rate</th>
+                <th>Amount</th>
+              </tr>
+            </thead>
+            <tbody>${stockRowsHTML || `<tr><td colspan="10">No rows</td></tr>`}</tbody>
+          </table>
+
+          <div class="totals">
+            <div>Total Consumption: ${totals.cons.toFixed(3)} ${stockRows[0]?.unit || "Kg"}</div>
+            <div>Total KHO: ${totals.kho.toFixed(3)} ${stockRows[0]?.unit || "Kg"}</div>
+            <div>Overall Avg/Per Pcs: ${totals.avgPerPcs}</div>
+            <div>Total Cons. Amount: ₹${totals.consAmount.toFixed(2)}</div>
+          </div>
+
+          <h3>Size Entry Details</h3>
+          <table>
+            <thead>
+              <tr>
+                <th>Lot SNo</th>
+                <th>Cut Lot No</th>
+                <th>Art No</th>
+                <th>Item</th>
+                <th>Size</th>
+                <th>Box</th>
+                <th>PCS/Box</th>
+                <th>Total PCS</th>
+              </tr>
+            </thead>
+            <tbody>${sizeRowsHTML || `<tr><td colspan="8">No size rows</td></tr>`}</tbody>
+          </table>
+          <div class="totals">
+            <div>Total Size PCS: ${sizeGrandTotal}</div>
+          </div>
+
+          <script>
+            window.print();
+            window.onafterprint = () => window.close();
+          </script>
+        </body>
+      </html>
+    `;
+
+    printWindow.document.write(html);
+    printWindow.document.close();
+  };
 
   // ---------- Actions ----------
   const handleSave = async () => {
     const { ok, payload, msg } = buildValidatedPayload();
-    if (!ok) {
-      Swal.fire("Validation", msg!, "warning");
-      return;
-    }
+    if (!ok) return Swal.fire("Validation", msg!, "warning");
 
     try {
       const dupMsg = await checkDuplicateCutLots(payload!);
-      if (dupMsg) {
-        Swal.fire("Error", dupMsg, "error");
-        return;
-      }
-    } catch (e) {
-      Swal.fire(
+      if (dupMsg) return Swal.fire("Error", dupMsg, "error");
+    } catch {
+      return Swal.fire(
         "Error",
-        "Failed to run Cutting Lot No uniqueness check. Please try again.",
+        "Failed to check Cutting Lot uniqueness.",
         "error"
       );
-      return;
     }
 
     const saved = await saveCutting(payload!);
@@ -1002,29 +1425,24 @@ const CuttingModule: React.FC = () => {
       timer: 1400,
       showConfirmButton: false,
     });
+
+    setIsEditing(false);
     setSerialNo(await getNextSerial(date));
   };
 
   const handleUpdate = async () => {
     const { ok, payload, msg } = buildValidatedPayload();
-    if (!ok) {
-      Swal.fire("Validation", msg!, "warning");
-      return;
-    }
+    if (!ok) return Swal.fire("Validation", msg!, "warning");
 
     try {
       const dupMsg = await checkDuplicateCutLots(payload!);
-      if (dupMsg) {
-        Swal.fire("Error", dupMsg, "error");
-        return;
-      }
-    } catch (e) {
-      Swal.fire(
+      if (dupMsg) return Swal.fire("Error", dupMsg, "error");
+    } catch {
+      return Swal.fire(
         "Error",
-        "Failed to run Cutting Lot No uniqueness check. Please try again.",
+        "Failed to check Cutting Lot uniqueness.",
         "error"
       );
-      return;
     }
 
     await updateCutting(serialNo, payload!);
@@ -1034,6 +1452,7 @@ const CuttingModule: React.FC = () => {
       timer: 1200,
       showConfirmButton: false,
     });
+    setIsEditing(true);
   };
 
   const handleDelete = async () => {
@@ -1045,6 +1464,7 @@ const CuttingModule: React.FC = () => {
       confirmButtonColor: "#dc2626",
     });
     if (!res.isConfirmed) return;
+
     await deleteCutting(serialNo);
     await Swal.fire({
       icon: "success",
@@ -1052,10 +1472,10 @@ const CuttingModule: React.FC = () => {
       timer: 1200,
       showConfirmButton: false,
     });
+
     await resetForm(true);
   };
 
-  // ✅ NEW BUTTON handler
   const handleNew = async () => {
     if (hasAnyData) {
       const res = await Swal.fire({
@@ -1068,14 +1488,12 @@ const CuttingModule: React.FC = () => {
       });
       if (!res.isConfirmed) return;
     }
-    await resetForm(true); // keep date, generate next serial, clear rows
+    await resetForm(true);
   };
 
-  // ---- View List: sorted by serialNo (challan no) ----
+  // ---- View List ----
   const openList = async () => {
     const data = await listCuttings();
-
-    // Sort by serialNo in sequence (serial wise)
     const sorted = data
       .slice()
       .sort((a, b) =>
@@ -1084,44 +1502,45 @@ const CuttingModule: React.FC = () => {
           sensitivity: "base",
         })
       );
-
     setEntryList(sorted);
     setListOpen(true);
   };
 
   const loadFromList = async (sn: string) => {
     const data = await getCutting(sn);
-    const empNameResolved =
-      (data.employeeName || "").trim() ||
-      resolveEmployeeName(data.employeeId || "") ||
-      "";
+
+    setIsEditing(true);
 
     setSerialNo(data.serialNo);
     setDate(data.date);
 
     setEmployeeId(data.employeeId || "");
-    setEmployeeName(empNameResolved);
+    setEmployeeName((data.employeeName || "").trim());
 
     setIssueTo((data.issueTo as IssueTo) || "Inside");
     setIssueBranchId((data.issueBranchId as any) || "");
     setIssueBranchName(data.issueBranchName || "");
 
-    setRows(
-      (data.lotRows || []).map((r, i) => ({
-        id: i + 1,
-        cutLotNo: r.cutLotNo || "",
-        artNo: r.artNo || "",
-        itemName: r.itemName || "",
-        shade: r.shade || "",
-        pcs: r.pcs || "",
-        rate: r.rate || "",
-        amount: r.amount || "",
-      }))
-    );
+    // Lot rows
+    const lot: CuttingRow[] = (data.lotRows || []).map((r, i) => ({
+      id: r.sno ?? i + 1, // sno stable for size mapping
+      cutLotNo: r.cutLotNo || "",
+      artNo: r.artNo || "",
+      itemName: r.itemName || "",
+      shade: r.shade || "",
+      pcs: r.pcs || "",
+      rate: r.rate || "",
+      amount: r.amount || "",
+      artSerialNumber: "",
+    }));
+    setRows(lot);
+    setActiveCuttingRowId(lot[0]?.id ?? null);
+
+    // Stock rows
     setStockRows(
       (data.stockRows || []).map((r, i) => ({
-        id: i + 1000,
-        finishingInwardRowId: r.finishingInwardRowId || null,
+        id: r.sno ?? i + 1000,
+        finishingInwardRowId: r.finishingInwardRowId ?? null,
         itemName: r.itemName || "",
         shade: r.shade || "",
         unit: r.unit || "Kg",
@@ -1131,93 +1550,32 @@ const CuttingModule: React.FC = () => {
         consAmount: r.consAmount || "",
       }))
     );
+
+    // ✅ Load sizeRows from backend
+    const nextMap: Record<number, SizeEntryRow[]> = {};
+    for (const sr of data.sizeRows || []) {
+      const lotSno = sr.lotSno;
+      if (!lotSno) continue;
+      if (!nextMap[lotSno]) nextMap[lotSno] = [];
+      nextMap[lotSno].push({
+        id: Date.now() + Math.floor(Math.random() * 1000),
+        cuttingRowId: lotSno,
+        size: sr.size || "-",
+        box: sr.box || "",
+        pcs: sr.pcsPerBox || "",
+      });
+    }
+    setSizeRowsMap(nextMap);
+
     setListOpen(false);
   };
 
   // ---------- Issue To ----------
-  const recalcRatesForCurrentRows = async (it: IssueTo) => {
-    try {
-      let artsList = arts;
-      if (!artsList || artsList.length === 0) {
-        try {
-          artsList = await listArts();
-          setArts(artsList);
-        } catch {}
-      }
-
-      const updated = [...rows];
-      let changed = 0;
-
-      for (let idx = 0; idx < updated.length; idx++) {
-        const r = updated[idx];
-        if (!(r.artNo || r.itemName)) continue;
-
-        const a =
-          artsList.find(
-            (x) =>
-              (x.artNo || "").toLowerCase() === (r.artNo || "").toLowerCase()
-          ) ||
-          artsList.find(
-            (x) =>
-              (x.artName || "").toLowerCase() ===
-              (r.itemName || "").toLowerCase()
-          );
-        if (!a) continue;
-
-        const key = rateKey(a.serialNumber, it);
-        let newRate: number;
-        if (key in rateCache) {
-          newRate = rateCache[key];
-        } else {
-          try {
-            const detail = await getArtDetail(a.serialNumber);
-            const pr =
-              extractCuttingRate(detail, it) ||
-              toNum(a.saleRate || a.styleRate || "");
-            setRateCache((prev) => ({ ...prev, [key]: pr }));
-            newRate = pr;
-          } catch {
-            newRate = toNum(a.saleRate || a.styleRate || "");
-            setRateCache((prev) => ({ ...prev, [key]: newRate }));
-          }
-        }
-
-        if (newRate) {
-          updated[idx].rate = String(newRate);
-          const pcsNum = toNum(updated[idx].pcs);
-          updated[idx].amount = pcsNum ? (pcsNum * newRate).toFixed(2) : "";
-          changed += 1;
-        }
-      }
-
-      setRows(updated);
-      if (changed > 0) {
-        Swal.fire({
-          icon: "success",
-          title: "Rates updated",
-          text: `Applied new rates to ${changed} rows`,
-          timer: 1200,
-          showConfirmButton: false,
-        });
-      } else {
-        Swal.fire({
-          icon: "info",
-          title: "No changes",
-          text: "No rows updated (missing art or same rate).",
-          timer: 1200,
-          showConfirmButton: false,
-        });
-      }
-    } catch {
-      // ignore
-    }
-  };
-
   const handleIssueToButton = async () => {
     const res = await Swal.fire({
       icon: "question",
       title: "Issue To",
-      text: "Select the process to use for Cutting rates",
+      text: "Select process to use for Cutting rates",
       showCancelButton: true,
       showDenyButton: true,
       confirmButtonText: "Inside",
@@ -1254,190 +1612,6 @@ const CuttingModule: React.FC = () => {
       setIssueBranchId("");
       setIssueBranchName("");
     }
-
-    const res2 = await Swal.fire({
-      icon: "question",
-      title: `Apply ${newIt} rates to current rows?`,
-      text: "This will recalculate Cutting rate for rows where Art is selected.",
-      showCancelButton: true,
-      confirmButtonText: "Yes, apply",
-      cancelButtonText: "No",
-    });
-    if (res2.isConfirmed) {
-      await recalcRatesForCurrentRows(newIt);
-    }
-  };
-
-  // ---------- Print ----------
-  const handlePrint = () => {
-    const printWindow = window.open("", "_blank");
-    if (!printWindow) return;
-
-    const empDisplay =
-      (employeeName || "").trim() ||
-      resolveEmployeeName(employeeId) ||
-      employeeId ||
-      "";
-
-    const branchDisplay =
-      issueTo === "Outside"
-        ? issueBranchName || resolveBranchName(issueBranchId) || ""
-        : "";
-
-    const pcsTotal = rows.reduce((s, x) => s + toNum(x.pcs), 0);
-
-    const lotRowsHTML = rows
-      .map((r, i) => {
-        return `
-          <tr>
-            <td>${i + 1}</td>
-            <td>${r.cutLotNo || "-"}</td>
-            <td>${r.artNo || "-"}</td>
-            <td>${r.itemName || "-"}</td>
-            <td>${r.shade || "-"}</td>
-            <td style="text-align:right">${r.pcs || "-"}</td>
-            <td style="text-align:right">${r.rate || "-"}</td>
-            <td style="text-align:right">${r.amount || "-"}</td>
-          </tr>
-        `;
-      })
-      .join("");
-
-    const stockRowsHTML = stockRows
-      .map((r, i) => {
-        const cons = toNum(r.consumption);
-        const kho = toNum(r.kho);
-        const perPcs = pcsTotal > 0 ? ((cons + kho) / pcsTotal).toFixed(4) : "";
-        const perPcsRate =
-          toNum(perPcs) && toNum(r.consRate)
-            ? (toNum(perPcs) * toNum(r.consRate)).toFixed(2)
-            : "";
-        return `
-          <tr>
-            <td>${i + 1}</td>
-            <td>${r.itemName || "-"}</td>
-            <td>${r.shade || "-"}</td>
-            <td style="text-align:right">${r.consumption || "-"}</td>
-            <td style="text-align:right">${r.kho || "-"}</td>
-            <td>${r.unit || "-"}</td>
-            <td style="text-align:right">${perPcs || "-"}</td>
-            <td style="text-align:right">${r.consRate || "-"}</td>
-            <td style="text-align:right">${perPcsRate || "-"}</td>
-            <td style="text-align:right">${r.consAmount || "-"}</td>
-          </tr>`;
-      })
-      .join("");
-
-    const totals = {
-      pcs: pcsTotal,
-      lotAmount: rows.reduce((s, r) => s + toNum(r.amount), 0),
-      cons: stockRows.reduce((s, r) => s + toNum(r.consumption), 0),
-      kho: stockRows.reduce((s, r) => s + toNum(r.kho), 0),
-      consAmount: stockRows.reduce((s, r) => s + toNum(r.consAmount), 0),
-      avgPerPcs:
-        pcsTotal > 0
-          ? (
-              (stockRows.reduce((s, r) => s + toNum(r.consumption), 0) +
-                stockRows.reduce((s, r) => s + toNum(r.kho), 0)) /
-              pcsTotal
-            ).toFixed(4)
-          : "0.0000",
-    };
-
-    const html = `
-      <html>
-        <head>
-          <title>Cutting Entry - ${serialNo}</title>
-          <style>
-            body { font-family: Arial, sans-serif; margin: 20px; }
-            h2 { text-align: center; margin: 8px 0 16px; }
-            h3 { margin: 18px 0 8px; }
-            table { width: 100%; border-collapse: collapse; font-size: 12px; }
-            th, td { border: 1px solid #555; padding: 6px; text-align: center; }
-            th { background: #f0f0f0; }
-            .info p { margin: 2px 0; }
-            .totals { margin-top: 12px; font-weight: bold; }
-          </style>
-        </head>
-        <body>
-          <h2>Cutting Entry</h2>
-          <div class="info">
-            <p><b>Serial:</b> ${serialNo || "-"}</p>
-            <p><b>Date:</b> ${date || "-"}</p>
-            <p><b>Employee:</b> ${empDisplay || "-"}</p>
-            <p><b>Issue To:</b> ${issueTo}</p>
-            ${
-              issueTo === "Outside"
-                ? `<p><b>Branch:</b> ${branchDisplay || "-"}</p>`
-                : ""
-            }
-          </div>
-
-          <h3>Lot Details</h3>
-          <table>
-            <thead>
-              <tr>
-                <th>#</th>
-                <th>Cutting Lot No</th>
-                <th>Art No</th>
-                <th>Item Name</th>
-                <th>Shade</th>
-                <th>PCs</th>
-                <th>Rate</th>
-                <th>Amount</th>
-              </tr>
-            </thead>
-            <tbody>${
-              lotRowsHTML || `<tr><td colspan="8">No rows</td></tr>`
-            }</tbody>
-          </table>
-
-          <div class="totals">
-            <p>Total PCs: ${totals.pcs}</p>
-            <p>Total Cutting Amount: ₹${totals.lotAmount.toFixed(2)}</p>
-          </div>
-
-          <h3 style="margin-top:20px;">Stock Consumption</h3>
-          <table>
-            <thead>
-              <tr>
-                <th>#</th>
-                <th>Fabric Name</th>
-                <th>Shade</th>
-                <th>Consumption</th>
-                <th>KHO</th>
-                <th>Unit</th>
-                <th>Avg/Per Pcs</th>
-                <th>Fabric Rate</th>
-                <th>Per Pcs Rate</th>
-                <th>Amount</th>
-              </tr>
-            </thead>
-            <tbody>${
-              stockRowsHTML || `<tr><td colspan="10">No rows</td></tr>`
-            }</tbody>
-          </table>
-
-          <div class="totals">
-            <p>Total Consumption: ${totals.cons.toFixed(3)} ${
-      stockRows[0]?.unit || "Kg"
-    }</p>
-            <p>Total KHO: ${totals.kho.toFixed(3)} ${
-      stockRows[0]?.unit || "Kg"
-    }</p>
-            <p>Overall Avg/Per Pcs: ${totals.avgPerPcs}</p>
-            <p>Total Cons. Amount: ₹${totals.consAmount.toFixed(2)}</p>
-          </div>
-
-          <script>
-            window.print();
-            window.onafterprint = () => window.close();
-          </script>
-        </body>
-      </html>
-    `;
-    printWindow.document.write(html);
-    printWindow.document.close();
   };
 
   // ================= JSX =================
@@ -1450,18 +1624,21 @@ const CuttingModule: React.FC = () => {
             <div className="flex items-center justify-between mb-3">
               <h3 className="text-lg font-bold">Cutting Entries</h3>
               <button
+                type="button"
                 onClick={() => setListOpen(false)}
                 className="px-3 py-1 bg-gray-200 rounded"
               >
                 Close
               </button>
             </div>
+
             <input
               value={listSearch}
               onChange={(e) => setListSearch(e.target.value)}
               placeholder="Search serial / lot no / employee / date / issue to / branch"
               className="border p-2 rounded w-full mb-3"
             />
+
             <div className="overflow-auto max-h-[70vh] border">
               <table className="w-full text-sm">
                 <thead className="bg-gray-100">
@@ -1488,31 +1665,17 @@ const CuttingModule: React.FC = () => {
                       const lotNos = (e.lotRows || [])
                         .map((r) => r.cutLotNo || "")
                         .join(", ");
+                      const emp = (e.employeeName || "").trim();
                       return (
                         (e.serialNo || "").toLowerCase().includes(q) ||
                         lotNos.toLowerCase().includes(q) ||
-                        (
-                          (e.employeeName ||
-                            resolveEmployeeName(e.employeeId || "") ||
-                            "") as string
-                        )
-                          .toLowerCase()
-                          .includes(q) ||
+                        emp.toLowerCase().includes(q) ||
                         (e.date || "").toLowerCase().includes(q) ||
-                        String(e.issueTo || "")
-                          .toLowerCase()
-                          .includes(q) ||
-                        String(e.issueBranchName || "")
-                          .toLowerCase()
-                          .includes(q)
+                        String(e.issueTo || "").toLowerCase().includes(q) ||
+                        String(e.issueBranchName || "").toLowerCase().includes(q)
                       );
                     })
                     .map((e, i) => {
-                      const nameResolved =
-                        (e.employeeName || "").trim() ||
-                        resolveEmployeeName(e.employeeId || "") ||
-                        e.employeeId ||
-                        "-";
                       const lotNos = (e.lotRows || [])
                         .map((r) => r.cutLotNo)
                         .filter(Boolean)
@@ -1529,7 +1692,7 @@ const CuttingModule: React.FC = () => {
                               ? e.issueBranchName || "-"
                               : "-"}
                           </td>
-                          <td className="border p-2">{nameResolved}</td>
+                          <td className="border p-2">{e.employeeName || "-"}</td>
                           <td className="border p-2 text-right">
                             {e.totalPcs || "0"}
                           </td>
@@ -1542,42 +1705,19 @@ const CuttingModule: React.FC = () => {
                           <td className="border p-2 text-right">
                             ₹{e.totalConsAmount || "0.00"}
                           </td>
-                          <td className="border p-2 text-center space-x-2">
+                          <td className="border p-2 text-center">
                             <button
+                              type="button"
                               onClick={() => loadFromList(e.serialNo)}
                               className="px-3 py-1 bg-blue-600 text-white rounded"
                             >
                               Edit
                             </button>
-                            <button
-                              onClick={async () => {
-                                const res = await Swal.fire({
-                                  icon: "warning",
-                                  title: `Delete ${e.serialNo}?`,
-                                  showCancelButton: true,
-                                  confirmButtonText: "Delete",
-                                  confirmButtonColor: "#dc2626",
-                                });
-                                if (!res.isConfirmed) return;
-                                await deleteCutting(e.serialNo);
-                                setEntryList((prev) =>
-                                  prev.filter((x) => x.serialNo !== e.serialNo)
-                                );
-                                Swal.fire({
-                                  icon: "success",
-                                  title: "Deleted",
-                                  timer: 1200,
-                                  showConfirmButton: false,
-                                });
-                              }}
-                              className="px-3 py-1 bg-red-600 text-white rounded"
-                            >
-                              Delete
-                            </button>
                           </td>
                         </tr>
                       );
                     })}
+
                   {entryList.length === 0 && (
                     <tr>
                       <td
@@ -1612,6 +1752,7 @@ const CuttingModule: React.FC = () => {
                 className="border p-2 rounded w-full bg-gray-100"
               />
             </div>
+
             <div>
               <label className="block text-sm font-semibold mb-1">Date</label>
               <input
@@ -1621,6 +1762,7 @@ const CuttingModule: React.FC = () => {
                 className="border p-2 rounded w-full"
               />
             </div>
+
             <div className="col-span-2">
               <label className="block text-sm font-semibold mb-1">
                 Employee (Cutting)
@@ -1670,249 +1812,367 @@ const CuttingModule: React.FC = () => {
             )}
           </div>
 
-          {/* Cutting Lot + Stock */}
-          <div ref={printRef}>
-            {/* Cutting Lot Details */}
-            <h3 className="text-lg font-semibold mb-2">Cutting Lot Details</h3>
-            <div className="overflow-x-auto">
-              <table className="w-full border text-sm">
-                <thead className="bg-gray-100">
-                  <tr>
-                    <th className="border p-2 text-center">S.No</th>
-                    <th className="border p-2">Cutting Lot No.</th>
-                    <th className="border p-2">Art No.</th>
-                    <th className="border p-2">Item Name</th>
-                    <th className="border p-2">Colour/Shade</th>
-                    <th className="border p-2 text-right">PCs</th>
-                    <th className="border p-2 text-right">Rate</th>
-                    <th className="border p-2 text-right">Amount</th>
+          {/* Cutting Lot */}
+          <h3 className="text-lg font-semibold mb-2">Cutting Lot Details</h3>
+          <div className="overflow-x-auto">
+            <table className="w-full border text-sm">
+              <thead className="bg-gray-100">
+                <tr>
+                  <th className="border p-2 text-center">S.No</th>
+                  <th className="border p-2">Cutting Lot No.</th>
+                  <th className="border p-2">Art No.</th>
+                  <th className="border p-2">Item Name</th>
+                  <th className="border p-2">Colour/Shade</th>
+                  <th className="border p-2 text-right">PCs</th>
+                  <th className="border p-2 text-right">Rate</th>
+                  <th className="border p-2 text-right">Amount</th>
+                </tr>
+              </thead>
+
+              <tbody>
+                {rows.map((r, i) => (
+                  <tr
+                    key={r.id}
+                    onClick={() => setActiveCuttingRowId(r.id)}
+                    className={`cursor-pointer ${
+                      activeCuttingRowId === r.id ? "bg-blue-50" : ""
+                    }`}
+                    title="Click row to edit Size Entry"
+                  >
+                    <td className="border p-1 text-center">{i + 1}</td>
+
+                    <td className="border p-1">
+                      <input
+                        value={r.cutLotNo}
+                        onChange={(e) =>
+                          handleCuttingChange(r.id, "cutLotNo", e.target.value)
+                        }
+                        className="border p-1 rounded w-full"
+                        placeholder="Type cutting lot no."
+                      />
+                    </td>
+
+                    <td className="border p-1">
+                      <input
+                        value={r.artNo}
+                        readOnly
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          openArtModal(r.id);
+                        }}
+                        className="border p-1 rounded w-full bg-yellow-50 cursor-pointer"
+                        placeholder="Click to select Art"
+                      />
+                    </td>
+
+                    <td className="border p-1">
+                      <input
+                        value={r.itemName}
+                        readOnly
+                        className="border p-1 rounded w-full bg-gray-50"
+                      />
+                    </td>
+
+                    <td className="border p-1">
+                      <ShadeDropdown
+                        value={r.shade}
+                        onChange={(val) =>
+                          handleCuttingChange(r.id, "shade", val)
+                        }
+                        options={shades}
+                        className="w-full"
+                        placeholder="Select shade"
+                      />
+                    </td>
+
+                    <td className="border p-1">
+                      <NumTextInput
+                        value={r.pcs}
+                        onChangeValue={(v) =>
+                          handleCuttingChange(r.id, "pcs", v)
+                        }
+                        className="border p-1 rounded w-full text-right"
+                        placeholder="0"
+                      />
+                    </td>
+
+                    <td className="border p-1">
+                      <input
+                        value={r.rate}
+                        readOnly
+                        className="border p-1 rounded w-full text-right bg-gray-50"
+                        placeholder={`Auto from Art (Cutting ${issueTo})`}
+                      />
+                    </td>
+
+                    <td className="border p-1 text-right bg-gray-50">
+                      {r.amount ? `₹${Number(r.amount).toFixed(2)}` : "-"}
+                    </td>
                   </tr>
-                </thead>
-                <tbody>
-                  {rows.map((r, i) => (
+                ))}
+              </tbody>
+
+              {rows.length > 0 && (
+                <tfoot>
+                  <tr className="bg-gray-100 font-semibold">
+                    <td className="border p-2 text-right" colSpan={5}>
+                      Totals
+                    </td>
+                    <td className="border p-2 text-right">{totalPcs}</td>
+                    <td className="border p-2 text-right">—</td>
+                    <td className="border p-2 text-right">
+                      ₹{fmt(totalCuttingAmount, 2)}
+                    </td>
+                  </tr>
+                </tfoot>
+              )}
+            </table>
+          </div>
+
+          {/* Cutting Stock */}
+          <h3 className="text-lg font-semibold mt-6 mb-2">
+            Cutting Stock Details
+          </h3>
+          <div className="overflow-x-auto">
+            <table className="w-full border text-sm">
+              <thead className="bg-gray-100">
+                <tr>
+                  <th className="border p-2 text-center">S.No</th>
+                  <th className="border p-2">Fabric Name (In-house)</th>
+                  <th className="border p-2">Shade</th>
+                  <th className="border p-2 text-right">Consumption</th>
+                  <th className="border p-2 text-right">KHO</th>
+                  <th className="border p-2 text-center">Unit</th>
+                  <th className="border p-2 text-right">Avg/Per Pcs</th>
+                  <th className="border p-2 text-right">Fabric Rate</th>
+                  <th className="border p-2 text-right">Per Pcs Rate</th>
+                  <th className="border p-2 text-right">Amount</th>
+                </tr>
+              </thead>
+
+              <tbody>
+                {stockRows.map((r, i) => {
+                  const pcs = totalPcs || 0;
+                  const avg =
+                    pcs > 0
+                      ? ((toNum(r.consumption) + toNum(r.kho)) / pcs).toFixed(4)
+                      : "";
+                  const ppr =
+                    toNum(avg) && toNum(r.consRate)
+                      ? (toNum(avg) * toNum(r.consRate)).toFixed(2)
+                      : "";
+
+                  return (
                     <tr key={r.id}>
                       <td className="border p-1 text-center">{i + 1}</td>
-                      <td className="border p-1">
-                        <input
-                          value={r.cutLotNo}
-                          onChange={(e) =>
-                            handleCuttingChange(
-                              r.id,
-                              "cutLotNo",
-                              e.target.value
-                            )
-                          }
-                          className="border p-1 rounded w-full"
-                          placeholder="Type cutting lot no."
-                        />
-                      </td>
-                      <td className="border p-1">
-                        <input
-                          value={r.artNo}
-                          readOnly
-                          onClick={() => openArtModal(r.id)}
-                          className="border p-1 rounded w-full bg-yellow-50 cursor-pointer"
-                          placeholder="Click to select Art"
-                        />
-                      </td>
+
                       <td className="border p-1">
                         <input
                           value={r.itemName}
                           readOnly
-                          className="border p-1 rounded w-full bg-gray-50"
+                          onClick={() => openFinishModal(r.id)}
+                          className="border p-1 rounded w-full bg-yellow-50 cursor-pointer"
+                          placeholder="Click to select Fabric"
                         />
                       </td>
+
                       <td className="border p-1">
                         <ShadeDropdown
                           value={r.shade}
                           onChange={(val) =>
-                            handleCuttingChange(r.id, "shade", val)
+                            handleStockChange(r.id, "shade", val)
                           }
                           options={shades}
                           className="w-full"
                           placeholder="Select shade"
                         />
                       </td>
+
                       <td className="border p-1">
-                        <input
-                          type="number"
-                          value={r.pcs}
-                          onChange={(e) =>
-                            handleCuttingChange(r.id, "pcs", e.target.value)
+                        <NumTextInput
+                          value={r.consumption}
+                          onChangeValue={(v) =>
+                            handleStockChange(r.id, "consumption", v)
                           }
                           className="border p-1 rounded w-full text-right"
+                          placeholder="0.000"
                         />
                       </td>
+
+                      <td className="border p-1">
+                        <NumTextInput
+                          value={r.kho}
+                          onChangeValue={(v) =>
+                            handleStockChange(r.id, "kho", v)
+                          }
+                          className="border p-1 rounded w-full text-right"
+                          placeholder="0.000"
+                          title="Manual KHO"
+                        />
+                      </td>
+
+                      <td className="border p-1 text-center">
+                        <select
+                          value={r.unit}
+                          onChange={(e) =>
+                            handleStockChange(r.id, "unit", e.target.value)
+                          }
+                          className="border p-1 rounded w-full"
+                        >
+                          <option value="Kg">Kg</option>
+                          <option value="Mtr">Mtr</option>
+                        </select>
+                      </td>
+
+                      <td className="border p-1 text-right bg-gray-50">
+                        {avg || "-"}
+                      </td>
+
                       <td className="border p-1">
                         <input
-                          value={r.rate}
+                          value={r.consRate}
                           readOnly
                           className="border p-1 rounded w-full text-right bg-gray-50"
-                          placeholder={`Auto from Art (Cutting ${issueTo})`}
                         />
                       </td>
+
                       <td className="border p-1 text-right bg-gray-50">
-                        {r.amount ? `₹${Number(r.amount).toFixed(2)}` : "-"}
+                        {ppr || "-"}
+                      </td>
+
+                      <td className="border p-1 text-right bg-gray-50">
+                        {r.consAmount
+                          ? `₹${Number(r.consAmount).toFixed(2)}`
+                          : "-"}
                       </td>
                     </tr>
-                  ))}
-                </tbody>
-                {rows.length > 0 && (
-                  <tfoot>
-                    <tr className="bg-gray-100 font-semibold">
-                      <td className="border p-2 text-right" colSpan={5}>
-                        Totals
-                      </td>
-                      <td className="border p-2 text-right">{totalPcs}</td>
-                      <td className="border p-2 text-right">—</td>
-                      <td className="border p-2 text-right">
-                        ₹{fmt(totalCuttingAmount, 2)}
-                      </td>
-                    </tr>
-                  </tfoot>
-                )}
-              </table>
+                  );
+                })}
+              </tbody>
+
+              {stockRows.length > 0 && (
+                <tfoot>
+                  <tr className="bg-gray-100 font-semibold">
+                    <td className="border p-2 text-right" colSpan={3}>
+                      Totals
+                    </td>
+                    <td className="border p-2 text-right">
+                      {totalConsumption.toFixed(3)}
+                    </td>
+                    <td className="border p-2 text-right">
+                      {totalKho.toFixed(3)}
+                    </td>
+                    <td className="border p-2 text-right">—</td>
+                    <td className="border p-2 text-right">
+                      {overallAvgPerPcs}
+                    </td>
+                    <td className="border p-2 text-right">—</td>
+                    <td className="border p-2 text-right">—</td>
+                    <td className="border p-2 text-right">
+                      ₹{fmt(totalConsAmount, 2)}
+                    </td>
+                  </tr>
+                </tfoot>
+              )}
+            </table>
+          </div>
+
+          {/* ✅ Size Entry AFTER stock */}
+          <div className="mt-6">
+            <h3 className="text-lg font-semibold mb-2">Size Entry Details</h3>
+            <div className="text-xs text-gray-600 mb-2">
+              Cutting Lot table me kisi row par click karke size entry fill karein.
+              Total PCS = Box × PCS (Per Box).
             </div>
 
-            {/* Cutting Stock Details */}
-            <h3 className="text-lg font-semibold mt-6 mb-2">
-              Cutting Stock Details
-            </h3>
             <div className="overflow-x-auto">
               <table className="w-full border text-sm">
                 <thead className="bg-gray-100">
                   <tr>
                     <th className="border p-2 text-center">S.No</th>
-                    <th className="border p-2">Fabric Name (In-house)</th>
-                    <th className="border p-2">Shade</th>
-                    <th className="border p-2 text-right">Consumption</th>
-                    <th className="border p-2 text-right">KHO</th>
-                    <th className="border p-2 text-center">Unit</th>
-                    <th className="border p-2 text-right">Avg/Per Pcs</th>
-                    <th className="border p-2 text-right">Fabric Rate</th>
-                    <th className="border p-2 text-right">Per Pcs Rate</th>
-                    <th className="border p-2 text-right">Amount</th>
+                    <th className="border p-2">Size</th>
+                    <th className="border p-2 text-right">Box</th>
+                    <th className="border p-2 text-right">PCS (Per Box)</th>
+                    <th className="border p-2 text-right">Total PCS</th>
                   </tr>
                 </thead>
+
                 <tbody>
-                  {stockRows.map((r, i) => {
-                    const pcs = totalPcs || 0;
-                    const avg =
-                      pcs > 0
-                        ? ((toNum(r.consumption) + toNum(r.kho)) / pcs).toFixed(
-                            4
-                          )
-                        : "";
-                    const ppr =
-                      toNum(avg) && toNum(r.consRate)
-                        ? (toNum(avg) * toNum(r.consRate)).toFixed(2)
-                        : "";
-                    return (
-                      <tr key={r.id}>
-                        <td className="border p-1 text-center">{i + 1}</td>
-                        <td className="border p-1">
-                          <input
-                            value={r.itemName}
-                            readOnly
-                            onClick={() => openFinishModal(r.id)}
-                            className="border p-1 rounded w-full bg-yellow-50 cursor-pointer"
-                            placeholder="Click to select Fabric"
-                          />
-                        </td>
-                        <td className="border p-1">
-                          <ShadeDropdown
-                            value={r.shade}
-                            onChange={(val) =>
-                              handleStockChange(r.id, "shade", val)
-                            }
-                            options={shades}
-                            className="w-full"
-                            placeholder="Select shade"
-                          />
-                        </td>
-                        <td className="border p-1">
-                          <input
-                            type="number"
-                            value={r.consumption}
-                            onChange={(e) =>
-                              handleStockChange(
-                                r.id,
-                                "consumption",
-                                e.target.value
-                              )
-                            }
-                            className="border p-1 rounded w-full text-right"
-                            placeholder="0.000"
-                          />
-                        </td>
-                        <td className="border p-1">
-                          <input
-                            type="number"
-                            value={r.kho}
-                            onChange={(e) =>
-                              handleStockChange(r.id, "kho", e.target.value)
-                            }
-                            className="border p-1 rounded w-full text-right"
-                            placeholder="0.000"
-                            title="Manual KHO (wastage)"
-                          />
-                        </td>
-                        <td className="border p-1 text-center">
-                          <select
-                            value={r.unit}
-                            onChange={(e) =>
-                              handleStockChange(r.id, "unit", e.target.value)
-                            }
-                            className="border p-1 rounded w-full"
-                          >
-                            <option value="Kg">Kg</option>
-                            <option value="Mtr">Mtr</option>
-                          </select>
-                        </td>
-                        <td className="border p-1 text-right bg-gray-50">
-                          {avg || "-"}
-                        </td>
-                        <td className="border p-1">
-                          <input
-                            type="number"
-                            value={r.consRate}
-                            readOnly
-                            className="border p-1 rounded w-full text-right bg-gray-50"
-                            title="Sum of (KYR+Dyeing Rate) and Finishing Rate from Finishing Inward"
-                          />
-                        </td>
-                        <td className="border p-1 text-right bg-gray-50">
-                          {ppr || "-"}
-                        </td>
-                        <td className="border p-1 text-right bg-gray-50">
-                          {r.consAmount
-                            ? `₹${Number(r.consAmount).toFixed(2)}`
-                            : "-"}
-                        </td>
-                      </tr>
-                    );
-                  })}
+                  {!activeCuttingRowId ? (
+                    <tr>
+                      <td
+                        className="border p-3 text-center text-gray-500"
+                        colSpan={5}
+                      >
+                        Click any Cutting Lot row to view size entries
+                      </td>
+                    </tr>
+                  ) : activeSizeRows.length === 0 ? (
+                    <tr>
+                      <td
+                        className="border p-3 text-center text-gray-500"
+                        colSpan={5}
+                      >
+                        No sizes loaded. Please select Art in Cutting Lot row.
+                      </td>
+                    </tr>
+                  ) : (
+                    activeSizeRows.map((sr, idx) => {
+                      const rowTotal = sizeRowTotalPcs(sr);
+                      return (
+                        <tr key={sr.id}>
+                          <td className="border p-1 text-center">{idx + 1}</td>
+                          <td className="border p-1">{sr.size || "-"}</td>
+
+                          <td className="border p-1">
+                            <NumTextInput
+                              value={sr.box}
+                              onChangeValue={(v) =>
+                                handleSizeChange(
+                                  sr.cuttingRowId,
+                                  sr.id,
+                                  "box",
+                                  v
+                                )
+                              }
+                              className="border p-1 rounded w-full text-right"
+                              placeholder="0"
+                            />
+                          </td>
+
+                          <td className="border p-1">
+                            <NumTextInput
+                              value={sr.pcs}
+                              onChangeValue={(v) =>
+                                handleSizeChange(
+                                  sr.cuttingRowId,
+                                  sr.id,
+                                  "pcs",
+                                  v
+                                )
+                              }
+                              className="border p-1 rounded w-full text-right"
+                              placeholder="0"
+                            />
+                          </td>
+
+                          <td className="border p-1 text-right bg-gray-50">
+                            {rowTotal > 0 ? rowTotal : "-"}
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
                 </tbody>
-                {stockRows.length > 0 && (
+
+                {activeCuttingRowId && activeSizeRows.length > 0 && (
                   <tfoot>
                     <tr className="bg-gray-100 font-semibold">
-                      <td className="border p-2 text-right" colSpan={3}>
-                        Totals
+                      <td className="border p-2 text-right" colSpan={4}>
+                        Total
                       </td>
                       <td className="border p-2 text-right">
-                        {totalConsumption.toFixed(3)}
-                      </td>
-                      <td className="border p-2 text-right">
-                        {totalKho.toFixed(3)}
-                      </td>
-                      <td className="border p-2 text-right">—</td>
-                      <td className="border p-2 text-right">
-                        {overallAvgPerPcs}
-                      </td>
-                      <td className="border p-2 text-right">—</td>
-                      <td className="border p-2 text-right">—</td>
-                      <td className="border p-2 text-right">
-                        ₹{fmt(totalConsAmount, 2)}
+                        {activeSizeTotalPcs}
                       </td>
                     </tr>
                   </tfoot>
@@ -1924,12 +2184,15 @@ const CuttingModule: React.FC = () => {
           {/* Buttons */}
           <div className="flex flex-wrap gap-3 mt-5">
             <button
+              type="button"
               onClick={addCuttingRow}
               className="px-4 py-2 bg-blue-600 text-white rounded"
             >
               Add Cutting Row
             </button>
+
             <button
+              type="button"
               onClick={addStockRow}
               className="px-4 py-2 bg-indigo-600 text-white rounded"
             >
@@ -1937,24 +2200,33 @@ const CuttingModule: React.FC = () => {
             </button>
 
             <button
+              type="button"
               onClick={handlePrint}
               className="px-4 py-2 bg-gray-700 text-white rounded"
             >
               Print
             </button>
 
+            <button
+              type="button"
+              onClick={handleIssueToButton}
+              className="px-4 py-2 bg-purple-600 text-white rounded"
+            >
+              Issue To
+            </button>
+
             <div className="grow" />
 
-            {/* ✅ NEW BUTTON ADDED HERE */}
             <button
+              type="button"
               onClick={handleNew}
               className="px-4 py-2 bg-slate-600 text-white rounded"
-              title="Clear form and start new entry"
             >
               New
             </button>
 
             <button
+              type="button"
               onClick={handleSave}
               disabled={formInvalid}
               className={`px-4 py-2 rounded text-white ${
@@ -1965,32 +2237,34 @@ const CuttingModule: React.FC = () => {
             >
               Save
             </button>
+
             <button
+              type="button"
               onClick={handleUpdate}
               disabled={formInvalid}
               className={`px-4 py-2 rounded text-white ${
-                formInvalid ? "bg-amber-300 cursor-not-allowed" : "bg-amber-600"
+                formInvalid
+                  ? "bg-amber-300 cursor-not-allowed"
+                  : "bg-amber-600"
               }`}
             >
               Update
             </button>
+
             <button
+              type="button"
               onClick={handleDelete}
               className="px-4 py-2 bg-red-600 text-white rounded"
             >
               Delete
             </button>
+
             <button
+              type="button"
               onClick={openList}
               className="px-4 py-2 bg-gray-500 text-white rounded"
             >
               View List
-            </button>
-            <button
-              onClick={handleIssueToButton}
-              className="px-4 py-2 bg-purple-600 text-white rounded"
-            >
-              Issue To
             </button>
           </div>
         </div>
@@ -2003,18 +2277,21 @@ const CuttingModule: React.FC = () => {
             <div className="flex items-center justify-between mb-3">
               <h3 className="text-lg font-bold">Select Art</h3>
               <button
+                type="button"
                 onClick={() => setArtModalOpen(false)}
                 className="px-3 py-1 bg-gray-200 rounded"
               >
                 Close
               </button>
             </div>
+
             <input
               value={artSearch}
               onChange={(e) => setArtSearch(e.target.value)}
               placeholder={`Search art no/name/rate (Cutting ${issueTo})`}
               className="border p-2 rounded w-full mb-3"
             />
+
             <div className="overflow-auto max-h-96 border">
               <table className="w-full text-sm">
                 <thead className="bg-gray-100">
@@ -2030,11 +2307,8 @@ const CuttingModule: React.FC = () => {
                 <tbody>
                   {filteredArts.map((a) => {
                     const key = rateKey(a.serialNumber, issueTo);
-                    const cached =
-                      key in rateCache ? rateCache[key] : undefined;
-                    if (cached === undefined) {
-                      ensureRateLoaded(a, issueTo);
-                    }
+                    const cached = key in rateCache ? rateCache[key] : undefined;
+                    if (cached === undefined) ensureRateLoaded(a, issueTo);
                     const showRate =
                       cached ?? toNum(a.saleRate || a.styleRate || "");
                     return (
@@ -2046,6 +2320,7 @@ const CuttingModule: React.FC = () => {
                         </td>
                         <td className="border p-2 text-center">
                           <button
+                            type="button"
                             onClick={() => applyArtToRow(a)}
                             className="px-3 py-1 bg-blue-600 text-white rounded"
                           >
@@ -2079,18 +2354,21 @@ const CuttingModule: React.FC = () => {
             <div className="flex items-center justify-between mb-3">
               <h3 className="text-lg font-bold">Select In-house Fabric</h3>
               <button
+                type="button"
                 onClick={() => setFinishModalOpen(false)}
                 className="px-3 py-1 bg-gray-200 rounded"
               >
                 Close
               </button>
             </div>
+
             <input
               value={finishSearch}
               onChange={(e) => setFinishSearch(e.target.value)}
               placeholder="Search lot/item/shade/rate"
               className="border p-2 rounded w-full mb-3"
             />
+
             <div className="overflow-auto max-h-96 border">
               <table className="w-full text-sm">
                 <thead className="bg-gray-100">
@@ -2113,8 +2391,8 @@ const CuttingModule: React.FC = () => {
                         (f.lotNo || "").toLowerCase().includes(q) ||
                         (f.itemName || "").toLowerCase().includes(q) ||
                         (f.shade || "").toLowerCase().includes(q) ||
-                        (f.rate || "").toString().includes(q) ||
-                        (f.rateFND || "").toString().includes(q)
+                        String(f.rate || "").includes(q) ||
+                        String(f.rateFND || "").includes(q)
                       );
                     })
                     .map((f, idx) => {
@@ -2141,6 +2419,7 @@ const CuttingModule: React.FC = () => {
                           </td>
                           <td className="border p-2 text-center">
                             <button
+                              type="button"
                               onClick={() => applyFinishingRow(f)}
                               className="px-3 py-1 bg-blue-600 text-white rounded"
                             >
@@ -2150,6 +2429,7 @@ const CuttingModule: React.FC = () => {
                         </tr>
                       );
                     })}
+
                   {finishingRows.length === 0 && (
                     <tr>
                       <td

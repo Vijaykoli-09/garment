@@ -358,8 +358,8 @@ const Dashboard: React.FC<DashboardProps> = ({ children }) => {
                       position: "absolute",
                       top: "45px",
                       right: "0",
-                      width: "400px",
-                      height: "400px",
+                      width: "600px",
+                      height: "600px",
                       backgroundColor: "#ffffff",
                       boxShadow: "0px 4px 20px rgba(0,0,0,0.2)",
                       borderRadius: "12px",
@@ -494,7 +494,7 @@ const Dashboard: React.FC<DashboardProps> = ({ children }) => {
                         flexShrink: 0,
                       }}
                     >
-                      <span
+                      {/* <span
                         style={{
                           fontSize: "0.85rem",
                           color: "#6366f1",
@@ -507,7 +507,7 @@ const Dashboard: React.FC<DashboardProps> = ({ children }) => {
                         }}
                       >
                         View all notifications
-                      </span>
+                      </span> */}
                     </div>
                   </div>
                 )}

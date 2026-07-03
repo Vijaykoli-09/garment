@@ -49,4 +49,9 @@ public class PurchasePendingServiceImpl implements PurchasePendingService {
 
 	  @Override public List<Object[]> getFilterParties() { return repo.distinctPartiesFromPO(); }
 	  @Override public List<Object[]> getFilterItems()   { return repo.distinctItemsFromPO(); }
+
+    @Override
+    public List<PurchasePendingRowDTO> getPendingReport(PurchasePendingRequest req) {
+        throw new UnsupportedOperationException("Not supported yet.");
+    }
 }

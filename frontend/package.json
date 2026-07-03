@@ -16,8 +16,8 @@
     "date-fns": "^4.1.0",
     "file-saver": "^2.0.5",
     "html2canvas": "^1.4.1",
-    "html2pdf.js": "^0.12.1",
-    "jspdf": "^3.0.4",
+    "html2pdf.js": "^0.14.0",
+    "jspdf": "^4.2.1",
     "jspdf-autotable": "^5.0.2",
     "jwt-decode": "^4.0.0",
     "lucide-react": "^0.544.0",
@@ -55,7 +55,6 @@
     ]
   },
   "devDependencies": {
-    "eslint-config-react-app": "^7.0.1",
     "@testing-library/dom": "^10.4.1",
     "@testing-library/jest-dom": "^6.8.0",
     "@testing-library/react": "^16.3.0",
@@ -68,6 +67,7 @@
     "ajv": "^6.12.6",
     "ajv-keywords": "^3.5.2",
     "autoprefixer": "^10.4.21",
+    "eslint-config-react-app": "^7.0.1",
     "postcss": "^8.5.6",
     "schema-utils": "^2.7.1",
     "tailwindcss": "^3.4.17",

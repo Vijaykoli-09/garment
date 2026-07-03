@@ -113,6 +113,10 @@ public class SecurityConfig {
                 .requestMatchers("/api/customer/auth/admin/**").permitAll()
                 .requestMatchers("/api/art-stock-adjustments/**").permitAll()
                 .requestMatchers("/api/material-stock-adjustments/**").permitAll()
+                .requestMatchers("/api/location/**").permitAll()
+                .requestMatchers("/api/purchase/entry-item/**").permitAll()
+                .requestMatchers("/api/purchase/orders/**").permitAll()
+                .requestMatchers("/api/purchase/return-item/**").permitAll()
 
                 // ── Mobile orders — JWT required ───────────────────────
                 .requestMatchers("/api/orders/**").authenticated()

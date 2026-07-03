@@ -132,7 +132,9 @@ type FormDataState = {
 const pad2 = (n: number) => String(n).padStart(2, "0");
 
 const parseYMDLocalToTS = (ymd: string) => {
-  const m = String(ymd || "").trim().match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  const m = String(ymd || "")
+    .trim()
+    .match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (!m) return NaN;
   const y = Number(m[1]);
   const mo = Number(m[2]);
@@ -141,7 +143,9 @@ const parseYMDLocalToTS = (ymd: string) => {
 };
 
 const parseDMYLocalToTS = (dmy: string) => {
-  const m = String(dmy || "").trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  const m = String(dmy || "")
+    .trim()
+    .match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
   if (!m) return NaN;
   const da = Number(m[1]);
   const mo = Number(m[2]);
@@ -575,8 +579,7 @@ const PaymentForm: React.FC = () => {
           .map((d: any) => {
             const rows: any[] = Array.isArray(d.rows) ? d.rows : [];
             const amount = rows.reduce((s, r) => s + (Number(r.amount) || 0), 0);
-            const partyName =
-              String(d.partyName ?? "").trim() || partyIdToName.get(String(d.partyId ?? "")) || "";
+            const partyName = String(d.partyName ?? "").trim() || partyIdToName.get(String(d.partyId ?? "")) || "";
             return {
               id: d.id ?? "",
               challanNo: String(d.challanNo ?? ""),
@@ -1056,6 +1059,114 @@ const PaymentForm: React.FC = () => {
   const isNameReadOnly = formData.paymentTo === "Party" || formData.paymentTo === "Employee";
   const isBalanceAuto = formData.paymentTo === "Employee" || formData.paymentTo === "Party";
 
+  // ================= PRINT =================
+  const escapeHtml = (s: any) =>
+    String(s ?? "")
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;")
+      .replaceAll('"', "&quot;")
+      .replaceAll("'", "&#039;");
+
+  const formatDDMMYYYY = (iso: string) => {
+    if (!iso) return "";
+    const m = String(iso).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (!m) return iso;
+    return `${m[3]}-${m[2]}-${m[1]}`;
+  };
+
+  const handlePrint = () => {
+    const amountVal =
+      formData.amount === "" || formData.amount === null || formData.amount === undefined
+        ? ""
+        : fmt2(Number(formData.amount));
+
+    const rows: Array<[string, string]> = [
+      ["Payment To", String(formData.paymentTo || "")],
+      ["Payment Date", formatDDMMYYYY(formData.paymentDate)],
+      ["Date", formatDDMMYYYY(formData.date)],
+      ["Process Name", String(formData.processName || "")],
+      ["Party / Employee Name", String(formData.partyName || "")],
+      ["Payment Through", String(formData.paymentThrough || "")],
+      ["Amount", amountVal],
+      ["Balance (DR/CR)", String(balanceDisplayText || "")],
+      ["Remarks", String(formData.remarks || "")],
+      ["Amount in Words", String(amountInWords || "")],
+    ];
+
+    const html = `
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Payment Print</title>
+    <style>
+      * { box-sizing: border-box; }
+      body { font-family: Arial, Helvetica, sans-serif; padding: 18px; color: #111; }
+      .title { text-align: center; font-size: 20px; font-weight: 700; margin-bottom: 14px; }
+      .sub { text-align:center; font-size: 12px; color:#444; margin-bottom: 18px; }
+      table { width: 100%; border-collapse: collapse; }
+      th, td { border: 1px solid #333; padding: 10px; font-size: 13px; vertical-align: top; }
+      th { width: 32%; background: #f2f2f2; text-align: left; }
+      .footer { margin-top: 24px; display:flex; justify-content: space-between; gap: 20px; }
+      .sig { width: 32%; text-align:center; }
+      .line { margin-top: 40px; border-top: 1px solid #333; }
+      @page { size: A4; margin: 12mm; }
+      @media print { .no-print { display:none; } }
+      .btnbar { text-align:right; margin-bottom: 12px; }
+      .btn { padding: 8px 12px; border: 1px solid #333; background:#fff; cursor:pointer; }
+    </style>
+  </head>
+  <body>
+    <div class="btnbar no-print">
+      <button class="btn" onclick="window.print()">Print</button>
+    </div>
+
+    <div class="title">Payment</div>
+    <div class="sub">Payment Voucher / Details</div>
+
+    <table>
+      <tbody>
+        ${rows
+          .map(
+            ([k, v]) => `
+          <tr>
+            <th>${escapeHtml(k)}</th>
+            <td>${escapeHtml(v)}</td>
+          </tr>`
+          )
+          .join("")}
+      </tbody>
+    </table>
+
+    <div class="footer">
+      <div class="sig">
+        <div class="line"></div>
+        <div>Prepared By</div>
+      </div>
+      <div class="sig">
+        <div class="line"></div>
+        <div>Checked By</div>
+      </div>
+      <div class="sig">
+        <div class="line"></div>
+        <div>Receiver Signature</div>
+      </div>
+    </div>
+  </body>
+</html>`;
+
+    const w = window.open("", "_blank", "width=900,height=650");
+    if (!w) {
+      Swal.fire("Popup blocked", "Please allow popups to print.", "info");
+      return;
+    }
+    w.document.open();
+    w.document.write(html);
+    w.document.close();
+    w.focus();
+  };
+
   return (
     <Dashboard>
       <div className="min-h-screen bg-gray-100 p-6">
@@ -1065,7 +1176,12 @@ const PaymentForm: React.FC = () => {
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block mb-1 font-semibold">Payment To</label>
-              <select name="paymentTo" value={formData.paymentTo} onChange={handleChange} className="border p-2 w-full rounded">
+              <select
+                name="paymentTo"
+                value={formData.paymentTo}
+                onChange={handleChange}
+                className="border p-2 w-full rounded"
+              >
                 <option value="">Select</option>
                 <option value="Party">Party</option>
                 <option value="Employee">Employee</option>
@@ -1077,12 +1193,24 @@ const PaymentForm: React.FC = () => {
               <div className="flex gap-4">
                 <div className="flex-1">
                   <label className="block mb-1 font-semibold">Payment Date</label>
-                  <input type="date" name="paymentDate" value={formData.paymentDate} onChange={handleChange} className="border p-2 w-full rounded" />
+                  <input
+                    type="date"
+                    name="paymentDate"
+                    value={formData.paymentDate}
+                    onChange={handleChange}
+                    className="border p-2 w-full rounded"
+                  />
                 </div>
 
                 <div className="flex-1">
                   <label className="block mb-1 font-semibold">Date</label>
-                  <input type="date" name="date" value={formData.date} onChange={handleChange} className="border p-2 w-full rounded" />
+                  <input
+                    type="date"
+                    name="date"
+                    value={formData.date}
+                    onChange={handleChange}
+                    className="border p-2 w-full rounded"
+                  />
                 </div>
               </div>
             </div>
@@ -1118,7 +1246,12 @@ const PaymentForm: React.FC = () => {
 
             <div className="col-span-2">
               <label className="block mb-1 font-semibold">Payment Through</label>
-              <select name="paymentThrough" value={formData.paymentThrough} onChange={handleChange} className="border p-2 w-full rounded">
+              <select
+                name="paymentThrough"
+                value={formData.paymentThrough}
+                onChange={handleChange}
+                className="border p-2 w-full rounded"
+              >
                 <option value="Cash">Cash</option>
                 {paymentModes.map((pm) => {
                   const label = `${pm.bankNameOrUpiId}-${pm.accountNo}`;
@@ -1165,44 +1298,75 @@ const PaymentForm: React.FC = () => {
 
               {formData.paymentTo === "Party" && (
                 <div className="text-xs text-gray-600 mt-1">
-                  {balanceInfoLoading ? "Loading Account Statement data..." : computedPartyBalance ? `Party Balance = ${computedPartyBalance.display}` : "Select party to calculate balance"}
+                  {balanceInfoLoading
+                    ? "Loading Account Statement data..."
+                    : computedPartyBalance
+                      ? `Party Balance = ${computedPartyBalance.display}`
+                      : "Select party to calculate balance"}
                 </div>
               )}
 
               {formData.paymentTo === "Employee" && (
                 <div className="text-xs text-gray-600 mt-1">
-                  {computedEmployeeNet
-                    ? `Employee Net = ${drCrLabel(computedEmployeeNet.netSigned).text}`
-                    : "Select employee to calculate balance"}
+                  {computedEmployeeNet ? `Employee Net = ${drCrLabel(computedEmployeeNet.netSigned).text}` : "Select employee to calculate balance"}
                 </div>
               )}
             </div>
 
             <div className="col-span-2">
               <label className="block mb-1 font-semibold">Remarks</label>
-              <input type="text" name="remarks" value={formData.remarks} onChange={handleChange} className="border p-2 w-full rounded" />
+              <input
+                type="text"
+                name="remarks"
+                value={formData.remarks}
+                onChange={handleChange}
+                className="border p-2 w-full rounded"
+              />
             </div>
           </div>
 
           <div className="flex flex-wrap justify-between mt-6">
             <div>
-              <button onClick={() => handleAddNew()} className="bg-blue-500 text-white px-4 py-2 rounded mr-2 hover:bg-blue-600">
+              <button
+                onClick={() => handleAddNew()}
+                className="bg-blue-500 text-white px-4 py-2 rounded mr-2 hover:bg-blue-600"
+              >
                 Add New
               </button>
 
-              <button onClick={handleSave} className="bg-green-500 text-white px-4 py-2 rounded mr-2 hover:bg-green-600">
+              <button
+                onClick={handleSave}
+                className="bg-green-500 text-white px-4 py-2 rounded mr-2 hover:bg-green-600"
+              >
                 {editingId ? "Update" : "Save"}
               </button>
 
-              <button onClick={openList} className="px-4 py-2 bg-yellow-500 text-white rounded mr-2 hover:bg-yellow-600">
+              <button
+                onClick={openList}
+                className="px-4 py-2 bg-yellow-500 text-white rounded mr-2 hover:bg-yellow-600"
+              >
                 List
               </button>
 
-              <button onClick={() => handleDelete()} className="bg-red-500 text-white px-4 py-2 rounded mr-2 hover:bg-red-600">
+              {/* ✅ PRINT BUTTON ADDED HERE */}
+              <button
+                onClick={handlePrint}
+                className="px-4 py-2 bg-indigo-500 text-white rounded mr-2 hover:bg-indigo-600"
+              >
+                Print
+              </button>
+
+              <button
+                onClick={() => handleDelete()}
+                className="bg-red-500 text-white px-4 py-2 rounded mr-2 hover:bg-red-600"
+              >
                 Delete
               </button>
 
-              <button onClick={() => navigate(-1)} className="bg-gray-500 text-white px-4 py-2 rounded hover:bg-gray-600">
+              <button
+                onClick={() => navigate(-1)}
+                className="bg-gray-500 text-white px-4 py-2 rounded hover:bg-gray-600"
+              >
                 Exit
               </button>
             </div>
@@ -1231,7 +1395,9 @@ const PaymentForm: React.FC = () => {
                     return (
                       <tr key={record.id}>
                         <td className="border p-2 text-center">{idx + 1}</td>
-                        <td className="border p-2">{record.paymentDate ? new Date(record.paymentDate).toLocaleDateString() : "-"}</td>
+                        <td className="border p-2">
+                          {record.paymentDate ? new Date(record.paymentDate).toLocaleDateString() : "-"}
+                        </td>
                         <td className="border p-2">{String(record.paymentTo || "-")}</td>
                         <td className="border p-2">{name || "-"}</td>
                         <td className="border p-2">{record.processName || "-"}</td>
@@ -1273,7 +1439,10 @@ const PaymentForm: React.FC = () => {
                       <td className="border p-2">{e.name || e.employeeName}</td>
                       <td className="border p-2">{e.code || e.employeeCode}</td>
                       <td className="border p-2 text-center">
-                        <button onClick={() => selectEmployee(e)} className="px-3 py-1 bg-green-500 text-white rounded hover:bg-green-600">
+                        <button
+                          onClick={() => selectEmployee(e)}
+                          className="px-3 py-1 bg-green-500 text-white rounded hover:bg-green-600"
+                        >
                           Select
                         </button>
                       </td>
@@ -1290,7 +1459,10 @@ const PaymentForm: React.FC = () => {
               </table>
             </div>
             <div className="flex justify-center mt-4">
-              <button onClick={() => setShowEmployeeModal(false)} className="px-5 py-2 bg-gray-300 hover:bg-gray-400 rounded">
+              <button
+                onClick={() => setShowEmployeeModal(false)}
+                className="px-5 py-2 bg-gray-300 hover:bg-gray-400 rounded"
+              >
                 Close
               </button>
             </div>
@@ -1323,7 +1495,10 @@ const PaymentForm: React.FC = () => {
                     <tr key={idx}>
                       <td className="border p-2">{name}</td>
                       <td className="border p-2 text-center">
-                        <button onClick={() => selectParty(name)} className="px-3 py-1 bg-green-500 text-white rounded hover:bg-green-600">
+                        <button
+                          onClick={() => selectParty(name)}
+                          className="px-3 py-1 bg-green-500 text-white rounded hover:bg-green-600"
+                        >
                           Select
                         </button>
                       </td>
@@ -1340,7 +1515,10 @@ const PaymentForm: React.FC = () => {
               </table>
             </div>
             <div className="flex justify-center mt-4">
-              <button onClick={() => setShowPartyModal(false)} className="px-5 py-2 bg-gray-300 hover:bg-gray-400 rounded">
+              <button
+                onClick={() => setShowPartyModal(false)}
+                className="px-5 py-2 bg-gray-300 hover:bg-gray-400 rounded"
+              >
                 Close
               </button>
             </div>
@@ -1375,7 +1553,10 @@ const PaymentForm: React.FC = () => {
                       <td className="border p-2">{p.processName}</td>
                       <td className="border p-2">{p.category}</td>
                       <td className="border p-2 text-center">
-                        <button onClick={() => selectProcess(p)} className="px-3 py-1 bg-green-500 text-white rounded hover:bg-green-600">
+                        <button
+                          onClick={() => selectProcess(p)}
+                          className="px-3 py-1 bg-green-500 text-white rounded hover:bg-green-600"
+                        >
                           Select
                         </button>
                       </td>
@@ -1392,7 +1573,10 @@ const PaymentForm: React.FC = () => {
               </table>
             </div>
             <div className="flex justify-center mt-4">
-              <button onClick={() => setShowProcessModal(false)} className="px-5 py-2 bg-gray-300 hover:bg-gray-400 rounded">
+              <button
+                onClick={() => setShowProcessModal(false)}
+                className="px-5 py-2 bg-gray-300 hover:bg-gray-400 rounded"
+              >
                 Close
               </button>
             </div>
@@ -1439,16 +1623,24 @@ const PaymentForm: React.FC = () => {
                       return (
                         <tr key={d.id}>
                           <td className="border p-2 text-center">{i + 1}</td>
-                          <td className="border p-2">{d.paymentDate ? new Date(d.paymentDate).toLocaleDateString() : "-"}</td>
+                          <td className="border p-2">
+                            {d.paymentDate ? new Date(d.paymentDate).toLocaleDateString() : "-"}
+                          </td>
                           <td className="border p-2">{d.paymentTo}</td>
                           <td className="border p-2">{name || "-"}</td>
                           <td className="border p-2">{d.processName || "-"}</td>
                           <td className="border p-2 text-right">{d.amount ?? "-"}</td>
                           <td className="border p-2 text-center">
-                            <button onClick={() => handleEdit(d.id)} className="px-2 py-1 bg-blue-500 text-white rounded mr-1 hover:bg-blue-600">
+                            <button
+                              onClick={() => handleEdit(d.id)}
+                              className="px-2 py-1 bg-blue-500 text-white rounded mr-1 hover:bg-blue-600"
+                            >
                               Edit
                             </button>
-                            <button onClick={() => handleDelete(d.id)} className="px-2 py-1 bg-red-500 text-white rounded hover:bg-red-600">
+                            <button
+                              onClick={() => handleDelete(d.id)}
+                              className="px-2 py-1 bg-red-500 text-white rounded hover:bg-red-600"
+                            >
                               Delete
                             </button>
                           </td>
@@ -1461,7 +1653,10 @@ const PaymentForm: React.FC = () => {
             </div>
 
             <div className="flex justify-center mt-5">
-              <button onClick={() => setShowList(false)} className="px-5 py-2 bg-gray-300 hover:bg-gray-400 rounded">
+              <button
+                onClick={() => setShowList(false)}
+                className="px-5 py-2 bg-gray-300 hover:bg-gray-400 rounded"
+              >
                 Close
               </button>
             </div>
@@ -1469,7 +1664,6 @@ const PaymentForm: React.FC = () => {
         </div>
       )}
     </Dashboard>
-    
   );
 };
 
