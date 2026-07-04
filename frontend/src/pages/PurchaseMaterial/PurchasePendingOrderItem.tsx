@@ -23,6 +23,7 @@ const PurchasePendingOrders: React.FC = () => {
     new Date().toISOString().slice(0, 10)
   );
 
+  
   const [parties, setParties] = useState<Party[]>([]);
   const [items, setItems] = useState<Item[]>([]);
   const [selectedPartyIds, setSelectedPartyIds] = useState<number[]>([]);
@@ -31,7 +32,8 @@ const PurchasePendingOrders: React.FC = () => {
   const [selectAllItems, setSelectAllItems] = useState(false);
   const [rows, setRows] = useState<PendingRow[]>([]);
   const [loading, setLoading] = useState(false);
-
+  
+  
   // NEW: show the report view like Material Stock Report
   const [showReportView, setShowReportView] = useState(false);
 
@@ -40,7 +42,7 @@ const PurchasePendingOrders: React.FC = () => {
       try {
         const [pRes, iRes] = await Promise.all([
           api.get<Party[]>("/party/category/Purchase"),
-          api.get<Item[]>("/purchase/order-item"),
+          api.get<Item[]>("/purchase/order-list"),
         ]);
         setParties(pRes.data || []);
         setItems(iRes.data || []);

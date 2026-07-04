@@ -69,4 +69,10 @@ public class MaterialPurchasePendingServiceImpl implements MaterialPurchasePendi
     public List<Object[]> getMaterials() {
         return repo.distinctMaterialsFromPO();
     }
+
+    @Override
+    public List<MaterialPurchasePendingRowDTO> getPending() {
+        // TODO Auto-generated method stub
+        throw new UnsupportedOperationException("Unimplemented method 'getPending'");
+    }
 }

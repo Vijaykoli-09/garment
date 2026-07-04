@@ -32,15 +32,12 @@ public class KnittingInwardController {
 
     @PostMapping("/save")
     public ResponseEntity<KnittingInward> save(@RequestBody KnittingInward payload) {
-        KnittingInward saved = service.save(payload);
-        return ResponseEntity.ok(saved);
+        return ResponseEntity.ok(service.save(payload));
     }
 
     @PutMapping("/update/{id}")
     public ResponseEntity<KnittingInward> update(@PathVariable Long id, @RequestBody KnittingInward payload) {
-        payload.setId(id);
-        KnittingInward updated = service.update(payload);
-        return ResponseEntity.ok(updated);
+        return ResponseEntity.ok(service.update(id, payload));
     }
 
     @DeleteMapping("/delete/{id}")
