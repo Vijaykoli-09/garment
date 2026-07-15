@@ -30,8 +30,7 @@ type KnittingIssueToDyeingOutwardData = {
 interface DyeingRow {
   id: number;
 
-  // Unique source identification (for duplicates)
-  sourceKey?: string; // `${knittingInwardId}-${knittingRowId}` OR fallback unique
+  sourceKey?: string;
 
   lotNo: string;
   fabricName: string;
@@ -47,7 +46,7 @@ interface DyeingRow {
 }
 
 interface KnittingLot {
-  key: string; // UNIQUE key per row
+  key: string;
   fabricLotNo: string;
 
   fabrication: string;
@@ -81,7 +80,6 @@ const DyeingOutward: React.FC = () => {
   const [showLotModal, setShowLotModal] = useState(false);
   const [lotSearchText, setLotSearchText] = useState("");
 
-  // IMPORTANT: selection by unique key (not by lotNo)
   const [selectedLotKeys, setSelectedLotKeys] = useState<Set<string>>(new Set());
 
   const [challanNo, setChallanNo] = useState("");
@@ -95,7 +93,6 @@ const DyeingOutward: React.FC = () => {
   const [searchText, setSearchText] = useState("");
   const [editingId, setEditingId] = useState<number | null>(null);
 
-  // for yarn rate calculation
   const [yarnList, setYarnList] = useState<any[]>([]);
   const [fabricationList, setFabricationList] = useState<any[]>([]);
 
@@ -121,7 +118,6 @@ const DyeingOutward: React.FC = () => {
       const issuedRows = Array.isArray(data?.rows) ? data.rows : [];
 
       const newRows: DyeingRow[] = issuedRows.map((r, idx) => {
-        // Make best-possible unique key
         const inwardId = r.knittingInwardId ?? "X";
         const rowId = r.knittingRowId ?? `TEMP${idx}${Date.now()}`;
         const sourceKey = `${inwardId}-${rowId}`;
@@ -148,7 +144,6 @@ const DyeingOutward: React.FC = () => {
       });
 
       setRows((prev) => {
-        // keep non-empty existing rows (if any)
         const nonEmpty = prev.filter((x) => String(x.lotNo || "").trim() !== "");
         return [...newRows, ...nonEmpty];
       });
@@ -160,7 +155,6 @@ const DyeingOutward: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Load yarn list
   const loadYarnList = () => {
     api
       .get("/yarn/list")
@@ -168,7 +162,6 @@ const DyeingOutward: React.FC = () => {
       .catch(() => Swal.fire("Error", "Failed to load yarn list", "error"));
   };
 
-  // Load fabrication list
   const loadFabricationList = () => {
     api
       .get("/fabrication")
@@ -183,7 +176,6 @@ const DyeingOutward: React.FC = () => {
       .catch(() => Swal.fire("Error", "Failed to load parties", "error"));
   };
 
-  // Calculate yarn rate from fabrication composition
   const calculateYarnRate = (fabricationSerialNo: string): number => {
     if (!fabricationSerialNo || !fabricationList.length || !yarnList.length) return 0;
 
@@ -215,8 +207,8 @@ const DyeingOutward: React.FC = () => {
 
           if (Array.isArray(knitting.rows)) {
             knitting.rows.forEach((row: any) => {
-              const knittingRowId = row.id; // IMPORTANT: unique per row if backend returns it
-              const key = `${knittingInwardId}-${knittingRowId ?? (row.fabricLotNo + "-" + Math.random())}`;
+              const knittingRowId = row.id;
+              const key = `${knittingInwardId}-${knittingRowId ?? row.fabricLotNo + "-" + Math.random()}`;
 
               const fabricationSerialNo = row.fabrication?.serialNo || row.item || "";
               const calculatedYarnRate = calculateYarnRate(String(fabricationSerialNo));
@@ -250,7 +242,6 @@ const DyeingOutward: React.FC = () => {
       });
   };
 
-  // load knitting lots after yarn + fabrication loaded
   useEffect(() => {
     if (yarnList.length > 0 && fabricationList.length > 0) {
       loadKnittingLots();
@@ -258,7 +249,6 @@ const DyeingOutward: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [yarnList, fabricationList]);
 
-  // filter by party id
   useEffect(() => {
     if (selectedPartyId) {
       setFilteredKnittingLots(knittingLotList.filter((lot) => lot.partyId === selectedPartyId));
@@ -313,9 +303,7 @@ const DyeingOutward: React.FC = () => {
   }, [addRow, rows.length]);
 
   const handleChange = (id: number, field: keyof DyeingRow, value: string | boolean) => {
-    setRows((prev) =>
-      prev.map((r) => (r.id === id ? { ...r, [field]: value } : r))
-    );
+    setRows((prev) => prev.map((r) => (r.id === id ? { ...r, [field]: value } : r)));
   };
 
   const toggleSelectAll = () => {
@@ -341,7 +329,6 @@ const DyeingOutward: React.FC = () => {
     setSelectedLotKeys(new Set());
   };
 
-  // used keys: already added/issued rows should not appear again
   const usedKeys = useMemo(() => {
     const s = new Set<string>();
     rows.forEach((r) => {
@@ -353,7 +340,7 @@ const DyeingOutward: React.FC = () => {
   const filteredLots = useMemo(() => {
     const q = lotSearchText.toLowerCase();
     return filteredKnittingLots
-      .filter((l) => !usedKeys.has(l.key)) // IMPORTANT: hide already used
+      .filter((l) => !usedKeys.has(l.key))
       .filter((l) => !q || (l.fabricLotNo || "").toLowerCase().includes(q));
   }, [filteredKnittingLots, lotSearchText, usedKeys]);
 
@@ -397,7 +384,6 @@ const DyeingOutward: React.FC = () => {
 
     setRows((prev) => {
       const nonEmptyRows = prev.filter((r) => String(r.lotNo || "").trim() !== "");
-      // prepend new lots
       return [...newRows, ...nonEmptyRows];
     });
 
@@ -432,8 +418,6 @@ const DyeingOutward: React.FC = () => {
         roll: r.roll,
         weight: r.weight,
         knittingYarnRate: r.knittingYarnRate,
-
-        // store source key so duplicates remain unique in edit
         sourceKey: r.sourceKey || null,
       })),
     };
@@ -616,11 +600,12 @@ const DyeingOutward: React.FC = () => {
     printWindow.document.close();
   };
 
+  // ✅✅ FIXED: Issue To now passes shortage & percentage to inward via sessionStorage
   const handleIssueTo = async () => {
     const selectedRows = rows.filter((r) => r.selected);
 
-    if (!editingId && !challanNo) {
-      Swal.fire("Error", "Please save the record first before issuing", "error");
+    if (!challanNo) {
+      Swal.fire("Error", "Challan No not found", "error");
       return;
     }
 
@@ -637,25 +622,37 @@ const DyeingOutward: React.FC = () => {
       confirmButtonText: "Yes, Proceed",
     });
 
-    if (result.isConfirmed) {
-      try {
-        const outwardData = {
-          dyeingChallanNo: challanNo,
-          dyeingPartyName: partyName,
-          dyeingRows: selectedRows,
-          dyeingDate: dated,
-        };
+    if (!result.isConfirmed) return;
 
-        sessionStorage.setItem("dyeingOutwardData", JSON.stringify(outwardData));
+    try {
+      const dyeingRows = selectedRows.map((r) => ({
+        lotNo: r.lotNo,
+        fabricName: r.fabricName,
+        roll: r.roll,
+        weight: r.weight,
+        knittingYarnRate: r.knittingYarnRate,
 
-        Swal.fire("Success", "Navigating to Dyeing Inward form...", "success");
-        setTimeout(() => {
-          window.location.href = "/knitting/dyeing/inward-challan";
-        }, 800);
-      } catch (error) {
-        console.error("Error:", error);
-        Swal.fire("Error", "Failed to proceed", "error");
-      }
+        // IMPORTANT
+        shortage: r.shortage ?? "",
+        percentage: r.percentage ?? "",
+      }));
+
+      const outwardData = {
+        dyeingChallanNo: challanNo,
+        dyeingPartyName: partyName,
+        dyeingRows,
+        dyeingDate: dated,
+      };
+
+      sessionStorage.setItem("dyeingOutwardData", JSON.stringify(outwardData));
+
+      Swal.fire("Success", "Navigating to Dyeing Inward form...", "success");
+      setTimeout(() => {
+        window.location.href = "/knitting/dyeing/inward-challan";
+      }, 800);
+    } catch (error) {
+      console.error("Error:", error);
+      Swal.fire("Error", "Failed to proceed", "error");
     }
   };
 

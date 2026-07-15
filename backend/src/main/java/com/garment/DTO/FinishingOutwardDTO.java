@@ -1,6 +1,6 @@
 package com.garment.DTO;
 
-
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 import lombok.AllArgsConstructor;
@@ -11,9 +11,10 @@ import java.util.List;
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
+@JsonIgnoreProperties(ignoreUnknown = true)
 public class FinishingOutwardDTO {
 
-    private Long id; // Included for updates/retrieval
+    private Long id;
     private String challanNo;
     private LocalDate dated;
     private String partyName;
@@ -21,6 +22,5 @@ public class FinishingOutwardDTO {
     private String vehicleNo;
     private String through;
 
-    // Contains the list of detail DTOs
     private List<FinishingOutwardRowDTO> rows;
 }

@@ -6,7 +6,7 @@ import React, {
   useRef,
 } from "react";
 import Dashboard from "../../Dashboard";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import Swal from "sweetalert2";
 import api from "../../../api/axiosInstance";
 
@@ -18,35 +18,41 @@ interface RowData {
   lotNo: string; // Fabric Lot No
   itemName: string; // Fabrication Name
   shade: string;
-  mcSize: string;
-  greyGsm: string;
-  regdGsm: string;
 
-  // Rates (from Dyeing Inward)
-  knittingYarnRate: string; // shown in modal; saved in row for reference
-  dyeingRate: string; // shown in modal; saved in row for reference
+  // Rates (from Dyeing Inward OR from DyeingInward IssueTo)
+  knittingYarnRate: string;
+  dyeingRate: string;
 
   // Sum of knittingYarnRate + dyeingRate (read-only in row)
   rateFND: string;
 
-  // Finishing Rate (entered manually by user) - remains in data model for compatibility
+  // compatibility (optional)
   rate: string;
 
   rolls: string;
   weight: string;
   clothWeight: string;
   ribWeight: string;
-  amount: string; // computed as rate * weight
+
+  // ✅ manual entry / carry forward
+  shortage: string;
+  percentage: string;
+
+  amount: string;
 }
 
 interface LotFromDyeingInward {
   fabricLotNo: string;
-  fabric: string; // fabrication name
+  fabric: string;
   shade: string;
   rolls: string | number;
   weight: string | number;
   knittingYarnRate?: string | number;
   dyeingRate?: string | number;
+
+  // optional if you have in dyeing inward
+  shortage?: string | number;
+  percentage?: string | number;
 }
 
 interface Party {
@@ -58,10 +64,12 @@ interface Party {
 const toNum = (v: any) => parseFloat(String(v || 0)) || 0;
 const uniq = (arr: (string | number | null | undefined)[]) =>
   Array.from(new Set(arr.map((x) => String(x ?? "").trim()).filter(Boolean)));
+
 const todayISO = () =>
   new Date(Date.now() - new Date().getTimezoneOffset() * 60000)
     .toISOString()
     .slice(0, 10);
+
 const toInputDate = (d?: any) => {
   if (!d) return "";
   const s = String(d);
@@ -75,15 +83,16 @@ const toInputDate = (d?: any) => {
 
 const FinishingOutward: React.FC = () => {
   const navigate = useNavigate();
+  const location = useLocation();
 
   // --- Form State ---
   const [rows, setRows] = useState<RowData[]>([]);
-  const [originalRows, setOriginalRows] = useState<RowData[]>([]); // snapshot on edit
+  const [originalRows, setOriginalRows] = useState<RowData[]>([]);
   const [selectedRowIds, setSelectedRowIds] = useState<number[]>([]);
   const [challanNo, setChallanNo] = useState("");
   const [partyName, setPartyName] = useState("");
   const [partyId, setPartyId] = useState<string>("");
-  const [date, setDate] = useState<string>(todayISO()); // auto-fill today's date
+  const [date, setDate] = useState<string>(todayISO());
   const [vehicleNo, setVehicleNo] = useState("");
   const [through, setThrough] = useState("");
   const [narration, setNarration] = useState("");
@@ -129,7 +138,6 @@ const FinishingOutward: React.FC = () => {
     return sum ? sum.toFixed(2) : "";
   };
 
-  // Amount = Finishing Rate (rate) * weight
   const computeAmountByWeight = (rate: string, weight: string | number) => {
     const rateNum = toNum(rate);
     const weightNum = typeof weight === "number" ? weight : toNum(weight);
@@ -144,9 +152,6 @@ const FinishingOutward: React.FC = () => {
       lotNo: "",
       itemName: "",
       shade: "",
-      mcSize: "",
-      greyGsm: "",
-      regdGsm: "",
       knittingYarnRate: "",
       dyeingRate: "",
       rateFND: "",
@@ -155,6 +160,8 @@ const FinishingOutward: React.FC = () => {
       weight: "",
       clothWeight: "",
       ribWeight: "",
+      shortage: "",
+      percentage: "",
       amount: "",
     }),
     []
@@ -168,23 +175,67 @@ const FinishingOutward: React.FC = () => {
   }, [createNewRow]);
 
   useEffect(() => {
-    if (rows.length === 0) addRow();
-  }, [addRow, rows.length]);
+    if (rows.length === 0) setRows([createNewRow(1)]);
+  }, [createNewRow, rows.length]);
 
-  // Master select state
+  // ✅✅ AUTO PREFILL FROM DYEING INWARD ISSUE-TO
+  // Reads: location.state.fromDyeingInward OR sessionStorage key: fromDyeingInwardToFinishingOutward
+  useEffect(() => {
+    const stateAny: any = (location as any)?.state;
+    const fromState = stateAny?.fromDyeingInward || null;
+
+    const stored = sessionStorage.getItem("fromDyeingInwardToFinishingOutward");
+    const fromStorage = stored ? JSON.parse(stored) : null;
+
+    const payload = fromState || fromStorage;
+    if (!payload || !Array.isArray(payload.rows) || payload.rows.length === 0)
+      return;
+
+    const mapped: RowData[] = payload.rows.map((r: any, idx: number) => {
+      const kyr = String(r.knittingYarnRate ?? "");
+      const dr = String(r.dyeingRate ?? "");
+      return {
+        ...createNewRow(idx + 1),
+        id: idx + 1,
+        lotNo: String(r.fabricLotNo || r.lotNo || ""),
+        itemName: String(r.fabric || r.itemName || r.fabricName || ""),
+        shade: String(r.shade || ""),
+        rolls: String(r.rolls ?? ""),
+        weight: String(r.weight ?? ""),
+
+        // ✅ carry
+        shortage: String(r.shortage ?? ""),
+        percentage: String(r.percentage ?? ""),
+
+        knittingYarnRate: kyr,
+        dyeingRate: dr,
+        rateFND: sumRatesToString(kyr, dr),
+      };
+    });
+
+    setRows(mapped);
+    setSelectedRowIds(mapped.map((x) => x.id));
+
+    sessionStorage.removeItem("fromDyeingInwardToFinishingOutward");
+    navigate(location.pathname, { replace: true, state: {} as any });
+  }, [location, navigate, createNewRow]);
+
+  // Master select
   const allRowsSelected =
     rows.length > 0 && selectedRowIds.length === rows.length;
+
   const toggleRowSelect = (id: number) => {
     setSelectedRowIds((prev) =>
       prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
     );
   };
+
   const toggleSelectAllRows = () => {
     if (allRowsSelected) setSelectedRowIds([]);
     else setSelectedRowIds(rows.map((r) => r.id));
   };
 
-  // Handle input change; recalc amount if rate/weight changes
+  // Handle change
   const handleChange = (id: number, field: keyof RowData, value: string) => {
     setRows((prevRows) =>
       prevRows.map((r) => {
@@ -212,23 +263,15 @@ const FinishingOutward: React.FC = () => {
     );
   };
 
-  // Parties (Dropdown)
+  // Parties
   useEffect(() => {
-    const loadInitialData = async () => {
-      try {
-        const [partyRes] = await Promise.all([
-          api.get(`/party/category/Finishing`),
-        ]);
-        setAllParties(Array.isArray(partyRes.data) ? partyRes.data : []);
-      } catch (err) {
-        console.error(err);
-        Swal.fire("Error", "Failed to load party list", "error");
-      }
-    };
-    loadInitialData();
+    api
+      .get(`/party/category/Finishing`)
+      .then((res) => setAllParties(Array.isArray(res.data) ? res.data : []))
+      .catch(() => Swal.fire("Error", "Failed to load party list", "error"));
   }, []);
 
-  // Lot Modal Logic (Load from Dyeing Inward)
+  // Lot Modal -> load from dyeing inward
   useEffect(() => {
     api
       .get("/dyeing-inward")
@@ -246,6 +289,8 @@ const FinishingOutward: React.FC = () => {
                 weight: row.weight || 0,
                 knittingYarnRate: row.knittingYarnRate || "",
                 dyeingRate: row.dyeingRate || "",
+                shortage: row.shortage ?? "",
+                percentage: row.percentage ?? "",
               });
             });
           }
@@ -265,13 +310,11 @@ const FinishingOutward: React.FC = () => {
     setShowLotModal(true);
   };
 
-  // Quick add single lot
   const quickAddLot = (lot: LotFromDyeingInward) => {
     setSelectedLotNos(new Set([String(lot.fabricLotNo || "")]));
     addSelectedLotsToRow([lot]);
   };
 
-  // Toggle checkbox for multi-select
   const toggleLotSelect = (lotNo: string) => {
     setSelectedLotNos((prev) => {
       const next = new Set(prev);
@@ -282,15 +325,12 @@ const FinishingOutward: React.FC = () => {
     });
   };
 
-  // Utility: is row "empty" placeholder (so we can reuse it)
   const isRowEmpty = (r: RowData) =>
     !String(r.lotNo || "").trim() &&
     !String(r.itemName || "").trim() &&
     !String(r.weight || "").trim() &&
     !String(r.rolls || "").trim();
 
-  // Add selected lots to current row
-  // Fix: fill subsequent empty rows first instead of appending (prevents skipping second row)
   const addSelectedLotsToRow = (lotsExplicit?: LotFromDyeingInward[]) => {
     const selectedLotsArr =
       lotsExplicit ||
@@ -328,8 +368,15 @@ const FinishingOutward: React.FC = () => {
           knittingYarnRate: String(lot.knittingYarnRate ?? ""),
           dyeingRate: String(lot.dyeingRate ?? ""),
           rateFND: rateFNDsum,
-          // keep existing finishing rate if present; user enters this manually (field removed from form UI)
+
+          // ✅ carry shortage/percentage if present in dyeing inward lot
+          shortage: String(lot.shortage ?? row.shortage ?? ""),
+          percentage: String(lot.percentage ?? row.percentage ?? ""),
+
           rate: row.rate || "",
+          clothWeight: row.clothWeight || "",
+          ribWeight: row.ribWeight || "",
+          amount: row.amount || "",
         };
         updated.amount = computeAmountByWeight(updated.rate, updated.weight);
         return updated;
@@ -339,31 +386,27 @@ const FinishingOutward: React.FC = () => {
       const first = selectedLotsArr[0];
       next[idx] = fillRowFromLot(next[idx], first);
 
-      // Subsequent lots -> fill next empty rows after idx first
+      // Subsequent lots -> fill next empty rows
       let remaining = selectedLotsArr.slice(1);
 
       if (remaining.length > 0) {
-        // Find indices after idx that are empty
         const emptyTargets: number[] = [];
         for (let i = idx + 1; i < next.length; i++) {
           if (isRowEmpty(next[i])) emptyTargets.push(i);
         }
 
-        // Fill as many empties as we have remaining lots
         for (let t = 0; t < emptyTargets.length && remaining.length > 0; t++) {
           const targetIdx = emptyTargets[t];
           const lot = remaining.shift()!;
           next[targetIdx] = fillRowFromLot(next[targetIdx], lot);
         }
 
-        // If still remaining, append new rows
         if (remaining.length > 0) {
           let nextId = next.reduce((m, r) => Math.max(m, r.id), 0);
           while (remaining.length > 0) {
             const lot = remaining.shift()!;
             nextId += 1;
-            const newRow: RowData = fillRowFromLot(createNewRow(nextId), lot);
-            next.push(newRow);
+            next.push(fillRowFromLot(createNewRow(nextId), lot));
           }
         }
       }
@@ -376,7 +419,6 @@ const FinishingOutward: React.FC = () => {
     setSelectedLotNos(new Set());
   };
 
-  // Debounce search text for lots
   useEffect(() => {
     const h = setTimeout(() => setLotSearchQuery(lotSearchText), 200);
     return () => clearTimeout(h);
@@ -396,6 +438,8 @@ const FinishingOutward: React.FC = () => {
         String(l.weight ?? "").toLowerCase(),
         String(l.knittingYarnRate ?? "").toLowerCase(),
         String(l.dyeingRate ?? "").toLowerCase(),
+        String(l.shortage ?? "").toLowerCase(),
+        String(l.percentage ?? "").toLowerCase(),
       ];
       return tokens.every((t) => f.some((v) => v.includes(t)));
     };
@@ -464,17 +508,22 @@ const FinishingOutward: React.FC = () => {
       lotNo: r.lotNo,
       itemName: r.itemName,
       shade: r.shade,
-      mcSize: r.mcSize,
-      greyGsm: r.greyGsm,
-      regdGsm: r.regdGsm,
+
       knittingYarnRate: r.knittingYarnRate,
       dyeingRate: r.dyeingRate,
-      rateFND: r.rateFND, // sum of KYR + Dyeing
-      rate: r.rate, // finishing rate (still sent for compatibility; form input removed)
+      rateFND: r.rateFND,
+
       rolls: r.rolls,
       weight: r.weight,
-      clothWeight: r.clothWeight,
-      ribWeight: r.ribWeight,
+
+      clothWt: r.clothWeight,
+      ribWt: r.ribWeight,
+
+      // ✅ IMPORTANT
+      shortage: r.shortage,
+      percentage: r.percentage,
+
+      rate: r.rate,
       amount: r.amount,
     })),
   });
@@ -495,7 +544,7 @@ const FinishingOutward: React.FC = () => {
     setSelectedRowIds([]);
     setPartyName("");
     setPartyId("");
-    setDate(todayISO()); // auto to today's date again
+    setDate(todayISO());
     setVehicleNo("");
     setThrough("");
     setNarration("");
@@ -503,7 +552,6 @@ const FinishingOutward: React.FC = () => {
     autoGenerateChallanNo();
   };
 
-  // Validation: Party + Date + at least one selected row with Lot No
   const validateCore = (rowsToValidate: RowData[]) => {
     const partySelected =
       (partyId && String(partyId).trim()) || (partyName && partyName.trim());
@@ -539,7 +587,6 @@ const FinishingOutward: React.FC = () => {
       setLoading(true);
       await api.post("/finishing-outwards", buildPayload(selected));
 
-      // Store the last saved header+rows so "Issue To" can use it automatically
       lastSavedRef.current = {
         header: buildCurrentHeader(),
         rows: selected,
@@ -559,7 +606,6 @@ const FinishingOutward: React.FC = () => {
     }
   };
 
-  // Update without deleting unchecked rows:
   const handleUpdate = async () => {
     if (!editingId) {
       Swal.fire("Info", "No record selected to update", "info");
@@ -587,12 +633,8 @@ const FinishingOutward: React.FC = () => {
 
       const finalRows = [...mergedExisting, ...selectedNewRows];
 
-      await api.put(
-        `/finishing-outwards/${editingId}`,
-        buildPayload(finalRows)
-      );
+      await api.put(`/finishing-outwards/${editingId}`, buildPayload(finalRows));
 
-      // Also consider latest update as "last saved" for Issue To
       lastSavedRef.current = {
         header: buildCurrentHeader(),
         rows: finalRows,
@@ -673,24 +715,30 @@ const FinishingOutward: React.FC = () => {
 
       const mapped: RowData[] = (Array.isArray(data.rows) ? data.rows : []).map(
         (r: any, idx: number) => ({
-          id: idx + 1, // local stable id for this edit session
+          id: idx + 1,
           lotNo: String(r.lotNo || r.fabricLotNo || ""),
           itemName: String(r.itemName || r.item || r.fabric || ""),
           shade: String(r.shade || ""),
-          mcSize: String(r.mcSize || r.mcsize || ""),
-          greyGsm: String(r.greyGsm || r.greyGSM || ""),
-          regdGsm: String(r.regdGsm || r.regdGSM || ""),
+
           knittingYarnRate: String(r.knittingYarnRate || ""),
           dyeingRate: String(r.dyeingRate || ""),
           rateFND: String(r.rateFND || ""),
+
           rate: String(r.rate || ""),
           rolls: String(r.rolls || ""),
           weight: String(r.weight || ""),
+
           clothWeight: String(r.clothWeight || r.clothWt || ""),
           ribWeight: String(r.ribWeight || r.ribWt || ""),
+
+          // ✅
+          shortage: String(r.shortage || ""),
+          percentage: String(r.percentage || ""),
+
           amount: String(r.amount || toNum(r.rate) * toNum(r.weight) || ""),
         })
       );
+
       setRows(mapped);
       setOriginalRows(mapped);
       setSelectedRowIds(mapped.map((r) => r.id));
@@ -766,17 +814,16 @@ const FinishingOutward: React.FC = () => {
             <thead>
               <tr>
                 <th>#</th>
-                <th>Fabric Lot No</th>
-                <th>Fabrication Name</th>
+                <th>Lot No</th>
+                <th>Fabric</th>
                 <th>Shade</th>
                 <th>Weight</th>
-                <th>M/C Size</th>
-                <th>Grey GSM</th>
-                <th>Regd GSM</th>
-                <th>KYR + Dyeing (Sum)</th>
+                <th>KYR+Dyeing Sum</th>
                 <th>Rolls</th>
                 <th>Cloth Wt</th>
                 <th>Rib Wt</th>
+                <th>Shortage</th>
+                <th>%</th>
                 <th>Amount</th>
               </tr>
             </thead>
@@ -790,13 +837,12 @@ const FinishingOutward: React.FC = () => {
                   <td>${r.itemName}</td>
                   <td>${r.shade}</td>
                   <td>${r.weight}</td>
-                  <td>${r.mcSize}</td>
-                  <td>${r.greyGsm}</td>
-                  <td>${r.regdGsm}</td>
                   <td>${r.rateFND}</td>
                   <td>${r.rolls}</td>
                   <td>${r.clothWeight}</td>
                   <td>${r.ribWeight}</td>
+                  <td>${r.shortage}</td>
+                  <td>${r.percentage}</td>
                   <td>${r.amount}</td>
                 </tr>`
                 )
@@ -815,19 +861,9 @@ const FinishingOutward: React.FC = () => {
     printWindow.document.close();
   };
 
-  // === Issue To -> Finishing Inward
-  // If there is a recently saved document (lastSavedRef), use it automatically.
-  // Otherwise, fall back to selected rows (existing behavior).
+  // === Issue To -> Finishing Inward (IMPORTANT: carries shortage/percentage)
   const handleIssueTo = async () => {
-    let headerToSend: {
-      dated: string;
-      partyId: string;
-      partyName: string;
-      challanNo: string;
-      vehicleNo: string;
-      through: string;
-      narration: string;
-    } | null = null;
+    let headerToSend: any = null;
     let rowsToSend: RowData[] = [];
 
     if (lastSavedRef.current) {
@@ -848,9 +884,7 @@ const FinishingOutward: React.FC = () => {
 
     const result = await Swal.fire({
       title: "Issue To",
-      text: lastSavedRef.current
-        ? "Proceed to Finishing Inward with the recently saved item?"
-        : "Proceed to Finishing Inward with selected rows?",
+      text: "Proceed to Finishing Inward with selected rows?",
       icon: "question",
       showCancelButton: true,
       confirmButtonText: "Finishing Inward",
@@ -864,7 +898,7 @@ const FinishingOutward: React.FC = () => {
           state: {
             fromOutward: {
               header: headerToSend,
-              rows: rowsToSend,
+              rows: rowsToSend, // ✅ contains shortage & percentage
             },
           },
         });
@@ -881,199 +915,42 @@ const FinishingOutward: React.FC = () => {
     .reduce((sum, r) => sum + (parseFloat(r.amount) || 0), 0)
     .toFixed(2);
 
-  // Debounce global search input for view list
+  // Debounce list search
   useEffect(() => {
     const h = setTimeout(() => setSearchQuery(searchText), 250);
     return () => clearTimeout(h);
   }, [searchText]);
 
-  // Improved search with robust party filtering:
-  // - Free text matches include party name
-  // - key: party:xyz (also supports p: and pn:) works reliably
-  // - Supports numeric comparators: amount, weight, rolls, rate
   const filteredList = useMemo(() => {
-    const s = searchQuery.trim();
+    const s = searchQuery.trim().toLowerCase();
     if (!s) return finishingOutwardList;
 
-    // split by spaces but keep quoted strings intact
-    const rawTokens = s.match(/"[^"]+"|\S+/g) || [];
-    const tokens = rawTokens.map((t) =>
-      t.replace(/^"(.*)"$/, "$1").toLowerCase()
-    );
+    const normalize = (v: any) => String(v ?? "").toLowerCase();
 
-    const normalize = (v: any) =>
-      String(v ?? "")
-        .toLowerCase()
-        .normalize("NFD")
-        .replace(/[\u0300-\u036f]/g, "");
-
-    const parseComparator = (tok: string) => {
-      const m = tok.match(
-        /^(amount|weight|rolls|rate)\s*(<=|>=|=|<|>)\s*([0-9]+(?:\.[0-9]+)?)$/
-      );
-      if (!m) return null;
-      return {
-        field: m[1] as "amount" | "weight" | "rolls" | "rate",
-        op: m[2] as "<=" | ">=" | "=" | "<" | ">",
-        value: parseFloat(m[3]),
-      };
-    };
-
-    const keyMatch = (key: string, hay: string) =>
-      normalize(hay).includes(normalize(key));
-
-    const recordMatches = (x: any) => {
+    return finishingOutwardList.filter((x: any) => {
       const rowsArr = Array.isArray(x.rows) ? x.rows : [];
-
-      // Aggregates
-      const lotNosStr = uniq(
-        rowsArr.map((r: any) => r.lotNo || r.fabricLotNo)
-      ).join(", ");
-      const itemsStr = uniq(
-        rowsArr.map((r: any) => r.itemName || r.item || r.fabric)
-      ).join(", ");
-      const shadeStr = uniq(rowsArr.map((r: any) => r.shade)).join(", ");
-      const totalWeight = rowsArr.reduce(
-        (sum: number, r: any) => sum + toNum(r.weight),
-        0
-      );
-      const totalRolls = rowsArr.reduce(
-        (sum: number, r: any) => sum + toNum(r.rolls),
-        0
-      );
-      const totalAmount = rowsArr.reduce((sum: number, r: any) => {
-        const amt = toNum(r.amount);
-        const fallback = toNum(r.rate) * toNum(r.weight);
-        return sum + (amt || fallback);
-      }, 0);
-
-      const dateStr = x.dated
-        ? new Date(x.dated).toLocaleDateString()
-        : x.date
-        ? new Date(x.date).toLocaleDateString()
-        : "";
-
-      const partyStr =
-        x.partyName || x.party || x.party_name || x.partyname || "";
-
-      // Build free-text haystack
-      const haystack = [
+      const hay = [
         x.challanNo,
-        partyStr,
+        x.partyName,
         x.vehicleNo,
         x.through,
         x.narration,
-        dateStr,
-        lotNosStr,
-        itemsStr,
-        shadeStr,
+        x.dated,
         ...rowsArr.flatMap((r: any) => [
-          r.rate,
-          r.rateFND,
-          r.knittingYarnRate,
-          r.dyeingRate,
+          r.lotNo,
+          r.itemName,
+          r.shade,
           r.weight,
           r.rolls,
-          r.amount,
+          r.rateFND,
+          r.shortage,
+          r.percentage,
         ]),
       ]
         .map(normalize)
         .join(" ");
-
-      // Evaluate tokens
-      for (const rawTok of tokens) {
-        const tok = rawTok.trim();
-
-        // numeric comparators
-        const comp = parseComparator(tok);
-        if (comp) {
-          const cmp = (a: number, b: number) =>
-            comp.op === ">"
-              ? a > b
-              : comp.op === "<"
-              ? a < b
-              : comp.op === ">="
-              ? a >= b
-              : comp.op === "<="
-              ? a <= b
-              : a === b;
-
-          if (comp.field === "amount") {
-            if (!cmp(totalAmount, comp.value)) return false;
-            continue;
-          }
-          if (comp.field === "weight") {
-            if (!cmp(totalWeight, comp.value)) return false;
-            continue;
-          }
-          if (comp.field === "rolls") {
-            if (!cmp(totalRolls, comp.value)) return false;
-            continue;
-          }
-          if (comp.field === "rate") {
-            // any row rate matches comparator
-            const anyRate = rowsArr.some((r: any) =>
-              cmp(toNum(r.rate), comp.value)
-            );
-            if (!anyRate) return false;
-            continue;
-          }
-        }
-
-        // key:value tokens
-        const kv = tok.split(":");
-        if (kv.length === 2) {
-          const [kRaw, vRaw] = kv;
-          const k = kRaw.trim();
-          const v = vRaw.trim();
-          if (!v) continue;
-
-          if (["party", "p", "pn", "name"].includes(k)) {
-            if (!keyMatch(v, partyStr)) return false;
-            continue;
-          }
-          if (k === "challan") {
-            if (!keyMatch(v, x.challanNo || "")) return false;
-            continue;
-          }
-          if (k === "lot") {
-            if (!keyMatch(v, lotNosStr)) return false;
-            continue;
-          }
-          if (k === "item" || k === "fabric") {
-            if (!keyMatch(v, itemsStr)) return false;
-            continue;
-          }
-          if (k === "shade") {
-            if (!keyMatch(v, shadeStr)) return false;
-            continue;
-          }
-          if (k === "vehicle") {
-            if (!keyMatch(v, x.vehicleNo || "")) return false;
-            continue;
-          }
-          if (k === "through") {
-            if (!keyMatch(v, x.through || "")) return false;
-            continue;
-          }
-          if (k === "narration") {
-            if (!keyMatch(v, x.narration || "")) return false;
-            continue;
-          }
-          if (k === "date") {
-            if (!keyMatch(v, dateStr)) return false;
-            continue;
-          }
-        }
-
-        // fall back to free-text (includes party name as part of haystack)
-        if (!haystack.includes(normalize(tok))) return false;
-      }
-
-      return true;
-    };
-
-    return finishingOutwardList.filter(recordMatches);
+      return hay.includes(s);
+    });
   }, [finishingOutwardList, searchQuery]);
 
   return (
@@ -1116,6 +993,7 @@ const FinishingOutward: React.FC = () => {
                 className="border p-2 rounded w-full bg-gray-100 text-sm focus:outline-none"
               />
             </div>
+
             <div>
               <label className="block font-semibold">Dated</label>
               <input
@@ -1157,7 +1035,7 @@ const FinishingOutward: React.FC = () => {
 
           {/* Table */}
           <div className="max-w-full overflow-x-scroll mb-4 border rounded">
-            <table className="min-w-[1500px] border text-xs table-auto">
+            <table className="min-w-[1750px] border text-xs table-auto">
               <thead className="bg-gray-200 sticky top-0">
                 <tr>
                   <th className="border p-2 w-10 text-center">
@@ -1173,17 +1051,16 @@ const FinishingOutward: React.FC = () => {
                   <th className="border p-2 w-36">Fabrication Name</th>
                   <th className="border p-2 w-24">Shade</th>
                   <th className="border p-2 w-20">Weight</th>
-                  <th className="border p-2 w-24">M/C Size</th>
-                  <th className="border p-2 w-24">Grey GSM</th>
-                  <th className="border p-2 w-24">Regd GSM</th>
                   <th className="border p-2 w-28">KYR + Dyeing (Sum)</th>
-                  {/* Finishing Rate column removed from form */}
                   <th className="border p-2 w-20">Rolls</th>
                   <th className="border p-2 w-24">Cloth Wt.</th>
                   <th className="border p-2 w-24">Rib Wt.</th>
+                  <th className="border p-2 w-24">Shortage</th>
+                  <th className="border p-2 w-20">%</th>
                   <th className="border p-2 w-24">Amount</th>
                 </tr>
               </thead>
+
               <tbody>
                 {rows.map((row, index) => {
                   const isChecked = selectedRowIds.includes(row.id);
@@ -1202,14 +1079,13 @@ const FinishingOutward: React.FC = () => {
                         {index + 1}
                       </td>
 
-                      {/* Fabric Lot No: open modal on click */}
                       <td className="border p-1">
                         <input
                           type="text"
                           value={row.lotNo}
                           readOnly
                           onClick={() => openLotModal(row.id)}
-                          className="w-full p-1 text-xs focus:ring-1 focus:ring-indigo-500 rounded border-none cursor-pointer bg-yellow-50"
+                          className="w-full p-1 text-xs rounded border-none cursor-pointer bg-yellow-50"
                           placeholder="Click to select"
                           title="Click to select lot from Dyeing Inward"
                         />
@@ -1225,6 +1101,7 @@ const FinishingOutward: React.FC = () => {
                           className="w-full p-1 text-xs rounded border-none"
                         />
                       </td>
+
                       <td className="border p-1">
                         <input
                           type="text"
@@ -1235,6 +1112,7 @@ const FinishingOutward: React.FC = () => {
                           className="w-full p-1 text-xs rounded border-none"
                         />
                       </td>
+
                       <td className="border p-1 text-right">
                         <input
                           type="number"
@@ -1246,38 +1124,7 @@ const FinishingOutward: React.FC = () => {
                           className="w-full p-1 text-xs text-right rounded border-none"
                         />
                       </td>
-                      <td className="border p-1">
-                        <input
-                          type="text"
-                          value={row.mcSize}
-                          onChange={(e) =>
-                            handleChange(row.id, "mcSize", e.target.value)
-                          }
-                          className="w-full p-1 text-xs rounded border-none"
-                        />
-                      </td>
-                      <td className="border p-1">
-                        <input
-                          type="text"
-                          value={row.greyGsm}
-                          onChange={(e) =>
-                            handleChange(row.id, "greyGsm", e.target.value)
-                          }
-                          className="w-full p-1 text-xs rounded border-none"
-                        />
-                      </td>
-                      <td className="border p-1">
-                        <input
-                          type="text"
-                          value={row.regdGsm}
-                          onChange={(e) =>
-                            handleChange(row.id, "regdGsm", e.target.value)
-                          }
-                          className="w-full p-1 text-xs rounded border-none"
-                        />
-                      </td>
 
-                      {/* KYR + Dyeing (Sum) - read only */}
                       <td className="border p-1 text-right">
                         <input
                           type="text"
@@ -1292,8 +1139,6 @@ const FinishingOutward: React.FC = () => {
                         />
                       </td>
 
-                      {/* Finishing Rate field removed from the form UI */}
-
                       <td className="border p-1 text-right">
                         <input
                           type="number"
@@ -1304,6 +1149,7 @@ const FinishingOutward: React.FC = () => {
                           className="w-full p-1 text-xs text-right rounded border-none"
                         />
                       </td>
+
                       <td className="border p-1">
                         <input
                           type="text"
@@ -1314,6 +1160,7 @@ const FinishingOutward: React.FC = () => {
                           className="w-full p-1 text-xs text-right rounded border-none"
                         />
                       </td>
+
                       <td className="border p-1">
                         <input
                           type="text"
@@ -1325,7 +1172,28 @@ const FinishingOutward: React.FC = () => {
                         />
                       </td>
 
-                      {/* Amount (Read Only) */}
+                      <td className="border p-1">
+                        <input
+                          type="text"
+                          value={row.shortage}
+                          onChange={(e) =>
+                            handleChange(row.id, "shortage", e.target.value)
+                          }
+                          className="w-full p-1 text-xs text-right rounded border-none"
+                        />
+                      </td>
+
+                      <td className="border p-1">
+                        <input
+                          type="text"
+                          value={row.percentage}
+                          onChange={(e) =>
+                            handleChange(row.id, "percentage", e.target.value)
+                          }
+                          className="w-full p-1 text-xs text-right rounded border-none"
+                        />
+                      </td>
+
                       <td className="border p-1 text-right font-semibold bg-gray-100">
                         {row.amount}
                       </td>
@@ -1341,45 +1209,45 @@ const FinishingOutward: React.FC = () => {
             <div className="flex flex-wrap gap-2 mb-2 md:mb-0 items-center">
               <button
                 onClick={addRow}
-                className="px-3 py-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded text-sm transition duration-150"
+                className="px-3 py-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded text-sm"
               >
                 Add New
               </button>
               <button
                 onClick={handleCreate}
                 disabled={loading}
-                className="px-3 py-1 bg-green-600 hover:bg-green-700 text-white rounded text-sm transition duration-150 disabled:opacity-60"
+                className="px-3 py-1 bg-green-600 hover:bg-green-700 text-white rounded text-sm disabled:opacity-60"
               >
                 Save
               </button>
               <button
                 onClick={handleUpdate}
                 disabled={loading}
-                className="px-3 py-1 bg-yellow-600 hover:bg-yellow-700 text-white rounded text-sm transition duration-150 disabled:opacity-60"
+                className="px-3 py-1 bg-yellow-600 hover:bg-yellow-700 text-white rounded text-sm disabled:opacity-60"
               >
                 Update
               </button>
               <button
                 onClick={handleDeleteCurrent}
-                className="px-3 py-1 bg-red-600 hover:bg-red-700 text-white rounded text-sm transition duration-150"
+                className="px-3 py-1 bg-red-600 hover:bg-red-700 text-white rounded text-sm"
               >
                 Delete
               </button>
               <button
                 onClick={handlePrint}
-                className="px-3 py-1 bg-gray-800 hover:bg-gray-900 text-white rounded text-sm transition duration-150"
+                className="px-3 py-1 bg-gray-800 hover:bg-gray-900 text-white rounded text-sm"
               >
                 Print
               </button>
               <button
                 onClick={openList}
-                className="px-3 py-1 bg-yellow-600 hover:bg-yellow-700 text-white rounded text-sm transition duration-150"
+                className="px-3 py-1 bg-yellow-600 hover:bg-yellow-700 text-white rounded text-sm"
               >
                 View List
               </button>
               <button
                 onClick={handleIssueTo}
-                className="px-3 py-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded text-sm transition duration-150"
+                className="px-3 py-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded text-sm"
               >
                 Issue To
               </button>
@@ -1406,10 +1274,7 @@ const FinishingOutward: React.FC = () => {
       {/* LOT SELECTION MODAL */}
       {showLotModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 z-[100] flex justify-center items-center">
-          <div
-            id="lot-modal"
-            className="bg-white rounded-lg shadow-2xl overflow-hidden w-full max-w-3xl max-h-[80vh] flex flex-col"
-          >
+          <div className="bg-white rounded-lg shadow-2xl overflow-hidden w-full max-w-3xl max-h-[80vh] flex flex-col">
             <div className="p-3 bg-gray-800 text-white font-bold text-lg flex items-center justify-between">
               <span>Select Lot (From Dyeing Inward)</span>
               <span className="text-sm font-normal">
@@ -1420,7 +1285,7 @@ const FinishingOutward: React.FC = () => {
             <div className="p-3">
               <input
                 type="text"
-                placeholder="Search by lot, fabric, shade, rolls, weight, rates..."
+                placeholder="Search by lot, fabric, shade, rolls, weight, shortage, % ..."
                 value={lotSearchText}
                 onChange={(e) => setLotSearchText(e.target.value)}
                 className="border p-2 rounded w-full mb-3 text-sm"
@@ -1431,13 +1296,13 @@ const FinishingOutward: React.FC = () => {
                 <div className="flex items-center gap-2">
                   <button
                     onClick={toggleSelectAllVisible}
-                    className="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1 rounded text-xs transition duration-150"
+                    className="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1 rounded text-xs"
                   >
                     {allVisibleSelected ? "Unselect Visible" : "Select Visible"}
                   </button>
                   <button
                     onClick={() => addSelectedLotsToRow()}
-                    className="bg-green-600 hover:bg-green-700 text-white px-3 py-1 rounded text-xs transition duration-150"
+                    className="bg-green-600 hover:bg-green-700 text-white px-3 py-1 rounded text-xs"
                   >
                     Add Selected
                   </button>
@@ -1455,16 +1320,14 @@ const FinishingOutward: React.FC = () => {
                           onChange={toggleSelectAllVisible}
                         />
                       </th>
-                      <th className="p-2 border-b text-left">Fabric Lot No</th>
-                      <th className="p-2 border-b text-left">
-                        Fabrication Name
-                      </th>
+                      <th className="p-2 border-b text-left">Lot No</th>
+                      <th className="p-2 border-b text-left">Fabric</th>
                       <th className="p-2 border-b text-left">Shade</th>
                       <th className="p-2 border-b text-right">Rolls</th>
                       <th className="p-2 border-b text-right">Weight</th>
-                      <th className="p-2 border-b text-right">
-                        KYR Dyeing Sum
-                      </th>
+                      <th className="p-2 border-b text-right">Shortage</th>
+                      <th className="p-2 border-b text-right">%</th>
+                      <th className="p-2 border-b text-right">Sum</th>
                       <th className="p-2 border-b"></th>
                     </tr>
                   </thead>
@@ -1477,7 +1340,7 @@ const FinishingOutward: React.FC = () => {
                         >
                           {dyeingInwardLots.length === 0
                             ? "No lots found. Please save Dyeing Inward records first."
-                            : "No matching lot numbers found."}
+                            : "No matching lots found."}
                         </td>
                       </tr>
                     ) : (
@@ -1504,11 +1367,17 @@ const FinishingOutward: React.FC = () => {
                             <td className="p-2 text-right">
                               {Number(lot.weight || 0).toFixed(3)}
                             </td>
+                            <td className="p-2 text-right">
+                              {String(lot.shortage ?? "")}
+                            </td>
+                            <td className="p-2 text-right">
+                              {String(lot.percentage ?? "")}
+                            </td>
                             <td className="p-2 text-right">{sum}</td>
                             <td className="p-2 text-right">
                               <button
                                 onClick={() => quickAddLot(lot)}
-                                className="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1 rounded text-xs transition duration-150"
+                                className="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1 rounded text-xs"
                               >
                                 Add
                               </button>
@@ -1528,7 +1397,7 @@ const FinishingOutward: React.FC = () => {
                     setCurrentRowId(null);
                     setSelectedLotNos(new Set());
                   }}
-                  className="text-gray-700 hover:text-gray-900 px-3 py-1 rounded border border-gray-300 bg-white text-sm transition duration-150"
+                  className="text-gray-700 px-3 py-1 rounded border border-gray-300 bg-white text-sm"
                 >
                   Close
                 </button>
@@ -1540,78 +1409,52 @@ const FinishingOutward: React.FC = () => {
 
       {/* VIEW LIST MODAL */}
       {showList && (
-        <div className="fixed inset-0 bg-black bg-opacity-40 z-[100] flex items-center justify-center backdrop-blur-sm">
+        <div className="fixed inset-0 bg-black bg-opacity-40 z-[100] flex items-center justify-center">
           <div className="bg-white rounded-2xl shadow-2xl overflow-hidden w-full max-w-7xl max-h-[90vh] border border-gray-300 flex flex-col">
-            {/* Header */}
-            <div className="flex justify-between items-center px-4 py-2 bg-gradient-to-r from-indigo-700 to-indigo-600 text-white font-semibold text-lg sticky top-0 z-20 shadow">
+            <div className="flex justify-between items-center px-4 py-2 bg-indigo-700 text-white font-semibold text-lg sticky top-0 z-20">
               <span>Finishing Outward List</span>
               <button
                 onClick={() => setShowList(false)}
-                className="text-white hover:text-gray-200 text-1xl leading-none"
+                className="text-white text-xl leading-none"
               >
                 ✕
               </button>
             </div>
 
-            {/* Search Bar */}
-            <div className="p-5 border-b border-gray-200">
+            <div className="p-4 border-b border-gray-200">
               <input
                 type="text"
-                placeholder='🔍 Search (e.g. party:xyz lot:F121 amount>1000 date:"10/2025")'
+                placeholder="Search..."
                 value={searchText}
                 onChange={(e) => setSearchText(e.target.value)}
-                className="border border-gray-300 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 rounded-lg px-3 py-2 w-full text-sm outline-none"
+                className="border border-gray-300 rounded-lg px-3 py-2 w-full text-sm"
               />
             </div>
 
-            {/* Table */}
-            <div className="flex-1 overflow-auto px-5 pb-5 scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-gray-100">
+            <div className="flex-1 overflow-auto px-4 pb-4">
               <table className="min-w-[1500px] w-full text-sm border-collapse">
-                <thead className="bg-gray-100 sticky top-0 z-10 text-gray-700 shadow-sm">
+                <thead className="bg-gray-100 sticky top-0 z-10">
                   <tr>
-                    <th className="px-3 py-2 border border-gray-200">#</th>
-                    <th className="px-3 py-2 border border-gray-200">
-                      Fabric Lot No
-                    </th>
-                    <th className="px-3 py-2 border border-gray-200">
-                      Fabrication Name
-                    </th>
-                    <th className="px-3 py-2 border border-gray-200">Shade</th>
-                    <th className="px-3 py-2 border border-gray-200 text-right">
-                      Weight
-                    </th>
-                    <th className="px-3 py-2 border border-gray-200">
-                      KYR + Dyeing (Sum) Rate
-                    </th>
-                    <th className="px-3 py-2 border border-gray-200 text-right">
-                      Rolls
-                    </th>
-                    {/* <th className="px-3 py-2 border border-gray-200 text-right">
-                      Finishing Rate
-                    </th> */}
-                    <th className="px-3 py-2 border border-gray-200 text-right">
-                      Amount
-                    </th>
-                    <th className="px-3 py-2 border border-gray-200">
-                      Party Name
-                    </th>
-                    <th className="px-3 py-2 border border-gray-200">
-                      Party Challan No
-                    </th>
-                    <th className="px-3 py-2 border border-gray-200">Dated</th>
-                    <th className="px-3 py-2 border border-gray-200 text-center">
-                      Actions
-                    </th>
+                    <th className="px-3 py-2 border">#</th>
+                    <th className="px-3 py-2 border">Lot(s)</th>
+                    <th className="px-3 py-2 border">Fabric(s)</th>
+                    <th className="px-3 py-2 border">Shade(s)</th>
+                    <th className="px-3 py-2 border">Shortage</th>
+                    <th className="px-3 py-2 border">%</th>
+                    <th className="px-3 py-2 border text-right">Weight</th>
+                    <th className="px-3 py-2 border text-right">Rolls</th>
+                    <th className="px-3 py-2 border text-right">Amount</th>
+                    <th className="px-3 py-2 border">Party</th>
+                    <th className="px-3 py-2 border">Challan</th>
+                    <th className="px-3 py-2 border">Date</th>
+                    <th className="px-3 py-2 border">Actions</th>
                   </tr>
                 </thead>
 
-                <tbody className="divide-y divide-gray-100">
+                <tbody>
                   {filteredList.length === 0 ? (
                     <tr>
-                      <td
-                        colSpan={12}
-                        className="p-5 text-center text-gray-500 italic border border-gray-200"
-                      >
+                      <td colSpan={13} className="p-5 text-center text-gray-500">
                         No records found
                       </td>
                     </tr>
@@ -1626,32 +1469,29 @@ const FinishingOutward: React.FC = () => {
                         rowsArr.map((r: any) => r.lotNo || r.fabricLotNo)
                       ).join(", ");
                       const itemsStr = uniq(
-                        rowsArr.map(
-                          (r: any) => r.itemName || r.item || r.fabric
-                        )
+                        rowsArr.map((r: any) => r.itemName || r.item || r.fabric)
                       ).join(", ");
                       const shadeStr = uniq(
                         rowsArr.map((r: any) => r.shade)
                       ).join(", ");
+
+                      const shortageStr = uniq(
+                        rowsArr.map((r: any) => r.shortage)
+                      ).join(", ");
+                      const percStr = uniq(
+                        rowsArr.map((r: any) => r.percentage)
+                      ).join(", ");
+
                       const totalWeight = rowsArr.reduce(
                         (sum: number, r: any) => sum + toNum(r.weight),
                         0
                       );
-                      // const finishingRatesStr = uniq(
-                      //   rowsArr.map((r: any) => r.rate || r.finishingRate)
-                      // ).join(", ");
-
-                      const ratesStr = uniq(
-                        rowsArr.map((r: any) => r.rateFND)
-                      ).join(", ");
-                      const totalRolls = rowsArr.reduce(
+                      const totalRolls2 = rowsArr.reduce(
                         (sum: number, r: any) => sum + toNum(r.rolls),
                         0
                       );
-                      const totalAmount = rowsArr.reduce(
-                        (sum: number, r: any) =>
-                          sum +
-                          (toNum(r.amount) || toNum(r.rate) * toNum(r.weight)),
+                      const totalAmount2 = rowsArr.reduce(
+                        (sum: number, r: any) => sum + toNum(r.amount),
                         0
                       );
 
@@ -1661,65 +1501,40 @@ const FinishingOutward: React.FC = () => {
                         ? new Date(entry.date).toLocaleDateString()
                         : "";
 
-                      const partyDisplay =
-                        entry.partyName ||
-                        entry.party ||
-                        entry.party_name ||
-                        entry.partyname ||
-                        "-";
-
                       return (
-                        <tr
-                          key={String(recId)}
-                          className="hover:bg-indigo-50 transition-colors"
-                        >
-                          <td className="px-3 py-2 border border-gray-200">
-                            {index + 1}
-                          </td>
-                          <td className="px-3 py-2 border border-gray-200">
-                            {lotNosStr || "-"}
-                          </td>
-                          <td className="px-3 py-2 border border-gray-200">
-                            {itemsStr || "-"}
-                          </td>
-                          <td className="px-3 py-2 border border-gray-200">
-                            {shadeStr || "-"}
-                          </td>
-                          <td className="px-3 py-2 border border-gray-200 text-right">
+                        <tr key={String(recId)} className="hover:bg-indigo-50">
+                          <td className="px-3 py-2 border">{index + 1}</td>
+                          <td className="px-3 py-2 border">{lotNosStr}</td>
+                          <td className="px-3 py-2 border">{itemsStr}</td>
+                          <td className="px-3 py-2 border">{shadeStr}</td>
+                          <td className="px-3 py-2 border">{shortageStr}</td>
+                          <td className="px-3 py-2 border">{percStr}</td>
+                          <td className="px-3 py-2 border text-right">
                             {totalWeight.toFixed(3)}
                           </td>
-                          <td className="px-3 py-2 border border-gray-200">
-                            {ratesStr || "-"}
+                          <td className="px-3 py-2 border text-right">
+                            {totalRolls2}
                           </td>
-                          <td className="px-3 py-2 border border-gray-200 text-right">
-                            {totalRolls}
+                          <td className="px-3 py-2 border text-right">
+                            ₹{totalAmount2.toFixed(2)}
                           </td>
-                          {/* <td className="px-3 py-2 border border-gray-200 text-right">
-                            {finishingRatesStr || "-"}
-                          </td> */}
-
-                          <td className="px-3 py-2 border border-gray-200 text-right">
-                            ₹{totalAmount.toFixed(2)}
+                          <td className="px-3 py-2 border">
+                            {entry.partyName || "-"}
                           </td>
-                          <td className="px-3 py-2 border border-gray-200">
-                            {partyDisplay}
-                          </td>
-                          <td className="px-3 py-2 border border-gray-200">
+                          <td className="px-3 py-2 border">
                             {entry.challanNo || "-"}
                           </td>
-                          <td className="px-3 py-2 border border-gray-200">
-                            {dateStr || "-"}
-                          </td>
-                          <td className="px-3 py-2 border border-gray-200 text-center space-x-2">
+                          <td className="px-3 py-2 border">{dateStr || "-"}</td>
+                          <td className="px-3 py-2 border text-center space-x-2">
                             <button
                               onClick={() => handleEditFromList(recId)}
-                              className="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1 rounded text-xs"
+                              className="bg-indigo-600 text-white px-3 py-1 rounded text-xs"
                             >
                               Edit
                             </button>
                             <button
                               onClick={() => handleDeleteFromList(recId)}
-                              className="bg-red-600 hover:bg-red-700 text-white px-3 py-1 rounded text-xs"
+                              className="bg-red-600 text-white px-3 py-1 rounded text-xs"
                             >
                               Delete
                             </button>
@@ -1732,11 +1547,10 @@ const FinishingOutward: React.FC = () => {
               </table>
             </div>
 
-            {/* Footer */}
-            <div className="px-6 py-3 border-t border-gray-200 bg-gray-50 text-right">
+            <div className="px-6 py-3 border-t bg-gray-50 text-right">
               <button
                 onClick={() => setShowList(false)}
-                className="text-gray-700 hover:text-gray-900 px-4 py-2 rounded border border-gray-300 bg-white text-sm"
+                className="px-4 py-2 rounded border bg-white text-sm"
               >
                 Close
               </button>

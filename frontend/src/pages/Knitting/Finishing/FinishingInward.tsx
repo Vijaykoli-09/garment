@@ -23,6 +23,10 @@ interface RowData {
   weight: string;
   wastage: string;
   extraWt: string;
+
+  // ✅ NEW (manual entry)
+  percentage: string;
+
   rate: string; // finishing rate (entered manually)
   amount: string; // weight * rate
   rateFND: string; // KYR + Dyeing (Sum) from Finishing Outward
@@ -67,6 +71,7 @@ const todayISO = () =>
   new Date(Date.now() - new Date().getTimezoneOffset() * 60000)
     .toISOString()
     .slice(0, 10);
+
 const toInputDate = (d?: any) => {
   if (!d) return "";
   const s = String(d);
@@ -93,7 +98,7 @@ const FinishingInward: React.FC = () => {
   const [vehicleNo, setVehicleNo] = useState<string>("");
   const [through, setThrough] = useState<string>("");
 
-  // New: Transfer to Stock checkbox
+  // Transfer to Stock checkbox
   const [transferToStock, setTransferToStock] = useState<boolean>(false);
 
   // This ref holds the recently-saved selection (for auto-issue to stock statement)
@@ -138,6 +143,7 @@ const FinishingInward: React.FC = () => {
       weight: "",
       wastage: "",
       extraWt: "",
+      percentage: "", // ✅ NEW
       rate: "",
       amount: "",
       rateFND: "", // read-only, from Outward
@@ -160,11 +166,13 @@ const FinishingInward: React.FC = () => {
   // Row selection
   const allRowsSelected =
     rows.length > 0 && selectedRowIds.length === rows.length;
+
   const toggleRowSelect = (id: number) => {
     setSelectedRowIds((prev) =>
       prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
     );
   };
+
   const toggleSelectAllRows = () => {
     if (allRowsSelected) setSelectedRowIds([]);
     else setSelectedRowIds(rows.map((r) => r.id));
@@ -208,7 +216,8 @@ const FinishingInward: React.FC = () => {
       });
   }, []);
 
-  // Optional: Prefill from Finishing Outward "Issue To" navigation state
+  // ✅✅ Optional: Prefill from Finishing Outward "Issue To" navigation state
+  // ✅ FIXED: wastage & percentage auto fill from outward shortage/percentage
   useEffect(() => {
     const s: any = (location as any)?.state?.fromOutward;
     if (!s) return;
@@ -229,6 +238,7 @@ const FinishingInward: React.FC = () => {
           r.rateFND || sumRatesToString(r.knittingYarnRate, r.dyeingRate) || "";
         const weightStr = String(r.weight ?? "");
         const rateStr = ""; // finishing rate to be entered manually by user
+
         return {
           id: idx + 1,
           lotNo: String(r.lotNo || r.fabricLotNo || ""),
@@ -237,8 +247,12 @@ const FinishingInward: React.FC = () => {
           processing: "",
           rolls: String(r.rolls ?? ""),
           weight: weightStr,
-          wastage: "",
-          extraWt: "",
+
+          // ✅✅ AUTO-FILL FIX HERE
+          wastage: String(r.wastage ?? r.shortage ?? ""),
+          percentage: String(r.percentage ?? ""),
+
+          extraWt: String(r.extraWt ?? ""),
           rate: rateStr,
           amount: calculateAmount(rateStr, weightStr),
           rateFND: String(rateFND),
@@ -255,7 +269,8 @@ const FinishingInward: React.FC = () => {
     }
   }, [location]);
 
-  // When party is selected (and not editing / not prefilled from Issue-To), prefill rows from Finishing Outward for that party
+  // ✅✅ When party is selected, prefill rows from Finishing Outward for that party
+  // ✅ FIXED: wastage & percentage brought from outward (shortage/percentage)
   useEffect(() => {
     if (!partyName?.trim()) return;
     if (editingId) return;
@@ -280,6 +295,10 @@ const FinishingInward: React.FC = () => {
               r.rateFND ||
               sumRatesToString(r.knittingYarnRate, r.dyeingRate) ||
               "",
+
+            // ✅✅ AUTO-FILL FIX HERE
+            wastage: r.wastage ?? r.shortage ?? "",
+            percentage: r.percentage ?? "",
           });
         });
       });
@@ -310,7 +329,11 @@ const FinishingInward: React.FC = () => {
         processing: "",
         rolls: String(l.rolls ?? ""),
         weight: weightStr,
-        wastage: "",
+
+        // ✅✅ AUTO-FILL FIX HERE
+        wastage: String(l.wastage ?? ""),
+        percentage: String(l.percentage ?? ""),
+
         extraWt: "",
         rate: rateStr,
         amount: calculateAmount(rateStr, weightStr),
@@ -335,7 +358,7 @@ const FinishingInward: React.FC = () => {
     challanNo,
     vehicleNo,
     through,
-    transferToStock, // optional flag (for server if supported)
+    transferToStock,
     rows: rowsForPayload.map((r) => ({
       lotNo: r.lotNo,
       itemName: r.itemName,
@@ -345,9 +368,13 @@ const FinishingInward: React.FC = () => {
       weight: r.weight,
       wastage: r.wastage,
       extraWt: r.extraWt,
-      rateFND: r.rateFND, // preserve KYR + Dyeing (Sum) from Outward
-      rate: r.rate, // finishing rate (manual)
-      amount: r.amount, // weight * finishing rate
+
+      // ✅ NEW
+      percentage: r.percentage,
+
+      rateFND: r.rateFND,
+      rate: r.rate,
+      amount: r.amount,
     })),
   });
 
@@ -364,7 +391,6 @@ const FinishingInward: React.FC = () => {
     setTransferToStock(false);
     setEditingId(null);
     setPrefilledFromOutward(false);
-    // Note: we intentionally DO NOT clear lastSavedForStockRef
   };
 
   // Validation
@@ -403,28 +429,23 @@ const FinishingInward: React.FC = () => {
       const payload = buildPayload(selected);
       const res = await api.post("/finishing-inwards", payload);
 
-      // Prepare auto-issue payload for Stock Statement
-      if (transferToStock) {
-        lastSavedForStockRef.current = {
-          date,
-          partyName,
-          itemNames: uniq(selected.map((r) => r.itemName)),
-          lotNos: uniq(selected.map((r) => r.lotNo)),
-          docId: res?.data?.id ?? res?.data?._id,
-          challanNo,
-        };
-        Swal.fire("Success", "Saved and transferred to stock!", "success");
-      } else {
-        lastSavedForStockRef.current = {
-          date,
-          partyName,
-          itemNames: uniq(selected.map((r) => r.itemName)),
-          lotNos: uniq(selected.map((r) => r.lotNo)),
-          docId: res?.data?.id ?? res?.data?._id,
-          challanNo,
-        };
-        Swal.fire("Success", "Finishing inward saved!", "success");
-      }
+      lastSavedForStockRef.current = {
+        date,
+        partyName,
+        itemNames: uniq(selected.map((r) => r.itemName)),
+        lotNos: uniq(selected.map((r) => r.lotNo)),
+        docId: res?.data?.id ?? res?.data?._id,
+        challanNo,
+      };
+
+      Swal.fire(
+        "Success",
+        transferToStock
+          ? "Saved and transferred to stock!"
+          : "Finishing inward saved!",
+        "success"
+      );
+
       resetForm();
     } catch (err: any) {
       console.error("Save Error:", err);
@@ -438,7 +459,7 @@ const FinishingInward: React.FC = () => {
     }
   };
 
-  // Update (merge: checked rows updated; unchecked original rows preserved; new checked rows added)
+  // Update (merge)
   const handleUpdate = async () => {
     if (!editingId) {
       Swal.fire("Info", "No record selected to update", "info");
@@ -468,7 +489,6 @@ const FinishingInward: React.FC = () => {
       await api.put(`/finishing-inwards/${editingId}`, buildPayload(finalRows));
       Swal.fire("Success", "Finishing inward updated!", "success");
 
-      // If transferToStock checked on update, set the last saved for Stock as well
       if (transferToStock) {
         lastSavedForStockRef.current = {
           date,
@@ -549,7 +569,7 @@ const FinishingInward: React.FC = () => {
 
       const mapped: RowData[] = (Array.isArray(data.rows) ? data.rows : []).map(
         (r: any, idx: number) => ({
-          id: idx + 1, // local stable id
+          id: idx + 1,
           lotNo: String(r.lotNo || ""),
           itemName: String(r.itemName || r.item || ""),
           shade: String(r.shade || ""),
@@ -558,11 +578,13 @@ const FinishingInward: React.FC = () => {
           weight: String(r.weight ?? ""),
           wastage: String(r.wastage ?? ""),
           extraWt: String(r.extraWt ?? ""),
+          percentage: String(r.percentage ?? ""),
           rate: String(r.rate ?? ""),
           amount: String(r.amount ?? ""),
           rateFND: String(r.rateFND ?? ""),
         })
       );
+
       setRows(mapped);
       setOriginalRows(mapped);
       setSelectedRowIds(mapped.map((r) => r.id));
@@ -654,6 +676,7 @@ const FinishingInward: React.FC = () => {
                 <th>Weight</th>
                 <th>Wastage</th>
                 <th>Extra Wt</th>
+                <th>%</th>
                 <th>Finishing Rate</th>
                 <th>Amount</th>
               </tr>
@@ -673,6 +696,7 @@ const FinishingInward: React.FC = () => {
                   <td>${r.weight}</td>
                   <td>${r.wastage}</td>
                   <td>${r.extraWt}</td>
+                  <td>${r.percentage}</td>
                   <td>${r.rate}</td>
                   <td>${r.amount}</td>
                 </tr>`
@@ -694,7 +718,7 @@ const FinishingInward: React.FC = () => {
     printWindow.document.close();
   };
 
-  // Issue To (navigate to Stock Statement with last saved selection if available)
+  // Issue To (stock statement)
   const handleIssueTo = async () => {
     const result = await Swal.fire({
       title: "Issue To Finishing  In House ",
@@ -749,17 +773,21 @@ const FinishingInward: React.FC = () => {
           ", "
         );
         const rateFNDsStr = uniq(rowsArr.map((r: any) => r.rateFND)).join(", ");
-        const totalRolls = rowsArr.reduce(
+
+        const percentageStr = uniq(rowsArr.map((r: any) => r.percentage)).join(
+          ", "
+        );
+
+        const totalRolls2 = rowsArr.reduce(
           (sum: number, r: any) => sum + toNum(r.rolls),
           0
         );
-        const totalWeight = rowsArr.reduce(
+        const totalWeight2 = rowsArr.reduce(
           (sum: number, r: any) => sum + toNum(r.weight),
           0
         );
 
-        // Total Amount = Finishing Inward amount (fin rate * weight or saved amount)
-        const totalAmount = rowsArr.reduce((sum: number, r: any) => {
+        const totalAmount2 = rowsArr.reduce((sum: number, r: any) => {
           const amt = toNum(r.amount);
           const calc = toNum(r.rate) * toNum(r.weight);
           return sum + (amt || calc);
@@ -780,9 +808,10 @@ const FinishingInward: React.FC = () => {
           shadeStr,
           finishingRatesStr,
           rateFNDsStr,
-          totalRolls,
-          totalWeight,
-          amount: totalAmount, // numeric; format on render
+          percentageStr,
+          totalRolls: totalRolls2,
+          totalWeight: totalWeight2,
+          amount: totalAmount2,
         };
 
         if (!s) return row;
@@ -796,12 +825,14 @@ const FinishingInward: React.FC = () => {
           row.shadeStr,
           row.finishingRatesStr,
           row.rateFNDsStr,
+          row.percentageStr,
           String(row.totalRolls),
           String(row.totalWeight),
           String(row.amount),
         ]
           .join(" ")
           .toLowerCase();
+
         return hay.includes(s) ? row : null;
       })
       .filter(Boolean) as any[];
@@ -824,10 +855,7 @@ const FinishingInward: React.FC = () => {
               <select
                 className="border p-1 rounded w-full text-sm focus:border-blue-500 bg-white"
                 value={partyName}
-                onChange={(e) => {
-                  const selectedName = e.target.value;
-                  setPartyName(selectedName);
-                }}
+                onChange={(e) => setPartyName(e.target.value)}
               >
                 <option value="">Select Finishing Party</option>
                 {partyList
@@ -855,6 +883,7 @@ const FinishingInward: React.FC = () => {
                 className="border p-1 rounded w-full text-sm focus:border-blue-500"
               />
             </div>
+
             <div>
               <label className="block font-semibold text-xs text-gray-700">
                 Dated
@@ -932,6 +961,7 @@ const FinishingInward: React.FC = () => {
                   <th className="border p-2 w-[7%]">Weight</th>
                   <th className="border p-2 w-[7%]">Wastage</th>
                   <th className="border p-2 w-[7%]">Extra Wt</th>
+                  <th className="border p-2 w-[7%]">%</th>
                   <th className="border p-2 w-[7%]">Finishing Rate</th>
                   <th className="border p-2 w-[8%]">Amount</th>
                 </tr>
@@ -949,11 +979,11 @@ const FinishingInward: React.FC = () => {
                           onChange={() => toggleRowSelect(row.id)}
                         />
                       </td>
+
                       <td className="border p-1 text-center font-medium">
                         {index + 1}
                       </td>
 
-                      {/* Read-only fields for lot and item */}
                       <td className="border p-1">
                         <input
                           type="text"
@@ -962,6 +992,7 @@ const FinishingInward: React.FC = () => {
                           className="w-full p-1 text-xs border rounded bg-gray-100"
                         />
                       </td>
+
                       <td className="border p-1">
                         <input
                           type="text"
@@ -971,7 +1002,6 @@ const FinishingInward: React.FC = () => {
                         />
                       </td>
 
-                      {/* Editable fields */}
                       <td className="border p-1">
                         <input
                           type="text"
@@ -982,6 +1012,7 @@ const FinishingInward: React.FC = () => {
                           className="w-full p-1 text-xs border rounded"
                         />
                       </td>
+
                       <td className="border p-1">
                         <input
                           type="text"
@@ -993,14 +1024,12 @@ const FinishingInward: React.FC = () => {
                         />
                       </td>
 
-                      {/* rateFND - read-only */}
                       <td className="border p-1">
                         <input
                           type="text"
                           value={row.rateFND}
                           readOnly
                           className="w-full p-1 text-xs border rounded bg-gray-100 text-right"
-                          title="KYR + Dyeing (Sum)"
                         />
                       </td>
 
@@ -1014,6 +1043,7 @@ const FinishingInward: React.FC = () => {
                           className="w-full p-1 text-xs border rounded text-right"
                         />
                       </td>
+
                       <td className="border p-1">
                         <input
                           type="number"
@@ -1025,6 +1055,7 @@ const FinishingInward: React.FC = () => {
                           className="w-full p-1 text-xs border rounded text-right"
                         />
                       </td>
+
                       <td className="border p-1">
                         <input
                           type="number"
@@ -1036,6 +1067,7 @@ const FinishingInward: React.FC = () => {
                           className="w-full p-1 text-xs border rounded text-right"
                         />
                       </td>
+
                       <td className="border p-1">
                         <input
                           type="number"
@@ -1045,6 +1077,18 @@ const FinishingInward: React.FC = () => {
                             handleChange(row.id, "extraWt", e.target.value)
                           }
                           className="w-full p-1 text-xs border rounded text-right"
+                        />
+                      </td>
+
+                      <td className="border p-1">
+                        <input
+                          type="text"
+                          value={row.percentage}
+                          onChange={(e) =>
+                            handleChange(row.id, "percentage", e.target.value)
+                          }
+                          className="w-full p-1 text-xs border rounded text-right"
+                          placeholder="%"
                         />
                       </td>
 
@@ -1080,6 +1124,7 @@ const FinishingInward: React.FC = () => {
               >
                 Add New
               </button>
+
               <button
                 onClick={handleCreate}
                 disabled={loading}
@@ -1087,6 +1132,7 @@ const FinishingInward: React.FC = () => {
               >
                 Save
               </button>
+
               <button
                 onClick={handleUpdate}
                 disabled={loading}
@@ -1094,24 +1140,28 @@ const FinishingInward: React.FC = () => {
               >
                 Update
               </button>
+
               <button
                 onClick={handleDeleteCurrent}
                 className="px-3 py-1 bg-red-500 hover:bg-red-600 text-white rounded text-sm transition duration-150"
               >
                 Delete
               </button>
-              <button
-                onClick={handlePrint}
-                className="px-3 py-1 bg-gray-800 hover:bg-gray-900 text-white rounded text-sm transition duration-150"
-              >
-                Print
-              </button>
+
               <button
                 onClick={openList}
                 className="px-3 py-1 bg-yellow-600 hover:bg-yellow-700 text-white rounded text-sm transition duration-150"
               >
                 View List
               </button>
+
+              <button
+                onClick={handlePrint}
+                className="px-3 py-1 bg-gray-800 hover:bg-gray-900 text-white rounded text-sm transition duration-150"
+              >
+                Print
+              </button>
+
               <button
                 onClick={handleIssueTo}
                 className="px-3 py-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded text-sm transition duration-150"
@@ -1134,167 +1184,118 @@ const FinishingInward: React.FC = () => {
                 <span className="text-blue-700">{totalWeight}</span>
               </p>
               <p>
-                <strong className="text-gray-700">Total Amount:</strong>{" "}
-                <span className="text-blue-700">{totalAmount}</span>
-              </p>
-              <p>
                 <strong className="text-gray-700">Tot. Wastage:</strong>{" "}
                 <span className="text-blue-700">{totalWastage}</span>
               </p>
+              <p>
+                <strong className="text-gray-700">Total Amount:</strong>{" "}
+                <span className="text-blue-700">{totalAmount}</span>
+              </p>
             </div>
           </div>
+
+          {/* VIEW LIST MODAL */}
+          {showList && (
+            <div className="fixed inset-0 bg-black bg-opacity-40 z-50 flex items-center justify-center">
+              <div className="bg-white rounded-xl shadow-2xl overflow-hidden w-full max-w-6xl max-h-[90vh] flex flex-col border border-gray-200">
+                <div className="px-4 py-2 bg-gray-800 text-white font-semibold text-lg flex justify-between items-center">
+                  <span>Finishing Inward List</span>
+                  <button
+                    onClick={() => setShowList(false)}
+                    className="text-white hover:text-gray-300 text-1xl leading-none"
+                  >
+                    ✕
+                  </button>
+                </div>
+
+                <div className="p-4 border-b border-gray-200">
+                  <input
+                    type="text"
+                    placeholder="🔍 Search..."
+                    value={searchText}
+                    onChange={(e) => setSearchText(e.target.value)}
+                    className="border border-gray-300 p-2 rounded-lg w-full text-sm outline-none"
+                  />
+                </div>
+
+                <div className="overflow-auto px-4 pb-4">
+                  <table className="min-w-[1400px] w-full text-sm border-collapse border border-gray-300">
+                    <thead className="bg-gray-100 sticky top-0 z-10">
+                      <tr>
+                        <th className="p-2 border">#</th>
+                        <th className="p-2 border">Lot(s)</th>
+                        <th className="p-2 border">Item(s)</th>
+                        <th className="p-2 border">Shade(s)</th>
+                        <th className="p-2 border">Fin Rate</th>
+                        <th className="p-2 border">Sum</th>
+                        <th className="p-2 border">%</th>
+                        <th className="p-2 border text-right">Rolls</th>
+                        <th className="p-2 border text-right">Weight</th>
+                        <th className="p-2 border">Party</th>
+                        <th className="p-2 border text-right">Amount</th>
+                        <th className="p-2 border">Challan</th>
+                        <th className="p-2 border">Date</th>
+                        <th className="p-2 border text-center">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {aggregatedList.length === 0 ? (
+                        <tr>
+                          <td colSpan={14} className="p-5 text-center text-gray-500 border">
+                            No records found
+                          </td>
+                        </tr>
+                      ) : (
+                        aggregatedList.map((r: any, i: number) => (
+                          <tr key={String(r.id)} className="hover:bg-gray-50">
+                            <td className="p-2 border">{i + 1}</td>
+                            <td className="p-2 border">{r.lotNosStr || "-"}</td>
+                            <td className="p-2 border">{r.itemsStr || "-"}</td>
+                            <td className="p-2 border">{r.shadeStr || "-"}</td>
+                            <td className="p-2 border">{r.finishingRatesStr || "-"}</td>
+                            <td className="p-2 border">{r.rateFNDsStr || "-"}</td>
+                            <td className="p-2 border">{r.percentageStr || "-"}</td>
+                            <td className="p-2 border text-right">{r.totalRolls}</td>
+                            <td className="p-2 border text-right">{Number(r.totalWeight).toFixed(3)}</td>
+                            <td className="p-2 border">{r.partyName}</td>
+                            <td className="p-2 border text-right">₹{Number(r.amount).toFixed(2)}</td>
+                            <td className="p-2 border">{r.challanNo}</td>
+                            <td className="p-2 border">{r.dated}</td>
+                            <td className="p-2 border text-center">
+                              <button
+                                onClick={() => handleEditFromList(r.id)}
+                                className="px-3 py-1 bg-indigo-600 text-white rounded mr-2 text-xs"
+                              >
+                                Edit
+                              </button>
+                              <button
+                                onClick={() => handleDeleteFromList(r.id)}
+                                className="px-3 py-1 bg-red-600 text-white rounded text-xs"
+                              >
+                                Delete
+                              </button>
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+
+                <div className="px-5 py-3 bg-gray-50 border-t text-right">
+                  <button
+                    onClick={() => setShowList(false)}
+                    className="px-4 py-2 rounded border bg-white text-sm"
+                  >
+                    Close
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
         </div>
       </div>
-
-      {/* VIEW LIST MODAL (aggregated, includes Finishing Rate & Amount) */}
-      {showList && (
-        <div className="fixed inset-0 bg-black bg-opacity-40 z-50 flex items-center justify-center">
-          <div className="bg-white rounded-xl shadow-2xl overflow-hidden w-full max-w-6xl max-h-[90vh] flex flex-col border border-gray-200">
-            {/* Header */}
-            <div className="px-4 py-2 bg-gray-800 text-white font-semibold text-lg flex justify-between items-center">
-              <span>Finishing Inward List</span>
-              <button
-                onClick={() => setShowList(false)}
-                className="text-white hover:text-gray-300 text-1xl leading-none"
-              >
-                ✕
-              </button>
-            </div>
-
-            {/* Search Input */}
-            <div className="p-4 border-b border-gray-200">
-              <input
-                type="text"
-                placeholder="🔍 Search by any field (Party, Challan, Date, Lot, Item, Shade, Rate, Amount...)"
-                value={searchText}
-                onChange={(e) => setSearchText(e.target.value)}
-                className="border border-gray-300 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 p-2 rounded-lg w-full text-sm outline-none"
-              />
-            </div>
-
-            {/* Table Section */}
-            <div className="overflow-auto px-4 pb-4 scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-gray-100">
-              <table className="min-w-[1400px] w-full text-sm border-collapse border border-gray-300">
-                <thead className="bg-gray-100 sticky top-0 z-10">
-                  <tr className="text-gray-700">
-                    <th className="p-2 border border-gray-300">#</th>
-                    <th className="p-2 border border-gray-300">
-                      Fabric Lot No(s)
-                    </th>
-                    <th className="p-2 border border-gray-300">
-                      Fabrication Name(s)
-                    </th>
-                    <th className="p-2 border border-gray-300">Shade(s)</th>
-                    <th className="p-2 border border-gray-300">
-                      Finishing Rate
-                    </th>
-                    <th className="p-2 border border-gray-300">
-                      KYR + Dyeing (Sum)
-                    </th>
-                    <th className="p-2 border border-gray-300 text-right">
-                      Rolls
-                    </th>
-                    <th className="p-2 border border-gray-300 text-right">
-                      Weight
-                    </th>
-                    <th className="p-2 border border-gray-300">Party Name</th>
-                    <th className="p-2 border border-gray-300 text-right">
-                      Amount
-                    </th>
-                    <th className="p-2 border border-gray-300">
-                      Party Challan No
-                    </th>
-                    <th className="p-2 border border-gray-300">Dated</th>
-                    <th className="p-2 border border-gray-300 text-center">
-                      Actions
-                    </th>
-                  </tr>
-                </thead>
-
-                <tbody>
-                  {aggregatedList.length === 0 ? (
-                    <tr>
-                      <td
-                        colSpan={13}
-                        className="p-5 text-center text-gray-500 border border-gray-300"
-                      >
-                        No records found
-                      </td>
-                    </tr>
-                  ) : (
-                    aggregatedList.map((r: any, i: number) => (
-                      <tr
-                        key={`${r.id}`}
-                        className="hover:bg-gray-50 transition-colors"
-                      >
-                        <td className="p-2 border border-gray-200">{i + 1}</td>
-                        <td className="p-2 border border-gray-200">
-                          {r.lotNosStr || "-"}
-                        </td>
-                        <td className="p-2 border border-gray-200">
-                          {r.itemsStr || "-"}
-                        </td>
-                        <td className="p-2 border border-gray-200">
-                          {r.shadeStr || "-"}
-                        </td>
-                        <td className="p-2 border border-gray-200">
-                          {r.finishingRatesStr || "-"}
-                        </td>
-                        <td className="p-2 border border-gray-200">
-                          {r.rateFNDsStr || "-"}
-                        </td>
-                        <td className="p-2 border border-gray-200 text-right">
-                          {r.totalRolls}
-                        </td>
-                        <td className="p-2 border border-gray-200 text-right">
-                          {Number(r.totalWeight).toFixed(3)}
-                        </td>
-                        <td className="p-2 border border-gray-200">
-                          {r.partyName}
-                        </td>
-                        <td className="p-2 border border-gray-200 text-right">
-                          ₹{Number(r.amount).toFixed(2)}
-                        </td>
-                        <td className="p-2 border border-gray-200">
-                          {r.challanNo}
-                        </td>
-                        <td className="p-2 border border-gray-200">
-                          {r.dated}
-                        </td>
-
-                        <td className="p-2 border border-gray-200 text-center">
-                          <button
-                            onClick={() => handleEditFromList(r.id)}
-                            className="px-3 py-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded mr-2 text-xs"
-                          >
-                            Edit
-                          </button>
-                          <button
-                            onClick={() => handleDeleteFromList(r.id)}
-                            className="px-3 py-1 bg-red-600 hover:bg-red-700 text-white rounded text-xs"
-                          >
-                            Delete
-                          </button>
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
-
-            {/* Footer */}
-            <div className="px-5 py-3 bg-gray-50 border-t border-gray-200 text-right">
-              <button
-                onClick={() => setShowList(false)}
-                className="text-gray-700 hover:text-gray-900 px-4 py-2 rounded border border-gray-300 bg-white text-sm"
-              >
-                Close
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </Dashboard>
   );
 };
