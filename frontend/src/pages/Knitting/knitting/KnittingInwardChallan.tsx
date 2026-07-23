@@ -911,11 +911,11 @@ const handleIssueTo = async () => {
     return;
   }
 
-  const partyObj = partyList.find((p) => String(p.id) === String(accountHead));
+  //const partyObj = partyList.find((p) => String(p.id) === String(accountHead));
   const payloadForDyeingOutward = {
-    partyId: accountHead ? Number(accountHead) : null,
-    partyName: partyObj?.partyName || "",
-    dated: dated || "",
+    // partyId: accountHead ? Number(accountHead) : null,
+    // partyName: partyObj?.partyName || "",
+    // dated: dated || "",
     rows: issueRows,
   };
 

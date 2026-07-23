@@ -36,13 +36,10 @@ public class DyeingInwardService {
                 DyeingInwardRow row = new DyeingInwardRow();
                 row.setFabricLotNo(rowDTO.getFabricLotNo());
                 row.setFabric(rowDTO.getFabric());
-                row.setShade(rowDTO.getShade());
-                row.setMcSize(rowDTO.getMcSize());
-                row.setGreyGSM(rowDTO.getGreyGSM());
-                row.setRegdSize(rowDTO.getRegdSize());
                 row.setRolls(rowDTO.getRolls());
                 row.setWeight(rowDTO.getWeight());
-                row.setWastage(rowDTO.getWastage());
+                row.setShortage(rowDTO.getShortage());
+                row.setPercentage(rowDTO.getPercentage());
                 row.setKnittingYarnRate(rowDTO.getKnittingYarnRate());
                 row.setDyeingRate(rowDTO.getDyeingRate());
                 row.setAmount(rowDTO.getAmount());
@@ -57,7 +54,7 @@ public class DyeingInwardService {
     @Transactional
     public DyeingInwardDTO update(Long id, DyeingInwardDTO dto) {
         DyeingInward dyeingInward = dyeingInwardRepository.findById(id).orElse(null);
-        
+
         if (dyeingInward != null) {
             dyeingInward.setDated(parseDate(dto.getDated()));
             dyeingInward.setPartyName(dto.getPartyName());
@@ -74,13 +71,10 @@ public class DyeingInwardService {
                     DyeingInwardRow row = new DyeingInwardRow();
                     row.setFabricLotNo(rowDTO.getFabricLotNo());
                     row.setFabric(rowDTO.getFabric());
-                    row.setShade(rowDTO.getShade());
-                    row.setMcSize(rowDTO.getMcSize());
-                    row.setGreyGSM(rowDTO.getGreyGSM());
-                    row.setRegdSize(rowDTO.getRegdSize());
                     row.setRolls(rowDTO.getRolls());
                     row.setWeight(rowDTO.getWeight());
-                    row.setWastage(rowDTO.getWastage());
+                    row.setShortage(rowDTO.getShortage());
+                    row.setPercentage(rowDTO.getPercentage());
                     row.setKnittingYarnRate(rowDTO.getKnittingYarnRate());
                     row.setDyeingRate(rowDTO.getDyeingRate());
                     row.setAmount(rowDTO.getAmount());
@@ -91,7 +85,7 @@ public class DyeingInwardService {
             DyeingInward updated = dyeingInwardRepository.save(dyeingInward);
             return convertToDTO(updated);
         }
-        
+
         return null;
     }
 
@@ -141,13 +135,10 @@ public class DyeingInwardService {
         dto.setId(row.getId());
         dto.setFabricLotNo(row.getFabricLotNo());
         dto.setFabric(row.getFabric());
-        dto.setShade(row.getShade());
-        dto.setMcSize(row.getMcSize());
-        dto.setGreyGSM(row.getGreyGSM());
-        dto.setRegdSize(row.getRegdSize());
         dto.setRolls(row.getRolls());
         dto.setWeight(row.getWeight());
-        dto.setWastage(row.getWastage());
+        dto.setShortage(row.getShortage());
+        dto.setPercentage(row.getPercentage());
         dto.setKnittingYarnRate(row.getKnittingYarnRate());
         dto.setDyeingRate(row.getDyeingRate());
         dto.setAmount(row.getAmount());
@@ -155,10 +146,7 @@ public class DyeingInwardService {
     }
 
     private LocalDate parseDate(String dateString) {
-        if (dateString == null || dateString.isEmpty()) {
-            return null;
-        }
-        
+        if (dateString == null || dateString.isEmpty()) return null;
         DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd");
         return LocalDate.parse(dateString, formatter);
     }

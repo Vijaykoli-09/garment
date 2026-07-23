@@ -11,13 +11,12 @@ public class DyeingInwardRowDTO {
     private Long id;
     private String fabricLotNo;
     private String fabric;
-    private String shade;
-    private String mcSize;
-    private String greyGSM;
-    private String regdSize;
     private String rolls;
     private String weight;
-    private String wastage;
+
+    private String shortage;     // renamed from wastage
+    private String percentage;   // NEW
+
     private String knittingYarnRate;
     private String dyeingRate;
     private String amount;

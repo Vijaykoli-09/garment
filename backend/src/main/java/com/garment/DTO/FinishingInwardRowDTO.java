@@ -1,6 +1,5 @@
 package com.garment.DTO;
 
-
 import lombok.*;
 
 @Data
@@ -14,10 +13,13 @@ public class FinishingInwardRowDTO {
     private String wastage;
     private String extraWt;
     private String shade;
-    // private String stockRate;
     private String rateFND;
     private String rolls;
     private String weight;
+
+
+    private String percentage;
+
     private String rate;
     private String amount;
 }

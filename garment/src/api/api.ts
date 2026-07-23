@@ -3,7 +3,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { CartItem, AppUser } from '../context/AppContext';
 
 export const BASE_URL = 'https://garment-1-1v21.onrender.com/api';
-// export const BASE_URL = 'http://192.168.1.8:8080/api';
+// export const BASE_URL = 'http://192.168.1.16:8080/api';
 
 // ════════════════════════════════════════════════════════════════════
 // AXIOS INSTANCE
@@ -384,6 +384,54 @@ export const partyOrderApi = {
         ...(toDate ? { toDate } : {}),
       },
     }),
+};
+
+// ════════════════════════════════════════════════════════════════════
+// STATEMENT — raw data fetchers (mirrors the web AccountStatement page)
+// These return the FULL org-wide list for each doc type — same as the
+// web app does — so the statement math can be replicated client-side
+// in the RN app. Filtering to one party happens in statementCalculator.
+// ════════════════════════════════════════════════════════════════════
+export interface AgentRawDto {
+  serialNo: string | number;
+  agentName: string;
+  openingBalance?: number | null;
+  openingBalanceType?: 'CR' | 'DR';
+}
+
+export interface PartyRawDto {
+  id: number;
+  partyName: string;
+  agent?: { serialNo?: string | number; agentName?: string };
+  openingBalance?: number | null;
+  openingBalanceType?: 'CR' | 'DR';
+}
+
+export const statementRawApi = {
+  getAllParties:      () => api.get<PartyRawDto[]>('/party/all'),
+  getAllAgents:       () => api.get<AgentRawDto[]>('/agent/list'),
+  getDispatchChallans:      () => api.get<any[]>('/dispatch-challan'),
+  getOtherDispatchChallans: () => api.get<any[]>('/other-dispatch-challan'),
+  getPurchaseOrders:        () => api.get<any[]>('/purchase-orders'),
+  getPurchaseEntries:       () => api.get<any[]>('/purchase-entry'),
+  getPurchaseReturns:       () => api.get<any[]>('/purchase-returns'),
+  getPayments:              () => api.get<any[]>('/payment'),
+  getJobOutwardChallans:    () => api.get<any[]>('/job-outward-challan'),
+  getJobInwardChallans:     () => api.get<any[]>('/job-inward-challan'),
+  // backend has used both spellings historically — try /recipt then /receipt
+  getReceipts: async (): Promise<any[]> => {
+    try {
+      const r1 = await api.get<any[]>('/recipt');
+      return Array.isArray(r1.data) ? r1.data : [];
+    } catch {
+      try {
+        const r2 = await api.get<any[]>('/receipt');
+        return Array.isArray(r2.data) ? r2.data : [];
+      } catch {
+        return [];
+      }
+    }
+  },
 };
 
 export default api;

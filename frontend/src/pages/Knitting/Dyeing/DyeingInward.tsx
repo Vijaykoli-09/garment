@@ -11,16 +11,16 @@ interface ReceiptRow {
   id: number;
   fabricLotNo: string;
   fabric: string;
-  shade: string;
-  mcSize: string;
-  greyGSM: string;
-  regdSize: string;
   rolls: string;
   weight: string;
-  wastage: string;
+
+  shortage: string;
+  percentage: string;
+
   knittingYarnRate: string;
   dyeingRate: string;
   amount: string;
+
   selected: boolean;
 }
 
@@ -55,7 +55,7 @@ const DyeingInward: React.FC = () => {
   const [searchText, setSearchText] = useState("");
   const [editingId, setEditingId] = useState<number | null>(null);
 
-  const [savedRecords, setSavedRecords] = useState<any[]>([])
+  const [savedRecords, setSavedRecords] = useState<any[]>([]);
 
   useEffect(() => {
     loadParties();
@@ -89,6 +89,8 @@ const DyeingInward: React.FC = () => {
                 weight: row.weight || 0,
                 knittingYarnRate: row.knittingYarnRate || 0,
                 partyName: dyeing.partyName || "",
+                shortage: row.shortage ?? "",
+                percentage: row.percentage ?? "",
               });
             });
           }
@@ -113,39 +115,41 @@ const DyeingInward: React.FC = () => {
     }
   }, [partyName, dyeingOutwardList]);
 
+  // ✅ keep existing sessionStorage prefill from DyeingOutward (already in your code)
   useEffect(() => {
-    const storedData = sessionStorage.getItem("dyeingOutwardData")
-    if (storedData) {
-      try {
-        const outwardData = JSON.parse(storedData)
-        setPartyName(outwardData.dyeingPartyName || "")
-        setDated(outwardData.dyeingDate || "")
-        setChallanNo(outwardData.dyeingChallanNo || "")
+    const storedData = sessionStorage.getItem("dyeingOutwardData");
+    if (!storedData) return;
 
-        const inwardRows = (outwardData.dyeingRows || []).map((row: any, idx: number) => ({
+    try {
+      const outwardData = JSON.parse(storedData);
+
+      setPartyName(outwardData.dyeingPartyName || "");
+      setDated(outwardData.dyeingDate || "");
+      setChallanNo(outwardData.dyeingChallanNo || "");
+
+      const inwardRows: ReceiptRow[] = (outwardData.dyeingRows || []).map(
+        (row: any, idx: number) => ({
           id: Date.now() + idx,
           fabricLotNo: row.lotNo || "",
           fabric: row.fabricName || "",
-          shade: row.shade || "",
-          mcSize: row.mcSize || "",
-          greyGSM: row.greyGSM || "",
-          regdSize: row.regdSize || "",
-          rolls: row.roll || "",
-          weight: row.weight || "",
-          wastage: "",
-          knittingYarnRate: row.knittingYarnRate || "",
+          rolls: String(row.roll ?? ""),
+          weight: String(row.weight ?? ""),
+          shortage: String(row.shortage ?? ""),
+          percentage: String(row.percentage ?? ""),
+          knittingYarnRate: String(row.knittingYarnRate ?? ""),
           dyeingRate: "",
           amount: "",
           selected: true,
-        }))
+        })
+      );
 
-        setRows(inwardRows)
-        sessionStorage.removeItem("dyeingOutwardData")
-      } catch (error) {
-        console.error("Error retrieving outward data:", error)
-      }
+      setRows(inwardRows);
+    } catch (error) {
+      console.error("Error retrieving outward data:", error);
+    } finally {
+      sessionStorage.removeItem("dyeingOutwardData");
     }
-  }, [])
+  }, []);
 
   const addRow = useCallback(() => {
     setRows((prev) => [
@@ -154,13 +158,10 @@ const DyeingInward: React.FC = () => {
         id: Date.now() + prev.length,
         fabricLotNo: "",
         fabric: "",
-        shade: "",
-        mcSize: "",
-        greyGSM: "",
-        regdSize: "",
         rolls: "",
         weight: "",
-        wastage: "",
+        shortage: "",
+        percentage: "",
         knittingYarnRate: "",
         dyeingRate: "",
         amount: "",
@@ -170,37 +171,40 @@ const DyeingInward: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    if (rows.length === 0) {
-      addRow();
-    }
+    if (rows.length === 0) addRow();
   }, [addRow, rows.length]);
 
-  const handleChange = (id: number, field: keyof ReceiptRow, value: string | boolean) => {
+  const handleChange = (
+    id: number,
+    field: keyof ReceiptRow,
+    value: string | boolean
+  ) => {
     const updatedRows = rows.map((r) => {
-      if (r.id === id) {
-        const updatedRow = { ...r, [field]: value };
+      if (r.id !== id) return r;
 
-        if (field === "dyeingRate" || field === "weight") {
-          const weight =
-            Number.parseFloat(field === "weight" ? value as string : updatedRow.weight) ||
-            0;
-          const rate =
-            Number.parseFloat(
-              field === "dyeingRate" ? value as string : updatedRow.dyeingRate
-            ) || 0;
-          updatedRow.amount = (weight * rate).toFixed(2);
-        }
+      const updatedRow: ReceiptRow = { ...r, [field]: value as any };
 
-        return updatedRow;
+      if (field === "dyeingRate" || field === "weight") {
+        const weight =
+          Number.parseFloat(
+            field === "weight" ? (value as string) : updatedRow.weight
+          ) || 0;
+        const rate =
+          Number.parseFloat(
+            field === "dyeingRate" ? (value as string) : updatedRow.dyeingRate
+          ) || 0;
+        updatedRow.amount = (weight * rate).toFixed(2);
       }
-      return r;
+
+      return updatedRow;
     });
+
     setRows(updatedRows);
   };
 
   const toggleSelectAll = () => {
-    const allSelected = rows.every(r => r.selected);
-    setRows(rows.map(r => ({ ...r, selected: !allSelected })));
+    const allSelected = rows.every((r) => r.selected);
+    setRows(rows.map((r) => ({ ...r, selected: !allSelected })));
   };
 
   const openPartyModal = () => {
@@ -222,11 +226,8 @@ const DyeingInward: React.FC = () => {
 
   const toggleLotSelection = (lotNo: string) => {
     const newSelected = new Set(selectedLots);
-    if (newSelected.has(lotNo)) {
-      newSelected.delete(lotNo);
-    } else {
-      newSelected.add(lotNo);
-    }
+    if (newSelected.has(lotNo)) newSelected.delete(lotNo);
+    else newSelected.add(lotNo);
     setSelectedLots(newSelected);
   };
 
@@ -240,17 +241,14 @@ const DyeingInward: React.FC = () => {
       selectedLots.has(lot.fabricLotNo)
     );
 
-    const newRows = lotsToAdd.map((lot) => ({
+    const newRows: ReceiptRow[] = lotsToAdd.map((lot) => ({
       id: Date.now() + Math.random(),
       fabricLotNo: lot.fabricLotNo,
       fabric: lot.fabricName,
-      shade: "",
-      mcSize: "",
-      greyGSM: "",
-      regdSize: "",
       rolls: String(lot.rolls),
       weight: String(lot.weight),
-      wastage: "",
+      shortage: String(lot.shortage ?? ""),
+      percentage: String(lot.percentage ?? ""),
       knittingYarnRate: String(lot.knittingYarnRate),
       dyeingRate: "",
       amount: "",
@@ -261,13 +259,16 @@ const DyeingInward: React.FC = () => {
       const nonEmptyRows = prev.filter((r) => r.fabricLotNo.trim() !== "");
       return [...newRows, ...nonEmptyRows];
     });
+
     setShowLotModal(false);
     setSelectedLots(new Set());
     setCurrentRowId(null);
   };
 
   const filteredParties = partyList.filter((p) =>
-    p.partyName.toLowerCase().includes(partySearchText.toLowerCase())
+    (p.partyName || "")
+      .toLowerCase()
+      .includes(partySearchText.toLowerCase())
   );
 
   const filteredLots = filteredDyeingOutwardList.filter((l) =>
@@ -275,10 +276,14 @@ const DyeingInward: React.FC = () => {
   );
 
   const handleSave = async () => {
-    const selectedRows = rows.filter(r => r.selected);
-    
+    const selectedRows = rows.filter((r) => r.selected);
+
     if (!partyName || !dated || selectedRows.length === 0) {
-      Swal.fire("Error", "Please fill all required fields and select at least one row!", "error");
+      Swal.fire(
+        "Error",
+        "Please fill all required fields and select at least one row!",
+        "error"
+      );
       return;
     }
 
@@ -293,13 +298,10 @@ const DyeingInward: React.FC = () => {
       rows: selectedRows.map((r) => ({
         fabricLotNo: r.fabricLotNo,
         fabric: r.fabric,
-        shade: r.shade,
-        mcSize: r.mcSize,
-        greyGSM: r.greyGSM,
-        regdSize: r.regdSize,
         rolls: r.rolls,
         weight: r.weight,
-        wastage: r.wastage,
+        shortage: r.shortage,
+        percentage: r.percentage,
         knittingYarnRate: r.knittingYarnRate,
         dyeingRate: r.dyeingRate,
         amount: r.amount,
@@ -330,13 +332,13 @@ const DyeingInward: React.FC = () => {
 
   const loadSavedRecords = async () => {
     try {
-      const res = await api.get("/dyeing-inward")
-      const data = Array.isArray(res.data) ? res.data : []
-      setSavedRecords(data)
+      const res = await api.get("/dyeing-inward");
+      const data = Array.isArray(res.data) ? res.data : [];
+      setSavedRecords(data);
     } catch (err) {
-      console.error("Error loading saved records:", err)
+      console.error("Error loading saved records:", err);
     }
-  }
+  };
 
   const resetForm = () => {
     setRows([]);
@@ -378,22 +380,22 @@ const DyeingInward: React.FC = () => {
       setNarration(inward.narration || "");
       setEditingId(id);
 
-      const mapped = (inward.rows || []).map((r: any, i: number) => ({
-        id: Date.now() + i,
-        fabricLotNo: r.fabricLotNo || "",
-        fabric: r.fabric || "",
-        shade: r.shade || "",
-        mcSize: r.mcSize || "",
-        greyGSM: r.greyGSM || "",
-        regdSize: r.regdSize || "",
-        rolls: r.rolls || "",
-        weight: r.weight || "",
-        wastage: r.wastage || "",
-        knittingYarnRate: r.knittingYarnRate || "",
-        dyeingRate: r.dyeingRate || "",
-        amount: r.amount || "",
-        selected: true,
-      }));
+      const mapped: ReceiptRow[] = (inward.rows || []).map(
+        (r: any, i: number) => ({
+          id: Date.now() + i,
+          fabricLotNo: r.fabricLotNo || "",
+          fabric: r.fabric || "",
+          rolls: r.rolls || "",
+          weight: r.weight || "",
+          shortage: String(r.shortage ?? ""),
+          percentage: String(r.percentage ?? ""),
+          knittingYarnRate: r.knittingYarnRate || "",
+          dyeingRate: r.dyeingRate || "",
+          amount: r.amount || "",
+          selected: true,
+        })
+      );
+
       setRows(mapped);
       setShowList(false);
     } catch (err) {
@@ -425,7 +427,7 @@ const DyeingInward: React.FC = () => {
   };
 
   const handlePrint = () => {
-    const selectedRows = rows.filter(r => r.selected);
+    const selectedRows = rows.filter((r) => r.selected);
     const printWindow = window.open("", "_blank");
     if (!printWindow) return;
 
@@ -469,9 +471,16 @@ const DyeingInward: React.FC = () => {
           <table>
             <thead>
               <tr>
-                <th>#</th><th>Fabric Lot No</th><th>Fabric</th>
-                <th>Shade</th><th>M/C Size</th><th>Grey GSM</th><th>Regd Size</th><th>Rolls</th>
-                <th>Weight</th><th>Wastage</th><th>Knitting+Yarn Rate</th><th>Dyeing Rate</th><th>Amount</th>
+                <th>#</th>
+                <th>Fabric Lot No</th>
+                <th>Fabric</th>
+                <th>Rolls</th>
+                <th>Weight</th>
+                <th>Shortage</th>
+                <th>%</th>
+                <th>Knitting+Yarn Rate</th>
+                <th>Dyeing Rate</th>
+                <th>Amount</th>
               </tr>
             </thead>
             <tbody>
@@ -482,13 +491,10 @@ const DyeingInward: React.FC = () => {
                   <td>${i + 1}</td>
                   <td>${r.fabricLotNo}</td>
                   <td>${r.fabric}</td>
-                  <td>${r.shade}</td>
-                  <td>${r.mcSize}</td>
-                  <td>${r.greyGSM}</td>
-                  <td>${r.regdSize}</td>
                   <td>${r.rolls}</td>
                   <td>${r.weight}</td>
-                  <td>${r.wastage}</td>
+                  <td>${r.shortage}</td>
+                  <td>${r.percentage}</td>
                   <td>${r.knittingYarnRate}</td>
                   <td>${r.dyeingRate}</td>
                   <td>${r.amount}</td>
@@ -511,26 +517,50 @@ const DyeingInward: React.FC = () => {
     printWindow.document.close();
   };
 
+  // ✅✅ FIXED: Issue To -> Finishing Outward with rows (shortage/percentage included)
   const handleIssueTo = async () => {
+    const selectedRowsToSend = rows
+      .filter((r) => r.selected)
+      .map((r) => ({
+        fabricLotNo: r.fabricLotNo,
+        fabric: r.fabric,
+        rolls: r.rolls,
+        weight: r.weight,
+        shortage: r.shortage,
+        percentage: r.percentage,
+        knittingYarnRate: r.knittingYarnRate,
+        dyeingRate: r.dyeingRate,
+      }));
+
+    if (selectedRowsToSend.length === 0) {
+      Swal.fire("Warning", "Please select at least one row", "warning");
+      return;
+    }
+
     const result = await Swal.fire({
       title: "Issue To",
-      text: "Select the next process:",
+      text: "Go to Finishing Outward with selected rows?",
       icon: "question",
       showCancelButton: true,
-      showDenyButton: true,
-      confirmButtonText: "Finishing",
-      denyButtonText: "Other Process",
+      confirmButtonText: "Finishing Outward",
       cancelButtonText: "Cancel",
     });
 
-    if (result.isConfirmed) {
-      Swal.fire("Redirecting", "Going to Finishing Outward...", "info");
-      setTimeout(() => {
-        navigate("/knitting/finishing/outward-challan");
-      }, 1000);
-    } else if (result.isDenied) {
-      Swal.fire("Info", "Other process selected. Feature coming soon!", "info");
-    }
+    if (!result.isConfirmed) return;
+
+    // fallback store
+    sessionStorage.setItem(
+      "fromDyeingInwardToFinishingOutward",
+      JSON.stringify({ rows: selectedRowsToSend })
+    );
+
+    navigate("/knitting/finishing/outward-challan", {
+      state: {
+        fromDyeingInward: {
+          rows: selectedRowsToSend,
+        },
+      },
+    });
   };
 
   const filteredList = Array.isArray(dyeingInwardList)
@@ -544,7 +574,7 @@ const DyeingInward: React.FC = () => {
       })
     : [];
 
-  const selectedRows = rows.filter(r => r.selected);
+  const selectedRows = rows.filter((r) => r.selected);
   const totalRolls = selectedRows.reduce(
     (sum, r) => sum + (Number.parseFloat(r.rolls) || 0),
     0
@@ -559,8 +589,8 @@ const DyeingInward: React.FC = () => {
   );
 
   useEffect(() => {
-    loadSavedRecords()
-  }, [])
+    loadSavedRecords();
+  }, []);
 
   return (
     <Dashboard>
@@ -581,6 +611,7 @@ const DyeingInward: React.FC = () => {
                 className="border p-2 rounded w-full"
               />
             </div>
+
             <div>
               <label className="block font-semibold">Party Name</label>
               <input
@@ -592,6 +623,7 @@ const DyeingInward: React.FC = () => {
                 placeholder="Click to select party"
               />
             </div>
+
             <div>
               <label className="block font-semibold">Challan No.</label>
               <input
@@ -601,6 +633,7 @@ const DyeingInward: React.FC = () => {
                 className="border p-2 rounded w-full"
               />
             </div>
+
             <div className="flex items-center mt-6">
               <input
                 type="checkbox"
@@ -610,6 +643,7 @@ const DyeingInward: React.FC = () => {
               />
               <label className="font-semibold">Transfer to Stock</label>
             </div>
+
             <div>
               <label className="block font-semibold">Vehicle No.</label>
               <input
@@ -619,6 +653,7 @@ const DyeingInward: React.FC = () => {
                 className="border p-2 rounded w-full"
               />
             </div>
+
             <div>
               <label className="block font-semibold">Through</label>
               <input
@@ -628,6 +663,7 @@ const DyeingInward: React.FC = () => {
                 className="border p-2 rounded w-full"
               />
             </div>
+
             <div>
               <label className="block font-semibold">Narration</label>
               <input
@@ -641,13 +677,13 @@ const DyeingInward: React.FC = () => {
 
           {/* Table */}
           <div className="overflow-auto max-h-[300px]">
-            <table className="min-w-[1400px] w-full border border-blue-500 text-sm">
+            <table className="min-w-[1200px] w-full border border-blue-500 text-sm">
               <thead className="bg-gray-200">
                 <tr>
                   <th className="border p-2">
                     <input
                       type="checkbox"
-                      checked={rows.length > 0 && rows.every(r => r.selected)}
+                      checked={rows.length > 0 && rows.every((r) => r.selected)}
                       onChange={toggleSelectAll}
                       title="Select/Deselect All"
                     />
@@ -655,29 +691,34 @@ const DyeingInward: React.FC = () => {
                   <th className="border p-2">S No</th>
                   <th className="border p-2">Fabric Lot No</th>
                   <th className="border p-2">Fabric</th>
-                  <th className="border p-2">Shade</th>
-                  <th className="border p-2">M/C Size</th>
-                  <th className="border p-2">Grey GSM</th>
-                  <th className="border p-2">Regd Size</th>
                   <th className="border p-2">Rolls</th>
                   <th className="border p-2">Weight</th>
-                  <th className="border p-2">Wastage</th>
+                  <th className="border p-2">Shortage</th>
+                  <th className="border p-2">%</th>
                   <th className="border p-2">Knitting+Yarn Rate</th>
                   <th className="border p-2">Dyeing Rate</th>
                   <th className="border p-2">Amount</th>
                 </tr>
               </thead>
+
               <tbody>
                 {rows.map((row, index) => (
-                  <tr key={row.id} className={!row.selected ? "bg-gray-100" : ""}>
+                  <tr
+                    key={row.id}
+                    className={!row.selected ? "bg-gray-100" : ""}
+                  >
                     <td className="border p-2 text-center">
                       <input
                         type="checkbox"
                         checked={row.selected}
-                        onChange={(e) => handleChange(row.id, "selected", e.target.checked)}
+                        onChange={(e) =>
+                          handleChange(row.id, "selected", e.target.checked)
+                        }
                       />
                     </td>
+
                     <td className="border p-2 text-center">{index + 1}</td>
+
                     <td className="border p-1">
                       <input
                         type="text"
@@ -688,6 +729,7 @@ const DyeingInward: React.FC = () => {
                         placeholder="Click to select"
                       />
                     </td>
+
                     <td className="border p-1">
                       <input
                         type="text"
@@ -696,46 +738,7 @@ const DyeingInward: React.FC = () => {
                         className="border p-1 rounded w-full bg-gray-50"
                       />
                     </td>
-                    <td className="border p-1">
-                      <input
-                        type="text"
-                        value={row.shade}
-                        onChange={(e) =>
-                          handleChange(row.id, "shade", e.target.value)
-                        }
-                        className="border p-1 rounded w-full"
-                      />
-                    </td>
-                    <td className="border p-1">
-                      <input
-                        type="text"
-                        value={row.mcSize}
-                        onChange={(e) =>
-                          handleChange(row.id, "mcSize", e.target.value)
-                        }
-                        className="border p-1 rounded w-full"
-                      />
-                    </td>
-                    <td className="border p-1">
-                      <input
-                        type="text"
-                        value={row.greyGSM}
-                        onChange={(e) =>
-                          handleChange(row.id, "greyGSM", e.target.value)
-                        }
-                        className="border p-1 rounded w-full"
-                      />
-                    </td>
-                    <td className="border p-1">
-                      <input
-                        type="text"
-                        value={row.regdSize}
-                        onChange={(e) =>
-                          handleChange(row.id, "regdSize", e.target.value)
-                        }
-                        className="border p-1 rounded w-full"
-                      />
-                    </td>
+
                     <td className="border p-1">
                       <input
                         type="text"
@@ -744,6 +747,7 @@ const DyeingInward: React.FC = () => {
                         className="border p-1 rounded w-full bg-gray-50"
                       />
                     </td>
+
                     <td className="border p-1">
                       <input
                         type="text"
@@ -752,16 +756,29 @@ const DyeingInward: React.FC = () => {
                         className="border p-1 rounded w-full bg-gray-50"
                       />
                     </td>
+
                     <td className="border p-1">
                       <input
                         type="text"
-                        value={row.wastage}
+                        value={row.shortage}
                         onChange={(e) =>
-                          handleChange(row.id, "wastage", e.target.value)
+                          handleChange(row.id, "shortage", e.target.value)
                         }
                         className="border p-1 rounded w-full"
                       />
                     </td>
+
+                    <td className="border p-1">
+                      <input
+                        type="text"
+                        value={row.percentage}
+                        onChange={(e) =>
+                          handleChange(row.id, "percentage", e.target.value)
+                        }
+                        className="border p-1 rounded w-full"
+                      />
+                    </td>
+
                     <td className="border p-1">
                       <input
                         type="text"
@@ -770,6 +787,7 @@ const DyeingInward: React.FC = () => {
                         className="border p-1 rounded w-full bg-gray-50 font-semibold"
                       />
                     </td>
+
                     <td className="border p-1">
                       <input
                         type="text"
@@ -780,6 +798,7 @@ const DyeingInward: React.FC = () => {
                         className="border p-1 rounded w-full"
                       />
                     </td>
+
                     <td className="border p-1">
                       <input
                         type="text"
@@ -803,30 +822,35 @@ const DyeingInward: React.FC = () => {
               >
                 Add
               </button>
+
               <button
                 onClick={handleSave}
                 className="px-4 py-2 bg-green-500 text-white rounded mr-2 hover:bg-green-600"
               >
                 {editingId ? "Update" : "Save"}
               </button>
+
               <button
                 onClick={resetForm}
                 className="px-4 py-2 bg-orange-500 text-white rounded mr-2 hover:bg-orange-600"
               >
                 New Entry
               </button>
+
               <button
                 onClick={openList}
                 className="px-4 py-2 bg-yellow-500 text-white rounded mr-2 hover:bg-yellow-600"
               >
                 View List
               </button>
+
               <button
                 onClick={handlePrint}
                 className="px-4 py-2 bg-gray-600 text-white rounded mr-2 hover:bg-gray-700"
               >
                 Print
               </button>
+
               <button
                 onClick={handleIssueTo}
                 className="px-4 py-2 bg-purple-500 text-white rounded mr-2 hover:bg-purple-600"
@@ -834,6 +858,7 @@ const DyeingInward: React.FC = () => {
                 Issue To
               </button>
             </div>
+
             <div className="text-right font-semibold">
               <p>Selected: {selectedRows.length} rows</p>
               <p>Total Rolls: {totalRolls}</p>
@@ -850,7 +875,10 @@ const DyeingInward: React.FC = () => {
       {showPartyModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg shadow-lg w-full max-w-2xl p-5">
-            <h3 className="text-xl font-bold text-center mb-4">Select Party</h3>
+            <h3 className="text-xl font-bold text-center mb-4">
+              Select Party
+            </h3>
+
             <input
               type="text"
               placeholder="Search party name..."
@@ -858,6 +886,7 @@ const DyeingInward: React.FC = () => {
               onChange={(e) => setPartySearchText(e.target.value)}
               className="border p-2 rounded w-full mb-3"
             />
+
             <div className="overflow-auto max-h-96">
               <table className="w-full text-sm border">
                 <thead className="bg-gray-200">
@@ -887,6 +916,7 @@ const DyeingInward: React.FC = () => {
                 </tbody>
               </table>
             </div>
+
             <div className="flex justify-center mt-4">
               <button
                 onClick={() => setShowPartyModal(false)}
@@ -899,13 +929,14 @@ const DyeingInward: React.FC = () => {
         </div>
       )}
 
-      {/* Lot Number Selection Modal with Multiple Selection */}
+      {/* Lot Number Selection Modal */}
       {showLotModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg shadow-lg w-full max-w-4xl p-5">
             <h3 className="text-xl font-bold text-center mb-4">
               Select Fabric Lot Numbers (Multiple Selection)
             </h3>
+
             <input
               type="text"
               placeholder="Search lot number..."
@@ -944,14 +975,17 @@ const DyeingInward: React.FC = () => {
                     <th className="border p-2">Fabric Name</th>
                     <th className="border p-2">Rolls</th>
                     <th className="border p-2">Weight</th>
+                    <th className="border p-2">Shortage</th>
+                    <th className="border p-2">%</th>
                     <th className="border p-2">Knitting+Yarn Rate</th>
                   </tr>
                 </thead>
+
                 <tbody>
                   {filteredLots.length === 0 ? (
                     <tr>
                       <td
-                        colSpan={6}
+                        colSpan={8}
                         className="border p-4 text-center text-gray-500"
                       >
                         {dyeingOutwardList.length === 0
@@ -975,6 +1009,12 @@ const DyeingInward: React.FC = () => {
                         <td className="border p-2 text-right">
                           {Number.parseFloat(lot.weight || 0).toFixed(3)}
                         </td>
+                        <td className="border p-2 text-right">
+                          {String(lot.shortage ?? "")}
+                        </td>
+                        <td className="border p-2 text-right">
+                          {String(lot.percentage ?? "")}
+                        </td>
                         <td className="border p-2 text-right font-semibold">
                           {lot.knittingYarnRate}
                         </td>
@@ -984,6 +1024,7 @@ const DyeingInward: React.FC = () => {
                 </tbody>
               </table>
             </div>
+
             <div className="flex justify-center gap-3 mt-4">
               <button
                 onClick={addSelectedLots}
@@ -1035,6 +1076,7 @@ const DyeingInward: React.FC = () => {
                     <th className="border p-2">Actions</th>
                   </tr>
                 </thead>
+
                 <tbody>
                   {filteredList.length === 0 ? (
                     <tr>
@@ -1047,17 +1089,17 @@ const DyeingInward: React.FC = () => {
                     </tr>
                   ) : (
                     filteredList.map((d, i) => {
-                      const totalRolls = (d.rows || []).reduce(
+                      const totalRolls2 = (d.rows || []).reduce(
                         (sum: number, r: any) =>
                           sum + (Number.parseFloat(r.rolls) || 0),
                         0
                       );
-                      const totalWeight = (d.rows || []).reduce(
+                      const totalWeight2 = (d.rows || []).reduce(
                         (sum: number, r: any) =>
                           sum + (Number.parseFloat(r.weight) || 0),
                         0
                       );
-                      const totalAmount = (d.rows || []).reduce(
+                      const totalAmount2 = (d.rows || []).reduce(
                         (sum: number, r: any) =>
                           sum + (Number.parseFloat(r.amount) || 0),
                         0
@@ -1074,13 +1116,13 @@ const DyeingInward: React.FC = () => {
                           <td className="border p-2">{d.partyName}</td>
                           <td className="border p-2">{d.challanNo}</td>
                           <td className="border p-2 text-right">
-                            {totalRolls}
+                            {totalRolls2}
                           </td>
                           <td className="border p-2 text-right">
-                            {totalWeight.toFixed(3)}
+                            {totalWeight2.toFixed(3)}
                           </td>
                           <td className="border p-2 text-right">
-                            ₹{totalAmount.toFixed(2)}
+                            ₹{totalAmount2.toFixed(2)}
                           </td>
                           <td className="border p-2 text-center">
                             <button
@@ -1116,6 +1158,7 @@ const DyeingInward: React.FC = () => {
         </div>
       )}
 
+      {/* Recently Saved Records */}
       {savedRecords.length > 0 && (
         <div className="mt-6 p-4 bg-green-50 rounded-lg border border-green-200">
           <h3 className="font-bold text-lg mb-3">Recently Saved Records</h3>
@@ -1134,21 +1177,22 @@ const DyeingInward: React.FC = () => {
               </thead>
               <tbody>
                 {savedRecords.slice(-5).map((record, idx) => {
-                  const totalRolls = (record.rows || []).reduce(
+                  const totalRolls2 = (record.rows || []).reduce(
                     (sum: number, r: any) =>
                       sum + (Number.parseFloat(r.rolls) || 0),
                     0
                   );
-                  const totalWeight = (record.rows || []).reduce(
+                  const totalWeight2 = (record.rows || []).reduce(
                     (sum: number, r: any) =>
                       sum + (Number.parseFloat(r.weight) || 0),
                     0
                   );
-                  const totalAmount = (record.rows || []).reduce(
+                  const totalAmount2 = (record.rows || []).reduce(
                     (sum: number, r: any) =>
                       sum + (Number.parseFloat(r.amount) || 0),
                     0
                   );
+
                   return (
                     <tr key={record.id}>
                       <td className="border p-2 text-center">{idx + 1}</td>
@@ -1159,12 +1203,12 @@ const DyeingInward: React.FC = () => {
                       </td>
                       <td className="border p-2">{record.partyName}</td>
                       <td className="border p-2">{record.challanNo}</td>
-                      <td className="border p-2 text-right">{totalRolls}</td>
+                      <td className="border p-2 text-right">{totalRolls2}</td>
                       <td className="border p-2 text-right">
-                        {totalWeight.toFixed(3)}
+                        {totalWeight2.toFixed(3)}
                       </td>
                       <td className="border p-2 text-right">
-                        ₹{totalAmount.toFixed(2)}
+                        ₹{totalAmount2.toFixed(2)}
                       </td>
                     </tr>
                   );
