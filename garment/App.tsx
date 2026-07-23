@@ -2,15 +2,19 @@ import React, { useContext } from 'react';
 import { View, ActivityIndicator } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { AppProvider, AppContext } from './src/context/AppContext';
+import { BrokerProvider, BrokerContext } from './src/context/BrokerContext';
 import MainNavigator from './src/navigation/MainNavigator';
+import BrokerNavigator from './src/navigation/BrokerNavigator';
 import AuthNavigator from './src/navigation/AuthNavigator';
 
 function RootNavigator() {
-  const { user, isLoading } = useContext(AppContext);
+  const { user, isLoading }         = useContext(AppContext);
+  const { broker, isLoadingBroker } = useContext(BrokerContext);
 
-  // Show spinner while restoring token from AsyncStorage on app launch
-  // Prevents flash of Login screen for already logged-in users
-  if (isLoading) {
+  // Show spinner while restoring customer token AND broker session from
+  // AsyncStorage on app launch. Prevents flash of Login screen for
+  // already logged-in users (customer, party, or broker).
+  if (isLoading || isLoadingBroker) {
     return (
       <View style={{
         flex: 1, justifyContent: 'center',
@@ -21,15 +25,21 @@ function RootNavigator() {
     );
   }
 
-  return user ? <MainNavigator /> : <AuthNavigator />;
+  // Customer/party session takes priority if somehow both exist
+  // (e.g. someone logged in as customer on the same device previously).
+  if (user)   return <MainNavigator />;
+  if (broker) return <BrokerNavigator />;
+  return <AuthNavigator />;
 }
 
 export default function App() {
   return (
     <AppProvider>
-      <NavigationContainer>
-        <RootNavigator />
-      </NavigationContainer>
+      <BrokerProvider>
+        <NavigationContainer>
+          <RootNavigator />
+        </NavigationContainer>
+      </BrokerProvider>
     </AppProvider>
   );
 }

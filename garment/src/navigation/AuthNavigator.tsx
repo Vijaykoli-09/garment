@@ -5,7 +5,7 @@ import SplashScreen from '../screens/SplashScreen';
 import LoginScreen from '../screens/LoginScreen';
 import SignupScreen from '../screens/SignupScreen';
 import PartyGstScreen from '../screens/PartyGstScreen';
-
+import BrokerLoginScreen from '../screens/BrokerLoginScreen';
 
 const Stack = createNativeStackNavigator();
 
@@ -28,6 +28,8 @@ export default function AuthNavigator() {
         options={{ headerShown: false }}
       />
       <Stack.Screen name="PartyGst" component={PartyGstScreen} options={{ headerShown: false }} />
+
+      <Stack.Screen name="BrokerLogin" component={BrokerLoginScreen} options={{ headerShown: false }} />
 
     </Stack.Navigator>
   );

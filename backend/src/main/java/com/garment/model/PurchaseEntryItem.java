@@ -1,15 +1,8 @@
 package com.garment.model;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
-
-import jakarta.persistence.Entity;
-import jakarta.persistence.FetchType;
-import jakarta.persistence.GeneratedValue;
-import jakarta.persistence.GenerationType;
-import jakarta.persistence.Id;
-import jakarta.persistence.JoinColumn;
-import jakarta.persistence.ManyToOne;
-import jakarta.persistence.Table;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -22,45 +15,36 @@ import lombok.Setter;
 @NoArgsConstructor
 @AllArgsConstructor
 public class PurchaseEntryItem {
-	@Id
+
+    @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @ManyToOne
+    @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "purchase_entry_id")
     @JsonIgnore
     private PurchaseEntry purchaseEntry;
-    
-    @ManyToOne
-    @JoinColumn(name = "material_group_id")  // ✅ ADD THIS COLUMN
+
+    @ManyToOne(fetch = FetchType.EAGER)
+    @JoinColumn(name = "material_group_id")
+    @JsonIgnoreProperties({"hibernateLazyInitializer", "handler"})
     private MaterialGroup materialGroup;
 
-    // ✅ Changed from Art to Material
     @ManyToOne(fetch = FetchType.EAGER)
     @JoinColumn(name = "material_id")
+    @JsonIgnoreProperties({"hibernateLazyInitializer", "handler"})
     private Material material;
 
     @ManyToOne(fetch = FetchType.EAGER)
     @JoinColumn(name = "shade_code", referencedColumnName = "shade_code", nullable = true)
+    @JsonIgnoreProperties({"hibernateLazyInitializer", "handler"})
     private Shade shade;
 
-
     private String roll;
-
-    private Integer wtPerBox;   // Mapped from quantity
-
-//    private Double weight;     // Manual input
-
+    private Integer wtPerBox;
     private Double rate;
-
     private Double amount;
-
-    private String orderNo;    // From PurchaseOrder
-    
- // ✅ Auto-fetched from Material
+    private String orderNo;
     private String unit;
-
     private String yarnName;
-    
-    
 }

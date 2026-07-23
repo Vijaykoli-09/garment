@@ -25,8 +25,9 @@ import SalesNavigator from "../navigations/SalesNavigator";
 import AdministrationNavigator from "../navigations/AdministrationNavigator";
 import MaterialPurchaseNavigator from "../navigations/MaterialPurchaseNavigator";
 
-// ✅ use notifications from single file
-import { useNotifications, timeAgo } from "./Notifications"; // adjust path if needed
+// ✅ import from your Notifications.tsx (same file where provider + hook exists)
+// adjust path if needed
+import { useNotifications, timeAgo } from "./Notifications";
 
 interface DashboardProps {
   children?: React.ReactNode;
@@ -56,14 +57,15 @@ const Dashboard: React.FC<DashboardProps> = ({ children }) => {
   const userString = localStorage.getItem("user");
   const user = userString ? JSON.parse(userString) : { name: "User" };
 
-  // ✅ real notifications
+  // ✅ notifications
   const {
     notifications,
     unreadCount,
     markAllAsRead,
     markAsRead,
-    refresh,
-    removeNotification, // ✅ remove per notification
+    refresh,        // manual refresh button
+    ensureLoaded,   // ✅ NEW: loads only first time (no auto-load on page open)
+    removeNotification,
   } = useNotifications();
 
   const handleLogout = () => {
@@ -87,6 +89,7 @@ const Dashboard: React.FC<DashboardProps> = ({ children }) => {
 
   useEffect(() => {
     const p = location.pathname.toLowerCase();
+
     if (p.startsWith("/master")) setOpenMaster(true);
     if (p.startsWith("/reports")) setOpenReport(true);
 
@@ -94,6 +97,9 @@ const Dashboard: React.FC<DashboardProps> = ({ children }) => {
     if (p.startsWith("/knitting/cutting") || p.startsWith("/cutting")) setOpenCutting(true);
 
     if (p.startsWith("/sales")) setOpenSales(true);
+    if (p.startsWith("/payment")) setOpenPayments(true);
+    if (p.startsWith("/purchase")) setOpenMaterialPurchase(true);
+
     if (p.startsWith("/administration")) setOpenAdministration(true);
   }, [location.pathname]);
 
@@ -152,11 +158,7 @@ const Dashboard: React.FC<DashboardProps> = ({ children }) => {
           <button style={buttonStyle} onClick={() => setOpenMaster(!openMaster)}>
             <HomeIcon style={iconStyle} /> Master
             <span style={{ marginLeft: "auto" }}>
-              {openMaster ? (
-                <ChevronUpIcon style={chevronStyle} />
-              ) : (
-                <ChevronDownIcon style={chevronStyle} />
-              )}
+              {openMaster ? <ChevronUpIcon style={chevronStyle} /> : <ChevronDownIcon style={chevronStyle} />}
             </span>
           </button>
           {openMaster && <MasterNavigator onNavigate={(p: string) => navigate(p)} />}
@@ -165,11 +167,7 @@ const Dashboard: React.FC<DashboardProps> = ({ children }) => {
           <button style={buttonStyle} onClick={() => setOpenKnitting(!openKnitting)}>
             <WrenchScrewdriverIcon style={iconStyle} /> Knitting
             <span style={{ marginLeft: "auto" }}>
-              {openKnitting ? (
-                <ChevronUpIcon style={chevronStyle} />
-              ) : (
-                <ChevronDownIcon style={chevronStyle} />
-              )}
+              {openKnitting ? <ChevronUpIcon style={chevronStyle} /> : <ChevronDownIcon style={chevronStyle} />}
             </span>
           </button>
           {openKnitting && <KnittingNavigator onNavigate={(p: string) => navigate(p)} />}
@@ -178,11 +176,7 @@ const Dashboard: React.FC<DashboardProps> = ({ children }) => {
           <button style={buttonStyle} onClick={() => setOpenCutting(!openCutting)}>
             <ScissorsIcon style={iconStyle} /> Cutting
             <span style={{ marginLeft: "auto" }}>
-              {openCutting ? (
-                <ChevronUpIcon style={chevronStyle} />
-              ) : (
-                <ChevronDownIcon style={chevronStyle} />
-              )}
+              {openCutting ? <ChevronUpIcon style={chevronStyle} /> : <ChevronDownIcon style={chevronStyle} />}
             </span>
           </button>
           {openCutting && <CuttingNavigator onNavigate={(p: string) => navigate(p)} />}
@@ -196,11 +190,7 @@ const Dashboard: React.FC<DashboardProps> = ({ children }) => {
           <button style={buttonStyle} onClick={() => setOpenReport(!openReport)}>
             <DocumentTextIcon style={iconStyle} /> Reports
             <span style={{ marginLeft: "auto" }}>
-              {openReport ? (
-                <ChevronUpIcon style={chevronStyle} />
-              ) : (
-                <ChevronDownIcon style={chevronStyle} />
-              )}
+              {openReport ? <ChevronUpIcon style={chevronStyle} /> : <ChevronDownIcon style={chevronStyle} />}
             </span>
           </button>
           {openReport && <ReportsNavigator onNavigate={(p: string) => navigate(p)} />}
@@ -209,11 +199,7 @@ const Dashboard: React.FC<DashboardProps> = ({ children }) => {
           <button style={buttonStyle} onClick={() => setOpenSales(!openSales)}>
             <PresentationChartBarIcon style={iconStyle} /> Sales
             <span style={{ marginLeft: "auto" }}>
-              {openSales ? (
-                <ChevronUpIcon style={chevronStyle} />
-              ) : (
-                <ChevronDownIcon style={chevronStyle} />
-              )}
+              {openSales ? <ChevronUpIcon style={chevronStyle} /> : <ChevronDownIcon style={chevronStyle} />}
             </span>
           </button>
           {openSales && <SalesNavigator onNavigate={(path) => navigate(path)} />}
@@ -222,11 +208,7 @@ const Dashboard: React.FC<DashboardProps> = ({ children }) => {
           <button style={buttonStyle} onClick={() => setOpenPayments(!openPayments)}>
             <CreditCardIcon style={iconStyle} /> Payments
             <span style={{ marginLeft: "auto" }}>
-              {openPayments ? (
-                <ChevronUpIcon style={chevronStyle} />
-              ) : (
-                <ChevronDownIcon style={chevronStyle} />
-              )}
+              {openPayments ? <ChevronUpIcon style={chevronStyle} /> : <ChevronDownIcon style={chevronStyle} />}
             </span>
           </button>
           {openPayments && <PaymentNavigator onNavigate={(path) => navigate(path)} />}
@@ -238,11 +220,7 @@ const Dashboard: React.FC<DashboardProps> = ({ children }) => {
           >
             <ShoppingCartIcon style={iconStyle} /> Material Purchase
             <span style={{ marginLeft: "auto" }}>
-              {openMaterialPurchase ? (
-                <ChevronUpIcon style={chevronStyle} />
-              ) : (
-                <ChevronDownIcon style={chevronStyle} />
-              )}
+              {openMaterialPurchase ? <ChevronUpIcon style={chevronStyle} /> : <ChevronDownIcon style={chevronStyle} />}
             </span>
           </button>
           {openMaterialPurchase && (
@@ -259,11 +237,7 @@ const Dashboard: React.FC<DashboardProps> = ({ children }) => {
             </span>
             Administration
             <span style={{ marginLeft: "auto" }}>
-              {openAdministration ? (
-                <ChevronUpIcon style={chevronStyle} />
-              ) : (
-                <ChevronDownIcon style={chevronStyle} />
-              )}
+              {openAdministration ? <ChevronUpIcon style={chevronStyle} /> : <ChevronDownIcon style={chevronStyle} />}
             </span>
           </button>
           {openAdministration && (
@@ -311,9 +285,13 @@ const Dashboard: React.FC<DashboardProps> = ({ children }) => {
               <div ref={notificationRef} style={{ position: "relative" }}>
                 <button
                   onClick={() => {
-                    setNotificationOpen(!notificationOpen);
+                    const next = !notificationOpen;
+                    setNotificationOpen(next);
                     setDropdownOpen(false);
-                    refresh(); // ✅ load latest
+
+                    // ✅ IMPORTANT: do NOT call refresh() here
+                    // This ensures your 8-9 APIs are NOT called on every page load.
+                    if (next) ensureLoaded(); // load only first time when opening bell
                   }}
                   style={{
                     background: "none",
@@ -386,14 +364,24 @@ const Dashboard: React.FC<DashboardProps> = ({ children }) => {
 
                       <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
                         <span
-                          style={{ fontSize: "0.8rem", color: "#6366f1", cursor: "pointer", fontWeight: 600 }}
-                          onClick={() => refresh()}
+                          style={{
+                            fontSize: "0.8rem",
+                            color: "#6366f1",
+                            cursor: "pointer",
+                            fontWeight: 600,
+                          }}
+                          onClick={() => refresh()} // manual refresh only
                         >
                           Refresh
                         </span>
 
                         <span
-                          style={{ fontSize: "0.8rem", color: "#6366f1", cursor: "pointer", fontWeight: 600 }}
+                          style={{
+                            fontSize: "0.8rem",
+                            color: "#6366f1",
+                            cursor: "pointer",
+                            fontWeight: 600,
+                          }}
                           onClick={() => markAllAsRead()}
                         >
                           Mark all as read
@@ -448,7 +436,13 @@ const Dashboard: React.FC<DashboardProps> = ({ children }) => {
                               )}
 
                               <div style={{ flex: 1 }}>
-                                <div style={{ fontSize: "0.9rem", color: "#111827", fontWeight: n.read ? 400 : 700 }}>
+                                <div
+                                  style={{
+                                    fontSize: "0.9rem",
+                                    color: "#111827",
+                                    fontWeight: n.read ? 400 : 700,
+                                  }}
+                                >
                                   {n.title}
                                 </div>
                                 <div style={{ fontSize: "0.82rem", color: "#374151", marginTop: 4 }}>
@@ -459,10 +453,10 @@ const Dashboard: React.FC<DashboardProps> = ({ children }) => {
                                 </div>
                               </div>
 
-                              {/* ✅ Remove button per notification */}
+                              {/* Remove */}
                               <button
                                 onClick={(e) => {
-                                  e.stopPropagation(); // don't navigate
+                                  e.stopPropagation();
                                   removeNotification(n.id);
                                 }}
                                 title="Remove"
@@ -493,22 +487,7 @@ const Dashboard: React.FC<DashboardProps> = ({ children }) => {
                         textAlign: "center",
                         flexShrink: 0,
                       }}
-                    >
-                      {/* <span
-                        style={{
-                          fontSize: "0.85rem",
-                          color: "#6366f1",
-                          cursor: "pointer",
-                          fontWeight: 600,
-                        }}
-                        onClick={() => {
-                          setNotificationOpen(false);
-                          navigate("/notifications");
-                        }}
-                      >
-                        View all notifications
-                      </span> */}
-                    </div>
+                    />
                   </div>
                 )}
               </div>

@@ -105,6 +105,7 @@ import AddProduct from "./pages/app/AddProduct";
 import ViewSales from "./pages/app/ViewSales";
 import CustomerRequests from "./pages/app/CustomerRequests";
 import NotificationsPage from "./pages/Notifications";
+import DispatchReturn from "./pages/Sales/DispatchReturn";
 // Wrapper so we can use useNavigate inside Router context
 function CustomerRequestsPage() {
   const navigate = useNavigate();
@@ -162,8 +163,9 @@ function App() {
         <Route path="/knitting/purchase-order" element={<PurchaseOrder />} />
         <Route path="/knitting/purchase-return" element={<PurchaseReturn />} />
         <Route path="/knitting/purchase-pending-orders" element={<PurchasePendingOrders />} />
-        <Route path="/sales/dispatch-challan" element={<DispatchChallan />} />
+        
         <Route path="/sales/other-dispatch-challan" element={<OtherDispatchChallan />} />
+        {/* <Route path="/sales/dispatch-return-challan" element={<DispatchReturn />} /> */}
 
         {/* Knitting – dyeing */}
         <Route path="/knitting/dyeing/inward-challan" element={<DyeingInward />} />
@@ -177,6 +179,7 @@ function App() {
         {/* Knitting – finishing */}
         <Route path="/knitting/finishing/outward-challan" element={<FinishingOutward />} />
         <Route path="/knitting/finishing/inward-challan" element={<FinishingInward />} />
+        <Route path="/sales/dispatch-challan" element={<DispatchChallan />} />
         <Route path="/knitting/finishing/finishing-stock-statement" element={<FinishingStockStatement />} />
         <Route path="/knitting/finishing/finishing-amount-statement" element={<FinishingAmountStatement />} />
         <Route path="/knitting/finishing/in-house-stock-statement" element={<FinishingInHouseStock />} />
@@ -196,6 +199,8 @@ function App() {
         <Route path="/sales/sale-order-settle" element={<OrderSettle />} />
         <Route path="/sales/sale-order-pendency" element={<SaleOrderPendency />} />
         <Route path="/sales/sale-order-return" element={<SaleOrderReturn />} />
+        
+        {/* <Route path="/sales/dispatch-return-challan" element={<DispatchReturn />} /> */}
 
         {/* Purchase Material */}
         <Route path="/purchase/order-item" element={<PurchaseOrderItem />} />

@@ -6,6 +6,7 @@ import com.garment.entity.AppOrder.PaymentStatus;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 
@@ -29,4 +30,10 @@ public interface AppOrderRepository extends JpaRepository<AppOrder, Long> {
 
     // Find by Razorpay order ID (for payment verification)
     Optional<AppOrder> findByRazorpayOrderId(String razorpayOrderId);
+
+    // ── NEW: for broker "party orders" screen ─────────────────────────
+    // customerIds plural because a party can have >1 linked customer login.
+    List<AppOrder> findByCustomerIdInOrderByCreatedAtDesc(List<Long> customerIds);
+    List<AppOrder> findByCustomerIdInAndCreatedAtBetweenOrderByCreatedAtDesc(
+            List<Long> customerIds, LocalDateTime start, LocalDateTime end);
 }

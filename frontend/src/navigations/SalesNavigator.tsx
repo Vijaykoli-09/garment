@@ -96,6 +96,7 @@ const SalesNavigator: React.FC<SalesNavigatorProps> = ({ onNavigate }) => {
       {open.saleChallan &&
         [
           { label: "Dispatch Challan", path: "/sales/dispatch-challan" },
+          { label: "Dispatch Return Challan", path: "/sales/dispatch-return-challan" },
           {
             label: "Other Dispatch Challan",
             path: "/sales/other-dispatch-challan",

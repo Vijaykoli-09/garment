@@ -53,4 +53,17 @@ public class PartyController {
     public Party searchByName(@RequestParam String name) {
         return service.getPartyByName(name);
     }
+
+    // ══════════════════════════════════════════════════════════════════
+    // Broker Dashboard — parties linked to a given broker, with search.
+    // GET /api/party/by-agent/{serialNo}
+    // GET /api/party/by-agent/{serialNo}?search=ravi
+    // ══════════════════════════════════════════════════════════════════
+    @GetMapping("/by-agent/{serialNo}")
+    public List<Party> getPartiesByAgent(
+            @PathVariable String serialNo,
+            @RequestParam(required = false) String search) {
+        return service.searchPartiesByAgent(serialNo, search);
+    }
+    
 }

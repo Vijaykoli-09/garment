@@ -6,16 +6,13 @@ import React, {
   useMemo,
   useState,
 } from "react";
-import api from "../api/axiosInstance"; // ✅ adjust if needed
+import api from "../api/axiosInstance"; // adjust path if needed
 
 // ================= CONFIG =================
 const OVERDUE_DAYS = 60;
 
 // ================= Types =================
-type NotificationKind =
-  | "OVERDUE_60";
-  // future add: | "LOW_STOCK" | "NEW_ORDER" | ...
-
+type NotificationKind = "OVERDUE_60";
 type Severity = "info" | "warning" | "danger";
 
 export type AppNotification = {
@@ -23,10 +20,10 @@ export type AppNotification = {
   kind: NotificationKind;
   title: string;
   message: string;
-  createdAt: string; // used for sort/time
+  createdAt: string;
   read: boolean;
   severity?: Severity;
-  link?: string; // e.g. "/notifications"
+  link?: string;
   payload?: Record<string, any>;
 };
 
@@ -121,7 +118,7 @@ const applyReadStatus = (list: AppNotification[]) => {
   return list.map((n) => ({ ...n, read: readIds.has(n.id) }));
 };
 
-// ================= Generator System (future-proof) =================
+// ================= Generator System =================
 type GeneratorContext = { now: Date };
 type GeneratorFn = (ctx: GeneratorContext) => Promise<AppNotification[]>;
 
@@ -183,7 +180,6 @@ const typeLabel = (t: TxType): string => {
   }
 };
 
-// same DR/CR rules like your statement
 const getDrCr = (source: TxType, amount: number) => {
   const amt = toNum(amount);
 
@@ -356,7 +352,6 @@ const generateOverdue60: GeneratorFn = async ({ now }) => {
       if (days === null || days < OVERDUE_DAYS) return null;
 
       const { debit, credit } = getDrCr(d.type, d.amount);
-
       const id = makeId("OVERDUE_60", d.type, d.docNo, d.partyName, String(d.date).slice(0, 10));
 
       return {
@@ -375,15 +370,13 @@ const generateOverdue60: GeneratorFn = async ({ now }) => {
     })
     .filter(Boolean) as AppNotification[];
 
-  // sort most overdue first
   notifications.sort((a, b) => (b.payload?.days ?? 0) - (a.payload?.days ?? 0));
   return notifications;
 };
 
-// Future add new notification types here:
-// 1) create a generator fn
-// 2) push into this array
-const GENERATORS: { key: string; fn: GeneratorFn }[] = [{ key: "overdue60", fn: generateOverdue60 }];
+const GENERATORS: { key: string; fn: GeneratorFn }[] = [
+  { key: "overdue60", fn: generateOverdue60 },
+];
 
 // ================= Context =================
 type NotificationCtx = {
@@ -392,10 +385,13 @@ type NotificationCtx = {
   error: string | null;
   unreadCount: number;
 
+  hasLoaded: boolean;
   refresh: () => Promise<void>;
+  ensureLoaded: () => Promise<void>;
+
   markAsRead: (id: string) => void;
   markAllAsRead: () => void;
-  removeNotification: (id: string) => void; // ✅ new
+  removeNotification: (id: string) => void;
 };
 
 const NotificationContext = createContext<NotificationCtx | null>(null);
@@ -404,6 +400,7 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [hasLoaded, setHasLoaded] = useState(false);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -432,21 +429,26 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
         return tb - ta;
       });
 
-      // ✅ apply dismissed filter
+      // dismissed filter
       const dismissed = loadDismissedIds();
       const filtered = merged.filter((n) => !dismissed.has(n.id));
 
       setNotifications(applyReadStatus(filtered));
+      setHasLoaded(true);
     } catch (e: any) {
       setError(e?.message || "Failed to load notifications");
+      setHasLoaded(true);
     } finally {
       setLoading(false);
     }
   }, []);
 
-  useEffect(() => {
-    refresh();
-  }, [refresh]);
+  // ✅ This prevents auto-loading on every page load
+  const ensureLoaded = useCallback(async () => {
+    if (hasLoaded) return;
+    if (loading) return;
+    await refresh();
+  }, [hasLoaded, loading, refresh]);
 
   const markAsRead = useCallback((id: string) => {
     setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, read: true } : n)));
@@ -462,7 +464,6 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
     saveReadIds(set);
   }, [notifications]);
 
-  // ✅ remove per notification (and keep removed after refresh)
   const removeNotification = useCallback((id: string) => {
     setNotifications((prev) => prev.filter((n) => n.id !== id));
 
@@ -470,7 +471,6 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
     dismissed.add(id);
     saveDismissedIds(dismissed);
 
-    // optional: also mark as read to keep counts clean
     const readSet = loadReadIds();
     readSet.add(id);
     saveReadIds(readSet);
@@ -483,7 +483,9 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
     loading,
     error,
     unreadCount,
+    hasLoaded,
     refresh,
+    ensureLoaded,
     markAsRead,
     markAllAsRead,
     removeNotification,
@@ -499,10 +501,23 @@ export const useNotifications = () => {
 };
 
 // ================= Page content only =================
-// NOTE: is component ko aap App routes me <Dashboard> ke andar wrap karna.
 const NotificationsPage: React.FC = () => {
-  const { notifications, unreadCount, loading, error, refresh, markAllAsRead, markAsRead, removeNotification } =
-    useNotifications();
+  const {
+    notifications,
+    unreadCount,
+    loading,
+    error,
+    ensureLoaded,  // ✅ use ensureLoaded here
+    refresh,
+    markAllAsRead,
+    markAsRead,
+    removeNotification,
+  } = useNotifications();
+
+  // ✅ Load only when this page is opened
+  useEffect(() => {
+    ensureLoaded();
+  }, [ensureLoaded]);
 
   return (
     <div className="p-6 bg-gray-100">
@@ -516,11 +531,19 @@ const NotificationsPage: React.FC = () => {
           </div>
 
           <div className="flex items-center gap-2">
-            <button className="px-3 py-2 border rounded text-sm hover:bg-gray-50" onClick={refresh} disabled={loading}>
+            <button
+              className="px-3 py-2 border rounded text-sm hover:bg-gray-50"
+              onClick={refresh}
+              disabled={loading}
+            >
               Refresh
             </button>
 
-            <button className="px-3 py-2 border rounded text-sm hover:bg-gray-50" onClick={markAllAsRead} disabled={notifications.length === 0}>
+            <button
+              className="px-3 py-2 border rounded text-sm hover:bg-gray-50"
+              onClick={markAllAsRead}
+              disabled={notifications.length === 0}
+            >
               Mark all as read
             </button>
           </div>
@@ -550,12 +573,16 @@ const NotificationsPage: React.FC = () => {
                   <td className="border px-3 py-2 font-semibold">{n.title}</td>
                   <td className="border px-3 py-2">{n.message}</td>
                   <td className="border px-3 py-2">
-                    {fmtDate(n.createdAt)} <span className="text-gray-400">({timeAgo(n.createdAt)})</span>
+                    {fmtDate(n.createdAt)}{" "}
+                    <span className="text-gray-400">({timeAgo(n.createdAt)})</span>
                   </td>
                   <td className="border px-3 py-2">
                     <div className="flex items-center gap-2">
                       {!n.read && (
-                        <button className="px-2 py-1 border rounded text-xs hover:bg-white" onClick={() => markAsRead(n.id)}>
+                        <button
+                          className="px-2 py-1 border rounded text-xs hover:bg-white"
+                          onClick={() => markAsRead(n.id)}
+                        >
                           Mark read
                         </button>
                       )}
