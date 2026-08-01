@@ -160,11 +160,11 @@ const PurchaseEntryItem: React.FC = () => {
     );
   };
 
-  const handleChange = (id: number, field: keyof RowData, value: string) => {
-    setRows((rows) =>
-      rows.map((r) => (r.id === id ? { ...r, [field]: value } : r))
-    );
-  };
+  // const handleChange = (id: number, field: keyof RowData, value: string) => {
+  //   setRows((rows) =>
+  //     rows.map((r) => (r.id === id ? { ...r, [field]: value } : r))
+  //   );
+  // };
 
   const handleMaterialSelect = (id: number, materialId: string) => {
     const selectedMaterial = allMaterials.find(
