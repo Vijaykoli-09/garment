@@ -17,5 +17,5 @@ public interface MaterialPurchaseOrderService {
 
     void delete(Long id);
 
-    MaterialPurchaseOrderResponseDto update1(Long id, MaterialPurchaseOrderRequestDto dto);
+    // MaterialPurchaseOrderResponseDto update1(Long id, MaterialPurchaseOrderRequestDto dto);
 }

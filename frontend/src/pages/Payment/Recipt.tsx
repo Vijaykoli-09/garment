@@ -26,10 +26,7 @@ const endOfDayTime = (iso: string) => {
 };
 
 // ✅ sanitize numeric typed text (prevents weird chars)
-const sanitizeDecimal = (
-  raw: string,
-  opts?: { allowNegative?: boolean; decimals?: number }
-) => {
+const sanitizeDecimal = (raw: string, opts?: { allowNegative?: boolean; decimals?: number }) => {
   const allowNegative = !!opts?.allowNegative;
   const decimals = typeof opts?.decimals === "number" ? opts.decimals : 2;
 
@@ -61,8 +58,7 @@ const sanitizeDecimal = (
   return s;
 };
 
-const isPartialNumberText = (s: string) =>
-  s === "" || s === "-" || s === "." || s === "-.";
+const isPartialNumberText = (s: string) => s === "" || s === "-" || s === "." || s === "-.";
 
 // ================= Amount to Words (Indian system) =================
 const numToWordsIndian = (num: number): string => {
@@ -91,18 +87,7 @@ const numToWordsIndian = (num: number): string => {
     "Eighteen",
     "Nineteen",
   ];
-  const tens = [
-    "",
-    "",
-    "Twenty",
-    "Thirty",
-    "Forty",
-    "Fifty",
-    "Sixty",
-    "Seventy",
-    "Eighty",
-    "Ninety",
-  ];
+  const tens = ["", "", "Twenty", "Thirty", "Forty", "Fifty", "Sixty", "Seventy", "Eighty", "Ninety"];
 
   const twoDigits = (x: number) => {
     if (x < 20) return ones[x];
@@ -386,8 +371,7 @@ const PaymentReceiptForm: React.FC = () => {
   const [agentList, setAgentList] = useState<any[]>([]);
   const [agentSearchText, setAgentSearchText] = useState("");
   const [showAgentModal, setShowAgentModal] = useState(false);
-  const [agentModalTarget, setAgentModalTarget] =
-    useState<AgentModalTarget>("agentName");
+  const [agentModalTarget, setAgentModalTarget] = useState<AgentModalTarget>("agentName");
 
   const [showList, setShowList] = useState(false);
   const [receiptList, setReceiptList] = useState<any[]>([]);
@@ -407,27 +391,15 @@ const PaymentReceiptForm: React.FC = () => {
 
   // Base balance (Party/Broker) from ACCOUNT LEDGER
   const [baseBalance, setBaseBalance] = useState<number | null>(null);
-  const [baseBalanceFor, setBaseBalanceFor] = useState<
-    "Party" | "Broker" | null
-  >(null);
+  const [baseBalanceFor, setBaseBalanceFor] = useState<"Party" | "Broker" | null>(null);
 
   // Account sources (ledger)
   const [accDispatch, setAccDispatch] = useState<DispatchChallan[]>([]);
-  const [accOtherDispatch, setAccOtherDispatch] = useState<
-    OtherDispatchChallan[]
-  >([]);
-  const [accPurchaseOrders, setAccPurchaseOrders] = useState<
-    PurchaseOrderDoc[]
-  >([]);
-  const [accPurchaseEntries, setAccPurchaseEntries] = useState<
-    PurchaseEntryDoc[]
-  >([]);
-  const [accPurchaseReturns, setAccPurchaseReturns] = useState<
-    PurchaseReturnDoc[]
-  >([]);
-  const [accJobInwards, setAccJobInwards] = useState<JobInwardChallanDoc[]>(
-    []
-  );
+  const [accOtherDispatch, setAccOtherDispatch] = useState<OtherDispatchChallan[]>([]);
+  const [accPurchaseOrders, setAccPurchaseOrders] = useState<PurchaseOrderDoc[]>([]);
+  const [accPurchaseEntries, setAccPurchaseEntries] = useState<PurchaseEntryDoc[]>([]);
+  const [accPurchaseReturns, setAccPurchaseReturns] = useState<PurchaseReturnDoc[]>([]);
+  const [accJobInwards, setAccJobInwards] = useState<JobInwardChallanDoc[]>([]);
   const [accPayments, setAccPayments] = useState<PaymentDoc[]>([]);
 
   // ---------- Loaders ----------
@@ -490,21 +462,17 @@ const PaymentReceiptForm: React.FC = () => {
     };
 
     try {
-      const [dcRaw, odRaw, poRaw, peRaw, prRaw, jobInRaw, payRaw1] =
-        await Promise.all([
-          safeGetArray(routesReceipt.dispatchChallans),
-          safeGetArray(routesReceipt.otherDispatchChallans),
-          safeGetArray(routesReceipt.purchaseOrders),
-          safeGetArray(routesReceipt.purchaseEntries),
-          safeGetArray(routesReceipt.purchaseReturns),
-          safeGetArray(routesReceipt.jobInward),
-          safeGetArray(routesReceipt.payments),
-        ]);
+      const [dcRaw, odRaw, poRaw, peRaw, prRaw, jobInRaw, payRaw1] = await Promise.all([
+        safeGetArray(routesReceipt.dispatchChallans),
+        safeGetArray(routesReceipt.otherDispatchChallans),
+        safeGetArray(routesReceipt.purchaseOrders),
+        safeGetArray(routesReceipt.purchaseEntries),
+        safeGetArray(routesReceipt.purchaseReturns),
+        safeGetArray(routesReceipt.jobInward),
+        safeGetArray(routesReceipt.payments),
+      ]);
 
-      const payRaw =
-        Array.isArray(payRaw1) && payRaw1.length > 0
-          ? payRaw1
-          : await safeGetArray(routesReceipt.paymentsFallback);
+      const payRaw = Array.isArray(payRaw1) && payRaw1.length > 0 ? payRaw1 : await safeGetArray(routesReceipt.paymentsFallback);
 
       setAccDispatch(
         (Array.isArray(dcRaw) ? dcRaw : []).map((dc: any) => ({
@@ -534,10 +502,7 @@ const PaymentReceiptForm: React.FC = () => {
       setAccPurchaseOrders(
         (Array.isArray(poRaw) ? poRaw : []).map((po: any) => {
           const items: any[] = Array.isArray(po.items) ? po.items : [];
-          const amount = items.reduce(
-            (s, it) => s + (parseFloat(it.amount ?? 0) || 0),
-            0
-          );
+          const amount = items.reduce((s, it) => s + (parseFloat(it.amount ?? 0) || 0), 0);
           return {
             id: po.id,
             orderNo: String(po.orderNo ?? ""),
@@ -551,10 +516,7 @@ const PaymentReceiptForm: React.FC = () => {
       setAccPurchaseEntries(
         (Array.isArray(peRaw) ? peRaw : []).map((e: any) => {
           const items: any[] = Array.isArray(e.items) ? e.items : [];
-          const amount = items.reduce(
-            (s, it) => s + (parseFloat(it.amount ?? 0) || 0),
-            0
-          );
+          const amount = items.reduce((s, it) => s + (parseFloat(it.amount ?? 0) || 0), 0);
           return {
             id: e.id,
             challanNo: String(e.challanNo ?? ""),
@@ -568,10 +530,7 @@ const PaymentReceiptForm: React.FC = () => {
       setAccPurchaseReturns(
         (Array.isArray(prRaw) ? prRaw : []).map((r: any) => {
           const items: any[] = Array.isArray(r.items) ? r.items : [];
-          const amount = items.reduce(
-            (s, it) => s + (parseFloat(it.amount ?? 0) || 0),
-            0
-          );
+          const amount = items.reduce((s, it) => s + (parseFloat(it.amount ?? 0) || 0), 0);
           return {
             id: r.id,
             challanNo: String(r.challanNo ?? ""),
@@ -586,10 +545,7 @@ const PaymentReceiptForm: React.FC = () => {
         (Array.isArray(jobInRaw) ? jobInRaw : [])
           .map((d: any) => {
             const rows: any[] = Array.isArray(d.rows) ? d.rows : [];
-            const amount = rows.reduce(
-              (s, r) => s + (Number(r.amount) || 0),
-              0
-            );
+            const amount = rows.reduce((s, r) => s + (Number(r.amount) || 0), 0);
             return {
               id: d.id ?? "",
               challanNo: String(d.challanNo ?? ""),
@@ -634,15 +590,7 @@ const PaymentReceiptForm: React.FC = () => {
     loadPaymentModes();
     loadParties();
     loadAccountSources();
-  }, [
-    loadProcesses,
-    loadEmployees,
-    loadAgents,
-    loadSavedRecords,
-    loadPaymentModes,
-    loadParties,
-    loadAccountSources,
-  ]);
+  }, [loadProcesses, loadEmployees, loadAgents, loadSavedRecords, loadPaymentModes, loadParties, loadAccountSources]);
 
   // Party->Broker mapping
   const partyByName = useMemo(() => {
@@ -664,9 +612,7 @@ const PaymentReceiptForm: React.FC = () => {
 
   const getBrokerNameForDispatch = useCallback(
     (doc: { brokerName?: string; agentName?: string; partyName: string }) => {
-      const direct =
-        String(doc.brokerName ?? "").trim() ||
-        String(doc.agentName ?? "").trim();
+      const direct = String(doc.brokerName ?? "").trim() || String(doc.agentName ?? "").trim();
       if (direct) return direct;
       return getBrokerFromPartyName(doc.partyName);
     },
@@ -773,8 +719,7 @@ const PaymentReceiptForm: React.FC = () => {
       setBaseBalanceFor("Party");
 
       setFormData((prev) => {
-        if (prev.receiptTo !== "Party" || norm(prev.name) !== norm(partyName))
-          return prev;
+        if (prev.receiptTo !== "Party" || norm(prev.name) !== norm(partyName)) return prev;
         const amt = prev.amount === "" ? 0 : Number(prev.amount || 0);
         const nextBal = prev.amount === "" ? bal : bal - amt;
         return { ...prev, balance: nextBal };
@@ -818,8 +763,7 @@ const PaymentReceiptForm: React.FC = () => {
         bal += debit - credit;
       };
 
-      const partyBelongsToBroker = (partyName: string) =>
-        brokerKey && norm(getBrokerFromPartyName(partyName)) === brokerKey;
+      const partyBelongsToBroker = (partyName: string) => brokerKey && norm(getBrokerFromPartyName(partyName)) === brokerKey;
 
       accDispatch.forEach((dc) => {
         const b = getBrokerNameForDispatch(dc);
@@ -894,8 +838,7 @@ const PaymentReceiptForm: React.FC = () => {
       setBaseBalanceFor("Broker");
 
       setFormData((prev) => {
-        if (prev.receiptTo !== "Broker" || norm(prev.name) !== brokerKey)
-          return prev;
+        if (prev.receiptTo !== "Broker" || norm(prev.name) !== brokerKey) return prev;
         const amt = prev.amount === "" ? 0 : Number(prev.amount || 0);
         const nextBal = prev.amount === "" ? bal : bal - amt;
         return { ...prev, balance: nextBal };
@@ -937,15 +880,10 @@ const PaymentReceiptForm: React.FC = () => {
   ]);
 
   // ✅ amount words
-  const amountInWords = useMemo(
-    () => amountToWordsINR(formData.amount),
-    [formData.amount]
-  );
+  const amountInWords = useMemo(() => amountToWordsINR(formData.amount), [formData.amount]);
 
   // ---------------- Handlers ----------------
-  const handleChange = (
-    e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>
-  ) => {
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
 
     if (name === "receiptTo") {
@@ -993,22 +931,15 @@ const PaymentReceiptForm: React.FC = () => {
 
     // ✅ Amount
     if (name === "amount") {
-      const clean = sanitizeDecimal(value, {
-        allowNegative: false,
-        decimals: 2,
-      });
+      const clean = sanitizeDecimal(value, { allowNegative: false, decimals: 2 });
       setAmountText(clean);
 
       const num: number | "" = isPartialNumberText(clean) ? "" : Number(clean);
 
       setFormData((prev) => {
-        const isAutoBalance =
-          (prev.receiptTo === "Party" || prev.receiptTo === "Broker") &&
-          baseBalance !== null;
+        const isAutoBalance = (prev.receiptTo === "Party" || prev.receiptTo === "Broker") && baseBalance !== null;
 
-        const nextBal = isAutoBalance
-          ? baseBalance! - (num === "" ? 0 : Number(num))
-          : prev.balance;
+        const nextBal = isAutoBalance ? baseBalance! - (num === "" ? 0 : Number(num)) : prev.balance;
 
         return {
           ...prev,
@@ -1021,13 +952,9 @@ const PaymentReceiptForm: React.FC = () => {
 
     // ✅ Balance (manual only for non Party/Broker)
     if (name === "balance") {
-      if (formData.receiptTo === "Party" || formData.receiptTo === "Broker")
-        return;
+      if (formData.receiptTo === "Party" || formData.receiptTo === "Broker") return;
 
-      const clean = sanitizeDecimal(value, {
-        allowNegative: true,
-        decimals: 2,
-      });
+      const clean = sanitizeDecimal(value, { allowNegative: true, decimals: 2 });
       setBalanceText(clean);
 
       const num: number | "" = isPartialNumberText(clean) ? "" : Number(clean);
@@ -1181,9 +1108,7 @@ const PaymentReceiptForm: React.FC = () => {
 
     return partyList.filter((p) => {
       const name = (p.partyName || "").toLowerCase();
-      const partyProcess = p.process?.processName
-        ? p.process.processName.toLowerCase()
-        : "";
+      const partyProcess = p.process?.processName ? p.process.processName.toLowerCase() : "";
 
       const matchesSearch = !search || name.includes(search);
       const matchesProcess = !processFilter || !partyProcess || partyProcess === processFilter;
@@ -1193,9 +1118,7 @@ const PaymentReceiptForm: React.FC = () => {
   }, [partyList, partySearchText, formData.processName]);
 
   const filteredProcesses = useMemo(() => {
-    return processList.filter((p) =>
-      (p.processName || "").toLowerCase().includes(processSearchText.toLowerCase())
-    );
+    return processList.filter((p) => (p.processName || "").toLowerCase().includes(processSearchText.toLowerCase()));
   }, [processList, processSearchText]);
 
   const filteredAgents = useMemo(() => {
@@ -1210,11 +1133,7 @@ const PaymentReceiptForm: React.FC = () => {
 
     return receiptList.filter((x) => {
       const displayName =
-        x.receiptTo === "Employee"
-          ? x.employeeName
-          : x.receiptTo === "Broker"
-          ? x.agentName
-          : x.partyName;
+        x.receiptTo === "Employee" ? x.employeeName : x.receiptTo === "Broker" ? x.agentName : x.partyName;
 
       return (
         !searchText ||
@@ -1248,10 +1167,7 @@ const PaymentReceiptForm: React.FC = () => {
 
       employeeName: formData.receiptTo === "Employee" ? formData.name || "" : "",
 
-      agentName:
-        formData.receiptTo === "Broker"
-          ? formData.name || ""
-          : formData.agentName || "",
+      agentName: formData.receiptTo === "Broker" ? formData.name || "" : formData.agentName || "",
     };
 
     try {
@@ -1299,10 +1215,8 @@ const PaymentReceiptForm: React.FC = () => {
           ? rec.agentName || ""
           : rec.partyName || "";
 
-      const amtNum =
-        rec.amount === null || rec.amount === undefined ? "" : Number(rec.amount);
-      const balNum =
-        rec.balance === null || rec.balance === undefined ? "" : Number(rec.balance);
+      const amtNum = rec.amount === null || rec.amount === undefined ? "" : Number(rec.amount);
+      const balNum = rec.balance === null || rec.balance === undefined ? "" : Number(rec.balance);
 
       setFormData({
         entryType: rec.entryType || "",
@@ -1418,13 +1332,9 @@ const PaymentReceiptForm: React.FC = () => {
         const to = formData.date ? new Date(formData.date) : null;
 
         const filtered = all.filter((pr: any) => {
-          const processOk = formData.processName
-            ? (pr.processName || "").toLowerCase() === formData.processName.toLowerCase()
-            : true;
+          const processOk = formData.processName ? (pr.processName || "").toLowerCase() === formData.processName.toLowerCase() : true;
 
-          const empOk = formData.name
-            ? (pr.employeeName || "").toLowerCase() === formData.name.toLowerCase()
-            : true;
+          const empOk = formData.name ? (pr.employeeName || "").toLowerCase() === formData.name.toLowerCase() : true;
 
           const dStr = pr.dated || pr.receiptDate;
           if (!dStr) return false;
@@ -1499,8 +1409,7 @@ const PaymentReceiptForm: React.FC = () => {
     }
   };
 
-  const isAgentSelectable =
-    formData.receiptTo !== "Party" && formData.receiptTo !== "Broker";
+  const isAgentSelectable = formData.receiptTo !== "Party" && formData.receiptTo !== "Broker";
 
   const nameLabel =
     formData.receiptTo === "Party"
@@ -1519,6 +1428,125 @@ const PaymentReceiptForm: React.FC = () => {
     return balanceText;
   }, [formData.receiptTo, formData.balance, balanceText]);
 
+  // ================= PRINT (added) =================
+  const escapeHtml = (s: any) =>
+    String(s ?? "")
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;")
+      .replaceAll('"', "&quot;")
+      .replaceAll("'", "&#039;");
+
+  const formatDDMMYYYY = (iso: string) => {
+    if (!iso) return "";
+    const m = String(iso).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (!m) return iso;
+    return `${m[3]}-${m[2]}-${m[1]}`;
+  };
+
+  const fmt2 = (n: any) => {
+    const num = Number(n);
+    if (!Number.isFinite(num)) return "";
+    return num.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    // note: for print only
+  };
+
+  const handlePrint = () => {
+    const amountVal = formData.amount === "" ? "" : fmt2(formData.amount);
+    const balAbs = formData.balance === "" ? "" : absVal(formData.balance);
+    const balSide = getDrCr(formData.balance);
+    const balText = balAbs === "" ? "" : `${fmt2(balAbs)} ${balSide}`.trim();
+
+    const rows: Array<[string, string]> = [
+      // ["Entry Type", String(formData.entryType || "")],
+      ["Receipt To", String(formData.receiptTo || "")],
+      ["From Date", formatDDMMYYYY(formData.receiptDate || "")],
+      ["To Date", formatDDMMYYYY(formData.date || "")],
+      ["Process Name", String(formData.processName || "")],
+      [nameLabel, String(formData.name || "")],
+      ...(formData.receiptTo !== "Broker"
+        ? [["Agent Name", String(formData.agentName || "")] as [string, string]]
+        : []),
+      ["Payment Through", String(formData.paymentThrough || "")],
+      ["Amount", String(amountVal || "")],
+      ["Balance (DR/CR)", String(balText || "")],
+      ["Remarks", String(formData.remarks || "")],
+      ["Amount in Words", String(amountInWords || "")],
+    ];
+
+    const html = `
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Receipt Print</title>
+    <style>
+      * { box-sizing: border-box; }
+      body { font-family: Arial, Helvetica, sans-serif; padding: 18px; color: #111; }
+      .title { text-align: center; font-size: 20px; font-weight: 700; margin-bottom: 14px; }
+      .sub { text-align:center; font-size: 12px; color:#444; margin-bottom: 18px; }
+      table { width: 100%; border-collapse: collapse; }
+      th, td { border: 1px solid #333; padding: 10px; font-size: 13px; vertical-align: top; }
+      th { width: 32%; background: #f2f2f2; text-align: left; }
+      .footer { margin-top: 24px; display:flex; justify-content: space-between; gap: 20px; }
+      .sig { width: 32%; text-align:center; }
+      .line { margin-top: 40px; border-top: 1px solid #333; }
+      @page { size: A4; margin: 12mm; }
+      @media print { .no-print { display:none; } }
+      .btnbar { text-align:right; margin-bottom: 12px; }
+      .btn { padding: 8px 12px; border: 1px solid #333; background:#fff; cursor:pointer; }
+    </style>
+  </head>
+  <body>
+    <div class="btnbar no-print">
+      <button class="btn" onclick="window.print()">Print</button>
+    </div>
+
+    <div class="title">Receipt</div>
+    <div class="sub">Receipt Voucher / Details</div>
+
+    <table>
+      <tbody>
+        ${rows
+          .map(
+            ([k, v]) => `
+          <tr>
+            <th>${escapeHtml(k)}</th>
+            <td>${escapeHtml(v)}</td>
+          </tr>`
+          )
+          .join("")}
+      </tbody>
+    </table>
+
+    <div class="footer">
+      <div class="sig">
+        <div class="line"></div>
+        <div>Prepared By</div>
+      </div>
+      <div class="sig">
+        <div class="line"></div>
+        <div>Checked By</div>
+      </div>
+      <div class="sig">
+        <div class="line"></div>
+        <div>Receiver Signature</div>
+      </div>
+    </div>
+  </body>
+</html>`;
+
+    const w = window.open("", "_blank", "width=900,height=650");
+    if (!w) {
+      Swal.fire("Popup blocked", "Please allow popups to print.", "info");
+      return;
+    }
+    w.document.open();
+    w.document.write(html);
+    w.document.close();
+    w.focus();
+  };
+
   return (
     <Dashboard>
       <div className="min-h-screen bg-gray-100 p-6">
@@ -1528,12 +1556,7 @@ const PaymentReceiptForm: React.FC = () => {
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block mb-1 font-semibold">Receipt To</label>
-              <select
-                name="receiptTo"
-                value={formData.receiptTo}
-                onChange={handleChange}
-                className="border p-2 w-full rounded"
-              >
+              <select name="receiptTo" value={formData.receiptTo} onChange={handleChange} className="border p-2 w-full rounded">
                 <option value="">Select</option>
                 <option value="Party">Party</option>
                 <option value="Employee">Employee</option>
@@ -1581,15 +1604,9 @@ const PaymentReceiptForm: React.FC = () => {
                 onClick={isProcessSelectable ? openProcessModal : undefined}
                 readOnly
                 disabled={!isProcessSelectable}
-                placeholder={
-                  formData.receiptTo === "Broker"
-                    ? "Disabled for Broker"
-                    : "Click to select process (optional)"
-                }
+                placeholder={formData.receiptTo === "Broker" ? "Disabled for Broker" : "Click to select process (optional)"}
                 className={`border p-2 w-full rounded ${
-                  isProcessSelectable
-                    ? "cursor-pointer bg-gray-50 hover:bg-gray-100"
-                    : "bg-gray-100 cursor-not-allowed"
+                  isProcessSelectable ? "cursor-pointer bg-gray-50 hover:bg-gray-100" : "bg-gray-100 cursor-not-allowed"
                 }`}
               />
             </div>
@@ -1604,9 +1621,7 @@ const PaymentReceiptForm: React.FC = () => {
                 onClick={isNameReadOnly ? openNameModal : undefined}
                 readOnly={isNameReadOnly}
                 placeholder={formData.receiptTo === "Other" ? "Type name" : "Click to select"}
-                className={`border p-2 w-full rounded ${
-                  isNameReadOnly ? "cursor-pointer bg-gray-50 hover:bg-gray-100" : ""
-                }`}
+                className={`border p-2 w-full rounded ${isNameReadOnly ? "cursor-pointer bg-gray-50 hover:bg-gray-100" : ""}`}
                 onChange={handleChange}
               />
             </div>
@@ -1621,11 +1636,7 @@ const PaymentReceiptForm: React.FC = () => {
                   value={formData.agentName}
                   onClick={isAgentSelectable ? openAgentModal : undefined}
                   readOnly
-                  placeholder={
-                    formData.receiptTo === "Party"
-                      ? "Auto-filled from party broker"
-                      : "Click to select agent"
-                  }
+                  placeholder={formData.receiptTo === "Party" ? "Auto-filled from party broker" : "Click to select agent"}
                   className="border p-2 w-full rounded cursor-pointer bg-gray-50 hover:bg-gray-100"
                 />
               </div>
@@ -1665,9 +1676,7 @@ const PaymentReceiptForm: React.FC = () => {
                 placeholder="Enter amount"
                 className="border p-2 w-full rounded"
               />
-              {amountInWords ? (
-                <div className="text-xs text-gray-600 mt-1">{amountInWords}</div>
-              ) : null}
+              {amountInWords ? <div className="text-xs text-gray-600 mt-1">{amountInWords}</div> : null}
             </div>
 
             {/* Balance + Dr/Cr */}
@@ -1690,9 +1699,7 @@ const PaymentReceiptForm: React.FC = () => {
                       : ""
                   }
                   className={`border p-2 w-full rounded ${
-                    formData.receiptTo === "Party" || formData.receiptTo === "Broker"
-                      ? "bg-gray-50 cursor-not-allowed"
-                      : ""
+                    formData.receiptTo === "Party" || formData.receiptTo === "Broker" ? "bg-gray-50 cursor-not-allowed" : ""
                   }`}
                 />
 
@@ -1706,46 +1713,32 @@ const PaymentReceiptForm: React.FC = () => {
                 />
               </div>
 
-              {(formData.receiptTo === "Party" || formData.receiptTo === "Broker") &&
-                baseBalance !== null && (
-                  <div className="text-xs text-gray-600 mt-1">
-                    Base ({baseBalanceFor || "Auto"} as on {formData.receiptDate}):{" "}
-                    {absVal(baseBalance)} {baseBalDrCr}
-                    {formData.amount !== "" && (
-                      <>
-                        {" "}
-                        | Current: {absVal(formData.balance)} {balanceDrCr}
-                      </>
-                    )}
-                  </div>
-                )}
+              {(formData.receiptTo === "Party" || formData.receiptTo === "Broker") && baseBalance !== null && (
+                <div className="text-xs text-gray-600 mt-1">
+                  Base ({baseBalanceFor || "Auto"} as on {formData.receiptDate}): {absVal(baseBalance)} {baseBalDrCr}
+                  {formData.amount !== "" && (
+                    <>
+                      {" "}
+                      | Current: {absVal(formData.balance)} {balanceDrCr}
+                    </>
+                  )}
+                </div>
+              )}
             </div>
 
             <div className="col-span-2">
               <label className="block mb-1 font-semibold">Remarks</label>
-              <input
-                type="text"
-                name="remarks"
-                value={formData.remarks}
-                onChange={handleChange}
-                className="border p-2 w-full rounded"
-              />
+              <input type="text" name="remarks" value={formData.remarks} onChange={handleChange} className="border p-2 w-full rounded" />
             </div>
           </div>
 
           <div className="flex flex-wrap justify-between mt-6">
             <div className="space-x-2">
-              <button
-                onClick={() => handleAddNew()}
-                className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600"
-              >
+              <button onClick={() => handleAddNew()} className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600">
                 Add New
               </button>
 
-              <button
-                onClick={handleSave}
-                className="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600"
-              >
+              <button onClick={handleSave} className="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600">
                 {editingId ? "Update" : "Save"}
               </button>
 
@@ -1757,24 +1750,20 @@ const PaymentReceiptForm: React.FC = () => {
                 {showLoading ? "Loading..." : "Show"}
               </button>
 
-              <button
-                onClick={openList}
-                className="px-4 py-2 bg-yellow-500 text-white rounded hover:bg-yellow-600"
-              >
+              <button onClick={openList} className="px-4 py-2 bg-yellow-500 text-white rounded hover:bg-yellow-600">
                 List
               </button>
 
-              <button
-                onClick={() => handleDelete()}
-                className="bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600"
-              >
+              {/* ✅ PRINT BUTTON (added) */}
+              <button onClick={handlePrint} className="px-4 py-2 bg-indigo-500 text-white rounded hover:bg-indigo-600">
+                Print
+              </button>
+
+              <button onClick={() => handleDelete()} className="bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600">
                 Delete
               </button>
 
-              <button
-                onClick={() => navigate(-1)}
-                className="bg-gray-500 text-white px-4 py-2 rounded hover:bg-gray-600"
-              >
+              <button onClick={() => navigate(-1)} className="bg-gray-500 text-white px-4 py-2 rounded hover:bg-gray-600">
                 Exit
               </button>
             </div>
@@ -1811,9 +1800,7 @@ const PaymentReceiptForm: React.FC = () => {
                         : record.partyName;
 
                     const rowKey =
-                      record.id ??
-                      (record as any).receiptId ??
-                      `${record.receiptDate}-${record.processName}-${idx}`;
+                      record.id ?? (record as any).receiptId ?? `${record.receiptDate}-${record.processName}-${idx}`;
 
                     const drcr = getDrCr(record.balance);
                     const balAbs = absVal(record.balance);
@@ -1821,24 +1808,14 @@ const PaymentReceiptForm: React.FC = () => {
                     return (
                       <tr key={rowKey}>
                         <td className="border p-2 text-center">{idx + 1}</td>
-                        <td className="border p-2">
-                          {record.receiptDate
-                            ? new Date(record.receiptDate).toLocaleDateString()
-                            : "-"}
-                        </td>
-                        <td className="border p-2">
-                          {record.date ? new Date(record.date).toLocaleDateString() : "-"}
-                        </td>
+                        <td className="border p-2">{record.receiptDate ? new Date(record.receiptDate).toLocaleDateString() : "-"}</td>
+                        <td className="border p-2">{record.date ? new Date(record.date).toLocaleDateString() : "-"}</td>
                         <td className="border p-2">{record.receiptTo}</td>
                         <td className="border p-2">{name || "-"}</td>
                         <td className="border p-2">{record.agentName || "-"}</td>
                         <td className="border p-2">{record.processName || "-"}</td>
                         <td className="border p-2 text-right">{record.amount ?? "-"}</td>
-                        <td className="border p-2 text-right">
-                          {record.balance === null || record.balance === undefined
-                            ? "-"
-                            : balAbs}
-                        </td>
+                        <td className="border p-2 text-right">{record.balance === null || record.balance === undefined ? "-" : balAbs}</td>
                         <td className="border p-2 text-center">{drcr || "-"}</td>
                       </tr>
                     );
@@ -1851,10 +1828,7 @@ const PaymentReceiptForm: React.FC = () => {
 
         {/* Show Table (Party) */}
         {formData.receiptTo === "Party" && showData.length > 0 && (
-          <div
-            id="show-table-section"
-            className="mt-6 p-4 bg-white rounded-lg border border-gray-200 max-w-5xl mx-auto"
-          >
+          <div id="show-table-section" className="mt-6 p-4 bg-white rounded-lg border border-gray-200 max-w-5xl mx-auto">
             <h3 className="font-bold text-lg mb-3">
               Party Payments (From {formData.receiptDate} To {formData.date})
             </h3>
@@ -1939,10 +1913,7 @@ const PaymentReceiptForm: React.FC = () => {
               </table>
             </div>
             <div className="flex justify-center mt-4">
-              <button
-                onClick={() => setShowEmployeeModal(false)}
-                className="px-5 py-2 bg-gray-300 hover:bg-gray-400 rounded"
-              >
+              <button onClick={() => setShowEmployeeModal(false)} className="px-5 py-2 bg-gray-300 hover:bg-gray-400 rounded">
                 Close
               </button>
             </div>
@@ -1999,10 +1970,7 @@ const PaymentReceiptForm: React.FC = () => {
               </table>
             </div>
             <div className="flex justify-center mt-4">
-              <button
-                onClick={() => setShowPartyModal(false)}
-                className="px-5 py-2 bg-gray-300 hover:bg-gray-400 rounded"
-              >
+              <button onClick={() => setShowPartyModal(false)} className="px-5 py-2 bg-gray-300 hover:bg-gray-400 rounded">
                 Close
               </button>
             </div>
@@ -2057,10 +2025,7 @@ const PaymentReceiptForm: React.FC = () => {
               </table>
             </div>
             <div className="flex justify-center mt-4">
-              <button
-                onClick={() => setShowProcessModal(false)}
-                className="px-5 py-2 bg-gray-300 hover:bg-gray-400 rounded"
-              >
+              <button onClick={() => setShowProcessModal(false)} className="px-5 py-2 bg-gray-300 hover:bg-gray-400 rounded">
                 Close
               </button>
             </div>
@@ -2117,10 +2082,7 @@ const PaymentReceiptForm: React.FC = () => {
               </table>
             </div>
             <div className="flex justify-center mt-4">
-              <button
-                onClick={() => setShowAgentModal(false)}
-                className="px-5 py-2 bg-gray-300 hover:bg-gray-400 rounded"
-              >
+              <button onClick={() => setShowAgentModal(false)} className="px-5 py-2 bg-gray-300 hover:bg-gray-400 rounded">
                 Close
               </button>
             </div>
@@ -2166,9 +2128,7 @@ const PaymentReceiptForm: React.FC = () => {
                     productionRows.map((row: any, idx: number) => (
                       <tr key={row.key || idx}>
                         <td className="border p-2 text-center">{idx + 1}</td>
-                        <td className="border p-2">
-                          {row.dated ? new Date(row.dated).toLocaleDateString() : "-"}
-                        </td>
+                        <td className="border p-2">{row.dated ? new Date(row.dated).toLocaleDateString() : "-"}</td>
                         <td className="border p-2">{row.voucherNo || "-"}</td>
                         <td className="border p-2">{row.employeeName || "-"}</td>
                         <td className="border p-2">{row.processName || "-"}</td>
@@ -2187,10 +2147,7 @@ const PaymentReceiptForm: React.FC = () => {
             </div>
 
             <div className="flex justify-center mt-4">
-              <button
-                onClick={() => setShowProductionModal(false)}
-                className="px-5 py-2 bg-gray-300 hover:bg-gray-400 rounded"
-              >
+              <button onClick={() => setShowProductionModal(false)} className="px-5 py-2 bg-gray-300 hover:bg-gray-400 rounded">
                 Close
               </button>
             </div>
@@ -2239,11 +2196,7 @@ const PaymentReceiptForm: React.FC = () => {
                   ) : (
                     filteredList.map((d: any, i: number) => {
                       const name =
-                        d.receiptTo === "Employee"
-                          ? d.employeeName
-                          : d.receiptTo === "Broker"
-                          ? d.agentName
-                          : d.partyName;
+                        d.receiptTo === "Employee" ? d.employeeName : d.receiptTo === "Broker" ? d.agentName : d.partyName;
 
                       const rowKey = d.id ?? d.receiptId ?? i;
 
@@ -2253,21 +2206,15 @@ const PaymentReceiptForm: React.FC = () => {
                       return (
                         <tr key={rowKey}>
                           <td className="border p-2 text-center">{i + 1}</td>
-                          <td className="border p-2">
-                            {d.receiptDate ? new Date(d.receiptDate).toLocaleDateString() : "-"}
-                          </td>
-                          <td className="border p-2">
-                            {d.date ? new Date(d.date).toLocaleDateString() : "-"}
-                          </td>
+                          <td className="border p-2">{d.receiptDate ? new Date(d.receiptDate).toLocaleDateString() : "-"}</td>
+                          <td className="border p-2">{d.date ? new Date(d.date).toLocaleDateString() : "-"}</td>
                           <td className="border p-2">{d.entryType}</td>
                           <td className="border p-2">{d.receiptTo}</td>
                           <td className="border p-2">{name || "-"}</td>
                           <td className="border p-2">{d.agentName || "-"}</td>
                           <td className="border p-2">{d.processName || "-"}</td>
                           <td className="border p-2 text-right">{d.amount ?? "-"}</td>
-                          <td className="border p-2 text-right">
-                            {d.balance === null || d.balance === undefined ? "-" : balAbs}
-                          </td>
+                          <td className="border p-2 text-right">{d.balance === null || d.balance === undefined ? "-" : balAbs}</td>
                           <td className="border p-2 text-center">{drcr || "-"}</td>
                           <td className="border p-2 text-center">
                             <button
@@ -2292,10 +2239,7 @@ const PaymentReceiptForm: React.FC = () => {
             </div>
 
             <div className="flex justify-center mt-5">
-              <button
-                onClick={() => setShowList(false)}
-                className="px-5 py-2 bg-gray-300 hover:bg-gray-400 rounded"
-              >
+              <button onClick={() => setShowList(false)} className="px-5 py-2 bg-gray-300 hover:bg-gray-400 rounded">
                 Close
               </button>
             </div>

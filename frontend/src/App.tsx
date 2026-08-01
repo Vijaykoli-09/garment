@@ -105,7 +105,7 @@ import AddProduct from "./pages/app/AddProduct";
 import ViewSales from "./pages/app/ViewSales";
 import CustomerRequests from "./pages/app/CustomerRequests";
 import NotificationsPage from "./pages/Notifications";
-// import DispatchReturn from "./pages/Sales/DispatchReturn";
+import DispatchReturn from "./pages/Sales/DispatchReturn";
 // Wrapper so we can use useNavigate inside Router context
 function CustomerRequestsPage() {
   const navigate = useNavigate();
@@ -165,7 +165,7 @@ function App() {
         <Route path="/knitting/purchase-pending-orders" element={<PurchasePendingOrders />} />
         
         <Route path="/sales/other-dispatch-challan" element={<OtherDispatchChallan />} />
-        {/* <Route path="/sales/dispatch-return-challan" element={<DispatchReturn />} /> */}
+        <Route path="/sales/dispatch-return-challan" element={<DispatchReturn />} />
 
         {/* Knitting – dyeing */}
         <Route path="/knitting/dyeing/inward-challan" element={<DyeingInward />} />

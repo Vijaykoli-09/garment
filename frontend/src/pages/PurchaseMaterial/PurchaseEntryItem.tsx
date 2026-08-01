@@ -19,7 +19,7 @@ interface RowData {
   unit: string;
   shadeCode: string;
   shadeName: string;
-  receivedRolls: string;
+  // receivedRolls: string;
   receivedWtBox: string;
   rate: string;
   amount: string;
@@ -210,7 +210,7 @@ const PurchaseEntryItem: React.FC = () => {
       materialName: r.materialName,
       shadeCode: r.shadeCode || "",
       shadeName: r.shadeName || "",
-      roll: parseFloat(r.receivedRolls) || 0,
+      // roll: parseFloat(r.receivedRolls) || 0,
       wtPerBox: parseFloat(r.receivedWtBox) || 0,
       rate: parseFloat(r.rate) || 0,
       amount: parseFloat(r.amount) || 0,
@@ -584,7 +584,7 @@ const PurchaseEntryItem: React.FC = () => {
                   <th className="border p-2 text-center">Material</th>
                   <th className="border p-2 text-center">Unit</th>
                   <th className="border p-2 text-center">Shade Name</th>
-                  <th className="border p-2 text-center">Received Rolls</th>
+                  {/* <th className="border p-2 text-center">Received Rolls</th> */}
                   <th className="border p-2 text-center">Quantity</th>
                   <th className="border p-2 text-center">Rate</th>
                   <th className="border p-2 text-center">Amount</th>
@@ -698,7 +698,7 @@ const PurchaseEntryItem: React.FC = () => {
                           </select>
                         </td>
 
-                        <td className="border p-1">
+                        {/* <td className="border p-1">
                           <input
                             type="text"
                             value={row.receivedRolls}
@@ -711,7 +711,7 @@ const PurchaseEntryItem: React.FC = () => {
                             }
                             className="border p-1 rounded w-full"
                           />
-                        </td>
+                        </td> */}
 
                         <td className="border p-1">
                           <input
@@ -826,7 +826,7 @@ const PurchaseEntryItem: React.FC = () => {
                           Material Name
                         </th>
                         <th className="border p-2 text-center">
-                          Receive Wt/Box
+                          Quantity
                         </th>
                         <th className="border p-2 text-center">Amount</th>
                         <th className="border p-2 text-center">Action</th>

@@ -212,7 +212,7 @@ const PurchaseOrderItem: React.FC = () => {
         return;
       }
       setShowOrderList(true);
-      const res = await api.get("/purchase/orders");
+      const res = await api.get("/purchase/orders/order-list");
       const data = res.data;
       const enriched = data.map((order: any) => ({
         ...order,

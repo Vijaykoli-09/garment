@@ -204,13 +204,13 @@ public class MaterialPurchaseOrderServiceImpl implements MaterialPurchaseOrderSe
         return dto;
     }
 
-    public MaterialPurchaseOrderResponseDto create1(MaterialPurchaseOrderRequestDto dto) {
-        // TODO Auto-generated method stub
-        throw new UnsupportedOperationException("Unimplemented method 'create'");
-    }
+    // public MaterialPurchaseOrderResponseDto create1(MaterialPurchaseOrderRequestDto dto) {
+    //     // TODO Auto-generated method stub
+    //     throw new UnsupportedOperationException("Unimplemented method 'create'");
+    // }
 
-    public MaterialPurchaseOrderResponseDto update1(Long id, MaterialPurchaseOrderRequestDto dto) {
-        // TODO Auto-generated method stub
-        throw new UnsupportedOperationException("Unimplemented method 'update'");
-    }
+    // public MaterialPurchaseOrderResponseDto update1(Long id, MaterialPurchaseOrderRequestDto dto) {
+    //     // TODO Auto-generated method stub
+    //     throw new UnsupportedOperationException("Unimplemented method 'update'");
+    // }
 }

@@ -5,7 +5,7 @@ import api from "../../api/axiosInstance";
 import Swal from "sweetalert2";
 
 type Party = { id: number; partyName: string };
-type Item  = { id: number; itemName: string };
+type Item = { id: number; itemName: string };
 
 type PendingRow = {
   id: number;
@@ -23,17 +23,17 @@ const PurchasePendingOrders: React.FC = () => {
     new Date().toISOString().slice(0, 10)
   );
 
-  
+
   const [parties, setParties] = useState<Party[]>([]);
-  const [items, setItems] = useState<Item[]>([]);
+  const [materials, setMaterials] = useState<Item[]>([]);
   const [selectedPartyIds, setSelectedPartyIds] = useState<number[]>([]);
   const [selectedItemIds, setSelectedItemIds] = useState<number[]>([]);
   const [selectAllParties, setSelectAllParties] = useState(false);
   const [selectAllItems, setSelectAllItems] = useState(false);
   const [rows, setRows] = useState<PendingRow[]>([]);
   const [loading, setLoading] = useState(false);
-  
-  
+
+
   // NEW: show the report view like Material Stock Report
   const [showReportView, setShowReportView] = useState(false);
 
@@ -41,11 +41,11 @@ const PurchasePendingOrders: React.FC = () => {
     const loadMeta = async () => {
       try {
         const [pRes, iRes] = await Promise.all([
-          api.get<Party[]>("/party/category/Purchase"),
-          api.get<Item[]>("/purchase/order-list"),
+          api.get<Party[]>("/purchase-orders/parties"),
+          api.get<Item[]>("/purchase-orders/items"),
         ]);
         setParties(pRes.data || []);
-        setItems(iRes.data || []);
+        setMaterials(iRes.data || []);
       } catch (err) {
         console.error(err);
         Swal.fire("Error", "Failed to load parties/items", "error");
@@ -65,12 +65,12 @@ const PurchasePendingOrders: React.FC = () => {
   };
   const handleSelectAllItems = (checked: boolean) => {
     setSelectAllItems(checked);
-    setSelectedItemIds(checked ? items.map(i => i.id) : []);
+    setSelectedItemIds(checked ? materials.map(i => i.id) : []);
   };
 
   const showReport = async () => {
     if (selectedPartyIds.length === 0) return Swal.fire("Select at least one party", "", "warning");
-    
+
 
     try {
       setLoading(true);
@@ -120,17 +120,17 @@ const PurchasePendingOrders: React.FC = () => {
                 <td>${r.orderDate}</td>
                 <td>${r.partyName}</td>
                 <td>${r.itemName}</td>
-                <td>${Number(r.orderReceived||0).toFixed(3)}</td>
-                <td>${Number(r.orderDelivered||0).toFixed(3)}</td>
-                <td>${Number(r.orderPending||0).toFixed(3)}</td>
+                <td>${Number(r.orderReceived || 0).toFixed(3)}</td>
+                <td>${Number(r.orderDelivered || 0).toFixed(3)}</td>
+                <td>${Number(r.orderPending || 0).toFixed(3)}</td>
               </tr>`).join("")}
           </tbody>
           <tfoot>
             <tr>
               <td colspan="5" style="text-align:right">Total</td>
-              <td>${rows.reduce((s,r)=>s+Number(r.orderReceived||0),0).toFixed(3)}</td>
-              <td>${rows.reduce((s,r)=>s+Number(r.orderDelivered||0),0).toFixed(3)}</td>
-              <td>${rows.reduce((s,r)=>s+Number(r.orderPending||0),0).toFixed(3)}</td>
+              <td>${rows.reduce((s, r) => s + Number(r.orderReceived || 0), 0).toFixed(3)}</td>
+              <td>${rows.reduce((s, r) => s + Number(r.orderDelivered || 0), 0).toFixed(3)}</td>
+              <td>${rows.reduce((s, r) => s + Number(r.orderPending || 0), 0).toFixed(3)}</td>
             </tr>
           </tfoot>
         </table>
@@ -178,20 +178,20 @@ const PurchasePendingOrders: React.FC = () => {
                       type="checkbox"
                       className="mr-2"
                       checked={selectAllParties}
-                      onChange={(e)=>handleSelectAllParties(e.target.checked)}
+                      onChange={(e) => handleSelectAllParties(e.target.checked)}
                     /> Select All/Unselect All
                   </label>
                 </div>
                 <div className="p-2 border rounded h-48 overflow-auto">
-                  {parties.length===0 ? (
+                  {parties.length === 0 ? (
                     <div className="text-gray-500 text-sm">No parties found</div>
                   ) : (
-                    parties.map(p=>(
+                    parties.map(p => (
                       <div key={p.id} className="flex items-center py-1">
                         <input
                           type="checkbox"
                           checked={selectedPartyIds.includes(p.id)}
-                          onChange={()=>toggleParty(p.id)}
+                          onChange={() => toggleParty(p.id)}
                           className="mr-2"
                         />
                         <div className="text-sm">{p.partyName}</div>
@@ -209,20 +209,20 @@ const PurchasePendingOrders: React.FC = () => {
                       type="checkbox"
                       className="mr-2"
                       checked={selectAllItems}
-                      onChange={(e)=>handleSelectAllItems(e.target.checked)}
+                      onChange={(e) => handleSelectAllItems(e.target.checked)}
                     /> Select All/Unselect All
                   </label>
                 </div>
                 <div className="p-2 border rounded h-48 overflow-auto">
-                  {items.length===0 ? (
-                    <div className="text-gray-500 text-sm">No items found</div>
+                  {materials.length === 0 ? (
+                    <div className="text-gray-500 text-sm">No materials found</div>
                   ) : (
-                    items.map(it=>(
+                    materials.map(it => (
                       <div key={it.id} className="flex items-center py-1">
                         <input
                           type="checkbox"
                           checked={selectedItemIds.includes(it.id)}
-                          onChange={()=>toggleItem(it.id)}
+                          onChange={() => toggleItem(it.id)}
                           className="mr-2"
                         />
                         <div className="text-sm">{it.itemName}</div>
@@ -309,20 +309,20 @@ const PurchasePendingOrders: React.FC = () => {
                 </div>
               )}
               {/* Report view buttons (like Material Stock Report) */}
-            <div className="flex justify-end gap-3 mt-6">
-              <button
-                onClick={handleBack}
-                className="bg-gray-500 hover:bg-gray-600 px-6 py-2 rounded-lg text-white"
-              >
-                Back
-              </button>
-              <button
-                onClick={handlePrint}
-                className="bg-green-600 hover:bg-green-700 px-6 py-2 rounded-lg text-white"
-              >
-                Print
-              </button>
-            </div>
+              <div className="flex justify-end gap-3 mt-6">
+                <button
+                  onClick={handleBack}
+                  className="bg-gray-500 hover:bg-gray-600 px-6 py-2 rounded-lg text-white"
+                >
+                  Back
+                </button>
+                <button
+                  onClick={handlePrint}
+                  className="bg-green-600 hover:bg-green-700 px-6 py-2 rounded-lg text-white"
+                >
+                  Print
+                </button>
+              </div>
             </div>
           </>
         )}
