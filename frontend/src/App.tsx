@@ -31,7 +31,7 @@ import CategoryCreation from "./pages/Master/CategoryCreation";
 import PurchaseEntry from "./pages/Knitting/PurchaseEntry";
 import PurchaseOrder from "./pages/Knitting/PurchaseOrder";
 import PurchaseReturn from "./pages/Knitting/PurchaseReturn";
-import DispatchChallan from "./pages/Knitting/DispatchChallan";
+import DispatchChallan from "./pages/Sales/DispatchChallan";
 
 //🧑‍🏫 finishing imports start
 import FinishingOutward from "./pages/Knitting/Finishing/FinishingOutward";

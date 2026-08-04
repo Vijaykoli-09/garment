@@ -26,28 +26,24 @@ const formatDMY = (iso: string) => {
 
 const PurchasePendingOrders: React.FC = () => {
   const [asOnDate, setAsOnDate] = useState<string>(() =>
-    new Date().toISOString().slice(0, 10) // yyyy-MM-dd for <input type="date">
+    new Date().toISOString().slice(0, 10)
   );
 
   const [parties, setParties] = useState<Party[]>([]);
   const [materials, setMaterials] = useState<Item[]>([]);
   const [selectedPartyIds, setSelectedPartyIds] = useState<number[]>([]);
   const [selectedItemIds, setSelectedItemIds] = useState<number[]>([]);
-  const [selectAllParties, setSelectAllParties] = useState(false);
-  const [selectAllItems, setSelectAllItems] = useState(false);
   const [rows, setRows] = useState<PendingRow[]>([]);
   const [loading, setLoading] = useState(false);
-
   const [showReportView, setShowReportView] = useState(false);
 
   useEffect(() => {
     const loadMeta = async () => {
       try {
         const [pRes, iRes] = await Promise.all([
-          api.get<Party[]>("/party/category/Purchase"),  // your existing API
-          api.get<Item[]>("/purchase/orders/list"),      // backend provided below
+          api.get<Party[]>("/party/category/Purchase"),
+          api.get<Item[]>("/purchase/orders/list"),
         ]);
-
         setParties(pRes.data || []);
         setMaterials(iRes.data || []);
       } catch (err) {
@@ -58,36 +54,43 @@ const PurchasePendingOrders: React.FC = () => {
     loadMeta();
   }, []);
 
-  // keep SelectAll checkboxes in sync when user manually toggles items
-  useEffect(() => {
-    setSelectAllParties(parties.length > 0 && selectedPartyIds.length === parties.length);
-  }, [selectedPartyIds, parties]);
+  // derived select-all values (no separate state => always in sync)
+  const allPartiesSelected =
+    parties.length > 0 && selectedPartyIds.length === parties.length;
 
-  useEffect(() => {
-    setSelectAllItems(materials.length > 0 && selectedItemIds.length === materials.length);
-  }, [selectedItemIds, materials]);
+  const allItemsSelected =
+    materials.length > 0 && selectedItemIds.length === materials.length;
 
-  const toggleParty = (id: number) =>
-    setSelectedPartyIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+  const toggleParty = (id: number) => {
+    const pid = Number(id);
+    setSelectedPartyIds((prev) =>
+      prev.includes(pid) ? prev.filter((x) => x !== pid) : [...prev, pid]
+    );
+  };
 
-  const toggleItem = (id: number) =>
-    setSelectedItemIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+  const toggleItem = (id: number) => {
+    const iid = Number(id);
+    setSelectedItemIds((prev) =>
+      prev.includes(iid) ? prev.filter((x) => x !== iid) : [...prev, iid]
+    );
+  };
 
   const handleSelectAllParties = (checked: boolean) => {
-    setSelectAllParties(checked);
-    setSelectedPartyIds(checked ? parties.map(p => p.id) : []);
+    setSelectedPartyIds(checked ? parties.map((p) => Number(p.id)) : []);
   };
 
   const handleSelectAllItems = (checked: boolean) => {
-    setSelectAllItems(checked);
-    setSelectedItemIds(checked ? materials.map(i => i.id) : []);
+    setSelectedItemIds(checked ? materials.map((i) => Number(i.id)) : []);
   };
 
-  const totals = useMemo(() => ({
-    received: rows.reduce((s, r) => s + Number(r.orderReceived || 0), 0),
-    delivered: rows.reduce((s, r) => s + Number(r.orderDelivered || 0), 0),
-    pending: rows.reduce((s, r) => s + Number(r.orderPending || 0), 0),
-  }), [rows]);
+  const totals = useMemo(
+    () => ({
+      received: rows.reduce((s, r) => s + Number(r.orderReceived || 0), 0),
+      delivered: rows.reduce((s, r) => s + Number(r.orderDelivered || 0), 0),
+      pending: rows.reduce((s, r) => s + Number(r.orderPending || 0), 0),
+    }),
+    [rows]
+  );
 
   const showReport = async () => {
     if (selectedPartyIds.length === 0) {
@@ -96,20 +99,26 @@ const PurchasePendingOrders: React.FC = () => {
 
     try {
       setLoading(true);
-
       const payload = {
-        date: asOnDate,                 // yyyy-MM-dd -> backend LocalDate parses
+        date: asOnDate, // yyyy-MM-dd
         partyIds: selectedPartyIds,
-        itemIds: selectedItemIds,       // can be empty => backend treats as "all items"
+        itemIds: selectedItemIds, // optional
       };
 
-      const res = await api.post<PendingRow[]>("/purchase/pending-order-item", payload);
+      const res = await api.post<PendingRow[]>(
+        "/purchase/pending-order-item",
+        payload
+      );
 
       setRows(res.data || []);
       setShowReportView(true);
     } catch (err: any) {
       console.error(err);
-      Swal.fire("Error", err?.response?.data?.message || "Failed to fetch report", "error");
+      Swal.fire(
+        "Error",
+        err?.response?.data?.message || "Failed to fetch report",
+        "error"
+      );
     } finally {
       setLoading(false);
     }
@@ -153,17 +162,25 @@ const PurchasePendingOrders: React.FC = () => {
             </tr>
           </thead>
           <tbody>
-            ${rows.map((r, i) => `
+            ${rows
+              .map(
+                (r, i) => `
               <tr>
                 <td>${i + 1}</td>
                 <td>${r.orderNo}</td>
                 <td>${r.orderDate}</td>
                 <td>${r.partyName}</td>
                 <td>${r.itemName}</td>
-                <td class="right">${Number(r.orderReceived || 0).toFixed(3)}</td>
-                <td class="right">${Number(r.orderDelivered || 0).toFixed(3)}</td>
+                <td class="right">${Number(r.orderReceived || 0).toFixed(
+                  3
+                )}</td>
+                <td class="right">${Number(r.orderDelivered || 0).toFixed(
+                  3
+                )}</td>
                 <td class="right">${Number(r.orderPending || 0).toFixed(3)}</td>
-              </tr>`).join("")}
+              </tr>`
+              )
+              .join("")}
           </tbody>
           <tfoot>
             <tr>
@@ -201,16 +218,22 @@ const PurchasePendingOrders: React.FC = () => {
             </div>
 
             <div className="gap-6 grid grid-cols-2">
+              {/* Parties */}
               <div>
                 <div className="flex justify-between items-center mb-2">
                   <div className="font-semibold">Party</div>
-                  <label className="text-sm">
+
+                  <label className="text-sm cursor-pointer select-none">
                     <input
                       type="checkbox"
                       className="mr-2"
-                      checked={selectAllParties}
-                      onChange={(e) => handleSelectAllParties(e.target.checked)}
-                    /> Select All/Unselect All
+                      checked={allPartiesSelected}
+                      disabled={parties.length === 0}
+                      onChange={(e) =>
+                        handleSelectAllParties(e.target.checked)
+                      }
+                    />
+                    Select All/Unselect All
                   </label>
                 </div>
 
@@ -218,48 +241,60 @@ const PurchasePendingOrders: React.FC = () => {
                   {parties.length === 0 ? (
                     <div className="text-gray-500 text-sm">No parties found</div>
                   ) : (
-                    parties.map(p => (
-                      <div key={p.id} className="flex items-center py-1">
+                    parties.map((p) => (
+                      <label
+                        key={p.id}
+                        className="flex items-center py-1 cursor-pointer select-none"
+                      >
                         <input
                           type="checkbox"
-                          checked={selectedPartyIds.includes(p.id)}
-                          onChange={() => toggleParty(p.id)}
+                          checked={selectedPartyIds.includes(Number(p.id))}
+                          onChange={() => toggleParty(Number(p.id))}
                           className="mr-2"
                         />
-                        <div className="text-sm">{p.partyName}</div>
-                      </div>
+                        <span className="text-sm">{p.partyName}</span>
+                      </label>
                     ))
                   )}
                 </div>
               </div>
 
+              {/* Items */}
               <div>
                 <div className="flex justify-between items-center mb-2">
                   <div className="font-semibold">Item</div>
-                  <label className="text-sm">
+
+                  <label className="text-sm cursor-pointer select-none">
                     <input
                       type="checkbox"
                       className="mr-2"
-                      checked={selectAllItems}
+                      checked={allItemsSelected}
+                      disabled={materials.length === 0}
                       onChange={(e) => handleSelectAllItems(e.target.checked)}
-                    /> Select All/Unselect All
+                    />
+                    Select All/Unselect All
                   </label>
                 </div>
 
                 <div className="p-2 border rounded h-48 overflow-auto">
                   {materials.length === 0 ? (
-                    <div className="text-gray-500 text-sm">No materials found</div>
+                    <div className="text-gray-500 text-sm">
+                      No materials found
+                    </div>
                   ) : (
-                    materials.map(it => (
-                      <div key={it.id} className="flex items-center py-1">
+                    materials.map((it) => (
+                      <label
+                        key={it.id}
+                        className="flex items-center py-1 cursor-pointer select-none"
+                      >
                         <input
                           type="checkbox"
-                          checked={selectedItemIds.includes(it.id)}
-                          onChange={() => toggleItem(it.id)}
+                          checked={selectedItemIds.includes(Number(it.id))}
+                          onChange={() => toggleItem(Number(it.id))}
                           className="mr-2"
                         />
-                        <div className="text-sm">{it.itemName}</div>
-                      </div>
+                        <span className="text-sm">{it.itemName}</span>
+                      </label>
                     ))
                   )}
                 </div>
@@ -267,13 +302,22 @@ const PurchasePendingOrders: React.FC = () => {
             </div>
 
             <div className="flex gap-3 mt-4">
-              <button onClick={showReport} className="bg-indigo-600 shadow px-4 py-2 rounded text-white">
+              <button
+                onClick={showReport}
+                className="bg-indigo-600 shadow px-4 py-2 rounded text-white"
+              >
                 Show Report
               </button>
-              <button onClick={refresh} className="bg-green-600 shadow px-4 py-2 rounded text-white">
+              <button
+                onClick={refresh}
+                className="bg-green-600 shadow px-4 py-2 rounded text-white"
+              >
                 Refresh
               </button>
-              <button onClick={handlePrint} className="bg-gray-700 shadow px-4 py-2 rounded text-white">
+              <button
+                onClick={handlePrint}
+                className="bg-gray-700 shadow px-4 py-2 rounded text-white"
+              >
                 Print
               </button>
             </div>
@@ -295,7 +339,9 @@ const PurchasePendingOrders: React.FC = () => {
             {loading ? (
               <div className="p-6 text-center">Loading...</div>
             ) : rows.length === 0 ? (
-              <div className="py-8 text-gray-600 text-center">No pending orders found</div>
+              <div className="py-8 text-gray-600 text-center">
+                No pending orders found
+              </div>
             ) : (
               <div className="overflow-x-auto">
                 <table className="border min-w-full text-sm text-center">
@@ -320,8 +366,12 @@ const PurchasePendingOrders: React.FC = () => {
                         <td className="px-2 py-2 border">{r.orderDate}</td>
                         <td className="px-2 py-2 border">{r.partyName}</td>
                         <td className="px-2 py-2 border">{r.itemName}</td>
-                        <td className="px-2 py-2 border text-right">{Number(r.orderReceived || 0).toFixed(3)}</td>
-                        <td className="px-2 py-2 border text-right">{Number(r.orderDelivered || 0).toFixed(3)}</td>
+                        <td className="px-2 py-2 border text-right">
+                          {Number(r.orderReceived || 0).toFixed(3)}
+                        </td>
+                        <td className="px-2 py-2 border text-right">
+                          {Number(r.orderDelivered || 0).toFixed(3)}
+                        </td>
                         <td className="bg-yellow-100 px-2 py-2 border font-semibold text-green-700 text-right">
                           {Number(r.orderPending || 0).toFixed(3)}
                         </td>
@@ -331,10 +381,18 @@ const PurchasePendingOrders: React.FC = () => {
 
                   <tfoot>
                     <tr>
-                      <td className="px-2 py-2 border font-semibold" colSpan={5}>Total</td>
-                      <td className="px-2 py-2 border font-semibold text-right">{totals.received.toFixed(3)}</td>
-                      <td className="px-2 py-2 border font-semibold text-right">{totals.delivered.toFixed(3)}</td>
-                      <td className="px-2 py-2 border font-semibold text-green-700 text-right">{totals.pending.toFixed(3)}</td>
+                      <td className="px-2 py-2 border font-semibold" colSpan={5}>
+                        Total
+                      </td>
+                      <td className="px-2 py-2 border font-semibold text-right">
+                        {totals.received.toFixed(3)}
+                      </td>
+                      <td className="px-2 py-2 border font-semibold text-right">
+                        {totals.delivered.toFixed(3)}
+                      </td>
+                      <td className="px-2 py-2 border font-semibold text-green-700 text-right">
+                        {totals.pending.toFixed(3)}
+                      </td>
                     </tr>
                   </tfoot>
                 </table>
@@ -342,10 +400,16 @@ const PurchasePendingOrders: React.FC = () => {
             )}
 
             <div className="flex justify-end gap-3 mt-6">
-              <button onClick={handleBack} className="bg-gray-500 hover:bg-gray-600 px-6 py-2 rounded-lg text-white">
+              <button
+                onClick={handleBack}
+                className="bg-gray-500 hover:bg-gray-600 px-6 py-2 rounded-lg text-white"
+              >
                 Back
               </button>
-              <button onClick={handlePrint} className="bg-green-600 hover:bg-green-700 px-6 py-2 rounded-lg text-white">
+              <button
+                onClick={handlePrint}
+                className="bg-green-600 hover:bg-green-700 px-6 py-2 rounded-lg text-white"
+              >
                 Print
               </button>
             </div>

@@ -20,12 +20,19 @@ const routes = {
   delete: (id: number) => `/dispatch-return-challan/${id}`,
   parties: "/party/all",
 
-  // ✅ NEW: load dispatched arts from dispatch challan
+  // ✅ load dispatched arts from dispatch challan
   dispatchChallans: "/dispatch-challan",
 
   // ✅ packing items from group
   materialGroups: "/material-groups",
   materials: "/materials",
+
+  // ✅ Art Master
+  // NOTE: This assumes your backend supports:
+  //   GET  /arts  -> list
+  //   POST /arts  -> create
+  // If your backend uses POST /arts/create then change this to "/arts/create".
+  arts: "/arts",
 };
 
 // ----------------- Types -----------------
@@ -72,8 +79,17 @@ interface DispatchedItem {
   perBox: number;
   pcs: number;
 
-  rate: number; // avg rate based on dispatched amounts
-  amount: number; // total dispatched amount
+  rate: number; // ✅ last dispatched rate (not average)
+  amount: number; // total dispatched amount (historical total)
+}
+
+// Art Master list view (minimum fields we need)
+interface ArtListView {
+  serialNumber?: string;
+  artNo?: string;
+  artName?: string;
+  artGroup?: string;
+  saleRate?: string | number;
 }
 
 // Material Group / Materials (for packing)
@@ -177,6 +193,19 @@ const isOnOrBefore = (a?: string, b?: string) => {
   return da.getTime() <= db.getTime();
 };
 
+const isLikelyDuplicateArtError = (err: any) => {
+  const status = err?.response?.status;
+  const msg = String(err?.response?.data?.message || err?.message || "")
+    .toLowerCase()
+    .trim();
+  return (
+    status === 409 ||
+    msg.includes("already exists") ||
+    msg.includes("duplicate") ||
+    msg.includes("unique")
+  );
+};
+
 // ----------------- Modals -----------------
 type ProductSearchModalProps = {
   isOpen: boolean;
@@ -230,7 +259,7 @@ const ProductSearchModal: React.FC<ProductSearchModalProps> = ({
                 <th className="border p-2 text-left">Shade</th>
                 <th className="border p-2 text-right">Box</th>
                 <th className="border p-2 text-right">Pcs</th>
-                <th className="border p-2 text-right">Rate</th>
+                <th className="border p-2 text-right">Rate (Last)</th>
                 <th className="border p-2 text-right">Amt</th>
               </tr>
             </thead>
@@ -1387,6 +1416,7 @@ const DispatchReturn: React.FC = () => {
   }, []);
 
   // ----------------- ✅ Dispatched items loader (Party + upto Date) -----------------
+  // ✅ rate = LAST dispatched rate for that art+size+shade+desc upto selected date.
   const loadDispatchedArtsForParty = useCallback(
     async (party: string, uptoDate: string) => {
       const partyKey = String(party || "").trim().toLowerCase();
@@ -1395,6 +1425,20 @@ const DispatchReturn: React.FC = () => {
         setProductList([]);
         return;
       }
+
+      type Order = { ts: number; seq: number; rowIndex: number };
+      const compareOrder = (a: Order, b: Order) => {
+        if (a.ts !== b.ts) return a.ts - b.ts;
+        if (a.seq !== b.seq) return a.seq - b.seq;
+        return a.rowIndex - b.rowIndex;
+      };
+
+      const toTs = (d: any) => {
+        if (!d) return 0;
+        const dt = new Date(d);
+        const ts = dt.getTime();
+        return Number.isFinite(ts) ? ts : 0;
+      };
 
       try {
         const res = await api.get<any[]>(routes.dispatchChallans);
@@ -1409,7 +1453,6 @@ const DispatchReturn: React.FC = () => {
           return isOnOrBefore(chDate, uptoDate);
         });
 
-        // ✅ aggregate by artNo + size + shade + description
         type Agg = {
           artNo: string;
           description: string;
@@ -1418,6 +1461,9 @@ const DispatchReturn: React.FC = () => {
           box: number;
           pcs: number;
           amount: number;
+
+          lastRate: number;
+          lastOrder: Order | null;
         };
 
         const makeKey = (
@@ -1431,7 +1477,14 @@ const DispatchReturn: React.FC = () => {
 
         filtered.forEach((ch: any) => {
           const rows = Array.isArray(ch.rows) ? ch.rows : [];
-          rows.forEach((r: any) => {
+
+          const chDate = ch?.date || ch?.dated || "";
+          const ts = toTs(chDate);
+
+          const parsedCN = parseChallanNo(ch?.challanNo);
+          const seq = parsedCN?.seq ?? 0;
+
+          rows.forEach((r: any, rowIndex: number) => {
             const artNo = String(r.artNo || "").trim();
             if (!artNo) return;
 
@@ -1440,23 +1493,40 @@ const DispatchReturn: React.FC = () => {
             const shade = String(r.shade || r.shadeName || "").trim();
 
             const box = toNum(r.box);
-            const pcs =
-              r.pcs != null ? toNum(r.pcs) : Number.isFinite(box * toNum(r.pcsPerBox)) ? box * toNum(r.pcsPerBox) : 0;
+            const perBox = toNum(r.pcsPerBox);
 
-            // use amt if available else pcs*rate
+            const pcs =
+              r.pcs != null
+                ? toNum(r.pcs)
+                : Number.isFinite(box * perBox)
+                ? box * perBox
+                : 0;
+
+            const rate = toNum(r.rate);
+
             const amt =
               r.amt != null
                 ? toNum(r.amt)
-                : Number.isFinite(pcs * toNum(r.rate))
-                ? pcs * toNum(r.rate)
+                : Number.isFinite(pcs * rate)
+                ? pcs * rate
                 : 0;
 
             const key = makeKey(artNo, size, shade, description);
+            const currentOrder: Order = { ts, seq, rowIndex };
+
             const existing = map.get(key);
             if (existing) {
               existing.box += box;
               existing.pcs += pcs;
               existing.amount += amt;
+
+              if (
+                !existing.lastOrder ||
+                compareOrder(currentOrder, existing.lastOrder) > 0
+              ) {
+                existing.lastOrder = currentOrder;
+                existing.lastRate = rate;
+              }
             } else {
               map.set(key, {
                 artNo,
@@ -1466,6 +1536,8 @@ const DispatchReturn: React.FC = () => {
                 box,
                 pcs,
                 amount: amt,
+                lastRate: rate,
+                lastOrder: currentOrder,
               });
             }
           });
@@ -1474,7 +1546,6 @@ const DispatchReturn: React.FC = () => {
         const items: DispatchedItem[] = [];
         map.forEach((agg, key) => {
           const perBox = agg.box > 0 ? agg.pcs / agg.box : 0;
-          const rate = agg.pcs > 0 ? agg.amount / agg.pcs : 0;
 
           items.push({
             id: key,
@@ -1485,14 +1556,12 @@ const DispatchReturn: React.FC = () => {
             box: agg.box,
             perBox,
             pcs: agg.pcs,
-            rate,
+            rate: agg.lastRate || 0,
             amount: agg.amount,
           });
         });
 
-        // optional: sort by art no
         items.sort((a, b) => a.artNo.localeCompare(b.artNo));
-
         setProductList(items);
       } catch (err) {
         console.error("Error loading dispatched items:", err);
@@ -1511,6 +1580,72 @@ const DispatchReturn: React.FC = () => {
     }
     loadDispatchedArtsForParty(partyName, date);
   }, [partyName, date, loadDispatchedArtsForParty]);
+
+  // ----------------- ✅ NEW: Sync selected arts into Art Master -----------------
+  const syncArtsToMasterFromRows = useCallback(async (rowsToSync: DispatchRow[]) => {
+    // 1) collect unique arts from challan rows
+    const artMap = new Map<
+      string,
+      { artNo: string; artName: string; saleRate?: number | null }
+    >();
+
+    for (const r of rowsToSync) {
+      const artNo = String(r.artNo || "").trim();
+      if (!artNo) continue;
+
+      const key = artNo.toLowerCase();
+      if (!artMap.has(key)) {
+        const artName = String(r.description || "").trim() || artNo;
+        const saleRate = toNumberOrNull(String(r.rate ?? ""));
+        artMap.set(key, { artNo, artName, saleRate });
+      }
+    }
+
+    const newArts = Array.from(artMap.values());
+    if (newArts.length === 0) return;
+
+    // 2) load existing art master list once
+    let existingSet = new Set<string>();
+    try {
+      const artsRes = await api.get<ArtListView[]>(routes.arts);
+      const artsArr = Array.isArray(artsRes.data) ? artsRes.data : [];
+      existingSet = new Set(
+        artsArr
+          .map((a) => String(a.artNo || "").trim().toLowerCase())
+          .filter(Boolean)
+      );
+    } catch (err) {
+      // if list fails, still try to create (backend may handle duplicates)
+      console.warn("Could not load arts list. Will try to create anyway.", err);
+    }
+
+    // 3) create missing
+    const toCreate = newArts.filter((a) => !existingSet.has(a.artNo.toLowerCase()));
+    if (toCreate.length === 0) return;
+
+    const results = await Promise.allSettled(
+      toCreate.map((a) =>
+        api.post(routes.arts, {
+          artNo: a.artNo,
+          artName: a.artName,
+          // Optional: if backend accepts it
+          saleRate: a.saleRate,
+        })
+      )
+    );
+
+    const failures = results.filter((r) => r.status === "rejected") as PromiseRejectedResult[];
+    const nonDupFailures = failures.filter((f) => !isLikelyDuplicateArtError(f.reason));
+
+    if (nonDupFailures.length > 0) {
+      console.error("Some arts failed to sync:", nonDupFailures);
+      Swal.fire(
+        "Warning",
+        "Challan saved, but some Arts could not be added to Art Master.",
+        "warning"
+      );
+    }
+  }, []);
 
   // ----------------- New / Reset -----------------
   const handleAddNew = useCallback((showToast = false) => {
@@ -1677,7 +1812,7 @@ const DispatchReturn: React.FC = () => {
             shade: item.shade || r.shade,
             box: item.box ? String(item.box) : "",
             pcsPerBox: item.perBox ? String(item.perBox) : "",
-            rate: item.rate ? String(item.rate) : r.rate,
+            rate: Number.isFinite(item.rate) ? String(item.rate) : r.rate,
           };
 
           const boxNum = Number(updated.box);
@@ -1954,7 +2089,11 @@ const DispatchReturn: React.FC = () => {
       (r) => r.artNo || r.barCode || r.box || r.pcs || r.pcsPerBox
     );
     if (!hasRowData) {
-      Swal.fire("Error", "Please enter at least one dispatch return row", "error");
+      Swal.fire(
+        "Error",
+        "Please enter at least one dispatch return row",
+        "error"
+      );
       return;
     }
 
@@ -2009,6 +2148,10 @@ const DispatchReturn: React.FC = () => {
           setSerialNo(updated.serialNo || serialNo || "");
           setChallanNo(updated.challanNo || challanNo || "");
         }
+
+        // ✅ after update, ensure arts exist
+        await syncArtsToMasterFromRows(rows);
+
         Swal.fire("Success", "Dispatch return challan updated!", "success");
       } else {
         const res = await api.post(routes.create, payload);
@@ -2018,7 +2161,15 @@ const DispatchReturn: React.FC = () => {
           setChallanNo(saved.challanNo || challanNo || "");
           if (saved.id) setEditingId(saved.id);
         }
-        Swal.fire("Success", "Dispatch return challan saved successfully!", "success");
+
+        // ✅ after create, ensure arts exist
+        await syncArtsToMasterFromRows(rows);
+
+        Swal.fire(
+          "Success",
+          "Dispatch return challan saved successfully!",
+          "success"
+        );
       }
 
       handleAddNew(false);
@@ -2115,9 +2266,7 @@ const DispatchReturn: React.FC = () => {
         ? `<tr><td>Discount</td><td>${discount}</td></tr>`
         : "";
 
-      const taxRowHtml = hasTaxRow
-        ? `<tr><td>Tax</td><td>${tax}</td></tr>`
-        : "";
+      const taxRowHtml = hasTaxRow ? `<tr><td>Tax</td><td>${tax}</td></tr>` : "";
 
       const cartageRowHtml = hasCartageRow
         ? `<tr><td>Cartage</td><td>${cartage}</td></tr>`
@@ -2158,7 +2307,7 @@ const DispatchReturn: React.FC = () => {
       <tr>
         <td colspan="10" style="border:1px solid #000;">
           <div class="title-row">
-            <div class="title-center">SUG</div>
+            <div class="title-center">SUG- Dispatch Return Challan</div>
             <div class="title-right">Page 1 of 1</div>
           </div>
         </td>
