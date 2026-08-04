@@ -3,90 +3,80 @@ package com.garment.repository;
 import java.time.LocalDate;
 import java.util.List;
 
-import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.Repository;
 import org.springframework.data.repository.query.Param;
 
-import com.garment.model.PurchaseOrderItem;
+public interface MaterialPurchasePendingRepository extends Repository<Object, Long> {
 
-public interface MaterialPurchasePendingRepository extends JpaRepository<PurchaseOrderItem, Long> {
+    // Used for item filter list
+    // CHANGE table/column names as per your DB
+    @Query(value = """
+        SELECT i.id, i.item_name
+        FROM item i
+        ORDER BY i.item_name
+        """, nativeQuery = true)
+    List<Object[]> listMaterials();
 
-    interface PendingRowProjection {
-        Long getId();
-        String getOrderNo();
-        LocalDate getOrderDate();
-        String getPartyName();
-        String getItemName();
-        Double getOrderReceived();
-        Double getOrderDelivered();
-        Double getOrderPending();
-    }
-
+    // Pending report WITHOUT item filter
+    // CHANGE table/column names as per your DB
     @Query(value = """
         SELECT
-          MIN(poi.id)                                                    AS id,
-          po.order_no                                                    AS orderNo,
-          po.date                                                        AS orderDate,
-          p.party_name                                                   AS partyName,
-          m.material_name                                                AS itemName,
-
-          CAST(SUM(poi.quantity) AS double precision)                    AS orderReceived,
-
-          CAST(COALESCE(SUM(pei.wt_per_box), 0) AS double precision)     AS orderDelivered,
-
-          CAST(
-              SUM(poi.quantity) - COALESCE(SUM(pei.wt_per_box), 0)
-            AS double precision
-          )                                                              AS orderPending
-
-        FROM purchase_order_item poi
-        JOIN purchase_order po  ON po.id = poi.purchase_order_id
-        JOIN party p            ON p.id  = po.party_id
-        JOIN material m         ON m.id  = poi.material_id
-
-        LEFT JOIN purchase_entry_item pei
-               ON pei.order_no    = po.order_no
-              AND pei.material_id = poi.material_id
-              -- better null-safe match for shade_code (Postgres):
-              AND (pei.shade_code IS NOT DISTINCT FROM poi.shade_code)
-
-        LEFT JOIN purchase_entry pe
-               ON pe.id = pei.purchase_entry_id
-              AND pe.date <= :asOn   -- IMPORTANT: only delivered up to "as on" date
-
-        WHERE po.date <= :asOn
-          AND ( :partyIdsEmpty = true OR po.party_id IN (:partyIds) )
-          AND ( :itemIdsEmpty  = true OR poi.material_id IN (:itemIds) )
-
-        GROUP BY po.order_no, po.date, p.party_name, m.material_name
-
-        HAVING (SUM(poi.quantity) - COALESCE(SUM(pei.wt_per_box), 0)) > 0
-        ORDER BY po.date, po.order_no
-        """, nativeQuery = true)
-    List<PendingRowProjection> findPendingReport(
-            @Param("asOn") LocalDate asOn,
-            @Param("partyIds") List<Long> partyIds,
-            @Param("partyIdsEmpty") boolean partyIdsEmpty,
-            @Param("itemIds") List<Long> itemIds,
-            @Param("itemIdsEmpty") boolean itemIdsEmpty
-    );
-
-    // Parties list for /party/category/Purchase
-    @Query(value = """
-        SELECT DISTINCT p.id, p.party_name
+            poi.id                                 AS row_id,
+            po.order_no                            AS order_no,
+            po.order_date                          AS order_date,
+            p.party_name                           AS party_name,
+            i.item_name                            AS item_name,
+            COALESCE(poi.qty, 0)                   AS order_received,
+            COALESCE(SUM(pd.delivered_qty), 0)     AS order_delivered,
+            (COALESCE(poi.qty, 0) - COALESCE(SUM(pd.delivered_qty), 0)) AS order_pending
         FROM purchase_order po
         JOIN party p ON p.id = po.party_id
-        WHERE LOWER(p.category) = 'purchase'
-        ORDER BY p.party_name
+        JOIN purchase_order_item poi ON poi.purchase_order_id = po.id
+        JOIN item i ON i.id = poi.item_id
+        LEFT JOIN purchase_delivery pd
+               ON pd.purchase_order_item_id = poi.id
+              AND pd.delivery_date <= :asOnDate
+        WHERE po.order_date <= :asOnDate
+          AND po.party_id IN (:partyIds)
+        GROUP BY poi.id, po.order_no, po.order_date, p.party_name, i.item_name, poi.qty
+        HAVING (COALESCE(poi.qty, 0) - COALESCE(SUM(pd.delivered_qty), 0)) > 0
+        ORDER BY po.order_date, po.order_no
         """, nativeQuery = true)
-    List<Object[]> distinctPurchaseParties();
+    List<Object[]> pendingAllItems(
+            @Param("asOnDate") LocalDate asOnDate,
+            @Param("partyIds") List<Long> partyIds
+    );
 
-    // Materials list for /purchase/order-item
+    // Pending report WITH item filter
+    // CHANGE table/column names as per your DB
     @Query(value = """
-        SELECT DISTINCT m.id, m.material_name
-        FROM purchase_order_item poi
-        JOIN material m ON m.id = poi.material_id
-        ORDER BY m.material_name
+        SELECT
+            poi.id                                 AS row_id,
+            po.order_no                            AS order_no,
+            po.order_date                          AS order_date,
+            p.party_name                           AS party_name,
+            i.item_name                            AS item_name,
+            COALESCE(poi.qty, 0)                   AS order_received,
+            COALESCE(SUM(pd.delivered_qty), 0)     AS order_delivered,
+            (COALESCE(poi.qty, 0) - COALESCE(SUM(pd.delivered_qty), 0)) AS order_pending
+        FROM purchase_order po
+        JOIN party p ON p.id = po.party_id
+        JOIN purchase_order_item poi ON poi.purchase_order_id = po.id
+        JOIN item i ON i.id = poi.item_id
+        LEFT JOIN purchase_delivery pd
+               ON pd.purchase_order_item_id = poi.id
+              AND pd.delivery_date <= :asOnDate
+        WHERE po.order_date <= :asOnDate
+          AND po.party_id IN (:partyIds)
+          AND poi.item_id IN (:itemIds)
+        GROUP BY poi.id, po.order_no, po.order_date, p.party_name, i.item_name, poi.qty
+        HAVING (COALESCE(poi.qty, 0) - COALESCE(SUM(pd.delivered_qty), 0)) > 0
+        ORDER BY po.order_date, po.order_no
         """, nativeQuery = true)
-    List<Object[]> distinctMaterialsFromPO();
+    List<Object[]> pendingWithItems(
+            @Param("asOnDate") LocalDate asOnDate,
+            @Param("partyIds") List<Long> partyIds,
+            @Param("itemIds") List<Long> itemIds
+    );
 }

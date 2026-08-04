@@ -20,41 +20,34 @@ import com.garment.service.MaterialPurchasePendingService;
 import lombok.RequiredArgsConstructor;
 
 @RestController
-@RequiredArgsConstructor
-// @CrossOrigin(origins = "http://localhost:3000")
-@CrossOrigin(originPatterns = "*")
 @RequestMapping("/api/purchase")
-
+@RequiredArgsConstructor
+@CrossOrigin(origins = "http://localhost:3000")
 public class MaterialPurchasePendingController {
 
     private final MaterialPurchasePendingService service;
 
-    @GetMapping("/order-list")
-public ResponseEntity<List<Map<String, Object>>> orderItems() {
+    // React: GET /purchase/orders/list  -> actual: /api/purchase/orders/list
+    @GetMapping("/orders/list")
+    public ResponseEntity<List<Map<String, Object>>> orderItems() {
+        List<Object[]> raw = service.getMaterials();
 
-    List<Object[]> raw = service.getMaterials();
+        List<Map<String, Object>> list = raw.stream()
+                .map(a -> {
+                    Map<String, Object> m = new HashMap<>();
+                    m.put("id", a[0] == null ? null : ((Number) a[0]).longValue());
+                    m.put("itemName", (a.length > 1 && a[1] != null) ? a[1].toString() : "");
+                    return m;
+                })
+                .collect(Collectors.toList());
 
-    if (!raw.isEmpty()) {
-        System.out.println("getMaterials()[0] = " + java.util.Arrays.toString(raw.get(0)));
+        return ResponseEntity.ok(list);
     }
 
-    List<Map<String, Object>> list = raw.stream()
-        .map(a -> {
-            Map<String, Object> m = new HashMap<>();
-            m.put("id", ((Number) a[0]).longValue());
-
-            // safer conversion (prevents blank due to non-string types)
-            m.put("itemName", a.length > 1 && a[1] != null ? a[1].toString() : "");
-
-            return m;
-        })
-        .toList();
-
-    return ResponseEntity.ok(list);
-}
-    // React calls: POST /purchase/pending-order-item
+    // React: POST /purchase/pending-order-item -> actual: /api/purchase/pending-order-item
     @PostMapping("/pending-order-item")
-    public ResponseEntity<Object> pending(@RequestBody MaterialPurchasePendingRequest req) {
+    public ResponseEntity<List<MaterialPurchasePendingRowDTO>> pending(
+            @RequestBody MaterialPurchasePendingRequest req) {
         return ResponseEntity.ok(service.getPending(req));
     }
 }

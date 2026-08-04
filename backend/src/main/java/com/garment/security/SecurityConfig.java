@@ -117,6 +117,8 @@ public class SecurityConfig {
                 .requestMatchers("/api/purchase/entry-item/**").permitAll()
                 .requestMatchers("/api/purchase/orders/**").permitAll()
                 .requestMatchers("/api/purchase/return-item/**").permitAll()
+                .requestMatchers("/api/purchase/pending-order-item").permitAll()
+
 
                 // ── Mobile orders — JWT required ───────────────────────
                 .requestMatchers("/api/orders/**").authenticated()

@@ -1,15 +1,15 @@
 package com.garment.serviceImpl;
 
-import java.util.Collections;
+import java.math.BigDecimal;
+import java.sql.Date;
+import java.time.LocalDate;
 import java.util.List;
-import java.util.stream.Collectors;
 
 import org.springframework.stereotype.Service;
 
 import com.garment.DTO.MaterialPurchasePendingRequest;
 import com.garment.DTO.MaterialPurchasePendingRowDTO;
 import com.garment.repository.MaterialPurchasePendingRepository;
-import com.garment.repository.MaterialPurchasePendingRepository.PendingRowProjection;
 import com.garment.service.MaterialPurchasePendingService;
 
 import lombok.RequiredArgsConstructor;
@@ -21,58 +21,55 @@ public class MaterialPurchasePendingServiceImpl implements MaterialPurchasePendi
     private final MaterialPurchasePendingRepository repo;
 
     @Override
+    public List<Object[]> getMaterials() {
+        return repo.listMaterials();
+    }
+
+    @Override
     public List<MaterialPurchasePendingRowDTO> getPending(MaterialPurchasePendingRequest req) {
-        if (req.getDate() == null) {
-            throw new IllegalArgumentException("date is required");
+        if (req.getDate() == null) throw new IllegalArgumentException("date is required");
+        if (req.getPartyIds() == null || req.getPartyIds().isEmpty())
+            throw new IllegalArgumentException("partyIds is required");
+
+        final List<Object[]> raw;
+        if (req.getItemIds() == null || req.getItemIds().isEmpty()) {
+            raw = repo.pendingAllItems(req.getDate(), req.getPartyIds());
+        } else {
+            raw = repo.pendingWithItems(req.getDate(), req.getPartyIds(), req.getItemIds());
         }
 
-        boolean partyEmpty = (req.getPartyIds() == null || req.getPartyIds().isEmpty());
-        boolean itemEmpty  = (req.getItemIds()  == null || req.getItemIds().isEmpty());
-
-        // IMPORTANT for native IN (:list): avoid empty list binding errors
-        List<Long> safePartyIds = partyEmpty ? Collections.singletonList(-1L) : req.getPartyIds();
-        List<Long> safeItemIds  = itemEmpty  ? Collections.singletonList(-1L) : req.getItemIds();
-
-        var rows = repo.findPendingReport(
-                req.getDate(),
-                safePartyIds, partyEmpty,
-                safeItemIds, itemEmpty
-        );
-
-        return rows.stream().map(this::map).collect(Collectors.toList());
+        return raw.stream().map(r -> new MaterialPurchasePendingRowDTO(
+                toLong(r[0]),
+                toStr(r[1]),
+                toLocalDate(r[2]),
+                toStr(r[3]),
+                toStr(r[4]),
+                toDouble(r[5]),
+                toDouble(r[6]),
+                toDouble(r[7])
+        )).toList();
     }
 
-    private MaterialPurchasePendingRowDTO map(PendingRowProjection p) {
-        return new MaterialPurchasePendingRowDTO(
-                p.getId(),
-                p.getOrderNo(),
-                p.getOrderDate(),
-                p.getPartyName(),
-                p.getItemName(),
-                round3(p.getOrderReceived()),
-                round3(p.getOrderDelivered()),
-                round3(p.getOrderPending())
-        );
+    private Long toLong(Object o) {
+        return o == null ? null : ((Number) o).longValue();
     }
 
-    private Double round3(Double v) {
-        if (v == null) return 0d;
-        return Math.round(v * 1000d) / 1000d;
+    private String toStr(Object o) {
+        return o == null ? "" : o.toString();
     }
 
-    @Override
-    public List<Object[]> getPartiesByCategoryPurchase() {
-        return repo.distinctPurchaseParties();
+    private Double toDouble(Object o) {
+        if (o == null) return 0.0;
+        if (o instanceof BigDecimal bd) return bd.doubleValue();
+        if (o instanceof Number n) return n.doubleValue();
+        return Double.parseDouble(o.toString());
     }
 
-    @Override
-    public List<Object[]> getMaterials() {
-        return repo.distinctMaterialsFromPO();
-    }
-
-    @Override
-    public List<MaterialPurchasePendingRowDTO> getPending() {
-        // TODO Auto-generated method stub
-        throw new UnsupportedOperationException("Unimplemented method 'getPending'");
+    private LocalDate toLocalDate(Object o) {
+        if (o == null) return null;
+        if (o instanceof LocalDate ld) return ld;
+        if (o instanceof Date d) return d.toLocalDate();
+        // last resort (if DB returns String)
+        return LocalDate.parse(o.toString());
     }
 }

@@ -6,8 +6,6 @@ import com.garment.DTO.MaterialPurchasePendingRequest;
 import com.garment.DTO.MaterialPurchasePendingRowDTO;
 
 public interface MaterialPurchasePendingService {
-    List<MaterialPurchasePendingRowDTO> getPending();
-    List<Object[]> getPartiesByCategoryPurchase();
     List<Object[]> getMaterials();
-    Object getPending(MaterialPurchasePendingRequest req);
+    List<MaterialPurchasePendingRowDTO> getPending(MaterialPurchasePendingRequest req);
 }
