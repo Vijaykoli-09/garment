@@ -1,3 +1,4 @@
+// src/main/java/com/garment/serviceImpl/PaymentReciptServiceImpl.java
 package com.garment.serviceImpl;
 
 import com.garment.DTO.PaymentReciptDTO;
@@ -87,9 +88,10 @@ public class PaymentReciptServiceImpl implements PaymentReciptService {
         dto.setEmployeeName(e.getEmployeeName());
         dto.setPaymentThrough(e.getPaymentThrough());
         dto.setAmount(e.getAmount());
+        dto.setDiscountAmount(e.getDiscountAmount());
         dto.setBalance(e.getBalance());
         dto.setRemarks(e.getRemarks());
-        dto.setAgentName(e.getAgentName()); // FIXED
+        dto.setAgentName(e.getAgentName());
         return dto;
     }
 
@@ -103,8 +105,9 @@ public class PaymentReciptServiceImpl implements PaymentReciptService {
         e.setEmployeeName(dto.getEmployeeName());
         e.setPaymentThrough(dto.getPaymentThrough());
         e.setAmount(dto.getAmount());
+        e.setDiscountAmount(dto.getDiscountAmount());
         e.setBalance(dto.getBalance());
         e.setRemarks(dto.getRemarks());
-        e.setAgentName(dto.getAgentName()); // FIXED
+        e.setAgentName(dto.getAgentName());
     }
 }

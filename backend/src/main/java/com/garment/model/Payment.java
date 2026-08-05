@@ -11,6 +11,7 @@ import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
@@ -55,9 +56,20 @@ public class Payment {
     @Column(name = "payment_through")
     private String paymentThrough;
 
-    @Column(name = "amount", precision = 19, scale = 2)
+    /**
+     * ✅ CASH amount (same meaning as Receipt cash amount)
+     */
     @NotNull
+    @Column(name = "amount", precision = 19, scale = 2)
     private BigDecimal amount;
+
+    /**
+     * ✅ DISCOUNT amount (same meaning as Receipt discountAmount)
+     * FIFO settlement must use: CASH + DISCOUNT
+     */
+
+    @Column(name = "discount_amount", precision = 19, scale = 2)
+    private BigDecimal discountAmount;
 
     @Column(name = "balance", precision = 19, scale = 2)
     private BigDecimal balance;

@@ -1,3 +1,4 @@
+// src/main/java/com/garment/model/PaymentRecipt.java
 package com.garment.model;
 
 import java.math.BigDecimal;
@@ -38,16 +39,21 @@ public class PaymentRecipt {
     @Column(name="payment_through", length = 255)
     private String paymentThrough;
 
+    // CASH amount only
     @Column(name="amount", precision = 18, scale = 2)
     private BigDecimal amount;
 
+    // Discount amount (credit) participates in FIFO settlement together with cash
+    @Column(name="discount_amount", precision = 18, scale = 2)
+    private BigDecimal discountAmount;
+
+    // Stored balance after this receipt (+ Dr, - Cr) - legacy usage
     @Column(name="balance", precision = 18, scale = 2)
     private BigDecimal balance;
 
     @Column(name="remarks", length = 500)
     private String remarks;
 
-    // NEW: persist broker/agent name
     @Column(name="agent_name", length = 255)
     private String agentName;
 
@@ -63,6 +69,7 @@ public class PaymentRecipt {
     public String getEmployeeName() { return employeeName; }
     public String getPaymentThrough() { return paymentThrough; }
     public BigDecimal getAmount() { return amount; }
+    public BigDecimal getDiscountAmount() { return discountAmount; }
     public BigDecimal getBalance() { return balance; }
     public String getRemarks() { return remarks; }
     public String getAgentName() { return agentName; }
@@ -77,6 +84,7 @@ public class PaymentRecipt {
     public void setEmployeeName(String employeeName) { this.employeeName = employeeName; }
     public void setPaymentThrough(String paymentThrough) { this.paymentThrough = paymentThrough; }
     public void setAmount(BigDecimal amount) { this.amount = amount; }
+    public void setDiscountAmount(BigDecimal discountAmount) { this.discountAmount = discountAmount; }
     public void setBalance(BigDecimal balance) { this.balance = balance; }
     public void setRemarks(String remarks) { this.remarks = remarks; }
     public void setAgentName(String agentName) { this.agentName = agentName; }

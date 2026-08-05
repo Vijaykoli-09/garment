@@ -1,6 +1,6 @@
 // src/pages/Master/Art/ArtCreation.tsx
 import type React from "react";
-import { useState, useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Dashboard from "../../Dashboard";
 import api from "../../../api/axiosInstance";
 import Swal from "sweetalert2";
@@ -59,6 +59,8 @@ interface ProcessDetail {
   processName: string;
   rate: string;
   rate1: string;
+
+  // kept for backend safety, UI removed
   sizeWid: string;
   sizeWidAct: string;
   itemRef: string;
@@ -98,6 +100,8 @@ interface ProcessRow {
   processName: string;
   rate: string;
   rate1: string;
+
+  // kept for backend safety, UI removed
   sizeWid: string;
   sizeWidAct: string;
   itemRef: string;
@@ -154,7 +158,7 @@ interface AccessoryFromCreation {
   materialName: string;
 }
 
-// keep backend id in modal row so delete/update works reliably
+// keep backend id in row so update/delete works reliably
 interface AccessoryRowInModal {
   id?: number;
   sno: number;
@@ -213,20 +217,20 @@ const ArtCreation: React.FC = () => {
   const [availableMaterials, setAvailableMaterials] = useState<MaterialFromCreation[]>([]);
   const [selectedAccessories, setSelectedAccessories] = useState<MaterialFromCreation[]>([]);
   const [availableArtGroups, setAvailableArtGroups] = useState<ArtGroupFromCreation[]>([]);
-  const [isAccessoriesModalOpen, setIsAccessoriesModalOpen] = useState<boolean>(false);
   const [searchQuery, setSearchQuery] = useState<string>("");
-  const [selectedProcessForAccessories, setSelectedProcessForAccessories] = useState<string>("");
-  const [, setAccessoriesByProcess] = useState<AccessoryFromCreation[]>([]);
-  const [filteredMaterialsForProcess, setFilteredMaterialsForProcess] = useState<string[]>([]);
-  const [accessoryRowsInModal, setAccessoryRowsInModal] = useState<AccessoryRowInModal[]>([]);
 
-  // store process-wise accessory detail rows here
+  // ✅ process-wise accessory details (final payload)
   const [accessoryDetails, setAccessoryDetails] = useState<AccessoryDetailModalResponseDTO[]>([]);
+
+  // ✅ NEW: All-process accessory modal states
+  const [isAccessoriesModalOpen, setIsAccessoriesModalOpen] = useState<boolean>(false);
+  const [accessoryRowsByProcess, setAccessoryRowsByProcess] = useState<Record<string, AccessoryRowInModal[]>>({});
+  const [manualInputByProcess, setManualInputByProcess] = useState<Record<string, { name: string; qty: string; rate: string }>>({});
+  const [materialsByProcess, setMaterialsByProcess] = useState<Record<string, string[]>>({}); // from /accessories/list
 
   const [isSizeModalOpen, setIsSizeModalOpen] = useState<boolean>(false);
   const [currentSizeSelection, setCurrentSizeSelection] = useState<string>("");
   const [sizeDetails, setSizeDetails] = useState({ box: "", pcs: "", rate: "" });
-  const [manualAccessoryInput, setManualAccessoryInput] = useState({ name: "", qty: "", rate: "" });
 
   useEffect(() => {
     loadArts();
@@ -239,9 +243,7 @@ const ArtCreation: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    if (!editingArt) {
-      generateSerialNumber();
-    }
+    if (!editingArt) generateSerialNumber();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editingArt]);
 
@@ -258,10 +260,40 @@ const ArtCreation: React.FC = () => {
         art.artNo?.toLowerCase().includes(query) ||
         art.artName?.toLowerCase().includes(query) ||
         art.serialNumber?.toLowerCase().includes(query) ||
-        art.artGroup?.toLowerCase().includes(query)
+        art.artGroup?.toLowerCase().includes(query),
     );
   }, [artList, searchQuery]);
 
+  // ✅ process list for accessory modal (from current processRows)
+  const processOptionsForAccessories = useMemo(() => {
+    const list = processRows.map((r) => (r.processName || "").trim()).filter(Boolean);
+    const uniq: string[] = [];
+    const seen = new Set<string>();
+    for (const p of list) {
+      if (!seen.has(p)) {
+        seen.add(p);
+        uniq.push(p);
+      }
+    }
+    return uniq;
+  }, [processRows]);
+
+  // ✅ show process names under selected accessories
+  const processesByAccessoryName = useMemo(() => {
+    const map = new Map<string, string[]>();
+    for (const d of accessoryDetails) {
+      const aName = (d.accessoryName || "").trim();
+      const pName = (d.processName || "").trim();
+      if (!aName || !pName) continue;
+
+      const arr = map.get(aName) || [];
+      if (!arr.includes(pName)) arr.push(pName);
+      map.set(aName, arr);
+    }
+    return map;
+  }, [accessoryDetails]);
+
+  // ---------- API loaders ----------
   const loadArts = async () => {
     try {
       setLoading(true);
@@ -289,44 +321,6 @@ const ArtCreation: React.FC = () => {
       return null;
     } finally {
       setLoading(false);
-    }
-  };
-
-  const handleCopyFromArtChange = async (selectedArtName: string) => {
-    if (!selectedArtName) {
-      setFormData((prev) => ({ ...prev, copyFromArtName: "" }));
-      return;
-    }
-
-    const selectedArt = artListForCopy.find((art) => art.artName === selectedArtName);
-
-    if (selectedArt) {
-      setFormData((prev) => ({ ...prev, copyFromArtName: selectedArtName }));
-      const artDetail = await loadArtDetail(selectedArt.serialNumber);
-
-      if (artDetail?.processes?.length) {
-        const copiedProcesses = artDetail.processes.map((p, index) => ({
-          sno: index + 1,
-          processName: p.processName || "",
-          rate: p.rate || "",
-          rate1: p.rate1 || "",
-          sizeWid: p.sizeWid || "",
-          sizeWidAct: p.sizeWidAct || "",
-          itemRef: p.itemRef || "",
-          process: p.process || "",
-        }));
-        setProcessRows(copiedProcesses);
-
-        Swal.fire({
-          icon: "success",
-          title: "Success",
-          text: `Copied ${copiedProcesses.length} processes from ${selectedArtName}`,
-          timer: 2000,
-          showConfirmButton: false,
-        });
-      } else {
-        Swal.fire({ icon: "info", title: "No Processes", text: "No processes found in the selected art" });
-      }
     }
   };
 
@@ -380,16 +374,22 @@ const ArtCreation: React.FC = () => {
     }
   };
 
-  const loadAccessoriesByProcess = async (processName: string) => {
+  // ✅ load accessory master once and group by process
+  const loadAccessoryMasterByProcess = async () => {
     try {
       const response = await api.get<AccessoryFromCreation[]>("/accessories/list");
-      const filtered = response.data.filter((acc) => acc.processName === processName);
-      setAccessoriesByProcess(filtered);
-      setFilteredMaterialsForProcess(filtered.map((acc) => acc.materialName));
-    } catch (error) {
-      console.error("Failed to load accessories by process:", error);
-      setAccessoriesByProcess([]);
-      setFilteredMaterialsForProcess([]);
+      const map: Record<string, string[]> = {};
+      for (const row of response.data || []) {
+        const p = (row.processName || "").trim();
+        const m = (row.materialName || "").trim();
+        if (!p || !m) continue;
+        if (!map[p]) map[p] = [];
+        if (!map[p].includes(m)) map[p].push(m);
+      }
+      setMaterialsByProcess(map);
+    } catch (e) {
+      console.error("Failed to load accessories master:", e);
+      setMaterialsByProcess({});
     }
   };
 
@@ -431,6 +431,7 @@ const ArtCreation: React.FC = () => {
     }
   };
 
+  // ---------- handlers ----------
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value, type, checked } = e.target;
     setFormData((prev) => ({
@@ -439,24 +440,63 @@ const ArtCreation: React.FC = () => {
     }));
   };
 
-  // upsert accessoryDetails per process; if rows empty, it removes that process details
-  const upsertAccessoryDetailsForProcess = (processName: string, rows: AccessoryRowInModal[]) => {
-    const proc = (processName || "").trim();
-    if (!proc) return;
+  // ✅ COPY FROM ART: copy processes + accessory details + selected accessories
+  const handleCopyFromArtChange = async (selectedArtName: string) => {
+    if (!selectedArtName) {
+      setFormData((prev) => ({ ...prev, copyFromArtName: "" }));
+      return;
+    }
 
-    const normalized: AccessoryDetailModalResponseDTO[] = rows
-      .filter((r) => (r.accessoryName || "").trim())
-      .map((r, idx) => ({
-        id: r.id,
-        processName: proc,
-        sno: idx + 1,
-        accessoryName: r.accessoryName,
-        qty: r.qty || "0",
-        rate: r.rate || "0",
-        amount: r.amount || "0.00",
-      }));
+    const selectedArt = artListForCopy.find((art) => art.artName === selectedArtName);
+    if (!selectedArt) return;
 
-    setAccessoryDetails((prev) => [...prev.filter((d) => (d.processName || "").trim() !== proc), ...normalized]);
+    setFormData((prev) => ({ ...prev, copyFromArtName: selectedArtName }));
+    const artDetail = await loadArtDetail(selectedArt.serialNumber);
+    if (!artDetail) return;
+
+    const copiedProcesses: ProcessRow[] = (artDetail.processes || []).map((p, index) => ({
+      sno: index + 1,
+      processName: p.processName || "",
+      rate: p.rate || "",
+      rate1: p.rate1 || "",
+      sizeWid: p.sizeWid || "",
+      sizeWidAct: p.sizeWidAct || "",
+      itemRef: p.itemRef || "",
+      process: p.process || "",
+    }));
+    setProcessRows(copiedProcesses);
+
+    const copiedSelectedAccessories: MaterialFromCreation[] = (artDetail.accessories || []).map((a) => ({
+      id: a.materialId,
+      serialNumber: a.serialNumber,
+      materialGroupId: a.materialGroupId,
+      materialGroupName: a.materialGroupName,
+      materialName: a.materialName,
+      code: a.code,
+      materialUnit: a.materialUnit,
+      minimumStock: a.minimumStock,
+      maximumStock: a.maximumStock,
+    }));
+    setSelectedAccessories(copiedSelectedAccessories);
+
+    const copiedAccessoryDetails: AccessoryDetailModalResponseDTO[] = (artDetail.accessoryDetails || []).map((d) => ({
+      id: d.id,
+      processName: d.processName,
+      sno: d.sno,
+      accessoryName: d.accessoryName,
+      qty: d.qty,
+      rate: d.rate,
+      amount: d.amount,
+    }));
+    setAccessoryDetails(copiedAccessoryDetails);
+
+    Swal.fire({
+      icon: "success",
+      title: "Copied",
+      text: `Copied ${copiedProcesses.length} processes and ${copiedAccessoryDetails.length} accessory rows from ${selectedArtName}`,
+      timer: 2000,
+      showConfirmButton: false,
+    });
   };
 
   const handleSubmit = async () => {
@@ -593,7 +633,7 @@ const ArtCreation: React.FC = () => {
         sizeWidAct: p.sizeWidAct || "",
         itemRef: p.itemRef || "",
         process: p.process || "",
-      }))
+      })),
     );
 
     setSelectedShades(
@@ -601,7 +641,7 @@ const ArtCreation: React.FC = () => {
         shadeCode: s.shadeCode,
         shadeName: s.shadeName,
         colorFamily: s.colorFamily,
-      }))
+      })),
     );
 
     if (artDetail.sizeDetails?.length) {
@@ -614,7 +654,7 @@ const ArtCreation: React.FC = () => {
           box: s.box || "",
           pcs: s.pcs || "",
           rate: s.rate || "",
-        }))
+        })),
       );
     } else if (artDetail.sizes?.length) {
       setSelectedSizes(
@@ -627,7 +667,7 @@ const ArtCreation: React.FC = () => {
           box: (s as any).box || "",
           pcs: (s as any).pcs || "",
           rate: (s as any).rate || "",
-        }))
+        })),
       );
     } else setSelectedSizes([]);
 
@@ -642,7 +682,7 @@ const ArtCreation: React.FC = () => {
         materialUnit: a.materialUnit,
         minimumStock: a.minimumStock,
         maximumStock: a.maximumStock,
-      }))
+      })),
     );
 
     setAccessoryDetails(
@@ -654,7 +694,7 @@ const ArtCreation: React.FC = () => {
         qty: d.qty,
         rate: d.rate,
         amount: d.amount,
-      }))
+      })),
     );
 
     setIsModalOpen(false);
@@ -682,9 +722,7 @@ const ArtCreation: React.FC = () => {
   };
 
   const handleEdit = () => {
-    if (!editingArt) {
-      Swal.fire({ icon: "info", title: "No Art Selected", text: "No art selected for editing" });
-    }
+    if (!editingArt) Swal.fire({ icon: "info", title: "No Art Selected", text: "No art selected for editing" });
   };
 
   const handleDelete = async () => {
@@ -743,12 +781,44 @@ const ArtCreation: React.FC = () => {
   };
 
   const handleRemoveAccessory = (idToRemove: number) => {
-    setSelectedAccessories(selectedAccessories.filter((accessory) => accessory.id !== idToRemove));
+    const mat = selectedAccessories.find((x) => x.id === idToRemove);
+    const matName = (mat?.materialName || "").trim();
+
+    setSelectedAccessories((prev) => prev.filter((accessory) => accessory.id !== idToRemove));
+
+    if (matName) {
+      setAccessoryDetails((prev) => prev.filter((d) => (d.accessoryName || "").trim() !== matName));
+
+      setAccessoryRowsByProcess((prev) => {
+        const next = { ...prev };
+        for (const p of Object.keys(next)) {
+          next[p] = (next[p] || [])
+            .filter((r) => (r.accessoryName || "").trim() !== matName)
+            .map((r, i) => ({ ...r, sno: i + 1 }));
+        }
+        return next;
+      });
+    }
   };
 
   const handleRemoveProcessRow = (index: number) => {
+    const removedProcess = (processRows[index]?.processName || "").trim();
     const updatedRows = processRows.filter((_, i) => i !== index);
     setProcessRows(updatedRows.map((row, i) => ({ ...row, sno: i + 1 })));
+
+    if (removedProcess) {
+      setAccessoryDetails((prev) => prev.filter((d) => (d.processName || "").trim() !== removedProcess));
+      setAccessoryRowsByProcess((prev) => {
+        const next = { ...prev };
+        delete next[removedProcess];
+        return next;
+      });
+      setManualInputByProcess((prev) => {
+        const next = { ...prev };
+        delete next[removedProcess];
+        return next;
+      });
+    }
   };
 
   const handleProcessRowChange = (index: number, field: keyof ProcessRow, value: string) => {
@@ -763,189 +833,360 @@ const ArtCreation: React.FC = () => {
     setFormData((prev) => ({ ...prev, serialNumber: serial }));
   };
 
-  const handleOpenAccessoriesModal = () => {
+  // =================== ✅ ALL-PROCESS ACCESSORY MODAL LOGIC ===================
+  const buildAccessoryRowsByProcessFromDetails = (processList: string[]) => {
+    const grouped: Record<string, AccessoryRowInModal[]> = {};
+    for (const proc of processList) grouped[proc] = [];
+
+    for (const d of accessoryDetails) {
+      const p = (d.processName || "").trim();
+      if (!p) continue;
+      if (!grouped[p]) grouped[p] = [];
+      grouped[p].push({
+        id: d.id,
+        sno: d.sno,
+        accessoryName: d.accessoryName,
+        qty: d.qty,
+        rate: d.rate,
+        amount: d.amount,
+      });
+    }
+
+    for (const p of Object.keys(grouped)) {
+      grouped[p] = (grouped[p] || [])
+        .slice()
+        .sort((a, b) => (a.sno || 0) - (b.sno || 0))
+        .map((r, idx) => ({ ...r, sno: idx + 1 }));
+    }
+
+    return grouped;
+  };
+
+  const handleOpenAccessoriesModal = async () => {
+    if (!processOptionsForAccessories.length) {
+      Swal.fire({
+        icon: "info",
+        title: "No Processes",
+        text: "Please add/copy process rows first. Accessories are process-wise.",
+      });
+      return;
+    }
+
     setIsAccessoriesModalOpen(true);
-    setSelectedProcessForAccessories("");
-    setAccessoriesByProcess([]);
-    setFilteredMaterialsForProcess([]);
-    setAccessoryRowsInModal([]);
-    setManualAccessoryInput({ name: "", qty: "", rate: "" });
+
+    // load master list once
+    await loadAccessoryMasterByProcess();
+
+    // init rows per process from existing accessoryDetails
+    setAccessoryRowsByProcess(buildAccessoryRowsByProcessFromDetails(processOptionsForAccessories));
+
+    // init manual inputs for each process
+    const mi: Record<string, { name: string; qty: string; rate: string }> = {};
+    for (const p of processOptionsForAccessories) mi[p] = { name: "", qty: "", rate: "" };
+    setManualInputByProcess(mi);
   };
 
   const handleCloseAccessoriesModal = () => {
     setIsAccessoriesModalOpen(false);
-    setSelectedProcessForAccessories("");
-    setAccessoriesByProcess([]);
-    setFilteredMaterialsForProcess([]);
-    setAccessoryRowsInModal([]);
-    setManualAccessoryInput({ name: "", qty: "", rate: "" });
   };
 
-  // process change par current process rows save + next process rows load
-  const handleProcessSelectionForAccessories = async (processName: string) => {
-    if (selectedProcessForAccessories?.trim()) {
-      upsertAccessoryDetailsForProcess(selectedProcessForAccessories, accessoryRowsInModal);
-    }
+  const handleAccessoryRowChangeInProcess = (proc: string, index: number, field: "qty" | "rate" | "amount", value: string) => {
+    setAccessoryRowsByProcess((prev) => {
+      const rows = (prev[proc] || []).slice();
+      const row = rows[index];
+      if (!row) return prev;
 
-    setSelectedProcessForAccessories(processName);
+      const newRow: AccessoryRowInModal = { ...row, [field]: value };
+      if (field === "qty" || field === "rate") {
+        const qty = Number.parseFloat(field === "qty" ? value : row.qty) || 0;
+        const rate = Number.parseFloat(field === "rate" ? value : row.rate) || 0;
+        newRow.amount = (qty * rate).toFixed(2);
+      }
 
-    if (processName) {
-      await loadAccessoriesByProcess(processName);
-
-      const existing = accessoryDetails
-        .filter((d) => (d.processName || "").trim() === processName.trim())
-        .slice()
-        .sort((a, b) => (a.sno || 0) - (b.sno || 0))
-        .map((d) => ({
-          id: d.id,
-          sno: d.sno,
-          accessoryName: d.accessoryName,
-          qty: d.qty,
-          rate: d.rate,
-          amount: d.amount,
-        }));
-
-      setAccessoryRowsInModal(existing);
-      setManualAccessoryInput({ name: "", qty: "", rate: "" });
-    } else {
-      setAccessoriesByProcess([]);
-      setFilteredMaterialsForProcess([]);
-      setAccessoryRowsInModal([]);
-      setManualAccessoryInput({ name: "", qty: "", rate: "" });
-    }
+      rows[index] = newRow;
+      return { ...prev, [proc]: rows };
+    });
   };
 
-  const handleAccessoryRowChange = (index: number, field: "qty" | "rate" | "amount", value: string) => {
-    setAccessoryRowsInModal((prev) =>
-      prev.map((row, i) => {
-        if (i !== index) return row;
-        const newRow: AccessoryRowInModal = { ...row, [field]: value };
-
-        if (field === "qty" || field === "rate") {
-          const qty = Number.parseFloat(field === "qty" ? value : row.qty) || 0;
-          const rate = Number.parseFloat(field === "rate" ? value : row.rate) || 0;
-          newRow.amount = (qty * rate).toFixed(2);
-        }
-        return newRow;
-      })
-    );
+  const handleRemoveAccessoryRowInProcess = (proc: string, index: number) => {
+    setAccessoryRowsByProcess((prev) => {
+      const rows = (prev[proc] || []).filter((_, i) => i !== index).map((r, idx) => ({ ...r, sno: idx + 1 }));
+      return { ...prev, [proc]: rows };
+    });
   };
 
-  const handleRemoveAccessoryRow = (index: number) => {
-    const updatedRows = accessoryRowsInModal.filter((_, i) => i !== index);
-    setAccessoryRowsInModal(updatedRows.map((row, i) => ({ ...row, sno: i + 1 })));
-  };
-
-  const calculateTotal = () => {
-    return accessoryRowsInModal.reduce((sum, row) => sum + (Number.parseFloat(row.amount) || 0), 0).toFixed(2);
-  };
-
-  const handleAddManualAccessory = () => {
-    if (!manualAccessoryInput.name.trim()) {
-      Swal.fire({ icon: "warning", title: "Missing Name", text: "Please enter accessory name", timer: 1500, showConfirmButton: false });
+  const addAccessoryRowToProcess = (proc: string) => {
+    const mi = manualInputByProcess[proc] || { name: "", qty: "", rate: "" };
+    const name = (mi.name || "").trim();
+    if (!name) {
+      Swal.fire({ icon: "warning", title: "Missing Name", text: `Please enter accessory name for ${proc}`, timer: 1300, showConfirmButton: false });
       return;
     }
 
-    const qty = parseFloat(manualAccessoryInput.qty) || 0;
-    const rate = parseFloat(manualAccessoryInput.rate) || 0;
+    const qty = parseFloat(mi.qty) || 0;
+    const rate = parseFloat(mi.rate) || 0;
     const amount = (qty * rate).toFixed(2);
 
-    const newRow: AccessoryRowInModal = {
-      sno: accessoryRowsInModal.length + 1,
-      accessoryName: manualAccessoryInput.name.trim(),
-      qty: manualAccessoryInput.qty || "0",
-      rate: manualAccessoryInput.rate || "0",
-      amount,
-    };
+    setAccessoryRowsByProcess((prev) => {
+      const rows = (prev[proc] || []).slice();
+      rows.push({
+        sno: rows.length + 1,
+        accessoryName: name,
+        qty: mi.qty || "0",
+        rate: mi.rate || "0",
+        amount,
+      });
+      return { ...prev, [proc]: rows };
+    });
 
-    setAccessoryRowsInModal([...accessoryRowsInModal, newRow]);
-    setManualAccessoryInput({ name: "", qty: "", rate: "" });
-
-    Swal.fire({ icon: "success", title: "Added!", text: "Accessory added successfully!", timer: 900, showConfirmButton: false });
+    setManualInputByProcess((prev) => ({
+      ...prev,
+      [proc]: { name: "", qty: "", rate: "" },
+    }));
   };
 
-  const handleSaveAccessoryFromModal = () => {
-    upsertAccessoryDetailsForProcess(selectedProcessForAccessories, accessoryRowsInModal);
+  const addAccessoryFromDropdownToProcess = (proc: string, materialName: string) => {
+    const name = (materialName || "").trim();
+    if (!name) return;
 
-    setSelectedAccessories((prev) => {
-      const byName = new Map<string, MaterialFromCreation>(prev.map((m) => [m.materialName, m]));
+    setAccessoryRowsByProcess((prev) => {
+      const rows = (prev[proc] || []).slice();
+      rows.push({
+        sno: rows.length + 1,
+        accessoryName: name,
+        qty: "",
+        rate: "",
+        amount: "0.00",
+      });
+      return { ...prev, [proc]: rows };
+    });
+  };
 
-      for (const row of accessoryRowsInModal) {
-        const name = (row.accessoryName || "").trim();
-        if (!name) continue;
+  const processTotal = (proc: string) => {
+    const rows = accessoryRowsByProcess[proc] || [];
+    return rows.reduce((sum, r) => sum + (parseFloat(r.amount) || 0), 0);
+  };
 
-        const material = availableMaterials.find((m) => m.materialName === name);
+  const grandTotal = useMemo(() => {
+    return Object.keys(accessoryRowsByProcess).reduce((sum, p) => sum + processTotal(p), 0).toFixed(2);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [accessoryRowsByProcess]);
 
-        if (material) {
-          if (!byName.has(material.materialName)) byName.set(material.materialName, material);
-        } else {
-          if (!byName.has(name)) {
-            byName.set(name, {
-              id: Date.now() + Math.random(),
-              serialNumber: `MANUAL-${Date.now()}`,
-              materialGroupId: 0,
-              materialGroupName: "Manual Entry",
-              materialName: name,
-              code: "MANUAL",
-              materialUnit: "PCS",
-              minimumStock: "0",
-              maximumStock: "0",
-            });
-          }
-        }
+  // ✅ PRINT (NO PDF)
+  const handlePrintAccessories = () => {
+    const procOrder =
+      processOptionsForAccessories.length > 0
+        ? processOptionsForAccessories
+        : Object.keys(accessoryRowsByProcess || {});
+
+    let globalNo = 1;
+
+    const artName = (formData.artName || "-").trim();
+    const artNo = (formData.artNo || "-").trim();
+    const serial = (formData.serialNumber || "-").trim();
+    const dt = new Date().toLocaleString();
+
+    const escapeHtml = (s: string) =>
+      String(s)
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;");
+
+    const hasAnyRow = procOrder.some((p) =>
+      (accessoryRowsByProcess?.[p] || []).some((r) => (r.accessoryName || "").trim()),
+    );
+
+    if (!hasAnyRow) {
+      Swal.fire({
+        icon: "info",
+        title: "No Accessories",
+        text: "Print ke liye accessory rows available nahi hai.",
+        timer: 1400,
+        showConfirmButton: false,
+      });
+      return;
+    }
+
+    let html = `
+    <html>
+      <head>
+        <title>Accessory Consumption Detail</title>
+        <style>
+          body { font-family: Arial, sans-serif; padding: 16px; color: #111; }
+          .header { display:flex; justify-content:space-between; gap:16px; margin-bottom: 12px; }
+          .header h2 { margin: 0 0 6px 0; }
+          .meta { font-size: 12px; line-height: 1.5; }
+          .box { border: 1px solid #ddd; border-radius: 8px; padding: 10px; margin-bottom: 14px; }
+          .procTitle { font-weight: 700; margin: 0 0 8px 0; display:flex; justify-content:space-between; }
+          table { width: 100%; border-collapse: collapse; font-size: 12px; }
+          th, td { border: 1px solid #ccc; padding: 6px; text-align: left; }
+          th { background: #f3f3f3; }
+          .right { text-align: right; }
+          .center { text-align: center; }
+          .grand { font-weight: 800; font-size: 14px; margin-top: 10px; text-align: right; }
+          @media print { body { padding: 0; } }
+        </style>
+      </head>
+      <body>
+        <div class="header">
+          <div>
+            <h2>Accessory Consumption Detail</h2>
+            <div class="meta">
+              <div><b>Art Name:</b> ${escapeHtml(artName)}</div>
+              <div><b>Art No:</b> ${escapeHtml(artNo)}</div>
+              <div><b>Serial No:</b> ${escapeHtml(serial)}</div>
+            </div>
+          </div>
+          <div class="meta">
+            <div><b>Generated:</b> ${escapeHtml(dt)}</div>
+            <div><b>Grand Total:</b> ${escapeHtml(grandTotal)}</div>
+          </div>
+        </div>
+    `;
+
+    for (const proc of procOrder) {
+      const rows = (accessoryRowsByProcess?.[proc] || [])
+        .filter((r) => (r.accessoryName || "").trim())
+        .map((r, idx) => {
+          const qtyNum = parseFloat(r.qty || "0") || 0;
+          const rateNum = parseFloat(r.rate || "0") || 0;
+          const amt = r.amount && String(r.amount).trim() ? r.amount : (qtyNum * rateNum).toFixed(2);
+
+          return {
+            procSno: idx + 1,
+            accessoryName: (r.accessoryName || "").trim(),
+            qty: r.qty || "0",
+            rate: r.rate || "0",
+            amount: amt,
+          };
+        });
+
+      if (!rows.length) continue;
+
+      const procTotal = rows.reduce((sum, r) => sum + (parseFloat(r.amount) || 0), 0).toFixed(2);
+
+      html += `
+        <div class="box">
+          <div class="procTitle">
+            <div>Process: ${escapeHtml(proc)}</div>
+            <div>Total: ${escapeHtml(procTotal)}</div>
+          </div>
+
+          <table>
+            <thead>
+              <tr>
+                <th class="center" style="width:55px;">#</th>
+                <th class="center" style="width:70px;">SNo</th>
+                <th>Accessory</th>
+                <th class="right" style="width:90px;">Qty</th>
+                <th class="right" style="width:90px;">Rate</th>
+                <th class="right" style="width:110px;">Amount</th>
+              </tr>
+            </thead>
+            <tbody>
+      `;
+
+      for (const r of rows) {
+        html += `
+          <tr>
+            <td class="center">${globalNo++}</td>
+            <td class="center">${r.procSno}</td>
+            <td>${escapeHtml(r.accessoryName)}</td>
+            <td class="right">${escapeHtml(r.qty)}</td>
+            <td class="right">${escapeHtml(r.rate)}</td>
+            <td class="right">${escapeHtml(r.amount)}</td>
+          </tr>
+        `;
       }
 
-      return Array.from(byName.values());
-    });
+      html += `
+            </tbody>
+          </table>
+        </div>
+      `;
+    }
 
-    Swal.fire({
-      icon: "success",
-      title: "Saved!",
-      text: accessoryRowsInModal.length === 0 ? "All accessory rows removed and saved." : "Accessory details saved.",
-      timer: 1000,
-      showConfirmButton: false,
-    });
+    html += `
+        <div class="grand">Grand Total: ${escapeHtml(grandTotal)}</div>
+      </body>
+    </html>
+    `;
+
+    const w = window.open("", "_blank", "width=1100,height=700");
+    if (!w) {
+      Swal.fire({ icon: "error", title: "Popup blocked", text: "Please allow popups to print." });
+      return;
+    }
+
+    w.document.open();
+    w.document.write(html);
+    w.document.close();
+
+    setTimeout(() => {
+      w.focus();
+      w.print();
+      w.close();
+    }, 300);
   };
 
-  const handleAddAccessoryFromModal = () => {
-    upsertAccessoryDetailsForProcess(selectedProcessForAccessories, accessoryRowsInModal);
+  const saveAllAccessoriesFromModal = () => {
+    const procs = processOptionsForAccessories;
+    if (!procs.length) return;
 
-    setSelectedAccessories((prev) => {
-      const byName = new Map<string, MaterialFromCreation>(prev.map((m) => [m.materialName, m]));
+    const newDetails: AccessoryDetailModalResponseDTO[] = [];
 
-      for (const row of accessoryRowsInModal) {
-        const name = (row.accessoryName || "").trim();
-        if (!name) continue;
+    for (const proc of procs) {
+      const rows = (accessoryRowsByProcess[proc] || [])
+        .filter((r) => (r.accessoryName || "").trim())
+        .map((r, idx) => ({
+          id: r.id,
+          processName: proc,
+          sno: idx + 1,
+          accessoryName: (r.accessoryName || "").trim(),
+          qty: r.qty || "0",
+          rate: r.rate || "0",
+          amount: r.amount || "0.00",
+        }));
 
-        const material = availableMaterials.find((m) => m.materialName === name);
+      newDetails.push(...rows);
+    }
 
-        if (material) {
-          if (!byName.has(material.materialName)) byName.set(material.materialName, material);
-        } else {
-          if (!byName.has(name)) {
-            byName.set(name, {
-              id: Date.now() + Math.random(),
-              serialNumber: `MANUAL-${Date.now()}`,
-              materialGroupId: 0,
-              materialGroupName: "Manual Entry",
-              materialName: name,
-              code: "MANUAL",
-              materialUnit: "PCS",
-              minimumStock: "0",
-              maximumStock: "0",
-            });
-          }
-        }
+    setAccessoryDetails(newDetails);
+
+    // update selectedAccessories ONLY from rows (so deletion is reflected)
+    const names = Array.from(new Set(newDetails.map((d) => (d.accessoryName || "").trim()).filter(Boolean)));
+
+    const byName = new Map<string, MaterialFromCreation>();
+    for (const nm of names) {
+      const material = availableMaterials.find((m) => (m.materialName || "").trim() === nm);
+      if (material) {
+        byName.set(nm, material);
+      } else {
+        byName.set(nm, {
+          id: Date.now() + Math.random(),
+          serialNumber: `MANUAL-${Date.now()}`,
+          materialGroupId: 0,
+          materialGroupName: "Manual Entry",
+          materialName: nm,
+          code: "MANUAL",
+          materialUnit: "PCS",
+          minimumStock: "0",
+          maximumStock: "0",
+        });
       }
+    }
 
-      return Array.from(byName.values());
-    });
+    setSelectedAccessories(Array.from(byName.values()));
 
-    Swal.fire({ icon: "success", title: "Done!", timer: 800, showConfirmButton: false });
-    handleCloseAccessoriesModal();
+    Swal.fire({ icon: "success", title: "Saved!", text: "All process accessories saved.", timer: 1000, showConfirmButton: false });
   };
 
-  // SIZE modal
+  const saveAndCloseAccessoriesModal = () => {
+    saveAllAccessoriesFromModal();
+    setIsAccessoriesModalOpen(false);
+  };
+
+  // =================== SIZE modal ===================
   const handleSizeSelect = (serialNo: string) => {
     if (!serialNo) return;
 
@@ -986,7 +1227,7 @@ const ArtCreation: React.FC = () => {
     Swal.fire({ icon: "success", title: "Added!", timer: 900, showConfirmButton: false });
   };
 
-  // Styles
+  // =================== Styles ===================
   const containerStyle: React.CSSProperties = {
     maxWidth: "1200px",
     margin: "30px auto",
@@ -1041,16 +1282,8 @@ const ArtCreation: React.FC = () => {
   };
 
   const tableStyle: React.CSSProperties = { width: "100%", borderCollapse: "collapse", fontSize: "13px" };
-
   const thtd: React.CSSProperties = { border: "1px solid #ccc", padding: "6px", textAlign: "left" };
-
-  const tableInputStyle: React.CSSProperties = {
-    width: "100%",
-    border: "none",
-    background: "transparent",
-    fontSize: "12px",
-    padding: "2px",
-  };
+  const tableInputStyle: React.CSSProperties = { width: "100%", border: "none", background: "transparent", fontSize: "12px", padding: "2px" };
 
   const removeButtonStyle: React.CSSProperties = {
     backgroundColor: "#dc3545",
@@ -1157,7 +1390,7 @@ const ArtCreation: React.FC = () => {
                       <option key={g.serialNo} value={g.artGroupName}>
                         {g.artGroupName}
                       </option>
-                    ) : null
+                    ) : null,
                   )}
                 </select>
               </div>
@@ -1202,7 +1435,14 @@ const ArtCreation: React.FC = () => {
 
               <div style={formRowStyle}>
                 <label style={labelStyle}>Style Name</label>
-                <input type="text" name="styleName" value={formData.styleName} onChange={handleInputChange} style={{ ...inputStyle, flex: 3 }} disabled={loading} />
+                <input
+                  type="text"
+                  name="styleName"
+                  value={formData.styleName}
+                  onChange={handleInputChange}
+                  style={{ ...inputStyle, flex: 3 }}
+                  disabled={loading}
+                />
               </div>
 
               <div style={formRowStyle}>
@@ -1225,6 +1465,7 @@ const ArtCreation: React.FC = () => {
               )}
             </div>
 
+            {/* ✅ Process table */}
             <div style={{ border: "1px solid #ccc", borderRadius: 6, overflow: "hidden" }}>
               <table style={tableStyle}>
                 <thead>
@@ -1233,10 +1474,6 @@ const ArtCreation: React.FC = () => {
                     <th style={thtd}>Process Name</th>
                     <th style={thtd}>Rate</th>
                     <th style={thtd}>Rate1</th>
-                    <th style={thtd}>Size Wis</th>
-                    <th style={thtd}>Size Wis Act</th>
-                    <th style={thtd}>Item Ref</th>
-                    <th style={thtd}>Process</th>
                     <th style={thtd}>Action</th>
                   </tr>
                 </thead>
@@ -1265,18 +1502,6 @@ const ArtCreation: React.FC = () => {
                         <input value={row.rate1} onChange={(e) => handleProcessRowChange(index, "rate1", e.target.value)} style={tableInputStyle} placeholder="Rate1" />
                       </td>
                       <td style={thtd}>
-                        <input value={row.sizeWid} onChange={(e) => handleProcessRowChange(index, "sizeWid", e.target.value)} style={tableInputStyle} placeholder="Size Wis" />
-                      </td>
-                      <td style={thtd}>
-                        <input value={row.sizeWidAct} onChange={(e) => handleProcessRowChange(index, "sizeWidAct", e.target.value)} style={tableInputStyle} placeholder="Size Wis Act" />
-                      </td>
-                      <td style={thtd}>
-                        <input value={row.itemRef} onChange={(e) => handleProcessRowChange(index, "itemRef", e.target.value)} style={tableInputStyle} placeholder="Item Ref" />
-                      </td>
-                      <td style={thtd}>
-                        <input value={row.process} onChange={(e) => handleProcessRowChange(index, "process", e.target.value)} style={tableInputStyle} placeholder="Process" />
-                      </td>
-                      <td style={thtd}>
                         <button type="button" onClick={() => handleRemoveProcessRow(index)} style={removeButtonStyle}>
                           Remove
                         </button>
@@ -1294,13 +1519,30 @@ const ArtCreation: React.FC = () => {
                             if (selectedProcess) {
                               setProcessRows((prev) => [
                                 ...prev,
-                                { sno: prev.length + 1, processName: selectedProcess.processName, rate: "", rate1: "", sizeWid: "", sizeWidAct: "", itemRef: "", process: "" },
+                                {
+                                  sno: prev.length + 1,
+                                  processName: selectedProcess.processName,
+                                  rate: "",
+                                  rate1: "",
+                                  sizeWid: "",
+                                  sizeWidAct: "",
+                                  itemRef: "",
+                                  process: "",
+                                },
                               ]);
                             }
                             e.target.value = "";
                           }
                         }}
-                        style={{ ...tableInputStyle, fontWeight: 600, width: "100%", padding: 4, border: "1px solid #2196f3", borderRadius: 3, backgroundColor: "#fff" }}
+                        style={{
+                          ...tableInputStyle,
+                          fontWeight: 600,
+                          width: "100%",
+                          padding: 4,
+                          border: "1px solid #2196f3",
+                          borderRadius: 3,
+                          backgroundColor: "#fff",
+                        }}
                         disabled={loading}
                       >
                         <option value="">Add Process</option>
@@ -1311,7 +1553,7 @@ const ArtCreation: React.FC = () => {
                         ))}
                       </select>
                     </td>
-                    <td style={thtd} colSpan={7}>
+                    <td style={thtd} colSpan={3}>
                       <span style={{ fontSize: 12, color: "#666", fontStyle: "italic" }}>Select a process to add a new row</span>
                     </td>
                   </tr>
@@ -1396,33 +1638,40 @@ const ArtCreation: React.FC = () => {
             {selectedAccessories.length > 0 && (
               <div style={{ border: "1px solid #ccc", borderRadius: 8, padding: 12, marginBottom: 12 }}>
                 <div style={{ fontWeight: 700, marginBottom: 8, color: "#ff9800" }}>Selected Accessories ({selectedAccessories.length})</div>
-                <div style={{ maxHeight: 200, overflowY: "auto" }}>
-                  {selectedAccessories.map((a, idx) => (
-                    <div
-                      key={a.id}
-                      style={{
-                        display: "flex",
-                        justifyContent: "space-between",
-                        alignItems: "center",
-                        padding: "4px 8px",
-                        marginBottom: 4,
-                        backgroundColor: idx % 2 === 0 ? "#f8f9fa" : "#fff",
-                        borderRadius: 4,
-                        fontSize: 12,
-                      }}
-                    >
-                      <div>
-                        <div style={{ fontWeight: 700 }}>{a.materialName}</div>
-                        <div style={{ color: "#666" }}>
-                          {a.code} | {a.materialGroupName}
+                <div style={{ maxHeight: 220, overflowY: "auto" }}>
+                  {selectedAccessories.map((a, idx) => {
+                    const procs = processesByAccessoryName.get((a.materialName || "").trim()) || [];
+                    return (
+                      <div
+                        key={a.id}
+                        style={{
+                          display: "flex",
+                          justifyContent: "space-between",
+                          alignItems: "center",
+                          padding: "6px 8px",
+                          marginBottom: 4,
+                          backgroundColor: idx % 2 === 0 ? "#f8f9fa" : "#fff",
+                          borderRadius: 4,
+                          fontSize: 12,
+                          gap: 8,
+                        }}
+                      >
+                        <div style={{ minWidth: 0 }}>
+                          <div style={{ fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{a.materialName}</div>
+                          <div style={{ color: "#666", fontSize: 11 }}>
+                            {a.code} | {a.materialGroupName}
+                          </div>
+                          <div style={{ color: "#888", fontSize: 10 }}>Unit: {a.materialUnit}</div>
+                          <div style={{ color: "#4b0082", fontSize: 10, marginTop: 2 }}>
+                            Processes: <b>{procs.length ? procs.join(", ") : "-"}</b>
+                          </div>
                         </div>
-                        <div style={{ color: "#888", fontSize: 10 }}>Unit: {a.materialUnit}</div>
+                        <button type="button" onClick={() => handleRemoveAccessory(a.id)} style={removeButtonStyle}>
+                          ×
+                        </button>
                       </div>
-                      <button type="button" onClick={() => handleRemoveAccessory(a.id)} style={removeButtonStyle}>
-                        ×
-                      </button>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             )}
@@ -1533,202 +1782,203 @@ const ArtCreation: React.FC = () => {
         </div>
       </div>
 
-      {/* ACCESSORIES MODAL */}
+      {/* ✅ ACCESSORIES MODAL (ALL processes visible, PRINT added) */}
       {isAccessoriesModalOpen && (
         <div style={modalOverlayStyle} onClick={handleCloseAccessoriesModal}>
-          <div style={{ ...modalStyle, maxWidth: "700px", backgroundColor: "#e6e6fa" }} onClick={(e) => e.stopPropagation()}>
+          <div style={{ ...modalStyle, maxWidth: "950px", backgroundColor: "#e6e6fa" }} onClick={(e) => e.stopPropagation()}>
             <div style={{ ...modalHeaderStyle, backgroundColor: "#e6e6fa", borderBottom: "2px solid #9370db" }}>
-              <h3 style={{ margin: 0, fontSize: 16, color: "#4b0082" }}>Enter Accessory Detail</h3>
+              <h3 style={{ margin: 0, fontSize: 16, color: "#4b0082" }}>Enter Accessory Detail (All Processes)</h3>
               <button style={closeButtonStyle} onClick={handleCloseAccessoriesModal}>
                 &times;
               </button>
             </div>
 
-            <div style={{ marginBottom: 15 }}>
-              <label style={{ fontSize: 13, fontWeight: "bold", marginBottom: 6, display: "block" }}>Process Name:</label>
-              <select
-                value={selectedProcessForAccessories}
-                onChange={(e) => handleProcessSelectionForAccessories(e.target.value)}
-                style={{ width: "100%", padding: 6, fontSize: 13, border: "1px solid #ccc", borderRadius: 4 }}
-              >
-                <option value="">-- Select Process --</option>
-                {availableProcesses.map((p) => (
-                  <option key={p.serialNo} value={p.processName}>
-                    {p.processName}
-                  </option>
-                ))}
-              </select>
+            <div style={{ marginBottom: 10, fontSize: 12, color: "#444" }}>
+              Total Processes: <b>{processOptionsForAccessories.length}</b> &nbsp;|&nbsp; Grand Total: <b>{grandTotal}</b>
             </div>
 
-            {selectedProcessForAccessories && (
-              <>
-                <div style={{ border: "1px solid #9370db", borderRadius: 4, overflow: "hidden", backgroundColor: "white" }}>
-                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
-                    <thead>
-                      <tr style={{ backgroundColor: "#d8bfd8" }}>
-                        <th style={{ ...thtd, padding: 8, fontWeight: "bold", borderColor: "#9370db" }}>S No</th>
-                        <th style={{ ...thtd, padding: 8, fontWeight: "bold", borderColor: "#9370db" }}>Accessory Name</th>
-                        <th style={{ ...thtd, padding: 8, fontWeight: "bold", borderColor: "#9370db" }}>Qty</th>
-                        <th style={{ ...thtd, padding: 8, fontWeight: "bold", borderColor: "#9370db" }}>Rate</th>
-                        <th style={{ ...thtd, padding: 8, fontWeight: "bold", borderColor: "#9370db" }}>Amount</th>
-                        <th style={{ ...thtd, padding: 8, fontWeight: "bold", borderColor: "#9370db" }}>Action</th>
-                      </tr>
-                    </thead>
+            {processOptionsForAccessories.map((proc) => {
+              const rows = accessoryRowsByProcess[proc] || [];
+              const mi = manualInputByProcess[proc] || { name: "", qty: "", rate: "" };
+              const masterList = materialsByProcess[proc] || [];
+              const total = processTotal(proc).toFixed(2);
 
-                    <tbody>
-                      {accessoryRowsInModal.map((row, index) => (
-                        <tr key={index} style={{ backgroundColor: index % 2 === 0 ? "#fff" : "#f8f8ff" }}>
-                          <td style={{ ...thtd, padding: 6, textAlign: "center" }}>{row.sno}</td>
-                          <td style={{ ...thtd, padding: 6 }}>{row.accessoryName}</td>
-                          <td style={{ ...thtd, padding: 6 }}>
+              return (
+                <div key={proc} style={{ marginBottom: 16, background: "white", border: "1px solid #9370db", borderRadius: 6, overflow: "hidden" }}>
+                  <div style={{ padding: "10px 12px", background: "#d8bfd8", fontWeight: 800, display: "flex", justifyContent: "space-between" }}>
+                    <div>Process: {proc}</div>
+                    <div>Total: {total}</div>
+                  </div>
+
+                  <div style={{ padding: 10 }}>
+                    <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                      <thead>
+                        <tr style={{ backgroundColor: "#f1e6ff" }}>
+                          <th style={{ ...thtd, padding: 8, fontWeight: "bold", borderColor: "#9370db", width: 60 }}>S No</th>
+                          <th style={{ ...thtd, padding: 8, fontWeight: "bold", borderColor: "#9370db" }}>Accessory Name</th>
+                          <th style={{ ...thtd, padding: 8, fontWeight: "bold", borderColor: "#9370db", width: 110 }}>Qty</th>
+                          <th style={{ ...thtd, padding: 8, fontWeight: "bold", borderColor: "#9370db", width: 110 }}>Rate</th>
+                          <th style={{ ...thtd, padding: 8, fontWeight: "bold", borderColor: "#9370db", width: 120 }}>Amount</th>
+                          <th style={{ ...thtd, padding: 8, fontWeight: "bold", borderColor: "#9370db", width: 120 }}>Action</th>
+                        </tr>
+                      </thead>
+
+                      <tbody>
+                        {rows.map((row, index) => (
+                          <tr key={index} style={{ backgroundColor: index % 2 === 0 ? "#fff" : "#f8f8ff" }}>
+                            <td style={{ ...thtd, padding: 6, textAlign: "center" }}>{row.sno}</td>
+                            <td style={{ ...thtd, padding: 6 }}>{row.accessoryName}</td>
+                            <td style={{ ...thtd, padding: 6 }}>
+                              <input
+                                type="number"
+                                value={row.qty}
+                                onChange={(e) => handleAccessoryRowChangeInProcess(proc, index, "qty", e.target.value)}
+                                style={{ width: "100%", padding: 4, border: "1px solid #ccc", borderRadius: 3, fontSize: 12 }}
+                                step="0.01"
+                              />
+                            </td>
+                            <td style={{ ...thtd, padding: 6 }}>
+                              <input
+                                type="number"
+                                value={row.rate}
+                                onChange={(e) => handleAccessoryRowChangeInProcess(proc, index, "rate", e.target.value)}
+                                style={{ width: "100%", padding: 4, border: "1px solid #ccc", borderRadius: 3, fontSize: 12 }}
+                                step="0.01"
+                              />
+                            </td>
+                            <td style={{ ...thtd, padding: 6, textAlign: "right" }}>{row.amount}</td>
+                            <td style={{ ...thtd, padding: 6, textAlign: "center" }}>
+                              <button onClick={() => handleRemoveAccessoryRowInProcess(proc, index)} style={{ ...removeButtonStyle, padding: "4px 8px", fontSize: 11 }}>
+                                Delete
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+
+                        {/* Add row */}
+                        <tr style={{ backgroundColor: "#fff8dc" }}>
+                          <td style={{ ...thtd, padding: 6, borderColor: "#9370db", textAlign: "center" }}>+</td>
+
+                          <td style={{ ...thtd, padding: 6, borderColor: "#9370db" }}>
+                            <input
+                              type="text"
+                              list={`material-master-datalist-${proc}`}
+                              value={mi.name}
+                              onChange={(e) =>
+                                setManualInputByProcess((prev) => ({
+                                  ...prev,
+                                  [proc]: { ...mi, name: e.target.value },
+                                }))
+                              }
+                              placeholder="Search & select material..."
+                              style={{ width: "100%", padding: 4, border: "1px solid #9370db", borderRadius: 3, fontSize: 12 }}
+                            />
+                            <datalist id={`material-master-datalist-${proc}`}>
+                              {availableMaterials.map((m) => (
+                                <option key={m.id} value={m.materialName} />
+                              ))}
+                            </datalist>
+
+                            {masterList.length > 0 && (
+                              <div style={{ marginTop: 6 }}>
+                                <select
+                                  onChange={(e) => {
+                                    addAccessoryFromDropdownToProcess(proc, e.target.value);
+                                    e.target.value = "";
+                                  }}
+                                  style={{ width: "100%", padding: 4, border: "1px solid #9370db", borderRadius: 3, fontSize: 12, fontWeight: "bold" }}
+                                >
+                                  <option value="">-- Or Select from Process List --</option>
+                                  {masterList.map((mName) => (
+                                    <option key={mName} value={mName}>
+                                      {mName}
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
+                            )}
+                          </td>
+
+                          <td style={{ ...thtd, padding: 6, borderColor: "#9370db" }}>
                             <input
                               type="number"
-                              value={row.qty}
-                              onChange={(e) => handleAccessoryRowChange(index, "qty", e.target.value)}
-                              style={{ width: "100%", padding: 4, border: "1px solid #ccc", borderRadius: 3, fontSize: 12 }}
+                              value={mi.qty}
+                              onChange={(e) =>
+                                setManualInputByProcess((prev) => ({
+                                  ...prev,
+                                  [proc]: { ...mi, qty: e.target.value },
+                                }))
+                              }
+                              placeholder="0.00"
                               step="0.01"
+                              style={{ width: "100%", padding: 4, border: "1px solid #ccc", borderRadius: 3, fontSize: 12 }}
                             />
                           </td>
-                          <td style={{ ...thtd, padding: 6 }}>
+
+                          <td style={{ ...thtd, padding: 6, borderColor: "#9370db" }}>
                             <input
                               type="number"
-                              value={row.rate}
-                              onChange={(e) => handleAccessoryRowChange(index, "rate", e.target.value)}
-                              style={{ width: "100%", padding: 4, border: "1px solid #ccc", borderRadius: 3, fontSize: 12 }}
+                              value={mi.rate}
+                              onChange={(e) =>
+                                setManualInputByProcess((prev) => ({
+                                  ...prev,
+                                  [proc]: { ...mi, rate: e.target.value },
+                                }))
+                              }
+                              placeholder="0.00"
                               step="0.01"
+                              style={{ width: "100%", padding: 4, border: "1px solid #ccc", borderRadius: 3, fontSize: 12 }}
                             />
                           </td>
-                          <td style={{ ...thtd, padding: 6, textAlign: "right" }}>{row.amount}</td>
-                          <td style={{ ...thtd, padding: 6, textAlign: "center" }}>
-                            <button onClick={() => handleRemoveAccessoryRow(index)} style={{ ...removeButtonStyle, padding: "4px 8px", fontSize: 11 }}>
-                              Delete Row
+
+                          <td style={{ ...thtd, padding: 6, borderColor: "#9370db", textAlign: "right" }}>
+                            {((parseFloat(mi.qty) || 0) * (parseFloat(mi.rate) || 0)).toFixed(2)}
+                          </td>
+
+                          <td style={{ ...thtd, padding: 6, borderColor: "#9370db", textAlign: "center" }}>
+                            <button onClick={() => addAccessoryRowToProcess(proc)} style={{ ...buttonStyle, padding: "4px 10px", fontSize: 11, backgroundColor: "#4caf50" }}>
+                              Add
                             </button>
                           </td>
                         </tr>
-                      ))}
-
-                      {/* ✅ ONLY REPLACED: Manual input => dropdown searchable via datalist (Material Creation list) */}
-                      <tr style={{ backgroundColor: "#fff8dc" }}>
-                        <td style={{ ...thtd, padding: 6, borderColor: "#9370db", textAlign: "center" }}>+</td>
-
-                        <td style={{ ...thtd, padding: 6, borderColor: "#9370db" }}>
-                          <input
-                            type="text"
-                            list="material-master-datalist"
-                            value={manualAccessoryInput.name}
-                            onChange={(e) => setManualAccessoryInput({ ...manualAccessoryInput, name: e.target.value })}
-                            placeholder="Search & select material..."
-                            style={{ width: "100%", padding: 4, border: "1px solid #9370db", borderRadius: 3, fontSize: 12 }}
-                          />
-                          <datalist id="material-master-datalist">
-                            {availableMaterials.map((m) => (
-                              <option key={m.id} value={m.materialName} />
-                            ))}
-                          </datalist>
-                        </td>
-
-                        <td style={{ ...thtd, padding: 6, borderColor: "#9370db" }}>
-                          <input
-                            type="number"
-                            value={manualAccessoryInput.qty}
-                            onChange={(e) => setManualAccessoryInput({ ...manualAccessoryInput, qty: e.target.value })}
-                            placeholder="0.00"
-                            step="0.01"
-                            style={{ width: "100%", padding: 4, border: "1px solid #ccc", borderRadius: 3, fontSize: 12 }}
-                          />
-                        </td>
-
-                        <td style={{ ...thtd, padding: 6, borderColor: "#9370db" }}>
-                          <input
-                            type="number"
-                            value={manualAccessoryInput.rate}
-                            onChange={(e) => setManualAccessoryInput({ ...manualAccessoryInput, rate: e.target.value })}
-                            placeholder="0.00"
-                            step="0.01"
-                            style={{ width: "100%", padding: 4, border: "1px solid #ccc", borderRadius: 3, fontSize: 12 }}
-                          />
-                        </td>
-
-                        <td style={{ ...thtd, padding: 6, borderColor: "#9370db", textAlign: "right" }}>
-                          {((parseFloat(manualAccessoryInput.qty) || 0) * (parseFloat(manualAccessoryInput.rate) || 0)).toFixed(2)}
-                        </td>
-
-                        <td style={{ ...thtd, padding: 6, borderColor: "#9370db", textAlign: "center" }}>
-                          <button onClick={handleAddManualAccessory} style={{ ...buttonStyle, padding: "4px 8px", fontSize: 11, backgroundColor: "#4caf50" }}>
-                            Add
-                          </button>
-                        </td>
-                      </tr>
-
-                      {filteredMaterialsForProcess.length > 0 && (
-                        <tr style={{ backgroundColor: "#f0e6ff" }}>
-                          <td style={{ ...thtd, padding: 6, borderColor: "#9370db", textAlign: "center" }}>+</td>
-                          <td style={{ ...thtd, padding: 6, borderColor: "#9370db" }} colSpan={5}>
-                            <select
-                              onChange={(e) => {
-                                if (e.target.value) {
-                                  const newRow: AccessoryRowInModal = {
-                                    sno: accessoryRowsInModal.length + 1,
-                                    accessoryName: e.target.value,
-                                    qty: "",
-                                    rate: "",
-                                    amount: "0.00",
-                                  };
-                                  setAccessoryRowsInModal([...accessoryRowsInModal, newRow]);
-                                  e.target.value = "";
-                                }
-                              }}
-                              style={{ width: "100%", padding: 4, border: "1px solid #9370db", borderRadius: 3, fontSize: 12, fontWeight: "bold" }}
-                            >
-                              <option value="">-- Or Select from List --</option>
-                              {filteredMaterialsForProcess.map((materialName, idx) => (
-                                <option key={idx} value={materialName}>
-                                  {materialName}
-                                </option>
-                              ))}
-                            </select>
-                          </td>
-                        </tr>
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-
-                <div
-                  style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: "center",
-                    marginTop: 15,
-                    padding: 10,
-                    backgroundColor: "white",
-                    borderRadius: 4,
-                    border: "1px solid #9370db",
-                  }}
-                >
-                  <div style={{ display: "flex", gap: 10 }}>
-                    <button
-                      onClick={handleSaveAccessoryFromModal}
-                      style={{ ...buttonStyle, backgroundColor: "#007bff", padding: "6px 16px", fontSize: 13 }}
-                      disabled={!selectedProcessForAccessories}
-                    >
-                      Save
-                    </button>
-                    <button
-                      onClick={handleAddAccessoryFromModal}
-                      style={{ ...buttonStyle, backgroundColor: "#4caf50", padding: "6px 16px", fontSize: 13 }}
-                      disabled={!selectedProcessForAccessories}
-                    >
-                      Close
-                    </button>
-                  </div>
-
-                  <div style={{ fontWeight: "bold", fontSize: 14 }}>
-                    Total: <span style={{ color: "#4b0082" }}>{calculateTotal()}</span>
+                      </tbody>
+                    </table>
                   </div>
                 </div>
-              </>
-            )}
+              );
+            })}
+
+            {/* Footer (Save + Print) */}
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                marginTop: 10,
+                padding: 12,
+                backgroundColor: "white",
+                borderRadius: 6,
+                border: "1px solid #9370db",
+                gap: 10,
+                flexWrap: "wrap",
+              }}
+            >
+              <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                <button onClick={saveAllAccessoriesFromModal} style={{ ...buttonStyle, backgroundColor: "#007bff" }}>
+                  Save All
+                </button>
+                <button onClick={saveAndCloseAccessoriesModal} style={{ ...buttonStyle, backgroundColor: "#4caf50" }}>
+                  Save & Close
+                </button>
+                <button type="button" onClick={handlePrintAccessories} style={{ ...buttonStyle, backgroundColor: "#6c757d" }}>
+                  Print
+                </button>
+              </div>
+
+              <div style={{ fontWeight: "bold", fontSize: 14 }}>
+                Grand Total: <span style={{ color: "#4b0082" }}>{grandTotal}</span>
+              </div>
+            </div>
           </div>
         </div>
       )}

@@ -1,3 +1,4 @@
+// src/main/java/com/garment/DTO/PaymentReciptDTO.java
 package com.garment.DTO;
 
 import java.math.BigDecimal;
@@ -19,12 +20,16 @@ public class PaymentReciptDTO {
     private String employeeName;
     private String paymentThrough;
 
+    // CASH only
     private BigDecimal amount;
+
+    // Discount amount (credit)
+    private BigDecimal discountAmount;
+
+    // Stored balance after this receipt (+ Dr, - Cr) - legacy usage
     private BigDecimal balance;
 
     private String remarks;
-
-    // NOW persisted in DB
     private String agentName;
 
     public PaymentReciptDTO() {}
@@ -58,6 +63,9 @@ public class PaymentReciptDTO {
 
     public BigDecimal getAmount() { return amount; }
     public void setAmount(BigDecimal amount) { this.amount = amount; }
+
+    public BigDecimal getDiscountAmount() { return discountAmount; }
+    public void setDiscountAmount(BigDecimal discountAmount) { this.discountAmount = discountAmount; }
 
     public BigDecimal getBalance() { return balance; }
     public void setBalance(BigDecimal balance) { this.balance = balance; }

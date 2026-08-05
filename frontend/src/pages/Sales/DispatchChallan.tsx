@@ -10,6 +10,7 @@ import React, {
 import Swal from "sweetalert2";
 import Dashboard from "../Dashboard";
 import api from "../../api/axiosInstance";
+import { useLocation } from "react-router-dom";
 
 // ----------------- API Routes -----------------
 const routes = {
@@ -852,6 +853,7 @@ const PackingGroupItemsModal: React.FC<PackingGroupItemsModalProps> = ({
 
 // ----------------- Main Component -----------------
 const DispatchChallan: React.FC = () => {
+  const location = useLocation();
   const [rows, setRows] = useState<DispatchRow[]>([]);
   const [packingRows, setPackingRows] = useState<PackingRow[]>([]);
 
@@ -1900,7 +1902,8 @@ const DispatchChallan: React.FC = () => {
     }
   };
 
-  const handleSelectChallan = async (id: number) => {
+  const handleSelectChallan = useCallback(
+  async (id: number) => {
     try {
       const res = await api.get(routes.get(id));
       const ch = res.data || {};
@@ -1966,7 +1969,22 @@ const DispatchChallan: React.FC = () => {
       console.error("Error loading challan:", err);
       Swal.fire("Error", "Failed to load challan", "error");
     }
-  };
+  },
+  [loadProducts],
+);
+useEffect(() => {
+  const params = new URLSearchParams(location.search);
+  const editIdRaw = params.get("editId");
+  const editId = Number(editIdRaw);
+
+  if (!Number.isFinite(editId) || editId <= 0) return;
+
+  // wait for party master to load to avoid clearing broker/transport/station
+  // (your partyName effect clears these when party is not found)
+  if (!partyList.length) return;
+
+  handleSelectChallan(editId);
+}, [location.search, partyList.length, handleSelectChallan]);
 
   const handleDeleteChallanFromList = async (id: number) => {
     const result = await Swal.fire({

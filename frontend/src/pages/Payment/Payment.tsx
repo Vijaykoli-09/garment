@@ -1,10 +1,13 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+
 import { useNavigate } from "react-router-dom";
 import Swal from "sweetalert2";
 import Dashboard from "../Dashboard";
 import api from "../../api/axiosInstance";
+import { computeLedgerFifo, type BaseLedgerEvent, type TxType as LedgerTxType } from "../../api/ledgerFifo";
 
 type PaymentToType = "Party" | "Employee" | "Other" | "";
+type BalanceType = "CR" | "DR";
 
 // ================= Payment Mode DTO =================
 interface PaymentMode {
@@ -22,7 +25,10 @@ interface PaymentRecord {
   partyName?: string;
   employeeName?: string;
   paymentThrough?: string;
-  amount?: number | string;
+
+  amount?: number | string; // ✅ CASH
+  discountAmount?: number | string; // ✅ DISCOUNT
+
   balance?: number | string;
   remarks?: string;
 
@@ -87,7 +93,9 @@ type ReceiptDoc = {
   receiptTo?: string;
   paymentTo?: string;
   partyName?: string;
-  amount?: number | string;
+  amount?: number | string; // cash
+  discountAmount?: number | string; // ✅ discount (must participate in FIFO)
+  remarks?: string; // ✅ fallback discount parsing if needed
   paymentThrough?: string;
 };
 
@@ -122,12 +130,29 @@ type FormDataState = {
   processName: string;
   partyName: string;
   paymentThrough: string;
-  amount: number | "";
+
+  amount: number | "";        // ✅ CASH
+  discountAmount: number;     // ✅ DISCOUNT (always number; default 0)
+
   balance: number | "";
   remarks: string;
   date: string;
 };
+type PendingEntryRow = {
+  rowKey: string;
+  docKey: string;
+  txType: TxType | "Opening";
+  docNo: string;
+  date: string;
+  chargeAmount: number;
+  pendingAmount: number;
+};
 
+type LedgerBillStatusDTO = {
+  docKey: string;
+  manualPaidUser: boolean;
+  updatedAt?: string;
+};
 // ================= Utils =================
 const pad2 = (n: number) => String(n).padStart(2, "0");
 
@@ -193,8 +218,24 @@ const toNum = (v: any) => {
   return Number.isFinite(n) ? n : 0;
 };
 
+const toTime = (val: any) => {
+  const d = new Date(val);
+  return isNaN(d.getTime()) ? -Infinity : d.getTime();
+};
+
+const endOfDayTime = (iso: string) => {
+  const t = toTime(iso);
+  if (t === -Infinity) return -Infinity;
+  return t + 24 * 60 * 60 * 1000 - 1;
+};
+
 const norm = (s: any) => String(s ?? "").trim().toLowerCase();
 const round2 = (n: number) => Number((Number(n || 0) || 0).toFixed(2));
+const hashToInt = (s: string) => {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
+  return Math.abs(h) || 0;
+};
 
 const fmt2 = (n: number) =>
   (Number(n || 0) || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -205,7 +246,41 @@ const drCrLabel = (signed: number) => {
   const abs = Math.abs(signed);
   return { side, abs, text: `${fmt2(abs)} ${side}` };
 };
+const fmtDDMMYYYY = (iso: string) => {
+  if (!iso) return "-";
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return "-";
+  const dd = String(d.getDate()).padStart(2, "0");
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const yyyy = d.getFullYear();
+  return `${dd}-${mm}-${yyyy}`;
+};
 
+const txLabel = (t: any): string => {
+  switch (String(t || "").trim()) {
+    case "Opening":
+      return "Opening";
+    case "OtherDispatch":
+      return "Other Dispatch";
+    case "PurchaseOrder":
+      return "Purchase Order";
+    case "PurchaseEntry":
+      return "Purchase Entry";
+    case "PurchaseReturn":
+      return "Purchase Return";
+    case "JobOutward":
+      return "Job Outward";
+    case "JobInward":
+      return "Job Inward";
+    case "Payment":
+      return "Payment";
+    case "Receipt":
+      return "Receipt";
+    case "Dispatch":
+    default:
+      return "Dispatch";
+  }
+};
 // ✅ no-useless-escape fixed here: [^\d.-] (no \-)
 const sanitizeDecimal = (raw: string, opts?: { allowNegative?: boolean; decimals?: number }) => {
   const allowNegative = !!opts?.allowNegative;
@@ -228,6 +303,11 @@ const sanitizeDecimal = (raw: string, opts?: { allowNegative?: boolean; decimals
 };
 
 const isPartialNumberText = (s: string) => s === "" || s === "-" || s === "." || s === "-.";
+const parseDiscountFromRemarks = (remarks?: string) => {
+  const s = String(remarks || "");
+  const m = s.match(/discount\s*:\s*([0-9]+(\.[0-9]+)?)/i);
+  return m ? toNum(m[1]) : 0;
+};
 
 // ================= Amount to Words (Indian system) =================
 const numToWordsIndian = (num: number): string => {
@@ -338,28 +418,37 @@ const getDrCr = (source: TxType, amount: number) => {
   return { debit: amt, credit: 0 };
 };
 
+
+
 const PaymentForm: React.FC = () => {
   const navigate = useNavigate();
   const today = new Date().toISOString().split("T")[0];
+    
 
-  const [formData, setFormData] = useState<FormDataState>({
+   const [formData, setFormData] = useState<FormDataState>({
     paymentTo: "",
     paymentDate: today,
     processName: "",
     partyName: "",
     paymentThrough: "Cash",
     amount: "",
+    discountAmount: 0,
     balance: "",
     remarks: "",
     date: today,
   });
 
   const [editingId, setEditingId] = useState<number | null>(null);
+  const [saving, setSaving] = useState(false);
 
   // ✅ typed text (prevents wheel-change issues)
   const [amountText, setAmountText] = useState<string>("");
   const [balanceText, setBalanceText] = useState<string>("");
-
+  const amountRef = useRef<HTMLInputElement | null>(null);
+  const employeeSearchRef = useRef<HTMLInputElement>(null);
+const partySearchRef = useRef<HTMLInputElement>(null);
+const processSearchRef = useRef<HTMLInputElement>(null);
+  const focusAmount = useCallback(() => setTimeout(() => amountRef.current?.focus(), 0), []);
   // Lists and modals
   const [employeeList, setEmployeeList] = useState<any[]>([]);
   const [employeeSearchText, setEmployeeSearchText] = useState("");
@@ -387,6 +476,9 @@ const PaymentForm: React.FC = () => {
 
   // ================= Party balance sources =================
   const [dispatchChallans, setDispatchChallans] = useState<DispatchChallan[]>([]);
+    const [partyMasters, setPartyMasters] = useState<
+    { id: number; partyName: string; openingBalance?: number | null; openingBalanceType?: BalanceType }[]
+  >([]);
   const [otherDispatchChallans, setOtherDispatchChallans] = useState<OtherDispatchChallan[]>([]);
   const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrderDoc[]>([]);
   const [purchaseEntries, setPurchaseEntries] = useState<PurchaseEntryDoc[]>([]);
@@ -395,15 +487,689 @@ const PaymentForm: React.FC = () => {
   const [receipts, setReceipts] = useState<ReceiptDoc[]>([]);
   const [balanceInfoLoading, setBalanceInfoLoading] = useState(false);
 
+  
+  // ================= FIFO Pending (Party) - Receipt-style modal =================
+  const [pendingSide, setPendingSide] = useState<"DEBIT" | "CREDIT">("DEBIT");
+  const [showPendingModal, setShowPendingModal] = useState(false);
+
+  const [modalRows, setModalRows] = useState<PendingEntryRow[]>([]);
+  const [receiveByKey, setReceiveByKey] = useState<Record<string, string>>({});
+  const [discountByKey, setDiscountByKey] = useState<Record<string, string>>({});
+
+  const [appliedCashTotal, setAppliedCashTotal] = useState(0);
+  const [appliedDiscountTotal, setAppliedDiscountTotal] = useState(0);
+
+  const receiveInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
+  const nextFocusKeyRef = useRef<string>("");
+
+  const autoOpenedPartyRef = useRef<string>("");
+
+  // manual paid status map (docKey -> manualPaidUser)
+  const [manualPaidUserMap, setManualPaidUserMap] = useState<Map<string, boolean>>(new Map());
+    // ✅ used to force manualPaid status refresh even if docKeys unchanged (same as Receipt)
+  const [ledgerVersion, setLedgerVersion] = useState(0);
+
+   const asOfIso = useMemo(
+    () => String(formData.date || formData.paymentDate || today).slice(0, 10),
+    [formData.date, formData.paymentDate, today],
+  );
+
+  const selectedPartyName = useMemo(
+    () => (formData.paymentTo === "Party" ? String(formData.partyName || "").trim() : ""),
+    [formData.paymentTo, formData.partyName],
+  );
+  const selectedPartyKey = useMemo(() => norm(selectedPartyName), [selectedPartyName]);
+
+      const ledgerEventsForParty: BaseLedgerEvent[] = useMemo(() => {
+    if (!selectedPartyName) return [];
+
+    const asOfT = endOfDayTime(asOfIso);
+    if (asOfT === -Infinity) return [];
+
+    const events: BaseLedgerEvent[] = [];
+
+    const addEvent = (e: BaseLedgerEvent) => {
+      if (!e.docKey) return;
+
+      const d = String(e.date || "").slice(0, 10);
+      if (!d) return;
+
+      if (toTime(d) === -Infinity) return;
+      if (toTime(d) > asOfT) return;
+
+      events.push({ ...e, date: d });
+    };
+
+    // Opening (FIFO event)
+    {
+      const pm = partyMasters.find((x) => norm(x.partyName) === selectedPartyKey);
+      const partyId = pm?.id ?? selectedPartyKey;
+
+      const openingAmt = toNum(pm?.openingBalance ?? 0);
+      const typ: BalanceType = (pm?.openingBalanceType as BalanceType) || "DR";
+      const signedOpening = typ === "CR" ? -openingAmt : openingAmt;
+
+      const opDebit = signedOpening > 0 ? signedOpening : 0;
+      const opCredit = signedOpening < 0 ? Math.abs(signedOpening) : 0;
+
+      if (opDebit > 0 || opCredit > 0) {
+        const times: number[] = [];
+
+        const pushTime = (d: any) => {
+          const t = toTime(d);
+          if (t !== -Infinity && t <= asOfT) times.push(t);
+        };
+
+        dispatchChallans.forEach((x) => norm(x.partyName) === selectedPartyKey && pushTime(x.date || x.dated || ""));
+        otherDispatchChallans.forEach((x) => norm(x.partyName) === selectedPartyKey && pushTime(x.date || ""));
+        purchaseOrders.forEach((x) => norm(x.partyName) === selectedPartyKey && pushTime(x.date || ""));
+        purchaseEntries.forEach((x) => norm(x.partyName) === selectedPartyKey && pushTime(x.date || ""));
+        purchaseReturns.forEach((x) => norm(x.partyName) === selectedPartyKey && pushTime(x.date || ""));
+        jobInwards.forEach((x) => norm(x.partyName) === selectedPartyKey && pushTime(x.date || ""));
+
+        // ✅ existing payments (Receipt.tsx behavior: if paymentTo missing, treat as Party)
+        (savedRecords || []).forEach((p) => {
+          const paymentTo = String((p as any)?.paymentTo ?? "").trim();
+          const isPartyPayment = paymentTo ? paymentTo === "Party" : true;
+          if (!isPartyPayment) return;
+
+          if (norm((p as any)?.partyName || "") !== selectedPartyKey) return;
+          pushTime((p as any)?.paymentDate || (p as any)?.date || "");
+        });
+
+        // receipts
+        receipts.forEach((r) => {
+          const receiptTo = String((r as any)?.receiptTo ?? (r as any)?.paymentTo ?? "").trim();
+          if (receiptTo && receiptTo !== "Party") return;
+          if (norm((r as any)?.partyName || "") !== selectedPartyKey) return;
+          pushTime((r as any)?.receiptDate || (r as any)?.paymentDate || (r as any)?.date || "");
+        });
+
+        const earliest = times.length ? Math.min(...times) : toTime(asOfIso);
+        const openingDateIso =
+          earliest !== -Infinity
+            ? new Date(earliest - 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
+            : asOfIso;
+
+        addEvent({
+          id: -999999,
+          date: openingDateIso,
+          partyName: selectedPartyName,
+          brokerName: "",
+          orderNo: "OPENING",
+          mode: "",
+          debit: opDebit,
+          credit: opCredit,
+          type: "Opening" as LedgerTxType,
+          docKey: `Opening:Party:${partyId}`,
+        });
+      }
+    }
+
+    // Dispatch
+    dispatchChallans.forEach((dc) => {
+      if (norm(dc.partyName) !== selectedPartyKey) return;
+      const { debit, credit } = getDrCr("Dispatch", toNum(dc.netAmt));
+      addEvent({
+        id: dc.id,
+        date: String(dc.date || dc.dated || "").slice(0, 10),
+        partyName: dc.partyName,
+        brokerName: "",
+        orderNo: String(dc.challanNo || ""),
+        mode: "",
+        debit,
+        credit,
+        type: "Dispatch" as LedgerTxType,
+        docKey: `Dispatch:${dc.id}`,
+      });
+    });
+
+    // OtherDispatch
+    otherDispatchChallans.forEach((od) => {
+      if (norm(od.partyName) !== selectedPartyKey) return;
+      const { debit, credit } = getDrCr("OtherDispatch", toNum(od.netAmt));
+      addEvent({
+        id: od.id,
+        date: String(od.date || "").slice(0, 10),
+        partyName: od.partyName,
+        brokerName: "",
+        orderNo: String(od.challanNo || ""),
+        mode: "",
+        debit,
+        credit,
+        type: "OtherDispatch" as LedgerTxType,
+        docKey: `OtherDispatch:${od.id}`,
+      });
+    });
+
+    // PurchaseOrder
+    purchaseOrders.forEach((po) => {
+      if (norm(po.partyName) !== selectedPartyKey) return;
+      const { debit, credit } = getDrCr("PurchaseOrder", toNum(po.amount));
+      addEvent({
+        id: po.id,
+        date: String(po.date || "").slice(0, 10),
+        partyName: po.partyName,
+        brokerName: "",
+        orderNo: String(po.orderNo || ""),
+        mode: "",
+        debit,
+        credit,
+        type: "PurchaseOrder" as LedgerTxType,
+        docKey: `PurchaseOrder:${po.id}`,
+      });
+    });
+
+    // PurchaseEntry
+    purchaseEntries.forEach((pe) => {
+      if (norm(pe.partyName) !== selectedPartyKey) return;
+      const { debit, credit } = getDrCr("PurchaseEntry", toNum(pe.amount));
+      addEvent({
+        id: pe.id,
+        date: String(pe.date || "").slice(0, 10),
+        partyName: pe.partyName,
+        brokerName: "",
+        orderNo: String(pe.challanNo || ""),
+        mode: "",
+        debit,
+        credit,
+        type: "PurchaseEntry" as LedgerTxType,
+        docKey: `PurchaseEntry:${pe.id}`,
+      });
+    });
+
+    // PurchaseReturn
+    purchaseReturns.forEach((pr) => {
+      if (norm(pr.partyName) !== selectedPartyKey) return;
+      const { debit, credit } = getDrCr("PurchaseReturn", toNum(pr.amount));
+      addEvent({
+        id: pr.id,
+        date: String(pr.date || "").slice(0, 10),
+        partyName: pr.partyName,
+        brokerName: "",
+        orderNo: String(pr.challanNo || ""),
+        mode: "",
+        debit,
+        credit,
+        type: "PurchaseReturn" as LedgerTxType,
+        docKey: `PurchaseReturn:${pr.id}`,
+      });
+    });
+
+    // JobInward
+    jobInwards.forEach((ji) => {
+      if (norm(ji.partyName) !== selectedPartyKey) return;
+      const { debit, credit } = getDrCr("JobInward", toNum(ji.amount));
+      addEvent({
+        id: typeof ji.id === "number" ? ji.id : hashToInt(String(ji.id)),
+        date: String(ji.date || "").slice(0, 10),
+        partyName: ji.partyName,
+        brokerName: "",
+        orderNo: String(ji.challanNo || ""),
+        mode: "",
+        debit,
+        credit,
+        type: "JobInward" as LedgerTxType,
+        docKey: `JobInward:${String(ji.id)}`,
+      });
+    });
+
+    // ✅ Existing Payments (settlement includes CASH + DISCOUNT) — Receipt.tsx party-payment inclusion logic
+    (savedRecords || []).forEach((p) => {
+      const paymentTo = String((p as any)?.paymentTo ?? "").trim();
+      const isPartyPayment = paymentTo ? paymentTo === "Party" : true;
+      if (!isPartyPayment) return;
+
+      if (norm((p as any)?.partyName || "") !== selectedPartyKey) return;
+
+      const totalSettle = toNum((p as any)?.amount) + toNum((p as any)?.discountAmount ?? 0);
+      const { debit, credit } = getDrCr("Payment", totalSettle);
+
+      addEvent({
+        id: Number((p as any)?.id),
+        date: String((p as any)?.paymentDate || (p as any)?.date || "").slice(0, 10),
+        partyName: String((p as any)?.partyName || "").trim(),
+        brokerName: "",
+        orderNo: `PAY-${(p as any)?.id}`,
+        mode: "",
+        debit,
+        credit,
+        type: "Payment" as LedgerTxType,
+        docKey: `Payment:${(p as any)?.id}`,
+      });
+    });
+
+    // Receipts (credit includes CASH + DISCOUNT)
+    receipts.forEach((r) => {
+      const receiptTo = String((r as any)?.receiptTo ?? (r as any)?.paymentTo ?? "").trim();
+      if (receiptTo && receiptTo !== "Party") return;
+      if (norm((r as any)?.partyName || "") !== selectedPartyKey) return;
+
+      const cash = toNum((r as any)?.amount ?? 0);
+      const disc = toNum((r as any)?.discountAmount ?? 0) || parseDiscountFromRemarks((r as any)?.remarks);
+      const totalCredit = cash + disc;
+
+      addEvent({
+        id: Number((r as any)?.id),
+        date: String((r as any)?.receiptDate || (r as any)?.paymentDate || (r as any)?.date || "").slice(0, 10),
+        partyName: String((r as any)?.partyName || "").trim(),
+        brokerName: "",
+        orderNo: `REC-${(r as any)?.id}`,
+        mode: "",
+        debit: 0,
+        credit: totalCredit,
+        type: "Receipt" as LedgerTxType,
+        docKey: `Receipt:${(r as any)?.id}`,
+      });
+    });
+
+    return events;
+  }, [
+    selectedPartyName,
+    selectedPartyKey,
+    asOfIso,
+    partyMasters,
+    dispatchChallans,
+    otherDispatchChallans,
+    purchaseOrders,
+    purchaseEntries,
+    purchaseReturns,
+    jobInwards,
+    receipts,
+    savedRecords,
+  ]);
+
+  const closingSignedAsOf = useMemo(
+    () => (ledgerEventsForParty || []).reduce((s, e) => s + toNum(e.debit) - toNum(e.credit), 0),
+    [ledgerEventsForParty],
+  );
+
+  const pendingSideMemo = useMemo<"DEBIT" | "CREDIT">(
+    () => (closingSignedAsOf >= 0 ? "DEBIT" : "CREDIT"),
+    [closingSignedAsOf],
+  );
+
   useEffect(() => {
-    loadProcesses();
-    loadEmployees();
-    loadSavedRecords();
-    loadPaymentModes();
-    loadSalarySources();
-    loadPartySources();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    setPendingSide(pendingSideMemo);
+  }, [pendingSideMemo]);
+
+  // ManualPaid statuses for bill side (same workflow)
+  const billDocKeysForStatus = useMemo(() => {
+    const keys = ledgerEventsForParty
+      .filter((e) => {
+        if (pendingSideMemo === "DEBIT") return toNum(e.debit) > 0;
+        return toNum(e.credit) > 0;
+      })
+      .map((e) => String(e.docKey || "").trim())
+      .filter(Boolean);
+
+    return Array.from(new Set(keys));
+  }, [ledgerEventsForParty, pendingSideMemo]);
+
+  const refreshManualPaidUserMap = useCallback(async (keys: string[]) => {
+    const uniqKeys = Array.from(new Set((keys || []).map((k) => String(k || "").trim()).filter(Boolean)));
+
+    if (!uniqKeys.length) {
+      setManualPaidUserMap(new Map());
+      return;
+    }
+
+    try {
+      const res = await api.post<LedgerBillStatusDTO[]>("/ledger-status/bulk-get", { keys: uniqKeys });
+      const arr = Array.isArray(res.data) ? res.data : [];
+      const m = new Map<string, boolean>();
+      for (const x of arr) {
+        const k = String((x as any)?.docKey ?? "").trim();
+        if (!k) continue;
+        m.set(k, !!(x as any)?.manualPaidUser);
+      }
+      setManualPaidUserMap(m);
+    } catch {
+      setManualPaidUserMap(new Map());
+    }
   }, []);
+
+    useEffect(() => {
+    refreshManualPaidUserMap(billDocKeysForStatus);
+  }, [billDocKeysForStatus, refreshManualPaidUserMap, ledgerVersion]);
+
+   useEffect(() => {
+    const h = () => setLedgerVersion((x) => x + 1);
+    window.addEventListener("ledger:changed", h);
+    return () => window.removeEventListener("ledger:changed", h);
+  }, []);
+
+  // Swap for CREDIT-side pending so FIFO engine stays single-source
+  const fifoEventsForCalc: BaseLedgerEvent[] = useMemo(() => {
+    if (pendingSideMemo === "DEBIT") return ledgerEventsForParty;
+    return ledgerEventsForParty.map((e) => ({ ...e, debit: toNum(e.credit), credit: toNum(e.debit) }));
+  }, [ledgerEventsForParty, pendingSideMemo]);
+
+  const fifoResult = useMemo(() => {
+    return computeLedgerFifo({
+      events: fifoEventsForCalc,
+      asOfDateIso: asOfIso,
+      manualPaidUserByDocKey: manualPaidUserMap,
+    });
+  }, [fifoEventsForCalc, asOfIso, manualPaidUserMap]);
+
+  const partialBillKeys = fifoResult.partialBillKeys;
+
+  const pendingBillsFifo: PendingEntryRow[] = useMemo(() => {
+    if (!selectedPartyName) return [];
+    return fifoResult.bills
+      .filter((b) => b.pending > 0.00001)
+      .filter((b) => !b.manualPaidEffective)
+      .map((b) => ({
+        rowKey: b.docKey,
+        docKey: b.docKey,
+        txType: (b.type as any) === "Opening" ? "Opening" : (b.type as any),
+        docNo: b.docNo || (b.type === "Opening" ? "OPENING" : "-"),
+        date: String(b.date || "").slice(0, 10),
+        chargeAmount: +toNum(b.original).toFixed(2),
+        pendingAmount: +toNum(b.pending).toFixed(2),
+      }));
+  }, [fifoResult.bills, selectedPartyName]);
+
+  const pendingTotal = useMemo(
+    () => pendingBillsFifo.reduce((s, r) => s + (Number(r.pendingAmount) || 0), 0),
+    [pendingBillsFifo],
+  );
+
+  // Modal totals
+  const modalPendingTotal = useMemo(
+    () => modalRows.reduce((s, r) => s + (Number(r.pendingAmount) || 0), 0),
+    [modalRows],
+  );
+
+  const selectedCashTotal = useMemo(() => {
+    let s = appliedCashTotal;
+    for (const r of pendingBillsFifo) {
+      const rt = String(receiveByKey[r.rowKey] ?? "").trim();
+      if (!rt || isPartialNumberText(rt)) continue;
+      s += toNum(rt);
+    }
+    return +s.toFixed(2);
+  }, [receiveByKey, pendingBillsFifo, appliedCashTotal]);
+
+  const selectedDiscountTotal = useMemo(() => {
+    let s = appliedDiscountTotal;
+    for (const r of pendingBillsFifo) {
+      const dt = String(discountByKey[r.rowKey] ?? "").trim();
+      if (!dt || isPartialNumberText(dt)) continue;
+      s += toNum(dt);
+    }
+    return +s.toFixed(2);
+  }, [discountByKey, pendingBillsFifo, appliedDiscountTotal]);
+
+  const selectedSettlementTotal = useMemo(
+    () => +(selectedCashTotal + selectedDiscountTotal).toFixed(2),
+    [selectedCashTotal, selectedDiscountTotal],
+  );
+
+  const setReceiveForRow = useCallback((rowKey: string, raw: string) => {
+    const clean = sanitizeDecimal(raw, { allowNegative: false, decimals: 2 });
+    setReceiveByKey((prev) => ({ ...prev, [rowKey]: clean }));
+  }, []);
+
+  const setDiscountForRow = useCallback((rowKey: string, raw: string) => {
+    const clean = sanitizeDecimal(raw, { allowNegative: false, decimals: 2 });
+    setDiscountByKey((prev) => ({ ...prev, [rowKey]: clean }));
+  }, []);
+
+  const applyAmountText = useCallback((raw: string) => {
+    const clean = sanitizeDecimal(raw, { allowNegative: false, decimals: 2 });
+    setAmountText(clean);
+    const num: number | "" = isPartialNumberText(clean) ? "" : Number(clean);
+    setFormData((prev) => ({ ...prev, amount: num }));
+  }, []);
+
+    const openPendingModal = useCallback(() => {
+    if (!pendingBillsFifo.length) {
+      Swal.fire("Info", "No pending entries found", "info");
+      return;
+    }
+
+    // ✅ DEBIT-side note (Payment cannot settle DEBIT-side pending; Receipt does)
+    if (pendingSideMemo === "DEBIT") {
+      Swal.fire(
+        "Info",
+        "Pending Side is DEBIT. Payment cannot settle these pending entries. Use Receipt to settle DEBIT-side pending.",
+        "info",
+      );
+    }
+
+    setModalRows(pendingBillsFifo.map((x) => ({ ...x })));
+    setReceiveByKey({});
+    setDiscountByKey({});
+    setAppliedCashTotal(0);
+    setAppliedDiscountTotal(0);
+    setShowPendingModal(true);
+  }, [pendingBillsFifo, pendingSideMemo]);
+
+   const applyNextForRow = useCallback(
+    (row: PendingEntryRow) => {
+      // ✅ only allow settlement when pending side is CREDIT (Payment)
+      if (pendingSideMemo === "DEBIT") {
+        Swal.fire("Info", "DEBIT-side pending cannot be settled by Payment. Use Receipt.", "info");
+        return;
+      }
+
+      const oldestKey = modalRows[0]?.rowKey || "";
+      if (oldestKey && row.rowKey !== oldestKey) {
+        Swal.fire("Info", "Please settle the oldest pending entry first (FIFO).", "info");
+        receiveInputRefs.current[oldestKey]?.focus();
+        return;
+      }
+
+      const recvTxt = (receiveByKey[row.rowKey] ?? "").trim();
+      const discTxt = (discountByKey[row.rowKey] ?? "").trim();
+
+      const recvPartial = isPartialNumberText(recvTxt);
+      const discPartial = isPartialNumberText(discTxt);
+
+      if ((recvTxt && recvPartial) || (discTxt && discPartial)) {
+        Swal.fire("Info", "Please complete partial Receive/Discount amount.", "info");
+        receiveInputRefs.current[row.rowKey]?.focus();
+        return;
+      }
+
+      let recv = recvTxt ? toNum(recvTxt) : 0;
+      let disc = discTxt ? toNum(discTxt) : 0;
+
+      // if both empty => full pending as cash
+      if (!recvTxt && !discTxt) {
+        recv = row.pendingAmount;
+        disc = 0;
+      }
+
+      // if cash empty but discount entered => cash = pending - discount
+      if (!recvTxt && disc > 0) {
+        recv = Math.max(0, row.pendingAmount - disc);
+      }
+
+      if (recv > row.pendingAmount) recv = row.pendingAmount;
+      if (disc > row.pendingAmount - recv) disc = row.pendingAmount - recv;
+
+      const totalSettle = +(recv + disc).toFixed(2);
+      if (totalSettle <= 0) {
+        Swal.fire("Info", "Enter Receive/Discount (> 0) or click Next empty for Full.", "info");
+        receiveInputRefs.current[row.rowKey]?.focus();
+        return;
+      }
+
+      // ✅ persist allocation totals (so Done never loses it)
+      setAppliedCashTotal((x) => +(x + recv).toFixed(2));
+      setAppliedDiscountTotal((x) => +(x + disc).toFixed(2));
+
+      // update modal rows
+      setModalRows((prev) => {
+        const next = prev
+          .map((r) => {
+            if (r.rowKey !== row.rowKey) return r;
+            const newPending = +(toNum(r.pendingAmount) - totalSettle).toFixed(2);
+            return { ...r, pendingAmount: Math.max(0, newPending) };
+          })
+          .filter((r) => r.pendingAmount > 0.00001);
+
+        nextFocusKeyRef.current = next[0]?.rowKey || "";
+        return next;
+      });
+
+      // clear inputs for row
+      setReceiveByKey((prev) => {
+        const next = { ...prev };
+        delete next[row.rowKey];
+        return next;
+      });
+      setDiscountByKey((prev) => {
+        const next = { ...prev };
+        delete next[row.rowKey];
+        return next;
+      });
+
+      setTimeout(() => {
+        const k = nextFocusKeyRef.current;
+        if (k) {
+          receiveInputRefs.current[k]?.focus();
+          receiveInputRefs.current[k]?.select?.();
+        } else {
+          focusAmount();
+        }
+      }, 0);
+    },
+    [receiveByKey, discountByKey, focusAmount, modalRows, pendingSideMemo],
+  );
+
+  const applySelectedTotalAndClose = useCallback(async () => {
+    if (pendingSideMemo === "DEBIT") {
+      Swal.fire("Info", "DEBIT-side pending cannot be settled by Payment. Use Receipt.", "info");
+      return;
+    }
+
+    // Validate partial texts
+    for (const r of modalRows) {
+      const rt = (receiveByKey[r.rowKey] ?? "").trim();
+      const dt = (discountByKey[r.rowKey] ?? "").trim();
+      if ((rt && isPartialNumberText(rt)) || (dt && isPartialNumberText(dt))) {
+        Swal.fire("Info", "Please complete partial Receive/Discount amount.", "info");
+        receiveInputRefs.current[r.rowKey]?.focus();
+        return;
+      }
+    }
+
+    // FIFO enforcement: cannot allocate to later rows if older still pending
+    const EPS = 1e-9;
+    let prevCleared = true;
+    for (let i = 0; i < modalRows.length; i++) {
+      const r = modalRows[i];
+      const rt = (receiveByKey[r.rowKey] ?? "").trim();
+      const dt = (discountByKey[r.rowKey] ?? "").trim();
+
+      let total = 0;
+      if (rt || dt) {
+        let recv = rt ? toNum(rt) : 0;
+        let disc = dt ? toNum(dt) : 0;
+
+        if (!rt && disc > 0) {
+          recv = Math.max(0, r.pendingAmount - disc);
+        }
+
+        if (recv > r.pendingAmount) recv = r.pendingAmount;
+        if (disc > r.pendingAmount - recv) disc = r.pendingAmount - recv;
+
+        total = +(recv + disc).toFixed(2);
+      }
+
+      if (total > EPS && !prevCleared) {
+        Swal.fire("Info", "FIFO rule: Please fully settle older pending entries first.", "info");
+        receiveInputRefs.current[modalRows[0].rowKey]?.focus();
+        return;
+      }
+
+      const left = +(r.pendingAmount - total).toFixed(2);
+      if (left > EPS) prevCleared = false;
+    }
+
+    // Apply allocations as payment totals (cash/discount)
+    let cashTotal = appliedCashTotal;
+    let discTotal = appliedDiscountTotal;
+
+    for (const r of modalRows) {
+      const rt = (receiveByKey[r.rowKey] ?? "").trim();
+      const dt = (discountByKey[r.rowKey] ?? "").trim();
+
+      if (!rt && !dt) continue;
+
+      let recv = rt ? toNum(rt) : 0;
+      let disc = dt ? toNum(dt) : 0;
+
+      if (!rt && disc > 0) {
+        recv = Math.max(0, r.pendingAmount - disc);
+      }
+
+      if (recv > r.pendingAmount) recv = r.pendingAmount;
+      if (disc > r.pendingAmount - recv) disc = r.pendingAmount - recv;
+
+      cashTotal += recv;
+      discTotal += disc;
+    }
+
+    cashTotal = +cashTotal.toFixed(2);
+    discTotal = +discTotal.toFixed(2);
+
+    const totalSettlement = +(cashTotal + discTotal).toFixed(2);
+    if (totalSettlement <= 0) {
+      Swal.fire("Info", "Enter Receive/Discount and click Done (or use Next/Full).", "info");
+      return;
+    }
+
+    // ✅ cap settlement to current FIFO pending total
+    const cap = Math.min(totalSettlement, pendingTotal);
+    if (cap < totalSettlement - 1e-6) {
+      const factor = cap / (totalSettlement || 1);
+      cashTotal = +(cashTotal * factor).toFixed(2);
+      discTotal = +(discTotal * factor).toFixed(2);
+    }
+
+    applyAmountText(cashTotal.toFixed(2));
+    setFormData((prev) => ({ ...prev, discountAmount: +discTotal.toFixed(2) }));
+
+    // preview pending after allocation (Payment settles CREDIT-side)
+    const pendingAfter = +(Math.max(0, pendingTotal - (cashTotal + discTotal))).toFixed(2);
+    const signed = pendingAfter > 0.00001 ? -pendingAfter : "";
+    const balVal: number | "" = signed === "" ? "" : Number(signed);
+
+    setFormData((prev) => ({ ...prev, balance: balVal }));
+    setBalanceText(balVal === "" ? "" : String(balVal));
+
+    setShowPendingModal(false);
+    focusAmount();
+  }, [
+    modalRows,
+    receiveByKey,
+    discountByKey,
+    pendingTotal,
+    pendingSideMemo,
+    applyAmountText,
+    focusAmount,
+    appliedCashTotal,
+    appliedDiscountTotal,
+  ]);
+
+  // ✅ Auto-open once after Party selection (exactly like Receipt module)
+  useEffect(() => {
+    if (editingId) return;
+    if (formData.paymentTo !== "Party") return;
+    if (!selectedPartyKey) return;
+
+    if (autoOpenedPartyRef.current === selectedPartyKey) return;
+
+    if (pendingBillsFifo.length > 0) {
+      autoOpenedPartyRef.current = selectedPartyKey;
+      openPendingModal();
+    }
+  }, [editingId, formData.paymentTo, selectedPartyKey, pendingBillsFifo.length, openPendingModal]);
 
   const loadProcesses = async () => {
     try {
@@ -422,6 +1188,50 @@ const PaymentForm: React.FC = () => {
       Swal.fire("Error", "Failed to load employees", "error");
     }
   };
+    useEffect(() => {
+    // ✅ Required for Party Pending (FIFO) + removes no-unused-vars warnings
+    loadProcesses();
+    loadEmployees();
+    loadPaymentModes();
+    loadSalarySources();
+    loadPartySources();
+    loadSavedRecords();
+  }, []);
+  useEffect(() => {
+  if (showEmployeeModal) {
+    setTimeout(() => employeeSearchRef.current?.focus(), 100);
+  }
+}, [showEmployeeModal]);
+
+useEffect(() => {
+  if (showPartyModal) {
+    setTimeout(() => partySearchRef.current?.focus(), 100);
+  }
+}, [showPartyModal]);
+
+useEffect(() => {
+  if (showProcessModal) {
+    setTimeout(() => processSearchRef.current?.focus(), 100);
+  }
+}, [showProcessModal]);
+    useEffect(() => {
+    const h = () => {
+      // ✅ Keep Party Pending sources in sync with AccountStatement/Receipt updates
+      loadPartySources();
+      loadSavedRecords();
+      loadSalarySources();
+    };
+
+    window.addEventListener("ledger:changed", h);
+    return () => window.removeEventListener("ledger:changed", h);
+  }, []);
+    useEffect(() => {
+    if (formData.paymentTo !== "Party") return;
+    if (!selectedPartyKey) return;
+
+    loadPartySources();
+    loadSavedRecords();
+  }, [formData.paymentTo, selectedPartyKey, asOfIso]);
 
   const loadPartyNames = async () => {
     try {
@@ -468,148 +1278,165 @@ const PaymentForm: React.FC = () => {
   };
 
   // -------- Party statement sources --------
-  const loadPartySources = async () => {
-    const safeGet = async <T,>(url: string): Promise<T> => {
-      try {
-        const res = await api.get<T>(url);
-        return res.data as T;
-      } catch {
-        return [] as any;
-      }
-    };
-
-    const safeGetReceipts = async (): Promise<any[]> => {
-      try {
-        const r1 = await api.get<any[]>("/recipt");
-        return Array.isArray(r1.data) ? r1.data : [];
-      } catch {
-        try {
-          const r2 = await api.get<any[]>("/receipt");
-          return Array.isArray(r2.data) ? r2.data : [];
-        } catch {
-          return [];
-        }
-      }
-    };
-
+const loadPartySources = async () => {
+  const safeGet = async <T,>(url: string): Promise<T> => {
     try {
-      setBalanceInfoLoading(true);
-
-      const [partyRaw, dcRaw, odcRaw, poRaw, peRaw, prRaw, jobInRaw] = await Promise.all([
-        safeGet<any[]>(routes.parties),
-        safeGet<any[]>(routes.dispatch),
-        safeGet<any[]>(routes.otherDispatch),
-        safeGet<any[]>(routes.purchaseOrders),
-        safeGet<any[]>(routes.purchaseEntry),
-        safeGet<any[]>(routes.purchaseReturns),
-        safeGet<any[]>(routes.jobInward),
-      ]);
-
-      const recRaw = await safeGetReceipts();
-
-      const partyArr = Array.isArray(partyRaw) ? partyRaw : [];
-      const partyIdToName = new Map<string, string>();
-      partyArr.forEach((p: any) => partyIdToName.set(String(p.id), String(p.partyName || "").trim()));
-
-      setDispatchChallans(
-        (Array.isArray(dcRaw) ? dcRaw : []).map((dc: any) => ({
-          id: Number(dc.id),
-          challanNo: String(dc.challanNo ?? ""),
-          date: dc.date || dc.dated || "",
-          dated: dc.dated,
-          partyName: String(dc.partyName ?? "").trim(),
-          netAmt: dc.netAmt,
-        }))
-      );
-
-      setOtherDispatchChallans(
-        (Array.isArray(odcRaw) ? odcRaw : []).map((od: any) => ({
-          id: Number(od.id),
-          challanNo: String(od.challanNo ?? ""),
-          date: od.date || "",
-          partyName: String(od.partyName ?? "").trim(),
-          netAmt: od.netAmt,
-        }))
-      );
-
-      setPurchaseOrders(
-        (Array.isArray(poRaw) ? poRaw : []).map((po: any) => {
-          const items: any[] = Array.isArray(po.items) ? po.items : [];
-          const amount = items.reduce((s, it) => s + (parseFloat(it.amount ?? 0) || 0), 0);
-          return {
-            id: Number(po.id),
-            orderNo: String(po.orderNo ?? ""),
-            date: po.date || "",
-            partyName: String(po.partyName || po.party?.partyName || "").trim(),
-            amount,
-          };
-        })
-      );
-
-      setPurchaseEntries(
-        (Array.isArray(peRaw) ? peRaw : []).map((e: any) => {
-          const items: any[] = Array.isArray(e.items) ? e.items : [];
-          const amount = items.reduce((s, it) => s + (parseFloat(it.amount ?? 0) || 0), 0);
-          return {
-            id: Number(e.id),
-            challanNo: String(e.challanNo ?? ""),
-            date: e.date || "",
-            partyName: String(e.partyName || e.party?.partyName || "").trim(),
-            amount,
-          };
-        })
-      );
-
-      setPurchaseReturns(
-        (Array.isArray(prRaw) ? prRaw : []).map((r: any) => {
-          const items: any[] = Array.isArray(r.items) ? r.items : [];
-          const amount = items.reduce((s, it) => s + (parseFloat(it.amount ?? 0) || 0), 0);
-          return {
-            id: Number(r.id),
-            challanNo: String(r.challanNo ?? ""),
-            date: r.date || "",
-            partyName: String(r.partyName || r.party?.partyName || "").trim(),
-            amount,
-          };
-        })
-      );
-
-      setJobInwards(
-        (Array.isArray(jobInRaw) ? jobInRaw : [])
-          .map((d: any) => {
-            const rows: any[] = Array.isArray(d.rows) ? d.rows : [];
-            const amount = rows.reduce((s, r) => s + (Number(r.amount) || 0), 0);
-            const partyName = String(d.partyName ?? "").trim() || partyIdToName.get(String(d.partyId ?? "")) || "";
-            return {
-              id: d.id ?? "",
-              challanNo: String(d.challanNo ?? ""),
-              date: String(d.date ?? ""),
-              partyName,
-              amount,
-            } as JobInwardDoc;
-          })
-          .filter((x) => x.partyName && x.date)
-      );
-
-      setReceipts(
-        (Array.isArray(recRaw) ? recRaw : []).map((r: any) => ({
-          id: Number(r.id),
-          receiptTo: String(r.receiptTo ?? r.paymentTo ?? "").trim(),
-          paymentTo: String(r.paymentTo ?? "").trim(),
-          receiptDate: r.receiptDate || r.paymentDate || r.date || "",
-          paymentDate: r.paymentDate || "",
-          date: r.date || "",
-          partyName: String(r.partyName ?? "").trim(),
-          amount: r.amount ?? 0,
-          paymentThrough: String(r.paymentThrough ?? "").trim(),
-        }))
-      );
-    } catch (e) {
-      console.error("Failed to load party statement sources:", e);
-    } finally {
-      setBalanceInfoLoading(false);
+      const res = await api.get<T>(url);
+      return res.data as T;
+    } catch {
+      return [] as any;
     }
   };
+  
+
+  const safeGetReceipts = async (): Promise<any[]> => {
+    try {
+      const r1 = await api.get<any[]>("/recipt");
+      return Array.isArray(r1.data) ? r1.data : [];
+    } catch {
+      try {
+        const r2 = await api.get<any[]>("/receipt");
+        return Array.isArray(r2.data) ? r2.data : [];
+      } catch {
+        return [];
+      }
+    }
+  };
+
+  try {
+    setBalanceInfoLoading(true);
+
+    const [partyRaw, dcRaw, odcRaw, poRaw, peRaw, prRaw, jobInRaw] = await Promise.all([
+      safeGet<any[]>(routes.parties),
+      safeGet<any[]>(routes.dispatch),
+      safeGet<any[]>(routes.otherDispatch),
+      safeGet<any[]>(routes.purchaseOrders),
+      safeGet<any[]>(routes.purchaseEntry),
+      safeGet<any[]>(routes.purchaseReturns),
+      safeGet<any[]>(routes.jobInward),
+    ]);
+
+    const recRaw = await safeGetReceipts();
+
+    const partyArr = Array.isArray(partyRaw) ? partyRaw : [];
+
+    // ✅ Party masters for Opening (FIFO)
+    setPartyMasters(
+      partyArr
+        .map((p: any) => ({
+          id: Number(p.id),
+          partyName: String(p.partyName ?? "").trim(),
+          openingBalance: p.openingBalance == null ? null : Number(p.openingBalance),
+          openingBalanceType: (String(p.openingBalanceType ?? "DR").toUpperCase() as BalanceType) || "DR",
+        }))
+        .filter((x: any) => Number.isFinite(x.id) && x.partyName),
+    );
+
+    const partyIdToName = new Map<string, string>();
+    partyArr.forEach((p: any) => partyIdToName.set(String(p.id), String(p.partyName || "").trim()));
+
+    setDispatchChallans(
+      (Array.isArray(dcRaw) ? dcRaw : []).map((dc: any) => ({
+        id: Number(dc.id),
+        challanNo: String(dc.challanNo ?? ""),
+        date: dc.date || dc.dated || "",
+        dated: dc.dated,
+        partyName: String(dc.partyName ?? "").trim(),
+        netAmt: dc.netAmt,
+      })),
+    );
+
+    setOtherDispatchChallans(
+      (Array.isArray(odcRaw) ? odcRaw : []).map((od: any) => ({
+        id: Number(od.id),
+        challanNo: String(od.challanNo ?? ""),
+        date: od.date || "",
+        partyName: String(od.partyName ?? "").trim(),
+        netAmt: od.netAmt,
+      })),
+    );
+
+    setPurchaseOrders(
+      (Array.isArray(poRaw) ? poRaw : []).map((po: any) => {
+        const items: any[] = Array.isArray(po.items) ? po.items : [];
+        const amount = items.reduce((s, it) => s + (parseFloat(it.amount ?? 0) || 0), 0);
+        return {
+          id: Number(po.id),
+          orderNo: String(po.orderNo ?? ""),
+          date: po.date || "",
+          partyName: String(po.partyName || po.party?.partyName || "").trim(),
+          amount,
+        };
+      }),
+    );
+
+    setPurchaseEntries(
+      (Array.isArray(peRaw) ? peRaw : []).map((e: any) => {
+        const items: any[] = Array.isArray(e.items) ? e.items : [];
+        const amount = items.reduce((s, it) => s + (parseFloat(it.amount ?? 0) || 0), 0);
+        return {
+          id: Number(e.id),
+          challanNo: String(e.challanNo ?? ""),
+          date: e.date || "",
+          partyName: String(e.partyName || e.party?.partyName || "").trim(),
+          amount,
+        };
+      }),
+    );
+
+    setPurchaseReturns(
+      (Array.isArray(prRaw) ? prRaw : []).map((r: any) => {
+        const items: any[] = Array.isArray(r.items) ? r.items : [];
+        const amount = items.reduce((s, it) => s + (parseFloat(it.amount ?? 0) || 0), 0);
+        return {
+          id: Number(r.id),
+          challanNo: String(r.challanNo ?? ""),
+          date: r.date || "",
+          partyName: String(r.partyName || r.party?.partyName || "").trim(),
+          amount,
+        };
+      }),
+    );
+
+    setJobInwards(
+      (Array.isArray(jobInRaw) ? jobInRaw : [])
+        .map((d: any) => {
+          const rows: any[] = Array.isArray(d.rows) ? d.rows : [];
+          const amount = rows.reduce((s, r) => s + (Number(r.amount) || 0), 0);
+          const partyName = String(d.partyName ?? "").trim() || partyIdToName.get(String(d.partyId ?? "")) || "";
+          return {
+            id: d.id ?? "",
+            challanNo: String(d.challanNo ?? ""),
+            date: String(d.date ?? ""),
+            partyName,
+            amount,
+          } as JobInwardDoc;
+        })
+        .filter((x) => x.partyName && x.date),
+    );
+
+    // ✅ Receipts must include discount + remarks (FIFO credit = cash + discount)
+    setReceipts(
+      (Array.isArray(recRaw) ? recRaw : []).map((r: any) => ({
+        id: Number(r.id),
+        receiptTo: String(r.receiptTo ?? r.paymentTo ?? "").trim(),
+        paymentTo: String(r.paymentTo ?? "").trim(),
+        receiptDate: r.receiptDate || r.paymentDate || r.date || "",
+        paymentDate: r.paymentDate || "",
+        date: r.date || "",
+        partyName: String(r.partyName ?? "").trim(),
+        amount: r.amount ?? 0,
+        discountAmount: r.discountAmount ?? 0,
+        remarks: String(r.remarks ?? ""),
+        paymentThrough: String(r.paymentThrough ?? "").trim(),
+      })),
+    );
+  } catch (e) {
+    console.error("Failed to load party statement sources:", e);
+  } finally {
+    setBalanceInfoLoading(false);
+  }
+};
 
   // ================= Flatten salary (employee) =================
   const salaryRows = useMemo(() => {
@@ -704,104 +1531,172 @@ const PaymentForm: React.FC = () => {
   }, [formData.paymentTo, formData.partyName, formData.paymentDate, savedRecords, salaryRows, selectedEmployee, today]);
 
   // ================= Party Balance =================
-  const computedPartyBalance = useMemo(() => {
-    if (formData.paymentTo !== "Party") return null;
+ const computedPartyBalance = useMemo(() => {
+  if (formData.paymentTo !== "Party") return null;
 
-    const partyName = String(formData.partyName || "").trim();
-    if (!partyName) return null;
+  const partyName = String(formData.partyName || "").trim();
+  if (!partyName) return null;
 
-    const toISO = formData.paymentDate || today;
-    const toT = parseYMDLocalToTS(toISO) + 24 * 60 * 60 * 1000 - 1;
-    if (!Number.isFinite(toT)) return null;
+  const toISO = formData.paymentDate || today;
+  const toT = parseYMDLocalToTS(toISO) + 24 * 60 * 60 * 1000 - 1;
+  if (!Number.isFinite(toT)) return null;
 
-    const partyLower = partyName.toLowerCase();
-    let signed = 0;
+  const partyLower = partyName.toLowerCase();
+  let signed = 0;
 
-    const add = (type: TxType, dateVal: any, amt: any, party: any) => {
-      if (norm(party) !== partyLower) return;
-      const tt = parseAnyDateToLocalDayTS(dateVal);
-      if (!Number.isFinite(tt) || tt > toT) return;
-      const { debit, credit } = getDrCr(type, toNum(amt));
-      signed += debit - credit;
-    };
+  const add = (type: TxType, dateVal: any, amt: any, party: any) => {
+    if (norm(party) !== partyLower) return;
+    const tt = parseAnyDateToLocalDayTS(dateVal);
+    if (!Number.isFinite(tt) || tt > toT) return;
+    const { debit, credit } = getDrCr(type, toNum(amt));
+    signed += debit - credit;
+  };
 
-    dispatchChallans.forEach((d) => add("Dispatch", d.date || d.dated || "", d.netAmt, d.partyName));
-    otherDispatchChallans.forEach((d) => add("OtherDispatch", d.date || "", d.netAmt, d.partyName));
-    purchaseOrders.forEach((d) => add("PurchaseOrder", d.date || "", d.amount, d.partyName));
-    purchaseEntries.forEach((d) => add("PurchaseEntry", d.date || "", d.amount, d.partyName));
-    purchaseReturns.forEach((d) => add("PurchaseReturn", d.date || "", d.amount, d.partyName));
-    jobInwards.forEach((d) => add("JobInward", d.date || "", d.amount, d.partyName));
+  dispatchChallans.forEach((d) => add("Dispatch", d.date || d.dated || "", d.netAmt, d.partyName));
+  otherDispatchChallans.forEach((d) => add("OtherDispatch", d.date || "", d.netAmt, d.partyName));
+  purchaseOrders.forEach((d) => add("PurchaseOrder", d.date || "", d.amount, d.partyName));
+  purchaseEntries.forEach((d) => add("PurchaseEntry", d.date || "", d.amount, d.partyName));
+  purchaseReturns.forEach((d) => add("PurchaseReturn", d.date || "", d.amount, d.partyName));
+  jobInwards.forEach((d) => add("JobInward", d.date || "", d.amount, d.partyName));
 
-    const partyPayments = (Array.isArray(savedRecords) ? savedRecords : []).filter(
-      (p) => String(p.paymentTo || "").trim() === "Party"
-    );
-    partyPayments.forEach((p) => add("Payment", p.paymentDate ?? p.date ?? "", p.amount, p.partyName));
+  // ✅ Party Payments: settlement = CASH + DISCOUNT
+  const partyPayments = (Array.isArray(savedRecords) ? savedRecords : []).filter(
+    (p) => String(p.paymentTo || "").trim() === "Party",
+  );
+  partyPayments.forEach((p: any) => {
+    const total = toNum(p.amount) + toNum(p.discountAmount ?? 0);
+    add("Payment", p.paymentDate ?? p.date ?? "", total, p.partyName);
+  });
 
-    receipts.forEach((r) => {
-      const receiptTo = String(r.receiptTo ?? r.paymentTo ?? "").trim();
-      if (receiptTo && receiptTo !== "Party") return;
-      add("Receipt", r.receiptDate ?? r.paymentDate ?? r.date ?? "", r.amount, r.partyName);
-    });
+  // ✅ Party Receipts: credit = CASH + DISCOUNT (if present)
+  receipts.forEach((r: any) => {
+    const receiptTo = String(r.receiptTo ?? r.paymentTo ?? "").trim();
+    if (receiptTo && receiptTo !== "Party") return;
 
-    signed = round2(signed);
-    const drcr = drCrLabel(signed);
+    const totalCredit = toNum(r.amount ?? 0) + (toNum(r.discountAmount ?? 0) || parseDiscountFromRemarks(r.remarks));
+    add("Receipt", r.receiptDate ?? r.paymentDate ?? r.date ?? "", totalCredit, r.partyName);
+  });
 
-    return {
-      asOn: toISO,
-      signedBalance: signed,
-      display: drcr.text,
-    };
-  }, [
-    formData.paymentTo,
-    formData.partyName,
-    formData.paymentDate,
-    today,
-    dispatchChallans,
-    otherDispatchChallans,
-    purchaseOrders,
-    purchaseEntries,
-    purchaseReturns,
-    jobInwards,
-    savedRecords,
-    receipts,
-  ]);
+  signed = round2(signed);
+  const drcr = drCrLabel(signed);
+
+  return {
+    asOn: toISO,
+    signedBalance: signed,
+    display: drcr.text,
+  };
+}, [
+  formData.paymentTo,
+  formData.partyName,
+  formData.paymentDate,
+  today,
+  dispatchChallans,
+  otherDispatchChallans,
+  purchaseOrders,
+  purchaseEntries,
+  purchaseReturns,
+  jobInwards,
+  savedRecords,
+  receipts,
+]);
 
   // auto-fill balance
   useEffect(() => {
-    if (formData.paymentTo === "Employee" && computedEmployeeNet) {
-      setFormData((prev) => ({ ...prev, balance: computedEmployeeNet.netSigned }));
-      return;
-    }
-    if (formData.paymentTo === "Party" && computedPartyBalance) {
-      setFormData((prev) => ({ ...prev, balance: computedPartyBalance.signedBalance }));
-      return;
-    }
-  }, [computedEmployeeNet, computedPartyBalance, formData.paymentTo]);
+  // ✅ Employee stays unchanged
+  if (formData.paymentTo === "Employee" && computedEmployeeNet) {
+    setFormData((prev) => ({ ...prev, balance: computedEmployeeNet.netSigned }));
+    return;
+  }
 
+  // ✅ Party: behave like Receipt module, but with Payment semantics:
+  // - If pending side is CREDIT: Payment reduces pending
+  // - If pending side is DEBIT: Payment increases pending (cannot "settle" DEBIT-side)
+  if (formData.paymentTo === "Party") {
+    const cash = formData.amount === "" ? 0 : Number(formData.amount || 0);
+    const disc = Number(formData.discountAmount || 0);
+    const settle = +(cash + disc).toFixed(2);
+
+    const base = Number(pendingTotal || 0);
+
+    const nextPending =
+      pendingSideMemo === "CREDIT"
+        ? +(Math.max(0, base - settle)).toFixed(2)
+        : +(base + settle).toFixed(2);
+
+    const signed = pendingSideMemo === "DEBIT" ? nextPending : -nextPending;
+    const balVal: number | "" = Math.abs(signed) > 0.00001 ? signed : "";
+
+    setFormData((prev) => ({ ...prev, balance: balVal }));
+    return;
+  }
+
+  // Other: keep as-is (manual input allowed)
+}, [formData.paymentTo, formData.amount, formData.discountAmount, pendingTotal, pendingSideMemo, computedEmployeeNet]);
   const balanceDisplayText = useMemo(() => {
-    if (formData.paymentTo === "Party" && computedPartyBalance) return computedPartyBalance.display;
-    if (formData.paymentTo === "Employee" && computedEmployeeNet) return drCrLabel(computedEmployeeNet.netSigned).text;
-    if (typeof formData.balance === "number") return fmt2(formData.balance);
-    return formData.balance === "" ? "" : String(formData.balance);
-  }, [formData.paymentTo, computedPartyBalance, computedEmployeeNet, formData.balance]);
+  if (formData.paymentTo === "Party") {
+    const n = formData.balance === "" ? 0 : Number(formData.balance || 0);
+    return drCrLabel(n).text;
+  }
+
+  if (formData.paymentTo === "Employee" && computedEmployeeNet) {
+    return drCrLabel(computedEmployeeNet.netSigned).text;
+  }
+
+  if (typeof formData.balance === "number") return fmt2(formData.balance);
+  return formData.balance === "" ? "" : String(formData.balance);
+}, [formData.paymentTo, formData.balance, computedEmployeeNet]);
 
   const amountInWords = useMemo(() => amountToWordsINR(formData.amount), [formData.amount]);
 
   // ================= Input change =================
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
 
     if (name === "paymentTo") {
       setSelectedEmployee(null);
+
       setFormData((prev) => ({
         ...prev,
         paymentTo: value as PaymentToType,
         partyName: "",
         balance: "",
         amount: "",
+        discountAmount: 0,
       }));
+
       setAmountText("");
       setBalanceText("");
+
+      // ✅ reset pending modal state when switching type
+      setShowPendingModal(false);
+      setModalRows([]);
+      setReceiveByKey({});
+      setDiscountByKey({});
+      setAppliedCashTotal(0);
+      setAppliedDiscountTotal(0);
+      autoOpenedPartyRef.current = "";
+
+      return;
+    }
+
+    // ✅ match Receipt.tsx date clamping behavior
+    if (name === "paymentDate") {
+      setFormData((prev) => {
+        const fromDate = value;
+        let toDate = prev.date;
+        if (!toDate || toDate < fromDate) toDate = fromDate;
+        return { ...prev, paymentDate: fromDate, date: toDate };
+      });
+      return;
+    }
+
+    if (name === "date") {
+      setFormData((prev) => {
+        const fromDate = prev.paymentDate;
+        let toDate = value;
+        if (fromDate && toDate < fromDate) toDate = fromDate;
+        return { ...prev, date: toDate };
+      });
       return;
     }
 
@@ -858,10 +1753,36 @@ const PaymentForm: React.FC = () => {
     setShowEmployeeModal(false);
   };
 
-  const selectParty = (name: string) => {
+    const selectParty = (name: string) => {
+    const partyName = String(name || "").trim();
+
     setSelectedEmployee(null);
-    setFormData((prev) => ({ ...prev, partyName: name || "" }));
+
+    setFormData((prev) => ({
+      ...prev,
+      partyName,
+      amount: "",
+      discountAmount: 0,
+      balance: "",
+    }));
+
+    setAmountText("");
+    setBalanceText("");
     setShowPartyModal(false);
+
+    // ✅ reset modal state
+    setShowPendingModal(false);
+    setModalRows([]);
+    setReceiveByKey({});
+    setDiscountByKey({});
+    setAppliedCashTotal(0);
+    setAppliedDiscountTotal(0);
+
+    // ✅ allow effect to auto-open for new party
+    autoOpenedPartyRef.current = "";
+
+    // ✅ match Receipt focus behavior
+    focusAmount();
   };
 
   // ================= Filters =================
@@ -897,58 +1818,94 @@ const PaymentForm: React.FC = () => {
 
   // ================= Payload =================
   const buildPayload = () => {
-    const payload: any = {
-      paymentTo: formData.paymentTo,
-      paymentDate: formData.paymentDate,
-      date: formData.date,
-      processName: formData.processName,
-      paymentThrough: formData.paymentThrough,
-      amount: formData.amount === "" ? null : formData.amount,
-      balance: formData.balance === "" ? null : formData.balance,
-      remarks: formData.remarks,
-      partyName: formData.paymentTo !== "Employee" ? formData.partyName : "",
-      employeeName: formData.paymentTo === "Employee" ? formData.partyName : "",
-    };
+  const payload: any = {
+    paymentTo: formData.paymentTo,
+    paymentDate: formData.paymentDate,
+    date: formData.date,
+    processName: formData.processName,
+    paymentThrough: formData.paymentThrough,
 
-    if (formData.paymentTo === "Employee" && selectedEmployee?.code) {
-      payload.employeeCode = selectedEmployee.code;
-    }
-    return payload;
+    amount: formData.amount === "" ? 0 : Number(formData.amount || 0), // ✅ CASH (backend @NotNull)
+    discountAmount: Number(formData.discountAmount || 0),              // ✅ DISCOUNT (backend @NotNull)
+
+    balance: formData.balance === "" ? null : formData.balance,
+    remarks: formData.remarks,
+
+    partyName: formData.paymentTo !== "Employee" ? formData.partyName : "",
+    employeeName: formData.paymentTo === "Employee" ? formData.partyName : "",
   };
 
-  const handleSave = async () => {
-    const payload = buildPayload();
+  if (formData.paymentTo === "Employee" && selectedEmployee?.code) {
+    payload.employeeCode = selectedEmployee.code;
+  }
+  return payload;
+};
 
-    try {
-      if (editingId) {
-        await api.put(routes.update(editingId), payload);
-        Swal.fire("Success", "Payment updated!", "success");
-      } else {
-        await api.post(routes.create, payload);
-        Swal.fire("Success", "Payment saved successfully!", "success");
+ const handleSave = async () => {
+  if (saving) return;
+setSaving(true);
+  const payload = buildPayload();
+
+  try {
+    // ✅ Party validation (CREDIT-side pending settlement only)
+    if (formData.paymentTo === "Party") {
+      const cash = formData.amount === "" ? 0 : Number(formData.amount || 0);
+      const disc = Number(formData.discountAmount || 0);
+      const settle = +(cash + disc).toFixed(2);
+
+      if (settle <= 0) {
+        Swal.fire("Error", "Please enter amount (> 0)", "error");
+        return;
       }
-      setEditingId(null);
-      handleAddNew(false);
-      loadSavedRecords();
-    } catch (error: any) {
-      console.error("Error saving payment:", error);
 
-      const status = error?.response?.status;
-      const serverMsg =
-        error?.response?.data?.message ||
-        error?.response?.data?.error ||
-        (typeof error?.response?.data === "string" ? error.response.data : "") ||
-        error?.message;
-
-      Swal.fire(
-        "Error",
-        serverMsg
-          ? `${serverMsg}${status ? ` (HTTP ${status})` : ""}`
-          : `Failed to save${status ? ` (HTTP ${status})` : ""}`,
-        "error"
-      );
+      // When pending side is CREDIT, Payment is meant to settle it => cap to FIFO pending
+      if (pendingSideMemo === "CREDIT") {
+        const base = Number(pendingTotal || 0);
+        if (settle > base + 0.00001) {
+          Swal.fire("Error", `Payment (Cash + Discount) cannot exceed total pending (${fmt2(base)}).`, "error");
+          return;
+        }
+      }
     }
-  };
+
+    if (editingId) {
+      await api.put(routes.update(editingId), payload);
+      Swal.fire("Success", "Payment updated!", "success");
+    } else {
+      await api.post(routes.create, payload);
+      Swal.fire("Success", "Payment saved successfully!", "success");
+    }
+
+    // ✅ refresh local + notify all ledger screens (AccountStatement, etc.)
+    await loadSavedRecords();
+    try {
+      window.dispatchEvent(new Event("ledger:changed"));
+    } catch {}
+
+    setEditingId(null);
+    handleAddNew(false);
+  } catch (error: any) {
+    console.error("Error saving payment:", error);
+
+    const status = error?.response?.status;
+    const serverMsg =
+      error?.response?.data?.message ||
+      error?.response?.data?.error ||
+      (typeof error?.response?.data === "string" ? error.response.data : "") ||
+      error?.message;
+
+    Swal.fire(
+      "Error",
+      serverMsg
+        ? `${serverMsg}${status ? ` (HTTP ${status})` : ""}`
+        : `Failed to save${status ? ` (HTTP ${status})` : ""}`,
+      "error",
+    );
+  }
+  finally {
+   setSaving(false);
+}
+};
 
   const openList = async () => {
     try {
@@ -962,26 +1919,37 @@ const PaymentForm: React.FC = () => {
     }
   };
 
-  const handleEdit = async (id: number) => {
+    const handleEdit = async (id: number) => {
     try {
       const res = await api.get(routes.get(id));
       const rec: PaymentRecord = res.data;
 
-      const partyOrEmpName = rec.paymentTo === "Employee" ? String(rec.employeeName || "") : String(rec.partyName || "");
+      const fromDate = rec.paymentDate || today;
+      const toDate = rec.date && rec.date >= fromDate ? rec.date : fromDate;
 
-      const amtNum = rec.amount === undefined || rec.amount === null || rec.amount === "" ? "" : Number(rec.amount);
-      const balNum = rec.balance === undefined || rec.balance === null || rec.balance === "" ? "" : Number(rec.balance);
+      const partyOrEmpName =
+        rec.paymentTo === "Employee" ? String(rec.employeeName || "") : String(rec.partyName || "");
+
+      const amtNum =
+        rec.amount === undefined || rec.amount === null || rec.amount === "" ? "" : Number(rec.amount);
+      const discNum =
+        rec.discountAmount === undefined || rec.discountAmount === null || rec.discountAmount === ""
+          ? 0
+          : Number(rec.discountAmount);
+      const balNum =
+        rec.balance === undefined || rec.balance === null || rec.balance === "" ? "" : Number(rec.balance);
 
       setFormData({
         paymentTo: (rec.paymentTo as PaymentToType) || "",
-        paymentDate: rec.paymentDate || today,
+        paymentDate: fromDate,
+        date: toDate,
         processName: rec.processName || "",
         partyName: partyOrEmpName,
         paymentThrough: rec.paymentThrough || "Cash",
         amount: amtNum,
+        discountAmount: Number.isFinite(discNum) ? discNum : 0,
         balance: balNum,
         remarks: rec.remarks || "",
-        date: rec.date || today,
       });
 
       setAmountText(amtNum === "" ? "" : String(amtNum));
@@ -998,64 +1966,92 @@ const PaymentForm: React.FC = () => {
 
       setEditingId(id);
       setShowList(false);
+
+      // ✅ reset pending modal state (Receipt behavior)
+      setShowPendingModal(false);
+      setModalRows([]);
+      setReceiveByKey({});
+      setDiscountByKey({});
+      setAppliedCashTotal(0);
+      setAppliedDiscountTotal(0);
+      autoOpenedPartyRef.current = "";
     } catch (err) {
       console.error("Edit Error:", err);
       Swal.fire("Error", "Failed to load record", "error");
     }
   };
 
-  const handleDelete = async (id?: number) => {
-    const targetId = id ?? editingId;
-    if (!targetId) {
-      Swal.fire("Info", "No record selected to delete", "info");
-      return;
+ const handleDelete = async (id?: number) => {
+  const targetId = id ?? editingId;
+  if (!targetId) {
+    Swal.fire("Info", "No record selected to delete", "info");
+    return;
+  }
+
+  const result = await Swal.fire({
+    title: "Delete?",
+    text: "This will delete the record permanently",
+    icon: "warning",
+    showCancelButton: true,
+    confirmButtonText: "Yes, delete it!",
+    confirmButtonColor: "#d33",
+  });
+
+  if (!result.isConfirmed) return;
+
+  try {
+    await api.delete(routes.delete(targetId));
+    setPaymentList((prev) => prev.filter((x) => x.id !== targetId));
+
+    if (editingId === targetId) {
+      setEditingId(null);
+      handleAddNew(false);
     }
 
-    const result = await Swal.fire({
-      title: "Delete?",
-      text: "This will delete the record permanently",
-      icon: "warning",
-      showCancelButton: true,
-      confirmButtonText: "Yes, delete it!",
-      confirmButtonColor: "#d33",
-    });
+    Swal.fire("Deleted!", "Record deleted successfully", "success");
 
-    if (result.isConfirmed) {
-      try {
-        await api.delete(routes.delete(targetId));
-        setPaymentList((prev) => prev.filter((x) => x.id !== targetId));
-        if (editingId === targetId) {
-          setEditingId(null);
-          handleAddNew(false);
-        }
-        Swal.fire("Deleted!", "Record deleted successfully", "success");
-        loadSavedRecords();
-      } catch (err) {
-        console.error("Delete Error:", err);
-        Swal.fire("Error", "Delete failed", "error");
-      }
-    }
-  };
+    await loadSavedRecords();
 
-  const handleAddNew = (showToast = true) => {
-    setSelectedEmployee(null);
-    setFormData({
-      paymentTo: "",
-      paymentDate: today,
-      processName: "",
-      partyName: "",
-      paymentThrough: "Cash",
-      amount: "",
-      balance: "",
-      remarks: "",
-      date: today,
-    });
-    setAmountText("");
-    setBalanceText("");
-    setEditingId(null);
-    if (showToast) Swal.fire("Cleared", "Ready for new entry", "success");
-  };
+    // ✅ notify ledger screens
+    try {
+      window.dispatchEvent(new Event("ledger:changed"));
+    } catch {}
+  } catch (err) {
+    console.error("Delete Error:", err);
+    Swal.fire("Error", "Delete failed", "error");
+  }
+};
 
+ const handleAddNew = (showToast = true) => {
+  setSelectedEmployee(null);
+  setFormData({
+    paymentTo: "",
+    paymentDate: today,
+    processName: "",
+    partyName: "",
+    paymentThrough: "Cash",
+    amount: "",
+    discountAmount: 0,
+    balance: "",
+    remarks: "",
+    date: today,
+  });
+
+  setAmountText("");
+  setBalanceText("");
+  setEditingId(null);
+
+  // ✅ reset pending modal state
+  setShowPendingModal(false);
+  setModalRows([]);
+  setReceiveByKey({});
+  setDiscountByKey({});
+  setAppliedCashTotal(0);
+  setAppliedDiscountTotal(0);
+  autoOpenedPartyRef.current = "";
+
+  if (showToast) Swal.fire("Cleared", "Ready for new entry", "success");
+};
   const isNameReadOnly = formData.paymentTo === "Party" || formData.paymentTo === "Employee";
   const isBalanceAuto = formData.paymentTo === "Employee" || formData.paymentTo === "Party";
 
@@ -1228,7 +2224,7 @@ const PaymentForm: React.FC = () => {
               />
             </div>
 
-            <div className="col-span-2">
+                        <div className="col-span-2">
               <label className="block mb-1 font-semibold">Party / Employee Name</label>
               <input
                 type="text"
@@ -1242,6 +2238,23 @@ const PaymentForm: React.FC = () => {
                   isNameReadOnly ? "cursor-pointer bg-gray-50 hover:bg-gray-100" : "bg-white"
                 }`}
               />
+
+              {formData.paymentTo === "Party" && formData.partyName ? (
+                <div className="mt-2 flex items-center justify-between gap-2">
+                  <div className="text-xs text-gray-600">
+                    Pending (FIFO) (as on {asOfIso}) <span className="text-gray-500">[{pendingSide}]</span>:{" "}
+                    <b>{fmt2(pendingTotal)}</b> {pendingBillsFifo.length ? <span>({pendingBillsFifo.length} entries)</span> : null}
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={openPendingModal}
+                    className="px-3 py-1 text-xs bg-indigo-600 text-white rounded hover:bg-indigo-700"
+                  >
+                    View Pending
+                  </button>
+                </div>
+              ) : null}
             </div>
 
             <div className="col-span-2">
@@ -1265,9 +2278,10 @@ const PaymentForm: React.FC = () => {
             </div>
 
             {/* ✅ Amount (TEXT) */}
-            <div>
+                        <div>
               <label className="block mb-1 font-semibold">Amount</label>
               <input
+                ref={amountRef}
                 type="text"
                 inputMode="decimal"
                 name="amount"
@@ -1276,6 +2290,11 @@ const PaymentForm: React.FC = () => {
                 className="border p-2 w-full rounded"
                 placeholder="Enter amount"
               />
+
+              {formData.discountAmount > 0 ? (
+                <div className="text-xs text-orange-700 mt-1">Discount: {fmt2(formData.discountAmount)}</div>
+              ) : null}
+
               {amountInWords ? <div className="text-xs text-gray-600 mt-1">{amountInWords}</div> : null}
             </div>
 
@@ -1333,13 +2352,17 @@ const PaymentForm: React.FC = () => {
               >
                 Add New
               </button>
-
-              <button
-                onClick={handleSave}
-                className="bg-green-500 text-white px-4 py-2 rounded mr-2 hover:bg-green-600"
-              >
-                {editingId ? "Update" : "Save"}
-              </button>
+<button
+  onClick={handleSave}
+  disabled={saving}
+  className={`text-white px-4 py-2 rounded mr-2 ${
+    saving
+      ? "bg-gray-400 cursor-not-allowed"
+      : "bg-green-500 hover:bg-green-600"
+  }`}
+>
+  {saving ? "Saving..." : editingId ? "Update" : "Save"}
+</button>
 
               <button
                 onClick={openList}
@@ -1418,6 +2441,7 @@ const PaymentForm: React.FC = () => {
           <div className="bg-white rounded-lg shadow-lg w-full max-w-2xl p-5">
             <h3 className="text-xl font-bold text-center mb-4">Select Employee</h3>
             <input
+            ref={employeeSearchRef}
               type="text"
               placeholder="Search employee name..."
               value={employeeSearchText}
@@ -1476,6 +2500,7 @@ const PaymentForm: React.FC = () => {
           <div className="bg-white rounded-lg shadow-lg w-full max-w-2xl p-5">
             <h3 className="text-xl font-bold text-center mb-4">Select Party</h3>
             <input
+            ref={partySearchRef}
               type="text"
               placeholder="Search party name..."
               value={partySearchText}
@@ -1532,6 +2557,7 @@ const PaymentForm: React.FC = () => {
           <div className="bg-white rounded-lg shadow-lg w-full max-w-2xl p-5">
             <h3 className="text-xl font-bold text-center mb-4">Select Process</h3>
             <input
+            ref={processSearchRef}
               type="text"
               placeholder="Search process name..."
               value={processSearchText}
@@ -1659,6 +2685,180 @@ const PaymentForm: React.FC = () => {
               >
                 Close
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+            {/* ✅ Pending Modal (FIFO) — Receipt-style UI (same layout/controls) */}
+            {/* ✅ Pending Modal (FIFO, challan-wise, cash + discount) */}
+      {showPendingModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[80]">
+          <div className="bg-white rounded-lg shadow-lg w-full max-w-6xl p-5 flex flex-col max-h-[90vh]">
+            <h3 className="text-xl font-bold text-center mb-2">
+              Pending Entries – {formData.partyName} (As on {asOfIso}){" "}
+              <span className="text-gray-500 font-normal">[{pendingSide}]</span>
+            </h3>
+
+            <div className="text-sm text-gray-700 mb-3 text-center">
+              Pending (Modal): <b>{fmt2(modalPendingTotal)}</b> &nbsp;|&nbsp; Cash: <b>{fmt2(selectedCashTotal)}</b>{" "}
+              &nbsp;|&nbsp; Discount: <b>{fmt2(selectedDiscountTotal)}</b> &nbsp;|&nbsp; Total:{" "}
+              <b>{fmt2(selectedSettlementTotal)}</b>
+            </div>
+
+            <div className="overflow-auto flex-1 border rounded">
+              <table className="w-full text-sm border">
+                <thead className="bg-gray-200 sticky top-0">
+                  <tr>
+                    <th className="border p-2">#</th>
+                    <th className="border p-2">Date</th>
+                    <th className="border p-2">Doc No</th>
+                    <th className="border p-2">Type</th>
+                    <th className="border p-2 text-right">Amt</th>
+                    <th className="border p-2 text-right">Pending</th>
+                    <th className="border p-2 text-right">Receive</th>
+                    <th className="border p-2 text-right">Discount</th>
+                    <th className="border p-2 text-center">Action</th>
+                  </tr>
+                </thead>
+
+                <tbody>
+                  {modalRows.length === 0 ? (
+                    <tr>
+                      <td colSpan={9} className="border p-4 text-center text-gray-500">
+                        No pending entries
+                      </td>
+                    </tr>
+                  ) : (
+                    modalRows.map((r, idx) => {
+                      const isPartial = partialBillKeys.has(r.docKey);
+
+                      // ✅ Payment settles only CREDIT-side pending
+                      const disabled = pendingSideMemo === "DEBIT";
+
+                      return (
+                        <tr key={r.rowKey} className={isPartial ? "bg-purple-100" : ""}>
+                          <td className="border p-2 text-center">{idx + 1}</td>
+                          <td className="border p-2">{fmtDDMMYYYY(r.date)}</td>
+                          <td className="border p-2">{r.docNo}</td>
+                          <td className="border p-2">{txLabel(r.txType)}</td>
+                          <td className="border p-2 text-right">{fmt2(r.chargeAmount)}</td>
+                          <td className="border p-2 text-right font-semibold">{fmt2(r.pendingAmount)}</td>
+
+                          <td className="border p-2 text-right">
+                            <input
+                              ref={(el) => {
+                                receiveInputRefs.current[r.rowKey] = el;
+                              }}
+                              type="text"
+                              inputMode="decimal"
+                              value={receiveByKey[r.rowKey] ?? ""}
+                              onChange={(e) => setReceiveForRow(r.rowKey, e.target.value)}
+                              className="border p-1 rounded w-24 text-right"
+                              placeholder="0.00"
+                              disabled={disabled}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") {
+                                  e.preventDefault();
+                                  applyNextForRow(r);
+                                }
+                              }}
+                            />
+                          </td>
+
+                          <td className="border p-2 text-right">
+                            <input
+                              type="text"
+                              inputMode="decimal"
+                              value={discountByKey[r.rowKey] ?? ""}
+                              onChange={(e) => setDiscountForRow(r.rowKey, e.target.value)}
+                              className="border p-1 rounded w-24 text-right"
+                              placeholder="0.00"
+                              disabled={disabled}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") {
+                                  e.preventDefault();
+                                  applyNextForRow(r);
+                                }
+                              }}
+                            />
+                          </td>
+
+                          <td className="border p-2 text-center whitespace-nowrap">
+                            <button
+                              type="button"
+                              disabled={disabled}
+                              onClick={() => {
+                                setReceiveForRow(r.rowKey, r.pendingAmount.toFixed(2));
+                                setDiscountForRow(r.rowKey, "0");
+                              }}
+                              className="px-2 py-1 text-xs bg-green-600 text-white rounded hover:bg-green-700 disabled:bg-gray-300 disabled:text-gray-600"
+                            >
+                              Full
+                            </button>
+
+                            <button
+                              type="button"
+                              disabled={disabled}
+                              onClick={() => applyNextForRow(r)}
+                              className="ml-2 px-3 py-1 text-xs bg-indigo-700 text-white rounded hover:bg-indigo-800 disabled:bg-gray-300 disabled:text-gray-600"
+                            >
+                              Next
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="mt-3 p-3 border rounded bg-gray-50 flex flex-wrap items-center gap-3 justify-between">
+              <div className="text-sm">
+                <b>Total:</b> {fmt2(selectedSettlementTotal)} &nbsp;|&nbsp; <b>Pending Left:</b>{" "}
+                {fmt2(modalPendingTotal)}
+              </div>
+
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setModalRows(pendingBillsFifo.map((x) => ({ ...x })));
+                    setReceiveByKey({});
+                    setDiscountByKey({});
+                    setAppliedCashTotal(0);
+                    setAppliedDiscountTotal(0);
+                  }}
+                  className="px-4 py-2 bg-gray-200 rounded hover:bg-gray-300"
+                >
+                  Reset
+                </button>
+
+                <button
+                  type="button"
+                  onClick={applySelectedTotalAndClose}
+                  className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700"
+                  disabled={pendingSideMemo === "DEBIT"}
+                >
+                  Done
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowPendingModal(false);
+                    focusAmount();
+                  }}
+                  className="px-4 py-2 bg-gray-400 text-white rounded hover:bg-gray-500"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+
+            <div className="mt-2 text-xs text-gray-600">
+              FIFO rule enforced: oldest pending must be settled first. Discount participates in settlement. Purple =
+              Partial bill.
             </div>
           </div>
         </div>

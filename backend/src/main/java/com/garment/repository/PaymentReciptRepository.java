@@ -1,3 +1,4 @@
+// src/main/java/com/garment/repository/PaymentReciptRepository.java
 package com.garment.repository;
 
 import com.garment.model.PaymentRecipt;
@@ -10,30 +11,32 @@ import java.util.List;
 public interface PaymentReciptRepository extends JpaRepository<PaymentRecipt, Long> {
 
     @Query("""
-           select distinct p.partyName
-           from PaymentRecipt p
-           where p.paymentTo = :type
-             and p.partyName is not null
-             and p.partyName <> ''
-           """)
-    List<String> findDistinctPartyNamesByPaymentTo(@Param("type") String type);
+        select distinct r.employeeName
+        from PaymentRecipt r
+        where lower(r.paymentTo) = lower(:paymentTo)
+          and r.employeeName is not null
+          and trim(r.employeeName) <> ''
+        order by r.employeeName
+    """)
+    List<String> findDistinctEmployeeNamesByPaymentTo(@Param("paymentTo") String paymentTo);
 
     @Query("""
-           select distinct p.employeeName
-           from PaymentRecipt p
-           where p.paymentTo = :type
-             and p.employeeName is not null
-             and p.employeeName <> ''
-           """)
-    List<String> findDistinctEmployeeNamesByPaymentTo(@Param("type") String type);
+        select distinct r.partyName
+        from PaymentRecipt r
+        where lower(r.paymentTo) = lower(:paymentTo)
+          and r.partyName is not null
+          and trim(r.partyName) <> ''
+        order by r.partyName
+    """)
+    List<String> findDistinctPartyNamesByPaymentTo(@Param("paymentTo") String paymentTo);
 
-    // NEW (for Broker receipts)
     @Query("""
-           select distinct p.agentName
-           from PaymentRecipt p
-           where p.paymentTo = :type
-             and p.agentName is not null
-             and p.agentName <> ''
-           """)
-    List<String> findDistinctAgentNamesByPaymentTo(@Param("type") String type);
+        select distinct r.agentName
+        from PaymentRecipt r
+        where lower(r.paymentTo) = lower(:paymentTo)
+          and r.agentName is not null
+          and trim(r.agentName) <> ''
+        order by r.agentName
+    """)
+    List<String> findDistinctAgentNamesByPaymentTo(@Param("paymentTo") String paymentTo);
 }

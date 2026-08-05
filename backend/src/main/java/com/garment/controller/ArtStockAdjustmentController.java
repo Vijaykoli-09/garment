@@ -1,8 +1,10 @@
 package com.garment.controller;
 
+import com.garment.DTO.ArtStockAdjustmentRequest;
 import com.garment.model.ArtStockAdjustment;
 import com.garment.repository.ArtStockAdjustmentRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.http.*;
 import org.springframework.web.bind.annotation.*;
@@ -10,7 +12,6 @@ import org.springframework.web.bind.annotation.*;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
-import java.util.Map;
 
 @RestController
 @RequestMapping("/api/art-stock-adjustments")
@@ -21,33 +22,40 @@ public class ArtStockAdjustmentController {
     private final ArtStockAdjustmentRepository repo;
 
     @PostMapping
-    public ResponseEntity<?> create(@RequestBody Map<String, Object> body) {
+    public ResponseEntity<?> create(@RequestBody ArtStockAdjustmentRequest req) {
         try {
-            String adjDate = String.valueOf(body.getOrDefault("adjDate", "")).trim();
-            String artNo = String.valueOf(body.getOrDefault("artNo", "")).trim();
-            String shadeName = String.valueOf(body.getOrDefault("shadeName", "")).trim();
-            String sizeName = String.valueOf(body.getOrDefault("sizeName", "")).trim();
+            String adjDateStr = req.getAdjDate() == null ? "" : req.getAdjDate().trim();
+            String artNo = req.getArtNo() == null ? "" : req.getArtNo().trim();
+            String shadeName = req.getShadeName() == null ? "" : req.getShadeName().trim();
+            String sizeName = req.getSizeName() == null ? "" : req.getSizeName().trim();
 
-            if (adjDate.isEmpty() || artNo.isEmpty() || shadeName.isEmpty() || sizeName.isEmpty()) {
-                return ResponseEntity.badRequest().body("Missing required fields");
+            if (adjDateStr.isEmpty() || artNo.isEmpty() || shadeName.isEmpty() || sizeName.isEmpty()) {
+                return ResponseEntity.badRequest().body("Missing required fields (adjDate, artNo, shadeName, sizeName)");
             }
 
-            BigDecimal pcsDelta = new BigDecimal(String.valueOf(body.getOrDefault("pcsDelta", "0")));
+            LocalDate adjDate;
+            try {
+                adjDate = LocalDate.parse(adjDateStr);
+            } catch (Exception e) {
+                return ResponseEntity.badRequest().body("Invalid adjDate format. Use YYYY-MM-DD");
+            }
+
+            BigDecimal pcsDelta = req.getPcsDelta() == null ? BigDecimal.ZERO : req.getPcsDelta();
 
             ArtStockAdjustment a = ArtStockAdjustment.builder()
-                    .adjDate(LocalDate.parse(adjDate)) // YYYY-MM-DD
-                    .artSerial(getStr(body, "artSerial"))
-                    .artGroup(getStr(body, "artGroup"))
+                    .adjDate(adjDate)
+                    .artSerial(trimToNull(req.getArtSerial()))
+                    .artGroup(trimToNull(req.getArtGroup()))
                     .artNo(artNo)
-                    .artName(getStr(body, "artName"))
-                    .shadeCode(getStr(body, "shadeCode"))
+                    .artName(trimToNull(req.getArtName()))
+                    .shadeCode(trimToNull(req.getShadeCode()))
                     .shadeName(shadeName)
-                    .sizeSerial(getStr(body, "sizeSerial"))
+                    .sizeSerial(trimToNull(req.getSizeSerial()))
                     .sizeName(sizeName)
                     .pcsDelta(pcsDelta)
-                    .perBox(getBD(body, "perBox"))
-                    .rate(getBD(body, "rate"))
-                    .remarks(getStr(body, "remarks"))
+                    .perBox(req.getPerBox())
+                    .rate(req.getRate())
+                    .remarks(trimToNull(req.getRemarks()))
                     .build();
 
             return ResponseEntity.status(HttpStatus.CREATED).body(repo.save(a));
@@ -56,32 +64,23 @@ public class ArtStockAdjustmentController {
         }
     }
 
-    // ✅ Stock show ke liye GET (frontend yahi use karega)
     @GetMapping
     public List<ArtStockAdjustment> list(
             @RequestParam(required = false) String toDate,
             @RequestParam(defaultValue = "5000") int limit
     ) {
-        LocalDate t = (toDate == null || toDate.isBlank()) ? LocalDate.now() : LocalDate.parse(toDate);
+        LocalDate t = (toDate == null || toDate.isBlank()) ? LocalDate.now() : LocalDate.parse(toDate.trim());
         int safeLimit = Math.max(1, Math.min(limit, 10000));
 
-        List<ArtStockAdjustment> rows = repo.findByAdjDateLessThanEqual(
-                t, Sort.by(Sort.Direction.DESC, "id")
-        );
-        return rows.size() > safeLimit ? rows.subList(0, safeLimit) : rows;
+        return repo.findByAdjDateLessThanEqual(
+                t,
+                PageRequest.of(0, safeLimit, Sort.by(Sort.Direction.DESC, "id"))
+        ).getContent();
     }
 
-    private String getStr(Map<String,Object> b, String k){
-        Object v = b.get(k);
-        if(v==null) return null;
-        String s = v.toString().trim();
-        return s.isEmpty()? null : s;
-    }
-    private BigDecimal getBD(Map<String,Object> b, String k){
-        Object v = b.get(k);
-        if(v==null) return null;
-        String s = v.toString().trim();
-        if(s.isEmpty()) return null;
-        return new BigDecimal(s);
+    private String trimToNull(String s) {
+        if (s == null) return null;
+        String t = s.trim();
+        return t.isEmpty() ? null : t;
     }
 }

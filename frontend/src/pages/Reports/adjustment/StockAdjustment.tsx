@@ -82,11 +82,23 @@ interface MaterialGroup {
   id: number;
   materialGroup: string;
 }
+
+// backend entity /materials may return materialGroup object
+type MaterialApiRow = {
+  id: number;
+  materialName: string;
+  materialUnit?: string | null;
+  materialGroupId?: number | null;
+  materialGroup?: { id: number; materialGroup?: string } | null;
+};
+
 interface MaterialItem {
   id: number;
   materialGroupId: number;
   materialName: string;
+  materialUnit: string; // <-- your field
 }
+
 interface StockReportRow {
   id: number;
   groupName: string;
@@ -111,10 +123,18 @@ interface MatAdjRow {
   qty_delta?: number;
 }
 
-type Tab = "ART" | "MATERIAL" | "SIZE";
+type Tab = "ART" | "MATERIAL";
+
+/* ---------- pure helper ---------- */
+const getMaterialUnit = (materials: MaterialItem[], itemIdStr: string) => {
+  const id = Number(itemIdStr);
+  if (!Number.isFinite(id) || id <= 0) return "";
+  const it = materials.find((x) => x.id === id);
+  return (it?.materialUnit || "").trim();
+};
 
 /* ---------------- component ---------------- */
-const StockTransferAdjust: React.FC = () => {
+const StockAdjustment: React.FC = () => {
   const [tab, setTab] = useState<Tab>("ART");
   const [loading, setLoading] = useState(false);
 
@@ -128,7 +148,6 @@ const StockTransferAdjust: React.FC = () => {
     const boot = async () => {
       setLoading(true);
       try {
-        // ✅ Safe boot: network error se app crash nahi hoga
         const results = await Promise.allSettled([
           api.get("/arts"),
           api.get("/shade/list"),
@@ -139,20 +158,34 @@ const StockTransferAdjust: React.FC = () => {
 
         const [a, sh, sz, mg, m] = results;
 
-        if (a.status === "fulfilled") setArts(Array.isArray(a.value.data) ? a.value.data : []);
-        else setArts([]);
+        setArts(a.status === "fulfilled" && Array.isArray(a.value.data) ? a.value.data : []);
+        setShades(sh.status === "fulfilled" && Array.isArray(sh.value.data) ? sh.value.data : []);
+        setSizes(sz.status === "fulfilled" && Array.isArray(sz.value.data) ? sz.value.data : []);
+        setMatGroups(mg.status === "fulfilled" && Array.isArray(mg.value.data) ? mg.value.data : []);
 
-        if (sh.status === "fulfilled") setShades(Array.isArray(sh.value.data) ? sh.value.data : []);
-        else setShades([]);
+        // ✅ normalize /materials -> MaterialItem (materialGroupId + materialUnit)
+        if (m.status === "fulfilled" && Array.isArray(m.value.data)) {
+          const raw: MaterialApiRow[] = m.value.data;
+          const norm: MaterialItem[] = raw
+            .map((r) => {
+              const groupId =
+                toNum(r.materialGroupId) ||
+                toNum((r.materialGroup as any)?.id) ||
+                0;
 
-        if (sz.status === "fulfilled") setSizes(Array.isArray(sz.value.data) ? sz.value.data : []);
-        else setSizes([]);
+              return {
+                id: toNum(r.id),
+                materialGroupId: groupId,
+                materialName: String(r.materialName || "").trim(),
+                materialUnit: String(r.materialUnit || "").trim(),
+              };
+            })
+            .filter((x) => x.id > 0 && x.materialGroupId > 0 && x.materialName);
 
-        if (mg.status === "fulfilled") setMatGroups(Array.isArray(mg.value.data) ? mg.value.data : []);
-        else setMatGroups([]);
-
-        if (m.status === "fulfilled") setMaterials(Array.isArray(m.value.data) ? m.value.data : []);
-        else setMaterials([]);
+          setMaterials(norm);
+        } else {
+          setMaterials([]);
+        }
 
         const failed = results
           .map((r, i) => ({ r, i }))
@@ -171,9 +204,7 @@ const StockTransferAdjust: React.FC = () => {
           Swal.fire({
             icon: "warning",
             title: "Some data could not load",
-            html: `<div style="text-align:left;font-size:13px;white-space:pre-line">${msgLines.join(
-              "\n"
-            )}</div>`,
+            html: `<div style="text-align:left;font-size:13px;white-space:pre-line">${msgLines.join("\n")}</div>`,
           });
         }
       } catch (e) {
@@ -183,6 +214,7 @@ const StockTransferAdjust: React.FC = () => {
         setLoading(false);
       }
     };
+
     boot();
   }, []);
 
@@ -201,348 +233,7 @@ const StockTransferAdjust: React.FC = () => {
     return m;
   }, [materials]);
 
-  /* ======================= ART TAB (same working logic) ======================= */
-  const [asOnArt, setAsOnArt] = useState(todayStr());
-  const [shadeCode, setShadeCode] = useState("");
-  const [sizeSerial, setSizeSerial] = useState("");
-
-  const shadeName = useMemo(
-    () => shades.find((s) => s.shadeCode === shadeCode)?.shadeName || "",
-    [shadeCode, shades]
-  );
-  const sizeName = useMemo(
-    () => sizes.find((s) => s.serialNo === sizeSerial)?.sizeName || "",
-    [sizeSerial, sizes]
-  );
-
-  const [fromArt1, setFromArt1] = useState("");
-  const [fromArt2, setFromArt2] = useState("");
-  const [toArt, setToArt] = useState("");
-  const [qty1, setQty1] = useState("");
-  const [qty2, setQty2] = useState("");
-  const [remarksArt, setRemarksArt] = useState("");
-
-  const totalOut = (toNum(qty1) > 0 ? toNum(qty1) : 0) + (toNum(qty2) > 0 ? toNum(qty2) : 0);
-
-  const [stk1, setStk1] = useState<ArtStockInfo | null>(null);
-  const [stk2, setStk2] = useState<ArtStockInfo | null>(null);
-  const [stk3, setStk3] = useState<ArtStockInfo | null>(null);
-
-  const clearArtStocks = () => {
-    setStk1(null);
-    setStk2(null);
-    setStk3(null);
-  };
-
-  useEffect(() => {
-    clearArtStocks();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [shadeCode, sizeSerial, asOnArt]);
-
-  const calcOneArtStock = async (artNoRaw: string): Promise<ArtStockInfo> => {
-    const art = artByNo.get(artNoRaw.trim().toUpperCase());
-    if (!art) return { pcs: 0, perBox: 0, rate: 0 };
-    if (!shadeName || !sizeName) return { pcs: 0, perBox: 0, rate: 0 };
-
-    let pcs = 0;
-    let perBox = 0;
-    let rate = 0;
-
-    // 1) Opening from Art detail
-    const det = await api.get<ArtDetailView>(`/arts/${art.serialNumber}`).then((r) => r.data);
-
-    const sizeList: SizeDetail[] =
-      Array.isArray(det.sizeDetails) && det.sizeDetails.length > 0
-        ? (det.sizeDetails as any)
-        : Array.isArray(det.sizes)
-          ? det.sizes
-          : [];
-
-    const sz = sizeList.find((x) => (x.sizeName || "").trim() === sizeName);
-    if (sz) {
-      const pb = toNum(sz.pcs);
-      const box = toNum(sz.box);
-      pcs += box * pb;
-      if (pb > 0) perBox = pb;
-
-      const rt = toNum(sz.rate || det.saleRate || 0);
-      if (rt > 0) rate = rt;
-    }
-
-    // 2) Packing incoming
-    const packingRes = await api.get<any[]>("/packing-challans");
-    const packingList: any[] = Array.isArray(packingRes.data) ? packingRes.data : [];
-    packingList.forEach((ch) => {
-      const rows: any[] = Array.isArray(ch.rows) ? ch.rows : [];
-      rows.forEach((r) => {
-        const rArtNo = String(r.artNo || "").trim().toUpperCase();
-        if (rArtNo !== art.artNo.trim().toUpperCase()) return;
-
-        const sh = String(r.shadeName || r.shade || "").trim();
-        if (sh !== shadeName) return;
-
-        const details: any[] = Array.isArray(r.sizeDetails) ? r.sizeDetails : [];
-        if (details.length > 0) {
-          details.forEach((sd) => {
-            const sName = String(sd.sizeName || sd.size || "").trim();
-            if (sName !== sizeName) return;
-
-            const p = toNum(sd.pcs) || toNum(sd.boxCount || 0) * toNum(sd.perBox || 0);
-            pcs += p;
-
-            const pb = toNum(sd.perBox);
-            if (pb > 0) perBox = pb;
-
-            const rt = toNum(sd.rate);
-            if (rt > 0) rate = rt;
-          });
-        } else {
-          const sName = String(r.sizeName || r.size || "").trim();
-          if (sName !== sizeName) return;
-
-          const p = toNum(r.pcs) || toNum(r.box || 0) * toNum(r.perBox || 0);
-          pcs += p;
-
-          const pb = toNum(r.perBox);
-          if (pb > 0) perBox = pb;
-
-          const rt = toNum(r.rate);
-          if (rt > 0) rate = rt;
-        }
-      });
-    });
-
-    // 3) Dispatch outgoing
-    const dispatchRes = await api.get<any[]>("/dispatch-challan");
-    const dispatchList: any[] = Array.isArray(dispatchRes.data) ? dispatchRes.data : [];
-    dispatchList.forEach((dc) => {
-      const rows: any[] = Array.isArray(dc.rows) ? dc.rows : [];
-      rows.forEach((r) => {
-        const rArtNo = String(r.artNo || "").trim().toUpperCase();
-        if (rArtNo !== art.artNo.trim().toUpperCase()) return;
-
-        const sh = String(r.shade || r.shadeName || "").trim();
-        if (sh !== shadeName) return;
-
-        const sName = String(r.size || r.sizeName || "").trim();
-        if (sName !== sizeName) return;
-
-        const p = toNum(r.pcs) || toNum(r.box || 0) * toNum(r.pcsPerBox || 0);
-        pcs -= p;
-
-        const pb = toNum(r.pcsPerBox);
-        if (pb > 0) perBox = pb;
-      });
-    });
-
-    // 4) Adjustments (GET)
-    const adjRes = await api.get<ArtAdjRow[]>("/art-stock-adjustments", {
-      params: { toDate: asOnArt, limit: 10000 },
-    });
-    const adjs = Array.isArray(adjRes.data) ? adjRes.data : [];
-    adjs.forEach((a) => {
-      const aArtNo = String(a.art_no || a.artNo || "").trim().toUpperCase();
-      if (aArtNo !== art.artNo.trim().toUpperCase()) return;
-
-      const sh = String(a.shade_name || a.shadeName || "").trim();
-      const sn = String(a.size_name || a.sizeName || "").trim();
-      if (sh !== shadeName) return;
-      if (sn !== sizeName) return;
-
-      pcs += toNum(a.pcs_delta ?? a.pcsDelta);
-
-      const pb = toNum(a.per_box ?? a.perBox);
-      if (pb > 0) perBox = pb;
-
-      const rt = toNum(a.rate);
-      if (rt > 0) rate = rt;
-    });
-
-    return { pcs, perBox, rate };
-  };
-
-  const checkArtStocks = async () => {
-    if (!shadeName || !sizeName) {
-      return Swal.fire("Warning", "Select Shade and Size first.", "warning");
-    }
-    try {
-      setLoading(true);
-
-      const [s1, s2, s3] = await Promise.all([
-        fromArt1 ? calcOneArtStock(fromArt1) : Promise.resolve({ pcs: 0, perBox: 0, rate: 0 }),
-        fromArt2 ? calcOneArtStock(fromArt2) : Promise.resolve({ pcs: 0, perBox: 0, rate: 0 }),
-        toArt ? calcOneArtStock(toArt) : Promise.resolve({ pcs: 0, perBox: 0, rate: 0 }),
-      ]);
-
-      setStk1(fromArt1 ? s1 : null);
-      setStk2(fromArt2 ? s2 : null);
-      setStk3(toArt ? s3 : null);
-    } catch (e) {
-      console.error(e);
-      Swal.fire("Error", "Failed to load art stock.", "error");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    const t = setTimeout(() => {
-      if (tab !== "ART") return;
-      if (!shadeCode || !sizeSerial) return;
-      if (!fromArt1 && !fromArt2 && !toArt) return;
-      checkArtStocks();
-    }, 400);
-
-    return () => clearTimeout(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab, fromArt1, fromArt2, toArt, shadeCode, sizeSerial, asOnArt]);
-
-  const saveArtTransfer = async () => {
-    const a1 = artByNo.get(fromArt1.trim().toUpperCase());
-    const a2 = artByNo.get(fromArt2.trim().toUpperCase());
-    const a3 = artByNo.get(toArt.trim().toUpperCase());
-
-    if (!a1 || !a2 || !a3)
-      return Swal.fire("Warning", "Select From Art1, From Art2 and To Art.", "warning");
-    if (!shadeName || !sizeName) return Swal.fire("Warning", "Select Shade & Size.", "warning");
-    if (totalOut <= 0) return Swal.fire("Warning", "Enter Qty1 and/or Qty2 (>0).", "warning");
-
-    await checkArtStocks();
-    const s1 = stk1?.pcs ?? 0;
-    const s2 = stk2?.pcs ?? 0;
-
-    if (toNum(qty1) > 0 && toNum(qty1) > s1)
-      return Swal.fire("Warning", `Art-1 stock is ${s1}, you entered ${qty1}`, "warning");
-    if (toNum(qty2) > 0 && toNum(qty2) > s2)
-      return Swal.fire("Warning", `Art-2 stock is ${s2}, you entered ${qty2}`, "warning");
-
-    const ref = `RNTRF-${Date.now()}`;
-    const rem = (remarksArt || "").trim();
-
-    const ok = await Swal.fire({
-      icon: "question",
-      title: "Confirm Transfer?",
-      html: `<div style="text-align:left;font-size:13px">
-        <div><b>${a1.artNo}</b> OUT: ${toNum(qty1) || 0}</div>
-        <div><b>${a2.artNo}</b> OUT: ${toNum(qty2) || 0}</div>
-        <div><b>${a3.artNo}</b> IN: ${totalOut}</div>
-        <div>Shade: ${shadeName}</div>
-        <div>Size: ${sizeName}</div>
-      </div>`,
-      showCancelButton: true,
-      confirmButtonText: "Save",
-    });
-    if (!ok.isConfirmed) return;
-
-    try {
-      setLoading(true);
-
-      const reqs: Promise<any>[] = [];
-
-      if (toNum(qty1) > 0) {
-        reqs.push(
-          api.post("/art-stock-adjustments", {
-            adjDate: asOnArt,
-            artSerial: a1.serialNumber,
-            artGroup: a1.artGroup,
-            artNo: a1.artNo,
-            artName: a1.artName,
-            shadeCode,
-            shadeName,
-            sizeSerial,
-            sizeName,
-            pcsDelta: -toNum(qty1),
-            remarks: `[${ref}] OUT -> ${a3.artNo}. ${rem}`.trim(),
-          })
-        );
-      }
-
-      if (toNum(qty2) > 0) {
-        reqs.push(
-          api.post("/art-stock-adjustments", {
-            adjDate: asOnArt,
-            artSerial: a2.serialNumber,
-            artGroup: a2.artGroup,
-            artNo: a2.artNo,
-            artName: a2.artName,
-            shadeCode,
-            shadeName,
-            sizeSerial,
-            sizeName,
-            pcsDelta: -toNum(qty2),
-            remarks: `[${ref}] OUT -> ${a3.artNo}. ${rem}`.trim(),
-          })
-        );
-      }
-
-      reqs.push(
-        api.post("/art-stock-adjustments", {
-          adjDate: asOnArt,
-          artSerial: a3.serialNumber,
-          artGroup: a3.artGroup,
-          artNo: a3.artNo,
-          artName: a3.artName,
-          shadeCode,
-          shadeName,
-          sizeSerial,
-          sizeName,
-          pcsDelta: totalOut,
-          remarks: `[${ref}] IN. ${rem}`.trim(),
-        })
-      );
-
-      await Promise.all(reqs);
-
-      Swal.fire("Saved", "Transfer saved successfully.", "success");
-
-      setQty1("");
-      setQty2("");
-      setRemarksArt("");
-
-      await checkArtStocks();
-    } catch (e) {
-      console.error(e);
-      Swal.fire("Error", "Save failed. Check backend APIs.", "error");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const artStockText = (s: ArtStockInfo | null) => {
-    if (!s) return "-";
-    const box = s.perBox ? s.pcs / s.perBox : 0;
-    return `Pcs: ${s.pcs.toFixed(2)}${s.perBox ? ` | Box: ${box.toFixed(2)} | PerBox: ${s.perBox}` : ""}${
-      s.rate ? ` | Rate: ${s.rate}` : ""
-    }`;
-  };
-
-  /* ======================= SIZE TAB (INTEGRATED with /size-stock-transfers) ======================= */
-  const [asOnSize, setAsOnSize] = useState(todayStr());
-  const [sizeArtNo, setSizeArtNo] = useState("");
-  const [sizeShadeCode, setSizeShadeCode] = useState("");
-  const [fromSizeSerial, setFromSizeSerial] = useState("");
-  const [toSizeSerial, setToSizeSerial] = useState("");
-  const [sizeQty, setSizeQty] = useState("");
-  const [remarksSize, setRemarksSize] = useState("");
-
-  const sizeShadeName = useMemo(
-    () => shades.find((s) => s.shadeCode === sizeShadeCode)?.shadeName || "",
-    [sizeShadeCode, shades]
-  );
-
-  const fromSizeName = useMemo(
-    () => sizes.find((s) => s.serialNo === fromSizeSerial)?.sizeName || "",
-    [fromSizeSerial, sizes]
-  );
-
-  const toSizeName = useMemo(
-    () => sizes.find((s) => s.serialNo === toSizeSerial)?.sizeName || "",
-    [toSizeSerial, sizes]
-  );
-
-  const [stkFromSize, setStkFromSize] = useState<ArtStockInfo | null>(null);
-  const [stkToSize, setStkToSize] = useState<ArtStockInfo | null>(null);
-
+  /* ======================= COMMON: ART STOCK CALC ======================= */
   const calcArtStockForParams = async (params: {
     artNoRaw: string;
     shadeNameX: string;
@@ -644,7 +335,7 @@ const StockTransferAdjust: React.FC = () => {
       });
     });
 
-    // 4) Adjustments (GET)
+    // 4) Adjustments
     const adjRes = await api.get<ArtAdjRow[]>("/art-stock-adjustments", {
       params: { toDate: params.asOn, limit: 10000 },
     });
@@ -670,36 +361,92 @@ const StockTransferAdjust: React.FC = () => {
     return { pcs, perBox, rate };
   };
 
-  const checkSizeStocks = async () => {
-    const art = artByNo.get(sizeArtNo.trim().toUpperCase());
-    if (!art) return Swal.fire("Warning", "Select Art first.", "warning");
-    if (!sizeShadeName) return Swal.fire("Warning", "Select Shade first.", "warning");
-    if (!fromSizeSerial || !toSizeSerial) return Swal.fire("Warning", "Select From Size & To Size.", "warning");
-    if (fromSizeSerial === toSizeSerial)
-      return Swal.fire("Warning", "From Size and To Size cannot be same.", "warning");
+  const artStockText = (s: ArtStockInfo | null) => {
+    if (!s) return "-";
+    const box = s.perBox ? s.pcs / s.perBox : 0;
+    return `Pcs: ${s.pcs.toFixed(2)}${s.perBox ? ` | Box: ${box.toFixed(2)} | PerBox: ${s.perBox}` : ""}${
+      s.rate ? ` | Rate: ${s.rate}` : ""
+    }`;
+  };
+
+  /* ======================= ART TAB (FROM -> TO) ======================= */
+  const [asOnArt, setAsOnArt] = useState(todayStr());
+  const [shadeCodeArt, setShadeCodeArt] = useState("");
+
+  const shadeNameArt = useMemo(
+    () => shades.find((s) => s.shadeCode === shadeCodeArt)?.shadeName || "",
+    [shadeCodeArt, shades]
+  );
+
+  const [fromArt, setFromArt] = useState("");
+  const [fromSizeSerialArt, setFromSizeSerialArt] = useState("");
+  const fromSizeNameArt = useMemo(
+    () => sizes.find((s) => s.serialNo === fromSizeSerialArt)?.sizeName || "",
+    [fromSizeSerialArt, sizes]
+  );
+
+  const [toArt, setToArt] = useState("");
+  const [toSizeSerialArt, setToSizeSerialArt] = useState("");
+  const toSizeNameArt = useMemo(
+    () => sizes.find((s) => s.serialNo === toSizeSerialArt)?.sizeName || "",
+    [toSizeSerialArt, sizes]
+  );
+
+  const [qtyArt, setQtyArt] = useState("");
+  const [remarksArt, setRemarksArt] = useState("");
+
+  const [stkFromArt, setStkFromArt] = useState<ArtStockInfo | null>(null);
+  const [stkToArt, setStkToArt] = useState<ArtStockInfo | null>(null);
+
+  const checkArtStocks = async (): Promise<{ sFrom: ArtStockInfo; sTo: ArtStockInfo } | null> => {
+    const aFrom = artByNo.get(fromArt.trim().toUpperCase());
+    const aTo = artByNo.get(toArt.trim().toUpperCase());
+
+    if (!shadeNameArt) {
+      Swal.fire("Warning", "Select Shade first.", "warning");
+      return null;
+    }
+    if (!aFrom) {
+      Swal.fire("Warning", "Select FROM Art.", "warning");
+      return null;
+    }
+    if (!aTo) {
+      Swal.fire("Warning", "Select TO Art.", "warning");
+      return null;
+    }
+    if (!fromSizeSerialArt) {
+      Swal.fire("Warning", "Select FROM Size.", "warning");
+      return null;
+    }
+    if (!toSizeSerialArt) {
+      Swal.fire("Warning", "Select TO Size.", "warning");
+      return null;
+    }
 
     try {
       setLoading(true);
       const [sFrom, sTo] = await Promise.all([
         calcArtStockForParams({
-          artNoRaw: art.artNo,
-          shadeNameX: sizeShadeName,
-          sizeNameX: fromSizeName,
-          asOn: asOnSize,
+          artNoRaw: aFrom.artNo,
+          shadeNameX: shadeNameArt,
+          sizeNameX: fromSizeNameArt,
+          asOn: asOnArt,
         }),
         calcArtStockForParams({
-          artNoRaw: art.artNo,
-          shadeNameX: sizeShadeName,
-          sizeNameX: toSizeName,
-          asOn: asOnSize,
+          artNoRaw: aTo.artNo,
+          shadeNameX: shadeNameArt,
+          sizeNameX: toSizeNameArt,
+          asOn: asOnArt,
         }),
       ]);
 
-      setStkFromSize(sFrom);
-      setStkToSize(sTo);
+      setStkFromArt(sFrom);
+      setStkToArt(sTo);
+      return { sFrom, sTo };
     } catch (e) {
       console.error(e);
-      Swal.fire("Error", "Failed to load size stock.", "error");
+      Swal.fire("Error", "Failed to load art stock.", "error");
+      return null;
     } finally {
       setLoading(false);
     }
@@ -707,46 +454,51 @@ const StockTransferAdjust: React.FC = () => {
 
   useEffect(() => {
     const t = setTimeout(() => {
-      if (tab !== "SIZE") return;
-      if (!sizeArtNo || !sizeShadeCode || !fromSizeSerial || !toSizeSerial) return;
-      if (fromSizeSerial === toSizeSerial) return;
-      checkSizeStocks();
+      if (tab !== "ART") return;
+      if (!shadeCodeArt) return;
+      if (!fromArt || !toArt || !fromSizeSerialArt || !toSizeSerialArt) return;
+      checkArtStocks();
     }, 450);
-
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab, sizeArtNo, sizeShadeCode, fromSizeSerial, toSizeSerial, asOnSize]);
+  }, [tab, asOnArt, shadeCodeArt, fromArt, toArt, fromSizeSerialArt, toSizeSerialArt]);
 
-  const saveSizeTransfer = async () => {
-    const art = artByNo.get(sizeArtNo.trim().toUpperCase());
-    if (!art) return Swal.fire("Warning", "Select Art.", "warning");
-    if (!sizeShadeName) return Swal.fire("Warning", "Select Shade.", "warning");
-    if (!fromSizeSerial || !toSizeSerial)
-      return Swal.fire("Warning", "Select From Size and To Size.", "warning");
-    if (fromSizeSerial === toSizeSerial)
-      return Swal.fire("Warning", "From Size and To Size cannot be same.", "warning");
+  const saveArtTransfer = async () => {
+    const aFrom = artByNo.get(fromArt.trim().toUpperCase());
+    const aTo = artByNo.get(toArt.trim().toUpperCase());
 
-    const qty = toNum(sizeQty);
-    if (qty <= 0) return Swal.fire("Warning", "Enter Qty (>0).", "warning");
+    if (!shadeNameArt) return Swal.fire("Warning", "Select Shade.", "warning");
+    if (!aFrom) return Swal.fire("Warning", "Select FROM Art.", "warning");
+    if (!aTo) return Swal.fire("Warning", "Select TO Art.", "warning");
+    if (!fromSizeSerialArt) return Swal.fire("Warning", "Select FROM Size.", "warning");
+    if (!toSizeSerialArt) return Swal.fire("Warning", "Select TO Size.", "warning");
 
-    // validate with current from-size stock
-    await checkSizeStocks();
-    const available = stkFromSize?.pcs ?? 0;
-    if (qty > available) {
-      return Swal.fire("Warning", `From Size stock is ${available}. You entered ${qty}`, "warning");
+    // Size adjustment removed => Art transfer requires same size
+    if (fromSizeSerialArt !== toSizeSerialArt) {
+      return Swal.fire("Warning", "FROM Size and TO Size must be same.", "warning");
     }
 
-    const ref = `SIZTRF-${Date.now()}`;
-    const rem = (remarksSize || "").trim();
+    const qty = toNum(qtyArt);
+    if (qty <= 0) return Swal.fire("Warning", "Enter Qty (>0).", "warning");
+
+    const stocks = await checkArtStocks();
+    if (!stocks) return;
+
+    const available = stocks.sFrom.pcs ?? 0;
+    if (qty > available) {
+      return Swal.fire("Warning", `FROM stock is ${available}. You entered ${qty}`, "warning");
+    }
+
+    const ref = `ARTRF-${Date.now()}`;
+    const rem = (remarksArt || "").trim();
 
     const ok = await Swal.fire({
       icon: "question",
-      title: "Confirm Size Transfer?",
+      title: "Confirm Art Transfer?",
       html: `<div style="text-align:left;font-size:13px">
-        <div><b>Art:</b> ${art.artNo} - ${art.artName}</div>
-        <div><b>Shade:</b> ${sizeShadeName}</div>
-        <div><b>From Size:</b> ${fromSizeName} (OUT: ${qty})</div>
-        <div><b>To Size:</b> ${toSizeName} (IN: ${qty})</div>
+        <div><b>FROM:</b> ${aFrom.artNo} | Size: ${fromSizeNameArt} | OUT: ${qty}</div>
+        <div><b>TO:</b> ${aTo.artNo} | Size: ${toSizeNameArt} | IN: ${qty}</div>
+        <div><b>Shade:</b> ${shadeNameArt}</div>
       </div>`,
       showCancelButton: true,
       confirmButtonText: "Save",
@@ -756,76 +508,66 @@ const StockTransferAdjust: React.FC = () => {
     try {
       setLoading(true);
 
-      // ✅ Single backend call (your new backend)
-      await api.post("/size-stock-transfers", {
-        adjDate: asOnSize,
-        artSerial: art.serialNumber,
-        artGroup: art.artGroup,
-        artNo: art.artNo,
-        artName: art.artName,
+      await Promise.all([
+        api.post("/art-stock-adjustments", {
+          adjDate: asOnArt,
+          artSerial: aFrom.serialNumber,
+          artGroup: aFrom.artGroup,
+          artNo: aFrom.artNo,
+          artName: aFrom.artName,
+          shadeCode: shadeCodeArt,
+          shadeName: shadeNameArt,
+          sizeSerial: fromSizeSerialArt,
+          sizeName: fromSizeNameArt,
+          pcsDelta: -qty,
+          remarks: `[${ref}] OUT -> ${aTo.artNo}. ${rem}`.trim(),
+        }),
+        api.post("/art-stock-adjustments", {
+          adjDate: asOnArt,
+          artSerial: aTo.serialNumber,
+          artGroup: aTo.artGroup,
+          artNo: aTo.artNo,
+          artName: aTo.artName,
+          shadeCode: shadeCodeArt,
+          shadeName: shadeNameArt,
+          sizeSerial: toSizeSerialArt,
+          sizeName: toSizeNameArt,
+          pcsDelta: qty,
+          remarks: `[${ref}] IN. ${rem}`.trim(),
+        }),
+      ]);
 
-        shadeCode: sizeShadeCode,
-        shadeName: sizeShadeName,
-
-        fromSizeSerial,
-        fromSizeName,
-        toSizeSerial,
-        toSizeName,
-
-        qty: qty,
-        ref,
-        remarks: rem,
-      });
-
-      Swal.fire("Saved", "Size transfer saved successfully.", "success");
-
-      setSizeQty("");
-      setRemarksSize("");
-
-      await checkSizeStocks(); // refresh
+      Swal.fire("Saved", "Art transfer saved successfully.", "success");
+      setQtyArt("");
+      setRemarksArt("");
+      await checkArtStocks();
     } catch (e) {
       console.error(e);
-      Swal.fire("Error", "Save failed. Check backend API /size-stock-transfers.", "error");
+      Swal.fire("Error", "Save failed. Check backend APIs.", "error");
     } finally {
       setLoading(false);
     }
   };
 
-  /* ======================= MATERIAL TAB (same working logic) ======================= */
+  /* ======================= MATERIAL TAB (FROM -> TO) + UNIT SHOW ======================= */
   const [asOnMat, setAsOnMat] = useState(todayStr());
   const [mShade, setMShade] = useState("");
-
-  const [g1, setG1] = useState("");
-  const [i1, setI1] = useState("");
-  const [mq1, setMq1] = useState("");
-
-  const [g2, setG2] = useState("");
-  const [i2, setI2] = useState("");
-  const [mq2, setMq2] = useState("");
-
-  const [g3, setG3] = useState("");
-  const [i3, setI3] = useState("");
   const [mRem, setMRem] = useState("");
 
-  const mTotal = (toNum(mq1) > 0 ? toNum(mq1) : 0) + (toNum(mq2) > 0 ? toNum(mq2) : 0);
+  const [fromGroup, setFromGroup] = useState("");
+  const [fromItem, setFromItem] = useState("");
+  const [matQty, setMatQty] = useState("");
 
-  const [mb1, setMb1] = useState<number | null>(null);
-  const [mb2, setMb2] = useState<number | null>(null);
-  const [mb3, setMb3] = useState<number | null>(null);
+  const [toGroup, setToGroup] = useState("");
+  const [toItem, setToItem] = useState("");
 
-  const clearMatStocks = () => {
-    setMb1(null);
-    setMb2(null);
-    setMb3(null);
-  };
+  const fromUnit = useMemo(() => getMaterialUnit(materials, fromItem), [materials, fromItem]);
+  const toUnit = useMemo(() => getMaterialUnit(materials, toItem), [materials, toItem]);
 
-  useEffect(() => {
-    clearMatStocks();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [asOnMat, mShade]);
+  const [mbFrom, setMbFrom] = useState<number | null>(null);
+  const [mbTo, setMbTo] = useState<number | null>(null);
 
   const calcOneMaterialBalance = async (groupId: number, itemId: number) => {
-    // base from /stock-report
     const res = await api.post<StockReportRow[]>("/stock-report", {
       groupIds: [groupId],
       itemIds: [itemId],
@@ -845,7 +587,6 @@ const StockTransferAdjust: React.FC = () => {
         .reduce((acc, r) => acc + toNum(r.balance), 0);
     }
 
-    // add adjustments
     const adjRes = await api.get<MatAdjRow[]>("/material-stock-adjustments", {
       params: { toDate: asOnMat, limit: 10000 },
     });
@@ -867,22 +608,31 @@ const StockTransferAdjust: React.FC = () => {
     return bal;
   };
 
-  const checkMaterialStocks = async () => {
+  const checkMaterialStocks = async (): Promise<{ bFrom: number; bTo: number } | null> => {
+    const Gf = toNum(fromGroup),
+      If = toNum(fromItem);
+    const Gt = toNum(toGroup),
+      It = toNum(toItem);
+
+    if (!Gf || !If) {
+      Swal.fire("Warning", "Select FROM Group & Item.", "warning");
+      return null;
+    }
+    if (!Gt || !It) {
+      Swal.fire("Warning", "Select TO Group & Item.", "warning");
+      return null;
+    }
+
     try {
       setLoading(true);
-      const G1 = toNum(g1),
-        I1 = toNum(i1);
-      const G2 = toNum(g2),
-        I2 = toNum(i2);
-      const G3 = toNum(g3),
-        I3 = toNum(i3);
-
-      setMb1(G1 && I1 ? await calcOneMaterialBalance(G1, I1) : null);
-      setMb2(G2 && I2 ? await calcOneMaterialBalance(G2, I2) : null);
-      setMb3(G3 && I3 ? await calcOneMaterialBalance(G3, I3) : null);
+      const [bFrom, bTo] = await Promise.all([calcOneMaterialBalance(Gf, If), calcOneMaterialBalance(Gt, It)]);
+      setMbFrom(bFrom);
+      setMbTo(bTo);
+      return { bFrom, bTo };
     } catch (e) {
       console.error(e);
       Swal.fire("Error", "Failed to load material stock.", "error");
+      return null;
     } finally {
       setLoading(false);
     }
@@ -891,41 +641,43 @@ const StockTransferAdjust: React.FC = () => {
   useEffect(() => {
     const t = setTimeout(() => {
       if (tab !== "MATERIAL") return;
-      if ((!g1 || !i1) && (!g2 || !i2) && (!g3 || !i3)) return;
+      if (!fromGroup || !fromItem || !toGroup || !toItem) return;
       checkMaterialStocks();
-    }, 400);
+    }, 450);
 
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab, g1, i1, g2, i2, g3, i3, mShade, asOnMat]);
+  }, [tab, asOnMat, mShade, fromGroup, fromItem, toGroup, toItem]);
 
   const saveMaterialTransfer = async () => {
-    const G1 = toNum(g1),
-      I1 = toNum(i1);
-    const G2 = toNum(g2),
-      I2 = toNum(i2);
-    const G3 = toNum(g3),
-      I3 = toNum(i3);
+    const Gf = toNum(fromGroup),
+      If = toNum(fromItem);
+    const Gt = toNum(toGroup),
+      It = toNum(toItem);
 
-    if (!G1 || !I1 || !G2 || !I2 || !G3 || !I3)
-      return Swal.fire("Warning", "Select all groups & items.", "warning");
-    if (mTotal <= 0) return Swal.fire("Warning", "Enter Qty (>0).", "warning");
+    if (!Gf || !If) return Swal.fire("Warning", "Select FROM Group & Item.", "warning");
+    if (!Gt || !It) return Swal.fire("Warning", "Select TO Group & Item.", "warning");
 
-    await checkMaterialStocks();
-    if (mb1 !== null && toNum(mq1) > mb1) return Swal.fire("Warning", `Item-1 balance is ${mb1}`, "warning");
-    if (mb2 !== null && toNum(mq2) > mb2) return Swal.fire("Warning", `Item-2 balance is ${mb2}`, "warning");
+    const qty = toNum(matQty);
+    if (qty <= 0) return Swal.fire("Warning", "Enter Qty (>0).", "warning");
+
+    const stocks = await checkMaterialStocks();
+    if (!stocks) return;
+
+    if (qty > stocks.bFrom) {
+      return Swal.fire("Warning", `FROM balance is ${stocks.bFrom}. You entered ${qty}`, "warning");
+    }
 
     const ref = `MATTRF-${Date.now()}`;
     const rem = (mRem || "").trim();
 
     const ok = await Swal.fire({
       icon: "question",
-      title: "Confirm?",
+      title: "Confirm Material Transfer?",
       html: `<div style="text-align:left;font-size:13px">
-        <div>OUT1: ${toNum(mq1) || 0}</div>
-        <div>OUT2: ${toNum(mq2) || 0}</div>
-        <div>IN: ${mTotal}</div>
-        <div>Shade: ${mShade || "-"}</div>
+        <div><b>OUT:</b> ${qty}${fromUnit ? ` ${fromUnit}` : ""}</div>
+        <div><b>IN:</b> ${qty}${toUnit ? ` ${toUnit}` : ""}</div>
+        <div><b>Shade:</b> ${mShade || "-"}</div>
       </div>`,
       showCancelButton: true,
       confirmButtonText: "Save",
@@ -935,53 +687,28 @@ const StockTransferAdjust: React.FC = () => {
     try {
       setLoading(true);
 
-      const reqs: Promise<any>[] = [];
-
-      if (toNum(mq1) > 0) {
-        reqs.push(
-          api.post("/material-stock-adjustments", {
-            adjDate: asOnMat,
-            materialGroupId: G1,
-            materialId: I1,
-            shadeName: mShade.trim() || null,
-            qtyDelta: -toNum(mq1),
-            remarks: `[${ref}] OUT -> ${I3}. ${rem}`.trim(),
-          })
-        );
-      }
-
-      if (toNum(mq2) > 0) {
-        reqs.push(
-          api.post("/material-stock-adjustments", {
-            adjDate: asOnMat,
-            materialGroupId: G2,
-            materialId: I2,
-            shadeName: mShade.trim() || null,
-            qtyDelta: -toNum(mq2),
-            remarks: `[${ref}] OUT -> ${I3}. ${rem}`.trim(),
-          })
-        );
-      }
-
-      reqs.push(
+      await Promise.all([
         api.post("/material-stock-adjustments", {
           adjDate: asOnMat,
-          materialGroupId: G3,
-          materialId: I3,
+          materialGroupId: Gf,
+          materialId: If,
           shadeName: mShade.trim() || null,
-          qtyDelta: mTotal,
+          qtyDelta: -qty,
+          remarks: `[${ref}] OUT -> ${It}. ${rem}`.trim(),
+        }),
+        api.post("/material-stock-adjustments", {
+          adjDate: asOnMat,
+          materialGroupId: Gt,
+          materialId: It,
+          shadeName: mShade.trim() || null,
+          qtyDelta: qty,
           remarks: `[${ref}] IN. ${rem}`.trim(),
-        })
-      );
-
-      await Promise.all(reqs);
+        }),
+      ]);
 
       Swal.fire("Saved", "Material transfer saved.", "success");
-
-      setMq1("");
-      setMq2("");
+      setMatQty("");
       setMRem("");
-
       await checkMaterialStocks();
     } catch (e) {
       console.error(e);
@@ -997,7 +724,7 @@ const StockTransferAdjust: React.FC = () => {
       <div className="p-6 bg-gray-50 min-h-screen">
         <div className="bg-white rounded-2xl shadow-md p-5 w-full max-w-6xl mx-auto">
           <div className="flex items-center justify-between mb-4">
-            <h2 className="text-xl font-semibold">2 Source → 1 Target (Stock show + adjust)</h2>
+            <h2 className="text-xl font-semibold">Stock Transfer (From → To)</h2>
 
             <div className="flex gap-2">
               <button
@@ -1007,15 +734,6 @@ const StockTransferAdjust: React.FC = () => {
                 onClick={() => setTab("ART")}
               >
                 Art
-              </button>
-
-              <button
-                className={`px-4 py-2 rounded border text-sm ${
-                  tab === "SIZE" ? "bg-blue-600 text-white" : "bg-white text-gray-700"
-                }`}
-                onClick={() => setTab("SIZE")}
-              >
-                Size
               </button>
 
               <button
@@ -1041,7 +759,7 @@ const StockTransferAdjust: React.FC = () => {
           {/* ======================= ART TAB ======================= */}
           {tab === "ART" ? (
             <div className="border rounded-xl p-4">
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div>
                   <div className="text-sm font-semibold mb-1">As On Date</div>
                   <input
@@ -1051,12 +769,17 @@ const StockTransferAdjust: React.FC = () => {
                     onChange={(e) => setAsOnArt(e.target.value)}
                   />
                 </div>
+
                 <div>
                   <div className="text-sm font-semibold mb-1">Shade</div>
                   <select
                     className="border rounded px-3 py-2 w-full"
-                    value={shadeCode}
-                    onChange={(e) => setShadeCode(e.target.value)}
+                    value={shadeCodeArt}
+                    onChange={(e) => {
+                      setShadeCodeArt(e.target.value);
+                      setStkFromArt(null);
+                      setStkToArt(null);
+                    }}
                   >
                     <option value="">--Select--</option>
                     {shades.map((s) => (
@@ -1066,12 +789,36 @@ const StockTransferAdjust: React.FC = () => {
                     ))}
                   </select>
                 </div>
-                <div>
-                  <div className="text-sm font-semibold mb-1">Size</div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-4">
+                {/* FROM */}
+                <div className="border rounded p-3">
+                  <div className="text-sm font-semibold mb-2">FROM</div>
+
+                  <div className="text-sm font-semibold mb-1">Art</div>
+                  <input
+                    className="border rounded px-3 py-2 w-full"
+                    list="artList"
+                    value={fromArt}
+                    onChange={(e) => {
+                      setFromArt(e.target.value);
+                      setFromSizeSerialArt("");
+                      setStkFromArt(null);
+                    }}
+                    placeholder="Select Art No"
+                  />
+
+                  <div className="text-sm font-semibold mt-3 mb-1">Size</div>
                   <select
                     className="border rounded px-3 py-2 w-full"
-                    value={sizeSerial}
-                    onChange={(e) => setSizeSerial(e.target.value)}
+                    value={fromSizeSerialArt}
+                    onChange={(e) => {
+                      setFromSizeSerialArt(e.target.value);
+                      setStkFromArt(null);
+                      if (!toSizeSerialArt) setToSizeSerialArt(e.target.value);
+                    }}
+                    disabled={!fromArt}
                   >
                     <option value="">--Select--</option>
                     {sizes.map((s) => (
@@ -1080,66 +827,60 @@ const StockTransferAdjust: React.FC = () => {
                       </option>
                     ))}
                   </select>
-                </div>
-              </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mt-4">
-                <div className="border rounded p-3">
-                  <div className="text-sm font-semibold mb-1">FROM Art 1</div>
-                  <input
-                    className="border rounded px-3 py-2 w-full"
-                    list="artList"
-                    value={fromArt1}
-                    onChange={(e) => setFromArt1(e.target.value)}
-                    placeholder="Select Art No"
-                  />
                   <div className="text-xs text-gray-600 mt-2">
-                    Stock: <b>{artStockText(stk1)}</b>
+                    Stock: <b>{artStockText(stkFromArt)}</b>
                   </div>
+
                   <div className="text-sm font-semibold mt-3 mb-1">Qty OUT</div>
                   <input
                     className="border rounded px-3 py-2 w-full"
-                    value={qty1}
-                    onChange={(e) => setQty1(e.target.value)}
+                    value={qtyArt}
+                    onChange={(e) => setQtyArt(e.target.value)}
                     placeholder="0"
                   />
                 </div>
 
+                {/* TO */}
                 <div className="border rounded p-3">
-                  <div className="text-sm font-semibold mb-1">FROM Art 2</div>
-                  <input
-                    className="border rounded px-3 py-2 w-full"
-                    list="artList"
-                    value={fromArt2}
-                    onChange={(e) => setFromArt2(e.target.value)}
-                    placeholder="Select Art No"
-                  />
-                  <div className="text-xs text-gray-600 mt-2">
-                    Stock: <b>{artStockText(stk2)}</b>
-                  </div>
-                  <div className="text-sm font-semibold mt-3 mb-1">Qty OUT</div>
-                  <input
-                    className="border rounded px-3 py-2 w-full"
-                    value={qty2}
-                    onChange={(e) => setQty2(e.target.value)}
-                    placeholder="0"
-                  />
-                </div>
+                  <div className="text-sm font-semibold mb-2">TO</div>
 
-                <div className="border rounded p-3">
-                  <div className="text-sm font-semibold mb-1">TO Art</div>
+                  <div className="text-sm font-semibold mb-1">Art</div>
                   <input
                     className="border rounded px-3 py-2 w-full"
                     list="artList"
                     value={toArt}
-                    onChange={(e) => setToArt(e.target.value)}
+                    onChange={(e) => {
+                      setToArt(e.target.value);
+                      setStkToArt(null);
+                    }}
                     placeholder="Select Art No"
                   />
+
+                  <div className="text-sm font-semibold mt-3 mb-1">Size</div>
+                  <select
+                    className="border rounded px-3 py-2 w-full"
+                    value={toSizeSerialArt}
+                    onChange={(e) => {
+                      setToSizeSerialArt(e.target.value);
+                      setStkToArt(null);
+                    }}
+                    disabled={!toArt}
+                  >
+                    <option value="">--Select--</option>
+                    {sizes.map((s) => (
+                      <option key={s.serialNo} value={s.serialNo}>
+                        {s.sizeName}
+                      </option>
+                    ))}
+                  </select>
+
                   <div className="text-xs text-gray-600 mt-2">
-                    Stock: <b>{artStockText(stk3)}</b>
+                    Stock: <b>{artStockText(stkToArt)}</b>
                   </div>
+
                   <div className="mt-3 text-sm">
-                    Total IN = <b>{totalOut}</b>
+                    Total IN = <b>{toNum(qtyArt) > 0 ? toNum(qtyArt) : 0}</b>
                   </div>
                 </div>
               </div>
@@ -1168,129 +909,6 @@ const StockTransferAdjust: React.FC = () => {
                   className="px-5 py-2 rounded bg-blue-600 text-white font-semibold disabled:opacity-60"
                 >
                   {loading ? "Saving..." : "Save Transfer"}
-                </button>
-              </div>
-            </div>
-          ) : null}
-
-          {/* ======================= SIZE TAB ======================= */}
-          {tab === "SIZE" ? (
-            <div className="border rounded-xl p-4">
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                <div>
-                  <div className="text-sm font-semibold mb-1">As On Date</div>
-                  <input
-                    className="border rounded px-3 py-2 w-full"
-                    type="date"
-                    value={asOnSize}
-                    onChange={(e) => setAsOnSize(e.target.value)}
-                  />
-                </div>
-
-                <div>
-                  <div className="text-sm font-semibold mb-1">Art</div>
-                  <input
-                    className="border rounded px-3 py-2 w-full"
-                    list="artList"
-                    value={sizeArtNo}
-                    onChange={(e) => setSizeArtNo(e.target.value)}
-                    placeholder="Select Art No"
-                  />
-                </div>
-
-                <div>
-                  <div className="text-sm font-semibold mb-1">Shade</div>
-                  <select
-                    className="border rounded px-3 py-2 w-full"
-                    value={sizeShadeCode}
-                    onChange={(e) => setSizeShadeCode(e.target.value)}
-                  >
-                    <option value="">--Select--</option>
-                    {shades.map((s) => (
-                      <option key={s.shadeCode} value={s.shadeCode}>
-                        {s.shadeName}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-4">
-                <div className="border rounded p-3">
-                  <div className="text-sm font-semibold mb-1">FROM Size</div>
-                  <select
-                    className="border rounded px-3 py-2 w-full"
-                    value={fromSizeSerial}
-                    onChange={(e) => setFromSizeSerial(e.target.value)}
-                  >
-                    <option value="">--Select--</option>
-                    {sizes.map((s) => (
-                      <option key={s.serialNo} value={s.serialNo}>
-                        {s.sizeName}
-                      </option>
-                    ))}
-                  </select>
-                  <div className="text-xs text-gray-600 mt-2">
-                    Stock: <b>{artStockText(stkFromSize)}</b>
-                  </div>
-                </div>
-
-                <div className="border rounded p-3">
-                  <div className="text-sm font-semibold mb-1">TO Size</div>
-                  <select
-                    className="border rounded px-3 py-2 w-full"
-                    value={toSizeSerial}
-                    onChange={(e) => setToSizeSerial(e.target.value)}
-                  >
-                    <option value="">--Select--</option>
-                    {sizes.map((s) => (
-                      <option key={s.serialNo} value={s.serialNo}>
-                        {s.sizeName}
-                      </option>
-                    ))}
-                  </select>
-                  <div className="text-xs text-gray-600 mt-2">
-                    Stock: <b>{artStockText(stkToSize)}</b>
-                  </div>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-4">
-                <div>
-                  <div className="text-sm font-semibold mb-1">Qty (Pcs)</div>
-                  <input
-                    className="border rounded px-3 py-2 w-full"
-                    value={sizeQty}
-                    onChange={(e) => setSizeQty(e.target.value)}
-                    placeholder="0"
-                  />
-                </div>
-
-                <div>
-                  <div className="text-sm font-semibold mb-1">Remarks</div>
-                  <input
-                    className="border rounded px-3 py-2 w-full"
-                    value={remarksSize}
-                    onChange={(e) => setRemarksSize(e.target.value)}
-                    placeholder="optional"
-                  />
-                </div>
-              </div>
-
-              <div className="flex justify-end gap-2 mt-4">
-                <button
-                  disabled={loading}
-                  onClick={checkSizeStocks}
-                  className="px-4 py-2 rounded bg-gray-700 text-white text-sm font-semibold disabled:opacity-60"
-                >
-                  {loading ? "..." : "Check Stock"}
-                </button>
-                <button
-                  disabled={loading}
-                  onClick={saveSizeTransfer}
-                  className="px-5 py-2 rounded bg-blue-600 text-white font-semibold disabled:opacity-60"
-                >
-                  {loading ? "Saving..." : "Save Size Transfer"}
                 </button>
               </div>
             </div>
@@ -1329,16 +947,19 @@ const StockTransferAdjust: React.FC = () => {
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mt-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-4">
+                {/* FROM */}
                 <div className="border rounded p-3">
-                  <div className="text-sm font-semibold mb-1">FROM Item 1</div>
+                  <div className="text-sm font-semibold mb-2">FROM</div>
+
+                  <div className="text-sm font-semibold mb-1">Group</div>
                   <select
                     className="border rounded px-3 py-2 w-full"
-                    value={g1}
+                    value={fromGroup}
                     onChange={(e) => {
-                      setG1(e.target.value);
-                      setI1("");
-                      setMb1(null);
+                      setFromGroup(e.target.value);
+                      setFromItem("");
+                      setMbFrom(null);
                     }}
                   >
                     <option value="">--Group--</option>
@@ -1348,89 +969,57 @@ const StockTransferAdjust: React.FC = () => {
                       </option>
                     ))}
                   </select>
+
+                  <div className="text-sm font-semibold mt-3 mb-1">Item</div>
                   <select
-                    className="border rounded px-3 py-2 w-full mt-2"
-                    value={i1}
+                    className="border rounded px-3 py-2 w-full"
+                    value={fromItem}
                     onChange={(e) => {
-                      setI1(e.target.value);
-                      setMb1(null);
+                      setFromItem(e.target.value);
+                      setMbFrom(null);
                     }}
-                    disabled={!g1}
+                    disabled={!fromGroup}
                   >
                     <option value="">--Item--</option>
-                    {(matsByGroup[toNum(g1)] || []).map((m) => (
+                    {(matsByGroup[toNum(fromGroup)] || []).map((m) => (
                       <option key={m.id} value={m.id}>
                         {m.materialName}
+                        {m.materialUnit ? ` (${m.materialUnit})` : ""}
                       </option>
                     ))}
                   </select>
+
                   <div className="text-xs text-gray-600 mt-2">
-                    Stock: <b>{mb1 === null ? "-" : mb1.toFixed(2)}</b>
+                    Unit: <b>{fromUnit || "-"}</b>
                   </div>
-                  <div className="text-sm font-semibold mt-3 mb-1">Qty OUT</div>
+                  <div className="text-xs text-gray-600 mt-1">
+                    Stock:{" "}
+                    <b>{mbFrom === null ? "-" : `${mbFrom.toFixed(2)}${fromUnit ? ` ${fromUnit}` : ""}`}</b>
+                  </div>
+
+                  <div className="text-sm font-semibold mt-3 mb-1">
+                    Qty OUT{fromUnit ? ` (${fromUnit})` : ""}
+                  </div>
                   <input
                     className="border rounded px-3 py-2 w-full"
-                    value={mq1}
-                    onChange={(e) => setMq1(e.target.value)}
+                    value={matQty}
+                    onChange={(e) => setMatQty(e.target.value)}
                     placeholder="0"
                   />
                 </div>
 
+                {/* TO */}
                 <div className="border rounded p-3">
-                  <div className="text-sm font-semibold mb-1">FROM Item 2</div>
-                  <select
-                    className="border rounded px-3 py-2 w-full"
-                    value={g2}
-                    onChange={(e) => {
-                      setG2(e.target.value);
-                      setI2("");
-                      setMb2(null);
-                    }}
-                  >
-                    <option value="">--Group--</option>
-                    {matGroups.map((g) => (
-                      <option key={g.id} value={g.id}>
-                        {g.materialGroup}
-                      </option>
-                    ))}
-                  </select>
-                  <select
-                    className="border rounded px-3 py-2 w-full mt-2"
-                    value={i2}
-                    onChange={(e) => {
-                      setI2(e.target.value);
-                      setMb2(null);
-                    }}
-                    disabled={!g2}
-                  >
-                    <option value="">--Item--</option>
-                    {(matsByGroup[toNum(g2)] || []).map((m) => (
-                      <option key={m.id} value={m.id}>
-                        {m.materialName}
-                      </option>
-                    ))}
-                  </select>
-                  <div className="text-xs text-gray-600 mt-2">
-                    Stock: <b>{mb2 === null ? "-" : mb2.toFixed(2)}</b>
-                  </div>
-                  <div className="text-sm font-semibold mt-3 mb-1">Qty OUT</div>
-                  <input
-                    className="border rounded px-3 py-2 w-full"
-                    value={mq2}
-                    onChange={(e) => setMq2(e.target.value)}
-                    placeholder="0"
-                  />
-                </div>
+                  <div className="text-sm font-semibold mb-2">TO</div>
 
-                <div className="border rounded p-3">
-                  <div className="text-sm font-semibold mb-1">TO Item</div>
+                  <div className="text-sm font-semibold mb-1">Group</div>
                   <select
                     className="border rounded px-3 py-2 w-full"
-                    value={g3}
+                    value={toGroup}
                     onChange={(e) => {
-                      setG3(e.target.value);
-                      setI3("");
-                      setMb3(null);
+                      setToGroup(e.target.value);
+                      setToItem("");
+                      setMbTo(null);
                     }}
                   >
                     <option value="">--Group--</option>
@@ -1440,27 +1029,37 @@ const StockTransferAdjust: React.FC = () => {
                       </option>
                     ))}
                   </select>
+
+                  <div className="text-sm font-semibold mt-3 mb-1">Item</div>
                   <select
-                    className="border rounded px-3 py-2 w-full mt-2"
-                    value={i3}
+                    className="border rounded px-3 py-2 w-full"
+                    value={toItem}
                     onChange={(e) => {
-                      setI3(e.target.value);
-                      setMb3(null);
+                      setToItem(e.target.value);
+                      setMbTo(null);
                     }}
-                    disabled={!g3}
+                    disabled={!toGroup}
                   >
                     <option value="">--Item--</option>
-                    {(matsByGroup[toNum(g3)] || []).map((m) => (
+                    {(matsByGroup[toNum(toGroup)] || []).map((m) => (
                       <option key={m.id} value={m.id}>
                         {m.materialName}
+                        {m.materialUnit ? ` (${m.materialUnit})` : ""}
                       </option>
                     ))}
                   </select>
+
                   <div className="text-xs text-gray-600 mt-2">
-                    Stock: <b>{mb3 === null ? "-" : mb3.toFixed(2)}</b>
+                    Unit: <b>{toUnit || "-"}</b>
                   </div>
+                  <div className="text-xs text-gray-600 mt-1">
+                    Stock:{" "}
+                    <b>{mbTo === null ? "-" : `${mbTo.toFixed(2)}${toUnit ? ` ${toUnit}` : ""}`}</b>
+                  </div>
+
                   <div className="mt-3 text-sm">
-                    Total IN = <b>{mTotal}</b>
+                    Total IN ={" "}
+                    <b>{toNum(matQty) > 0 ? `${toNum(matQty)}${toUnit ? ` ${toUnit}` : ""}` : 0}</b>
                   </div>
                 </div>
               </div>
@@ -1489,4 +1088,4 @@ const StockTransferAdjust: React.FC = () => {
   );
 };
 
-export default StockTransferAdjust;
+export default StockAdjustment;

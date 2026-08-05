@@ -32,7 +32,12 @@ public class PaymentMethodServiceImpl implements PaymentMethodService {
     @Override
     public Payment create(Payment payload) {
         normalize(payload);
+
         if (payload.getBalance() == null) payload.setBalance(BigDecimal.ZERO);
+
+        // ✅ default discountAmount to 0
+        if (payload.getDiscountAmount() == null) payload.setDiscountAmount(BigDecimal.ZERO);
+
         return paymentRepository.save(payload);
     }
 
@@ -45,16 +50,20 @@ public class PaymentMethodServiceImpl implements PaymentMethodService {
     @Override
     @Transactional(readOnly = true)
     public Payment get(Long id) {
-        return paymentRepository.findById(id)
-            .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Payment not found"));
+        return paymentRepository
+                .findById(id)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Payment not found"));
     }
 
     @Override
     public Payment update(Long id, Payment payload) {
         Payment existing = get(id);
 
-        // existing.setEntryType(payload.getEntryType());
         existing.setPaymentTo(payload.getPaymentTo());
+
+        // ✅ paymentDate must update (FIFO ordering depends on this)
+        existing.setPaymentDate(payload.getPaymentDate());
+
         existing.setDate(payload.getDate());
         existing.setProcessName(payload.getProcessName());
         existing.setPartyName(payload.getPartyName());
@@ -63,6 +72,11 @@ public class PaymentMethodServiceImpl implements PaymentMethodService {
         existing.setAmount(payload.getAmount());
         existing.setBalance(payload.getBalance());
         existing.setRemarks(payload.getRemarks());
+
+        // ✅ discountAmount update + default
+        existing.setDiscountAmount(payload.getDiscountAmount() == null ? BigDecimal.ZERO : payload.getDiscountAmount());
+
+        if (existing.getBalance() == null) existing.setBalance(BigDecimal.ZERO);
 
         normalize(existing);
         return paymentRepository.save(existing);
@@ -80,30 +94,39 @@ public class PaymentMethodServiceImpl implements PaymentMethodService {
     @Transactional(readOnly = true)
     public List<String> names(String type) {
         if ("Party".equalsIgnoreCase(type)) {
-            return partyRepository.findAll().stream()
-                .map(Party::getPartyName)
-                .filter(Objects::nonNull)
-                .distinct()
-                .sorted(String.CASE_INSENSITIVE_ORDER)
-                .toList();
+            return partyRepository
+                    .findAll()
+                    .stream()
+                    .map(Party::getPartyName)
+                    .filter(Objects::nonNull)
+                    .distinct()
+                    .sorted(String.CASE_INSENSITIVE_ORDER)
+                    .toList();
         } else if ("Employee".equalsIgnoreCase(type)) {
-            return employeeRepository.findAll().stream()
-                .map(Employee::getEmployeeName)
-                .filter(Objects::nonNull)
-                .distinct()
-                .sorted(String.CASE_INSENSITIVE_ORDER)
-                .toList();
+            return employeeRepository
+                    .findAll()
+                    .stream()
+                    .map(Employee::getEmployeeName)
+                    .filter(Objects::nonNull)
+                    .distinct()
+                    .sorted(String.CASE_INSENSITIVE_ORDER)
+                    .toList();
         }
         throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Unsupported type: " + type);
     }
 
     private void normalize(Payment p) {
-        if ("Employee".equalsIgnoreCase(p.getPaymentTo())) {
+        final String to = p.getPaymentTo() == null ? "" : p.getPaymentTo().trim();
+
+        if ("Employee".equalsIgnoreCase(to)) {
             p.setPartyName("");
-        } else if ("Party".equalsIgnoreCase(p.getPaymentTo())) {
+        } else if ("Party".equalsIgnoreCase(to)) {
+            p.setEmployeeName("");
+        } else if ("Other".equalsIgnoreCase(to)) {
+            // allow "Other" (UI already has it); treat it as non-employee
             p.setEmployeeName("");
         } else {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "paymentTo must be Party or Employee");
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "paymentTo must be Party, Employee or Other");
         }
     }
 }

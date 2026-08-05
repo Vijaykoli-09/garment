@@ -60,10 +60,67 @@ public class SecurityConfig {
       // Usually FALSE for JWT in header (recommended)
       config.setAllowCredentials(false);
 
-      UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
-      source.registerCorsConfiguration("/**", config);
-      return source;
-   }
+
+
+                // ── All existing permitted endpoints ──────────────────
+                .requestMatchers("/api/sizes/**").permitAll()
+                .requestMatchers("/api/party/**").permitAll()
+                .requestMatchers("/api/artgroup/**").permitAll()
+                .requestMatchers("/api/range/**").permitAll()
+                .requestMatchers("/api/yarn/**").permitAll()
+                .requestMatchers("/api/fabrication/**").permitAll()
+                .requestMatchers("/api/agent/**").permitAll()
+                .requestMatchers("/api/process/**").permitAll()
+                .requestMatchers("/api/shade/**").permitAll()
+                .requestMatchers("/api/arts/**").permitAll()
+                .requestMatchers("/api/grades/**").permitAll()
+                .requestMatchers("/api/accessories/**").permitAll()
+                .requestMatchers("/api/categories/**").permitAll()
+                .requestMatchers("/api/artgroups/**").permitAll()
+                .requestMatchers("/api/material-groups/**").permitAll()
+                .requestMatchers("/api/employees/**").permitAll()
+                .requestMatchers("/api/materials/**").permitAll()
+                .requestMatchers("/api/ranges/**").permitAll()
+                .requestMatchers("/api/transports/**").permitAll()
+                .requestMatchers("/api/purchase-orders/**").permitAll()
+                .requestMatchers("/api/purchase-entry/**").permitAll()
+                .requestMatchers("/api/material-return/**").permitAll()
+                .requestMatchers("/api/knitting-outward-challan/**").permitAll()
+                .requestMatchers("/api/knitting/**").permitAll()
+                .requestMatchers("/api/knitting-material-return/**").permitAll()
+                .requestMatchers("/api/purchase-returns/**").permitAll()
+                .requestMatchers("/api/packing-challans/**").permitAll()
+                .requestMatchers("/api/job-outward-challan/**").permitAll()
+                .requestMatchers("/api/job-inward-challan/**").permitAll()
+                .requestMatchers("/api/dyeing-outward/**").permitAll()
+                .requestMatchers("/api/dyeing-inward/**").permitAll()
+                .requestMatchers("/api/cutting-entries/**").permitAll()
+                .requestMatchers("/api/finishing-inward-rows/**").permitAll()
+                .requestMatchers("/api/finishing-outwards/**").permitAll()
+                .requestMatchers("/api/finishing-inwards/**").permitAll()
+                .requestMatchers("/api/stock-report/**").permitAll()
+                .requestMatchers("/api/amount-report/**").permitAll()
+                .requestMatchers("/api/finishing-stock-statement/**").permitAll()
+                .requestMatchers("/api/finishing-amount-statement/**").permitAll()
+                .requestMatchers("/api/locations/**").permitAll()
+                .requestMatchers("/api/sale-orders/**").permitAll()
+                .requestMatchers("/api/sale-order-returns/**").permitAll()
+                .requestMatchers("/api/payment/**").permitAll()
+                .requestMatchers("/api/recipt/**").permitAll()
+                .requestMatchers("/api/production-receipt/**").permitAll()
+                .requestMatchers("/api/dispatch-challan/**").permitAll()
+                .requestMatchers("/api/payment/payment-mode/**").permitAll()
+                .requestMatchers("/api/other-dispatch-challan/**").permitAll()
+                .requestMatchers("/api/order-settles/**").permitAll()
+                .requestMatchers("/api/customer/auth/admin/**").permitAll()
+                .requestMatchers("/api/art-stock-adjustments/**").permitAll()
+                .requestMatchers("/api/material-stock-adjustments/**").permitAll()
+                .requestMatchers("/api/location/**").permitAll()
+                .requestMatchers("/api/purchase/entry-item/**").permitAll()
+                .requestMatchers("/api/purchase/orders/**").permitAll()
+                .requestMatchers("/api/purchase/return-item/**").permitAll()
+                .requestMatchers("/api/ledger-status/**").permitAll()
+
 
    @Bean
    public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {

@@ -9,10 +9,13 @@ import java.time.LocalDateTime;
 
 @Entity
 @Table(name = "art_stock_adjustments")
-@Getter @Setter
-@NoArgsConstructor @AllArgsConstructor
+@Getter
+@Setter
+@NoArgsConstructor
+@AllArgsConstructor
 @Builder
 public class ArtStockAdjustment {
+
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;

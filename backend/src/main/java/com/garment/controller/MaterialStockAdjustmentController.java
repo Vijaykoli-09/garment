@@ -1,8 +1,10 @@
 package com.garment.controller;
 
+import com.garment.DTO.MaterialStockAdjustmentRequest;
 import com.garment.model.MaterialStockAdjustment;
 import com.garment.repository.MaterialStockAdjustmentRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.http.*;
 import org.springframework.web.bind.annotation.*;
@@ -10,7 +12,6 @@ import org.springframework.web.bind.annotation.*;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
-import java.util.Map;
 
 @RestController
 @RequestMapping("/api/material-stock-adjustments")
@@ -21,24 +22,32 @@ public class MaterialStockAdjustmentController {
     private final MaterialStockAdjustmentRepository repo;
 
     @PostMapping
-    public ResponseEntity<?> create(@RequestBody Map<String, Object> body) {
+    public ResponseEntity<?> create(@RequestBody MaterialStockAdjustmentRequest req) {
         try {
-            String adjDate = String.valueOf(body.getOrDefault("adjDate", "")).trim();
-            Long groupId = Long.valueOf(String.valueOf(body.getOrDefault("materialGroupId", "0")));
-            Long materialId = Long.valueOf(String.valueOf(body.getOrDefault("materialId", "0")));
-            BigDecimal qtyDelta = new BigDecimal(String.valueOf(body.getOrDefault("qtyDelta", "0")));
+            String adjDateStr = req.getAdjDate() == null ? "" : req.getAdjDate().trim();
+            Long groupId = req.getMaterialGroupId();
+            Long materialId = req.getMaterialId();
 
-            if (adjDate.isEmpty() || groupId == 0 || materialId == 0) {
-                return ResponseEntity.badRequest().body("Missing required fields");
+            if (adjDateStr.isEmpty() || groupId == null || groupId == 0 || materialId == null || materialId == 0) {
+                return ResponseEntity.badRequest().body("Missing required fields (adjDate, materialGroupId, materialId)");
             }
 
+            LocalDate adjDate;
+            try {
+                adjDate = LocalDate.parse(adjDateStr);
+            } catch (Exception e) {
+                return ResponseEntity.badRequest().body("Invalid adjDate format. Use YYYY-MM-DD");
+            }
+
+            BigDecimal qtyDelta = req.getQtyDelta() == null ? BigDecimal.ZERO : req.getQtyDelta();
+
             MaterialStockAdjustment m = MaterialStockAdjustment.builder()
-                    .adjDate(LocalDate.parse(adjDate))
+                    .adjDate(adjDate)
                     .materialGroupId(groupId)
                     .materialId(materialId)
-                    .shadeName(getStr(body, "shadeName"))
+                    .shadeName(trimToNull(req.getShadeName()))
                     .qtyDelta(qtyDelta)
-                    .remarks(getStr(body, "remarks"))
+                    .remarks(trimToNull(req.getRemarks()))
                     .build();
 
             return ResponseEntity.status(HttpStatus.CREATED).body(repo.save(m));
@@ -47,25 +56,23 @@ public class MaterialStockAdjustmentController {
         }
     }
 
-    // ✅ Stock show ke liye GET
     @GetMapping
     public List<MaterialStockAdjustment> list(
             @RequestParam(required = false) String toDate,
             @RequestParam(defaultValue = "5000") int limit
     ) {
-        LocalDate t = (toDate == null || toDate.isBlank()) ? LocalDate.now() : LocalDate.parse(toDate);
+        LocalDate t = (toDate == null || toDate.isBlank()) ? LocalDate.now() : LocalDate.parse(toDate.trim());
         int safeLimit = Math.max(1, Math.min(limit, 10000));
 
-        List<MaterialStockAdjustment> rows = repo.findByAdjDateLessThanEqual(
-                t, Sort.by(Sort.Direction.DESC, "id")
-        );
-        return rows.size() > safeLimit ? rows.subList(0, safeLimit) : rows;
+        return repo.findByAdjDateLessThanEqual(
+                t,
+                PageRequest.of(0, safeLimit, Sort.by(Sort.Direction.DESC, "id"))
+        ).getContent();
     }
 
-    private String getStr(Map<String,Object> b, String k){
-        Object v = b.get(k);
-        if(v==null) return null;
-        String s = v.toString().trim();
-        return s.isEmpty()? null : s;
+    private String trimToNull(String s) {
+        if (s == null) return null;
+        String t = s.trim();
+        return t.isEmpty() ? null : t;
     }
 }

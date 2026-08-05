@@ -2,7 +2,6 @@
 package com.garment.service;
 
 import com.garment.DTO.PaymentReciptDTO;
-
 import java.util.List;
 
 public interface PaymentReciptService {
