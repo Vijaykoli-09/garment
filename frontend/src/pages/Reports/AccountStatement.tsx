@@ -792,7 +792,7 @@ const navigate = useNavigate();
   );
 
   // ---------- Build statement + FIFO events ----------
-  const handleShow = async () => {
+ const handleShow = async () => {
   let effectiveBroker = selectedBroker;
   let effectiveParty = selectedParty;
 
@@ -835,14 +835,36 @@ const navigate = useNavigate();
       number: string;
       partyName: string;
       brokerName: string;
-      amount: number;
-      discount?: number;
+      amount: number;       // cash amount
+      discount?: number;    // discount amount (Receipt + Payment)
       mode?: string;
       payRecMode?: string;
       docKey: string;
     };
 
     const docs: Doc[] = [];
+
+    // ✅ Load payment discounts so AccountStatement doesn't ignore saved Payment.discountAmount
+    const paymentDiscountById = new Map<number, number>();
+    try {
+      const pr1 = await api.get<any[]>("/payment");
+      const payArr = Array.isArray(pr1.data) ? pr1.data : [];
+      for (const p of payArr) {
+        const id = Number((p as any)?.id);
+        if (!Number.isFinite(id)) continue;
+        paymentDiscountById.set(id, toNum((p as any)?.discountAmount ?? 0));
+      }
+    } catch {
+      try {
+        const pr2 = await api.get<any[]>("/payment/list");
+        const payArr = Array.isArray(pr2.data) ? pr2.data : [];
+        for (const p of payArr) {
+          const id = Number((p as any)?.id);
+          if (!Number.isFinite(id)) continue;
+          paymentDiscountById.set(id, toNum((p as any)?.discountAmount ?? 0));
+        }
+      } catch {}
+    }
 
     // Dispatch
     dispatchChallans.forEach((dc) => {
@@ -966,7 +988,7 @@ const navigate = useNavigate();
       });
     });
 
-    // Payments
+    // ✅ Payments (CASH in Debit, DISCOUNT in Discount column; FIFO settlement = CASH + DISCOUNT)
     payments.forEach((p) => {
       const bName = (p.brokerName || "").trim() || (p.partyName ? getBrokerFromPartyName(p.partyName) : "");
       if (!brokerOk(bName)) return;
@@ -976,6 +998,8 @@ const navigate = useNavigate();
 
       const rawDate = p.paymentDate || p.date || fromDate;
 
+      const disc = paymentDiscountById.get(Number(p.id)) ?? 0;
+
       docs.push({
         source: "Payment",
         id: p.id,
@@ -983,13 +1007,14 @@ const navigate = useNavigate();
         number: `PAY-${p.id}`,
         partyName: p.partyName || "",
         brokerName: bName,
-        amount: toNum(p.amount),
+        amount: toNum(p.amount),          // cash
+        discount: toNum(disc),            // discount (like Receipt)
         payRecMode: buildPayRecMode(p.paymentThrough, p.processName),
         docKey: makeDocKey("Payment", p.id),
       });
     });
 
-    // Receipts
+    // Receipts (cash in Credit, discount in Discount; FIFO credit = cash + discount)
     receipts.forEach((r) => {
       const bName = (r.brokerName || "").trim() || (r.partyName ? getBrokerFromPartyName(r.partyName) : "");
       if (!brokerOk(bName)) return;
@@ -1004,8 +1029,8 @@ const navigate = useNavigate();
         number: `REC-${r.id}`,
         partyName: r.partyName || "",
         brokerName: bName,
-        amount: toNum(r.amount),
-        discount: toNum(r.discountAmount ?? 0),
+        amount: toNum(r.amount),                    // cash
+        discount: toNum(r.discountAmount ?? 0),     // discount
         payRecMode: buildPayRecMode(r.paymentThrough, r.processName),
         docKey: makeDocKey("Receipt", r.id),
       });
@@ -1057,10 +1082,14 @@ const navigate = useNavigate();
     }
 
     for (const d of docs) {
-      const { debit, credit, discount } = getAmounts(d.source, d.amount, d.discount);
+      const { debit, credit } = getAmounts(d.source, d.amount, d.discount);
+      const docDisc = toNum(d.discount);
 
-      // FIFO credit includes discount for receipts
-      const fifoCredit = d.source === "Receipt" ? toNum(credit) + toNum(discount) : toNum(credit);
+      // ✅ FIFO credit includes discount for receipts
+      const fifoCredit = d.source === "Receipt" ? toNum(credit) + docDisc : toNum(credit);
+
+      // ✅ FIFO debit includes discount for payments (settlement = cash + discount)
+      const fifoDebit = d.source === "Payment" ? toNum(debit) + docDisc : toNum(debit);
 
       fifoEvents.push({
         id: d.id,
@@ -1069,7 +1098,7 @@ const navigate = useNavigate();
         brokerName: d.brokerName,
         orderNo: d.number,
         mode: combineModeForDisplay(d.mode, d.payRecMode),
-        debit: toNum(debit),
+        debit: fifoDebit,
         credit: fifoCredit,
         type: d.source,
         docKey: d.docKey,
@@ -1090,6 +1119,20 @@ const navigate = useNavigate();
 
       const openingDocs = docs.filter((d) => toTime(d.date) < fromT);
       for (const d of openingDocs) {
+        const docDisc = toNum(d.discount);
+
+        // ✅ Payment discount should participate like cash (settlement = cash + discount)
+        if (d.source === "Payment") {
+          openingBal += toNum(d.amount) + docDisc;
+          continue;
+        }
+
+        // Receipt discount already participates correctly (credit = cash + discount)
+        if (d.source === "Receipt") {
+          openingBal -= toNum(d.amount) + docDisc;
+          continue;
+        }
+
         const { debit, credit, discount } = getAmounts(d.source, d.amount, d.discount);
         openingBal += toNum(debit) - (toNum(credit) + toNum(discount));
       }
@@ -1126,7 +1169,29 @@ const navigate = useNavigate();
       });
 
     for (const d of periodDocs) {
+      const docDisc = toNum(d.discount);
+
+      // ✅ Payment discount shown in Discount column exactly like Receipt
+      if (d.source === "Payment") {
+        baseRows.push({
+          id: d.id,
+          date: d.date,
+          partyName: d.partyName,
+          brokerName: d.brokerName,
+          orderNo: d.number,
+          mode: d.mode || "",
+          payRecMode: d.payRecMode || "",
+          debit: toNum(d.amount),   // cash
+          credit: 0,
+          discount: docDisc,        // discount
+          type: d.source,
+          docKey: d.docKey,
+        });
+        continue;
+      }
+
       const { debit, credit, discount } = getAmounts(d.source, d.amount, d.discount);
+
       baseRows.push({
         id: d.id,
         date: d.date,
@@ -1137,7 +1202,7 @@ const navigate = useNavigate();
         payRecMode: d.payRecMode || "",
         debit: toNum(debit),
         credit: toNum(credit),
-        discount: toNum(discount),
+        discount: d.source === "Receipt" ? docDisc : toNum(discount),
         type: d.source,
         docKey: d.docKey,
       });
