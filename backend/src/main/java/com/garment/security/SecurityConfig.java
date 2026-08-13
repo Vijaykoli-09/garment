@@ -154,6 +154,9 @@ public class SecurityConfig {
                       .requestMatchers("/api/purchase/pending-order-item").permitAll()
                       .requestMatchers("/api/dispatch-return-challan/**").permitAll()
                       .requestMatchers("/api/ledger-status/**").permitAll()
+                      .requestMatchers("/api/extra-hours/**").permitAll()
+                      .requestMatchers("/api/attendance/**").permitAll()
+                      .requestMatchers("/api/salary-support/**").permitAll()
 
                       // ── Mobile orders — JWT required ───────────────────────
                       .requestMatchers("/api/orders/**").authenticated()

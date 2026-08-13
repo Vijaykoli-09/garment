@@ -22,6 +22,10 @@ public class EmployeeResponseDTO {
     private Double monthlySalary;
     private Double contractorPayment;
     private Double workingHours;
+
+    // ✅ NEW
+    private Double hourlyRate;
+
     private String contact;
     private String qualification;
     private Double openingBalance;

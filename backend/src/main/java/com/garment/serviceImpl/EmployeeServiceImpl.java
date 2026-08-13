@@ -5,16 +5,17 @@ import java.util.List;
 import org.springframework.stereotype.Service;
 
 import com.garment.model.Employee;
+import com.garment.model.Process;
 import com.garment.repository.EmployeeRepository;
 import com.garment.repository.ProcessRepository;
 import com.garment.service.EmployeeService;
-import com.garment.model.Process;
 
 import lombok.RequiredArgsConstructor;
 
 @Service
 @RequiredArgsConstructor
 public class EmployeeServiceImpl implements EmployeeService {
+
     private final EmployeeRepository employeeRepository;
     private final ProcessRepository processRepository;
 
@@ -39,6 +40,10 @@ public class EmployeeServiceImpl implements EmployeeService {
         existing.setMonthlySalary(updatedEmployee.getMonthlySalary());
         existing.setContractorPayment(updatedEmployee.getContractorPayment());
         existing.setWorkingHours(updatedEmployee.getWorkingHours());
+
+        // ✅ NEW
+        existing.setHourlyRate(updatedEmployee.getHourlyRate());
+
         existing.setContact(updatedEmployee.getContact());
         existing.setQualification(updatedEmployee.getQualification());
         existing.setOpeningBalance(updatedEmployee.getOpeningBalance());
