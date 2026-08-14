@@ -420,6 +420,26 @@ const getDrCr = (source: TxType, amount: number) => {
 
 
 
+// ================= Payment Through Memory =================
+const PAYMENT_THROUGH_STORAGE_KEY = "lastPaymentThrough";
+
+const getLastPaymentThrough = () => {
+  try {
+    const value = localStorage.getItem(PAYMENT_THROUGH_STORAGE_KEY);
+    return value?.trim() || "Cash";
+  } catch {
+    return "Cash";
+  }
+};
+
+const saveLastPaymentThrough = (value: string) => {
+  const v = String(value || "").trim();
+  if (!v) return;
+  try {
+    localStorage.setItem(PAYMENT_THROUGH_STORAGE_KEY, v);
+  } catch {}
+};
+
 const PaymentForm: React.FC = () => {
   const navigate = useNavigate();
   const today = new Date().toISOString().split("T")[0];
@@ -430,7 +450,7 @@ const PaymentForm: React.FC = () => {
     paymentDate: today,
     processName: "",
     partyName: "",
-    paymentThrough: "Cash",
+    paymentThrough: getLastPaymentThrough(),
     amount: "",
     discountAmount: 0,
     balance: "",
@@ -1876,6 +1896,9 @@ setSaving(true);
       Swal.fire("Success", "Payment saved successfully!", "success");
     }
 
+    // Remember the last Payment Through used for the next entry.
+    saveLastPaymentThrough(formData.paymentThrough);
+
     // ✅ refresh local + notify all ledger screens (AccountStatement, etc.)
     await loadSavedRecords();
     try {
@@ -2029,7 +2052,7 @@ setSaving(true);
     paymentDate: today,
     processName: "",
     partyName: "",
-    paymentThrough: "Cash",
+    paymentThrough: getLastPaymentThrough(),
     amount: "",
     discountAmount: 0,
     balance: "",

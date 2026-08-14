@@ -328,11 +328,24 @@ const navigate = useNavigate();
   const [comboQuery, setComboQuery] = useState("");
   const [comboOpen, setComboOpen] = useState(false);
 
+  // Auto-focus the Broker / Party search box
+  const comboInputRef = useRef<HTMLInputElement>(null);
+
   type SearchBy = "broker" | "party";
   const [searchBy, setSearchBy] = useState<SearchBy>("broker");
 
   const [selectedBroker, setSelectedBroker] = useState("");
   const [selectedParty, setSelectedParty] = useState("");
+
+  // Put cursor in search automatically when this page becomes ready.
+  useEffect(() => {
+    if (!loading) {
+      requestAnimationFrame(() => {
+        comboInputRef.current?.focus();
+        comboInputRef.current?.select();
+      });
+    }
+  }, [loading]);
 
   const [fromDate, setFromDate] = useState(getFirstOfMonthIso());
   const [toDate, setToDate] = useState(getTodayIso());
@@ -760,12 +773,26 @@ const navigate = useNavigate();
     });
   }, [comboQuery, searchBy, allBrokerNames, allPartyNames, brokerToParties, getBrokerFromPartyName]);
 
+  const focusComboSearch = useCallback(() => {
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        const el = comboInputRef.current;
+        if (!el) return;
+        el.focus();
+        el.select();
+      });
+    });
+  }, []);
+
   const selectOption = (o: BrokerSelectOption) => {
     setSelectedBroker(o.broker);
     setSelectedParty(o.party);
     setComboInput(o.label);
     setComboQuery("");
     setComboOpen(false);
+
+    // Keep cursor in search after Broker/Party selection.
+    focusComboSearch();
   };
 
   // ---------- Manual Paid update ----------
@@ -2114,6 +2141,10 @@ const totalPendingFifo = useMemo(() => pendingTotals.totalPending, [pendingTotal
   setComboQuery("");
   setComboOpen(false);
   setSearchBy("broker");
+  requestAnimationFrame(() => {
+    comboInputRef.current?.focus();
+    comboInputRef.current?.select();
+  });
   setFromDate(getFirstOfMonthIso());
   setToDate(getTodayIso());
   setShowOpening(true);
@@ -2156,6 +2187,7 @@ const totalPendingFifo = useMemo(() => pendingTotals.totalPending, [pendingTotal
                       setComboInput("");
                       setComboQuery("");
                       setComboOpen(false);
+                      focusComboSearch();
                     }}
                   />
                   Broker
@@ -2173,6 +2205,7 @@ const totalPendingFifo = useMemo(() => pendingTotals.totalPending, [pendingTotal
                       setComboInput("");
                       setComboQuery("");
                       setComboOpen(false);
+                      focusComboSearch();
                     }}
                   />
                   Party
@@ -2181,6 +2214,8 @@ const totalPendingFifo = useMemo(() => pendingTotals.totalPending, [pendingTotal
 
               <div className="relative">
                 <input
+                  ref={comboInputRef}
+                  autoFocus
                   value={comboInput}
                   onChange={(e) => {
                     const v = e.target.value;

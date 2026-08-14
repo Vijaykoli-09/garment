@@ -228,9 +228,10 @@ const ArtCreation: React.FC = () => {
   const [manualInputByProcess, setManualInputByProcess] = useState<Record<string, { name: string; qty: string; rate: string }>>({});
   const [materialsByProcess, setMaterialsByProcess] = useState<Record<string, string[]>>({}); // from /accessories/list
 
+  // Size modal now supports selecting multiple sizes at once.
   const [isSizeModalOpen, setIsSizeModalOpen] = useState<boolean>(false);
-  const [currentSizeSelection, setCurrentSizeSelection] = useState<string>("");
-  const [sizeDetails, setSizeDetails] = useState({ box: "", pcs: "", rate: "" });
+  const [sizeModalSelectedSerials, setSizeModalSelectedSerials] = useState<string[]>([]);
+  const [sizeDrafts, setSizeDrafts] = useState<Record<string, { box: string; pcs: string; rate: string }>>({});
 
   useEffect(() => {
     loadArts();
@@ -441,16 +442,17 @@ const ArtCreation: React.FC = () => {
   };
 
   // ✅ COPY FROM ART: copy processes + accessory details + selected accessories
-  const handleCopyFromArtChange = async (selectedArtName: string) => {
-    if (!selectedArtName) {
+  const handleCopyFromArtChange = async (selectedArtNo: string) => {
+    if (!selectedArtNo) {
       setFormData((prev) => ({ ...prev, copyFromArtName: "" }));
       return;
     }
 
-    const selectedArt = artListForCopy.find((art) => art.artName === selectedArtName);
+    // Copy selection is now based on Art No instead of Description/Art Name.
+    const selectedArt = artListForCopy.find((art) => art.artNo === selectedArtNo);
     if (!selectedArt) return;
 
-    setFormData((prev) => ({ ...prev, copyFromArtName: selectedArtName }));
+    setFormData((prev) => ({ ...prev, copyFromArtName: selectedArtNo }));
     const artDetail = await loadArtDetail(selectedArt.serialNumber);
     if (!artDetail) return;
 
@@ -493,7 +495,7 @@ const ArtCreation: React.FC = () => {
     Swal.fire({
       icon: "success",
       title: "Copied",
-      text: `Copied ${copiedProcesses.length} processes and ${copiedAccessoryDetails.length} accessory rows from ${selectedArtName}`,
+      text: `Copied ${copiedProcesses.length} processes and ${copiedAccessoryDetails.length} accessory rows from Art No ${selectedArtNo}`,
       timer: 2000,
       showConfirmButton: false,
     });
@@ -1187,44 +1189,105 @@ const ArtCreation: React.FC = () => {
   };
 
   // =================== SIZE modal ===================
-  const handleSizeSelect = (serialNo: string) => {
-    if (!serialNo) return;
+  // Open one modal and select all required sizes together.
+  const handleOpenSizeModal = () => {
+    const existingSerials = selectedSizes.map((s) => s.serialNo);
 
-    const selectedSize = availableSizes.find((size) => size.serialNo === serialNo);
-    if (!selectedSize) return;
+    const drafts: Record<string, { box: string; pcs: string; rate: string }> = {};
+    selectedSizes.forEach((size) => {
+      drafts[size.serialNo] = {
+        box: size.box || "",
+        pcs: size.pcs || "",
+        rate: size.rate || "",
+      };
+    });
 
-    if (selectedSizes.find((size) => size.serialNo === selectedSize.serialNo)) {
-      Swal.fire({ icon: "info", title: "Already Selected", text: "This size is already selected!", timer: 1200, showConfirmButton: false });
-      return;
-    }
-
-    setCurrentSizeSelection(serialNo);
+    setSizeModalSelectedSerials(existingSerials);
+    setSizeDrafts(drafts);
     setIsSizeModalOpen(true);
-    setSizeDetails({ box: "", pcs: "", rate: "" });
   };
 
-  const handleSaveSize = () => {
-    const selectedSize = availableSizes.find((size) => size.serialNo === currentSizeSelection);
-    if (!selectedSize) return;
+  const toggleSizeInModal = (serialNo: string) => {
+    setSizeModalSelectedSerials((prev) => {
+      if (prev.includes(serialNo)) {
+        const next = prev.filter((x) => x !== serialNo);
+        setSizeDrafts((draftPrev) => {
+          const nextDrafts = { ...draftPrev };
+          delete nextDrafts[serialNo];
+          return nextDrafts;
+        });
+        return next;
+      }
 
-    if (!sizeDetails.box || !sizeDetails.pcs || !sizeDetails.rate) {
-      Swal.fire({ icon: "warning", title: "Incomplete Data", text: "Please fill all fields: Box, Pcs, and Rate" });
+      setSizeDrafts((draftPrev) => ({
+        ...draftPrev,
+        [serialNo]: draftPrev[serialNo] || { box: "", pcs: "", rate: "" },
+      }));
+      return [...prev, serialNo];
+    });
+  };
+
+  const updateSizeDraft = (serialNo: string, field: "box" | "pcs" | "rate", value: string) => {
+    setSizeDrafts((prev) => ({
+      ...prev,
+      [serialNo]: {
+        ...(prev[serialNo] || { box: "", pcs: "", rate: "" }),
+        [field]: value,
+      },
+    }));
+  };
+
+  const handleSaveSizes = () => {
+    if (!sizeModalSelectedSerials.length) {
+      Swal.fire({
+        icon: "warning",
+        title: "No Size Selected",
+        text: "Please select at least one size.",
+      });
       return;
     }
 
-    const newSize: SizeFromCreation = {
-      ...selectedSize,
-      box: sizeDetails.box,
-      pcs: sizeDetails.pcs,
-      rate: sizeDetails.rate,
-    };
+    const incomplete = sizeModalSelectedSerials.find((serialNo) => {
+      const d = sizeDrafts[serialNo];
+      return !d?.box?.trim() || !d?.pcs?.trim() || !d?.rate?.trim();
+    });
 
-    setSelectedSizes([...selectedSizes, newSize]);
+    if (incomplete) {
+      const size = availableSizes.find((s) => s.serialNo === incomplete);
+      Swal.fire({
+        icon: "warning",
+        title: "Incomplete Data",
+        text: `Please fill Box, Pcs and Rate for size ${size?.sizeName || incomplete}.`,
+      });
+      return;
+    }
+
+    const selected = sizeModalSelectedSerials
+      .map((serialNo) => {
+        const master = availableSizes.find((size) => size.serialNo === serialNo);
+        const draft = sizeDrafts[serialNo];
+        if (!master || !draft) return null;
+        return {
+          ...master,
+          box: draft.box,
+          pcs: draft.pcs,
+          rate: draft.rate,
+        } as SizeFromCreation;
+      })
+      .filter(Boolean) as SizeFromCreation[];
+
+    setSelectedSizes(selected);
     setIsSizeModalOpen(false);
-    setCurrentSizeSelection("");
-    setSizeDetails({ box: "", pcs: "", rate: "" });
+    setSizeModalSelectedSerials([]);
+    setSizeDrafts({});
 
-    Swal.fire({ icon: "success", title: "Added!", timer: 900, showConfirmButton: false });
+    Swal.fire({
+      icon: "success",
+      title: "Sizes Added",
+      text: `${selected.length} size${selected.length === 1 ? "" : "s"} added successfully.`,
+      timer: 1200,
+      showConfirmButton: false,
+    });
   };
 
   // =================== Styles ===================
@@ -1416,8 +1479,8 @@ const ArtCreation: React.FC = () => {
                 >
                   <option value="">Select Art </option>
                   {artListForCopy.map((art) => (
-                    <option key={art.serialNumber} value={art.artName}>
-                      {art.artName} ({art.artGroup})
+                    <option key={art.serialNumber} value={art.artNo}>
+                      {art.artNo || "-"}
                     </option>
                   ))}
                 </select>
@@ -1614,22 +1677,18 @@ const ArtCreation: React.FC = () => {
                 </div>
 
                 <div>
-                  <label style={{ fontSize: 12, fontWeight: "bold", marginBottom: 4, display: "block" }}>Select Size:</label>
-                  <select
-                    onChange={(e) => {
-                      handleSizeSelect(e.target.value);
-                      e.target.value = "";
-                    }}
-                    style={{ ...smallButtonStyle, backgroundColor: "#f3e5f5", fontSize: 12 }}
-                    value=""
+                  <label style={{ fontSize: 12, fontWeight: "bold", marginBottom: 4, display: "block" }}>Select Sizes:</label>
+                  <button
+                    type="button"
+                    onClick={handleOpenSizeModal}
+                    style={{ ...smallButtonStyle, backgroundColor: "#f3e5f5", border: "1px solid #9c27b0", color: "#7b1fa2", fontWeight: 700, fontSize: 12 }}
+                    disabled={loading}
                   >
-                    <option value="">Select Size...</option>
-                    {availableSizes.map((size) => (
-                      <option key={size.serialNo} value={size.serialNo}>
-                        {size.sizeName}
-                      </option>
-                    ))}
-                  </select>
+                    Select Multiple Sizes ({selectedSizes.length})
+                  </button>
+                  <div style={{ marginTop: 4, fontSize: 10, color: "#777" }}>
+                    Click once → select all required sizes → enter Box/Pcs/Rate → Save All
+                  </div>
                 </div>
               </div>
             </div>
@@ -2096,60 +2155,156 @@ const ArtCreation: React.FC = () => {
         </div>
       )}
 
-      {/* SIZE MODAL */}
+      {/* SIZE MODAL - MULTI SELECT */}
       {isSizeModalOpen && (
         <div style={modalOverlayStyle} onClick={() => setIsSizeModalOpen(false)}>
-          <div style={{ ...modalStyle, maxWidth: 450, backgroundColor: "#f3e5f5" }} onClick={(e) => e.stopPropagation()}>
+          <div style={{ ...modalStyle, maxWidth: 900, backgroundColor: "#f3e5f5" }} onClick={(e) => e.stopPropagation()}>
             <div style={{ ...modalHeaderStyle, backgroundColor: "#f3e5f5", borderBottom: "2px solid #9c27b0" }}>
-              <h3 style={{ margin: 0, fontSize: 16, color: "#9c27b0" }}>
-                Enter Details for Size: {availableSizes.find((s) => s.serialNo === currentSizeSelection)?.sizeName || ""}
-              </h3>
+              <div>
+                <h3 style={{ margin: 0, fontSize: 17, color: "#7b1fa2" }}>Select Sizes & Enter Details</h3>
+                <div style={{ marginTop: 4, fontSize: 11, color: "#666" }}>
+                  Select multiple sizes together. Details can be entered in the same screen.
+                </div>
+              </div>
               <button style={closeButtonStyle} onClick={() => setIsSizeModalOpen(false)}>
                 &times;
               </button>
             </div>
 
-            <div style={{ marginBottom: 16 }}>
-              <label style={{ display: "block", marginBottom: 6, fontWeight: "bold", fontSize: 13 }}>Box:</label>
-              <input
-                type="text"
-                value={sizeDetails.box}
-                onChange={(e) => setSizeDetails({ ...sizeDetails, box: e.target.value })}
-                style={{ width: "100%", padding: 8, border: "1px solid #9c27b0", borderRadius: 4 }}
-              />
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10, gap: 10, flexWrap: "wrap" }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: "#7b1fa2" }}>
+                Selected: {sizeModalSelectedSerials.length} / {availableSizes.length}
+              </div>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const allSerials = availableSizes.map((s) => s.serialNo);
+                    setSizeModalSelectedSerials(allSerials);
+                    setSizeDrafts((prev) => {
+                      const next = { ...prev };
+                      allSerials.forEach((serialNo) => {
+                        if (!next[serialNo]) next[serialNo] = { box: "", pcs: "", rate: "" };
+                      });
+                      return next;
+                    });
+                  }}
+                  style={{ padding: "6px 10px", border: "1px solid #9c27b0", borderRadius: 4, background: "white", color: "#7b1fa2", cursor: "pointer", fontSize: 11, fontWeight: 700 }}
+                >
+                  Select All
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSizeModalSelectedSerials([]);
+                    setSizeDrafts({});
+                  }}
+                  style={{ padding: "6px 10px", border: "1px solid #aaa", borderRadius: 4, background: "white", color: "#555", cursor: "pointer", fontSize: 11, fontWeight: 700 }}
+                >
+                  Clear All
+                </button>
+              </div>
             </div>
 
-            <div style={{ marginBottom: 16 }}>
-              <label style={{ display: "block", marginBottom: 6, fontWeight: "bold", fontSize: 13 }}>Pcs:</label>
-              <input
-                type="text"
-                value={sizeDetails.pcs}
-                onChange={(e) => setSizeDetails({ ...sizeDetails, pcs: e.target.value })}
-                style={{ width: "100%", padding: 8, border: "1px solid #9c27b0", borderRadius: 4 }}
-              />
+            <div style={{ maxHeight: "55vh", overflow: "auto", border: "1px solid #d1b3d8", borderRadius: 6, background: "white" }}>
+              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                <thead style={{ position: "sticky", top: 0, zIndex: 2 }}>
+                  <tr style={{ backgroundColor: "#ead7ef" }}>
+                    <th style={{ ...thtd, textAlign: "center", width: 55 }}>Select</th>
+                    <th style={{ ...thtd, width: 100 }}>Serial No</th>
+                    <th style={{ ...thtd }}>Size</th>
+                    <th style={{ ...thtd, width: 130, textAlign: "center" }}>Box</th>
+                    <th style={{ ...thtd, width: 130, textAlign: "center" }}>Pcs</th>
+                    <th style={{ ...thtd, width: 150, textAlign: "right" }}>Rate</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {availableSizes.length === 0 ? (
+                    <tr>
+                      <td colSpan={6} style={{ ...thtd, textAlign: "center", padding: 25, color: "#777" }}>
+                        No sizes available.
+                      </td>
+                    </tr>
+                  ) : (
+                    availableSizes.map((size, index) => {
+                      const checked = sizeModalSelectedSerials.includes(size.serialNo);
+                      const draft = sizeDrafts[size.serialNo] || { box: "", pcs: "", rate: "" };
+
+                      return (
+                        <tr key={size.serialNo} style={{ backgroundColor: checked ? "#fff8ff" : index % 2 === 0 ? "#fff" : "#fafafa" }}>
+                          <td style={{ ...thtd, textAlign: "center" }}>
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={() => toggleSizeInModal(size.serialNo)}
+                              style={{ width: 17, height: 17, cursor: "pointer" }}
+                            />
+                          </td>
+                          <td style={{ ...thtd, fontFamily: "monospace", fontWeight: 600 }}>{size.serialNo}</td>
+                          <td style={{ ...thtd, fontWeight: 700, color: "#7b1fa2" }}>{size.sizeName}</td>
+                          <td style={{ ...thtd, textAlign: "center" }}>
+                            <input
+                              type="text"
+                              value={draft.box}
+                              disabled={!checked}
+                              onChange={(e) => updateSizeDraft(size.serialNo, "box", e.target.value)}
+                              placeholder="Box"
+                              style={{ width: "100%", padding: 6, border: "1px solid #c9a8d0", borderRadius: 4, background: checked ? "white" : "#f1f1f1", boxSizing: "border-box" }}
+                            />
+                          </td>
+                          <td style={{ ...thtd, textAlign: "center" }}>
+                            <input
+                              type="text"
+                              value={draft.pcs}
+                              disabled={!checked}
+                              onChange={(e) => updateSizeDraft(size.serialNo, "pcs", e.target.value)}
+                              placeholder="Pcs"
+                              style={{ width: "100%", padding: 6, border: "1px solid #c9a8d0", borderRadius: 4, background: checked ? "white" : "#f1f1f1", boxSizing: "border-box" }}
+                            />
+                          </td>
+                          <td style={{ ...thtd, textAlign: "right" }}>
+                            <input
+                              type="text"
+                              value={draft.rate}
+                              disabled={!checked}
+                              onChange={(e) => updateSizeDraft(size.serialNo, "rate", e.target.value)}
+                              placeholder="Rate"
+                              style={{ width: "100%", padding: 6, border: "1px solid #c9a8d0", borderRadius: 4, background: checked ? "white" : "#f1f1f1", boxSizing: "border-box", textAlign: "right" }}
+                            />
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
             </div>
 
-            <div style={{ marginBottom: 20 }}>
-              <label style={{ display: "block", marginBottom: 6, fontWeight: "bold", fontSize: 13 }}>Rate:</label>
-              <input
-                type="text"
-                value={sizeDetails.rate}
-                onChange={(e) => setSizeDetails({ ...sizeDetails, rate: e.target.value })}
-                style={{ width: "100%", padding: 8, border: "1px solid #9c27b0", borderRadius: 4 }}
-              />
-            </div>
-
-            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
-              <button onClick={() => setIsSizeModalOpen(false)} style={{ padding: "8px 16px", border: "1px solid #ccc", borderRadius: 4 }}>
-                Cancel
-              </button>
-              <button onClick={handleSaveSize} style={{ padding: "8px 16px", border: "none", borderRadius: 4, backgroundColor: "#9c27b0", color: "white" }}>
-                Save
-              </button>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 15, gap: 10, flexWrap: "wrap" }}>
+              <div style={{ fontSize: 11, color: "#666" }}>
+                Only selected sizes require Box, Pcs and Rate.
+              </div>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button
+                  type="button"
+                  onClick={() => setIsSizeModalOpen(false)}
+                  style={{ padding: "8px 16px", border: "1px solid #bbb", borderRadius: 4, background: "white", cursor: "pointer" }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSaveSizes}
+                  style={{ padding: "8px 18px", border: "none", borderRadius: 4, backgroundColor: "#9c27b0", color: "white", cursor: "pointer", fontWeight: 700 }}
+                >
+                  Save All Sizes ({sizeModalSelectedSerials.length})
+                </button>
+              </div>
             </div>
           </div>
         </div>
       )}
+
     </Dashboard>
   );
 };

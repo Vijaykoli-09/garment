@@ -386,6 +386,26 @@ const routesReceipt = {
   ledgerStatusBulkGet: "/ledger-status/bulk-get",
 };
 
+// ================= Payment Through Memory =================
+const PAYMENT_THROUGH_STORAGE_KEY = "lastPaymentThrough";
+
+const getLastPaymentThrough = () => {
+  try {
+    const value = localStorage.getItem(PAYMENT_THROUGH_STORAGE_KEY);
+    return value?.trim() || "Cash";
+  } catch {
+    return "Cash";
+  }
+};
+
+const saveLastPaymentThrough = (value: string) => {
+  const v = String(value || "").trim();
+  if (!v) return;
+  try {
+    localStorage.setItem(PAYMENT_THROUGH_STORAGE_KEY, v);
+  } catch {}
+};
+
 const PaymentReceiptForm: React.FC = () => {
   const navigate = useNavigate();
   const today = new Date().toISOString().split("T")[0];
@@ -396,7 +416,7 @@ const PaymentReceiptForm: React.FC = () => {
     receiptDate: today,
     processName: "",
     name: "",
-    paymentThrough: "Cash",
+    paymentThrough: getLastPaymentThrough(),
     amount: "",
     discountAmount: 0,
     balance: "",
@@ -1835,6 +1855,9 @@ setSaving(true);
       if (editingId) await api.put(routesReceipt.update(editingId), payload);
       else await api.post(routesReceipt.create, payload);
 
+      // Remember the last Payment Through used for the next entry.
+      saveLastPaymentThrough(formData.paymentThrough);
+
       Swal.fire("Success", editingId ? "Receipt updated!" : "Receipt saved successfully!", "success");
       setEditingId(null);
       handleAddNew(false);
@@ -1949,7 +1972,7 @@ setSaving(true);
       receiptDate: today,
       processName: "",
       name: "",
-      paymentThrough: "Cash",
+      paymentThrough: getLastPaymentThrough(),
       amount: "",
       discountAmount: 0,
       balance: "",

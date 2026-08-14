@@ -1,7 +1,7 @@
 "use client"
 
 import type React from "react"
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import Dashboard from "../Dashboard"
 import Swal from "sweetalert2"
 import api from "../../api/axiosInstance"
@@ -490,6 +490,11 @@ const SaleOrder: React.FC = () => {
   const [shadeSearch, setShadeSearch] = useState("")
   const [shadeRowId, setShadeRowId] = useState<number | null>(null)
 
+  // ---------- modal search auto-focus ----------
+  const partySearchRef = useRef<HTMLInputElement | null>(null)
+  const artSearchRef = useRef<HTMLInputElement | null>(null)
+  const shadeSearchRef = useRef<HTMLInputElement | null>(null)
+
   const [showList, setShowList] = useState(false)
   const [saleOrderList, setSaleOrderList] = useState<any[]>([])
   const [listSearch, setListSearch] = useState("")
@@ -592,6 +597,34 @@ const SaleOrder: React.FC = () => {
     setPendingFocus(null)
   }, [pendingFocus])
 
+  // Auto-focus search box whenever a selection modal opens.
+  useEffect(() => {
+    if (!showPartyModal) return
+    const t = window.setTimeout(() => {
+      partySearchRef.current?.focus()
+      partySearchRef.current?.select()
+    }, 0)
+    return () => window.clearTimeout(t)
+  }, [showPartyModal])
+
+  useEffect(() => {
+    if (!showArtModal) return
+    const t = window.setTimeout(() => {
+      artSearchRef.current?.focus()
+      artSearchRef.current?.select()
+    }, 0)
+    return () => window.clearTimeout(t)
+  }, [showArtModal])
+
+  useEffect(() => {
+    if (!showShadeModal) return
+    const t = window.setTimeout(() => {
+      shadeSearchRef.current?.focus()
+      shadeSearchRef.current?.select()
+    }, 0)
+    return () => window.clearTimeout(t)
+  }, [showShadeModal])
+
   // Enter key handling for grid
   const handleCellKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key !== "Enter") return
@@ -606,27 +639,143 @@ const SaleOrder: React.FC = () => {
     if (Number.isNaN(rowIndex) || Number.isNaN(colIndex)) return
 
     const totalCols = 5 + sizeColumns.length * 2
-    let nextRow = rowIndex
-    let nextCol = colIndex + 1
+    const currentRow = rows[rowIndex]
+    if (!currentRow) return
 
-    if (nextCol >= totalCols) {
-      nextCol = 0
-      nextRow = rowIndex + 1
+    // A size column is available only when that size exists in this Art.
+    // Disabled sizes are skipped completely by Enter navigation.
+    const isColumnEnabledForRow = (targetRow: SaleRow, targetCol: number) => {
+      if (targetCol <= 4) return true
+
+      const sizeIndex = Math.floor((targetCol - 5) / 2)
+      const key = sizeColumns[sizeIndex]
+      if (!key) return false
+
+      return Object.prototype.hasOwnProperty.call(
+        targetRow.sizeQty || {},
+        key,
+      )
     }
-    if (nextRow >= rows.length) return
 
-    const selector = `input[data-row-index="${nextRow}"][data-col-index="${nextCol}"]`
-    const nextEl =
-      typeof document !== "undefined"
-        ? (document.querySelector<HTMLInputElement>(selector) as HTMLInputElement | null)
-        : null
-    if (nextEl) {
-      nextEl.focus()
-      if (typeof nextEl.select === "function") {
-        nextEl.select()
+    /*
+     * IMPORTANT:
+     * When Enter is pressed on the LAST AVAILABLE Rate:
+     *
+     * 1. If another populated row already exists -> open its Shade modal.
+     * 2. If the next row is empty -> open Art modal for that row.
+     * 3. If this is the last row -> create ONE EMPTY row and open Art modal.
+     *
+     * We must NOT copy the current Art into a newly created row.
+     * Otherwise pressing Enter on the last Rate creates a duplicate Art row.
+     */
+    const finishCurrentRow = () => {
+      const nextRowIndex = rowIndex + 1
+
+      // ----------------------------------------------------------
+      // Next row already exists
+      // ----------------------------------------------------------
+      if (nextRowIndex < rows.length) {
+        const nextRow = rows[nextRowIndex]
+
+        if ((nextRow.artNo || "").trim()) {
+          // Existing populated row -> start its Shade selection.
+          window.setTimeout(() => openShadeModal(nextRow.id), 0)
+        } else {
+          // Existing blank row -> let user select a NEW Art.
+          window.setTimeout(() => openArtModal(nextRow.id), 0)
+        }
+
+        return
+      }
+
+      // ----------------------------------------------------------
+      // This is the LAST row.
+      // Create exactly ONE blank row.
+      //
+      // Do NOT copy artNo / description / sizes from currentRow.
+      // ----------------------------------------------------------
+      const newRow: SaleRow = {
+        id: Date.now() + Math.random(),
+        artSerial: undefined,
+        artNo: "",
+        shade: "",
+        description: "",
+        peti: "",
+        remarks: "",
+        sizeQty: {},
+        sizeRate: {},
+      }
+
+      setRows((prev) => [...prev, newRow])
+
+      // New row is for a new Art, so open Art modal.
+      window.setTimeout(() => openArtModal(newRow.id), 30)
+    }
+
+    // Peti + Enter -> Remarks
+    if (colIndex === 3) {
+      const selector = `input[data-row-index="${rowIndex}"][data-col-index="4"]`
+      const nextEl =
+        typeof document !== "undefined"
+          ? document.querySelector<HTMLInputElement>(selector)
+          : null
+
+      if (nextEl) {
+        nextEl.focus()
+        nextEl.select?.()
+      }
+      return
+    }
+
+    // Find the LAST AVAILABLE Rate for this particular row.
+    // Example:
+    // 4XL exists, 5XL does not exist.
+    // Enter on 4XL Rate => finishCurrentRow().
+    let lastEnabledRateCol = -1
+
+    for (let sizeIdx = sizeColumns.length - 1; sizeIdx >= 0; sizeIdx--) {
+      const key = sizeColumns[sizeIdx]
+
+      if (
+        Object.prototype.hasOwnProperty.call(
+          currentRow.sizeQty || {},
+          key,
+        )
+      ) {
+        lastEnabledRateCol = 5 + sizeIdx * 2 + 1
+        break
       }
     }
+
+    // Last available Rate -> finish this row.
+    if (colIndex === lastEnabledRateCol) {
+      finishCurrentRow()
+      return
+    }
+
+    // Normal Enter navigation.
+    // Disabled Qty/Rate fields are skipped.
+    for (let nextCol = colIndex + 1; nextCol < totalCols; nextCol++) {
+      if (!isColumnEnabledForRow(currentRow, nextCol)) continue
+
+      const selector = `input[data-row-index="${rowIndex}"][data-col-index="${nextCol}"]`
+      const nextEl =
+        typeof document !== "undefined"
+          ? document.querySelector<HTMLInputElement>(selector)
+          : null
+
+      // Safety: never focus a disabled element.
+      if (nextEl && !nextEl.disabled) {
+        nextEl.focus()
+        nextEl.select?.()
+        return
+      }
+    }
+
+    // Fallback for unusual rows where no next enabled field was found.
+    finishCurrentRow()
   }
+
 
   const totalPcs = useMemo(
     () =>
@@ -869,10 +1018,16 @@ const SaleOrder: React.FC = () => {
     setPartySearch("")
     setShowPartyModal(true)
   }
+
   const selectParty = (p: PartyFromApi) => {
     setPartyName(p.partyName)
     setSelectedParty(p)
     setShowPartyModal(false)
+
+    // Party select -> immediately open Art selection.
+    window.setTimeout(() => {
+      openArtModal()
+    }, 0)
   }
 
   const openArtModal = (rowId?: number) => {
@@ -924,9 +1079,11 @@ const SaleOrder: React.FC = () => {
     setShowArtModal(false)
     setCurrentRowId(null)
     setSelectedArts([])
-    // after art select, focus Shade column of that row
+    // Art select -> immediately open Shade selection for this row.
     if (rowIndex >= 0) {
-      setPendingFocus({ rowIndex, colIndex: 1 })
+      window.setTimeout(() => {
+        openShadeModal(currentRowId)
+      }, 0)
     }
   }
 
@@ -935,6 +1092,7 @@ const SaleOrder: React.FC = () => {
       Swal.fire("Warning", "Please select at least one Art", "warning")
       return
     }
+
     try {
       const artMap = new Map(artList.map((a) => [a.serialNumber, a] as const))
       const chosenArts: ArtListItem[] = selectedArts
@@ -980,16 +1138,24 @@ const SaleOrder: React.FC = () => {
         }
       })
 
+      // This is the row whose Shade modal must open after the success popup.
+      let shadeTargetRowId: number | null = null
+      let successMessage = ""
+
       if (currentRowId != null) {
         const [first, ...rest] = preparedRows
         if (!first) {
-          Swal.fire("Info", "No art selected", "info")
+          await Swal.fire("Info", "No art selected", "info")
           return
         }
+
         const rowIndex = rows.findIndex((r) => r.id === currentRowId)
+        if (rowIndex < 0) return
+
         setRows((prev) => {
           const idx = prev.findIndex((r) => r.id === currentRowId)
           if (idx === -1) return prev
+
           const updatedCurrent: SaleRow = {
             ...prev[idx],
             artSerial: first.artSerial,
@@ -1000,28 +1166,52 @@ const SaleOrder: React.FC = () => {
             shade: "",
             remarks: "",
           }
+
           const before = prev.slice(0, idx)
           const after = prev.slice(idx + 1)
           return [...before, updatedCurrent, ...rest, ...after]
         })
-        Swal.fire("Success", `Applied ${chosenArts.length} art(s)`, "success")
-        if (rowIndex >= 0) {
-          // focus Shade of the updated current row
-          setPendingFocus({ rowIndex, colIndex: 1 })
-        }
+
+        shadeTargetRowId = currentRowId
+        successMessage = `Applied ${chosenArts.length} art(s)`
       } else {
         setRows((prev) => {
           const nonEmpty = prev.filter((r) => r.artNo.trim() !== "")
           return [...preparedRows, ...nonEmpty]
         })
-        Swal.fire("Success", `Added ${chosenArts.length} art(s)`, "success")
+
+        shadeTargetRowId = preparedRows[0]?.id ?? null
+        successMessage = `Added ${chosenArts.length} art(s)`
       }
+
+      // IMPORTANT:
+      // Close Art modal FIRST. Then show the success popup.
+      // Only after the user presses OK do we open Shade modal.
+      // This prevents SweetAlert from stealing focus from shadeSearchRef.
       setShowArtModal(false)
       setCurrentRowId(null)
       setSelectedArts([])
+
+      const result = await Swal.fire({
+        title: "Success",
+        text: successMessage,
+        icon: "success",
+        confirmButtonText: "OK",
+        allowOutsideClick: false,
+        allowEscapeKey: true,
+      })
+
+      if (result.isConfirmed && shadeTargetRowId != null) {
+        // Wait for SweetAlert to fully close and React to finish the modal
+        // transition before opening Shade. The Shade useEffect will then
+        // focus/select the search box automatically.
+        window.setTimeout(() => {
+          openShadeModal(shadeTargetRowId!)
+        }, 300)
+      }
     } catch (e) {
       console.error(e)
-      Swal.fire("Error", "Failed to add selected arts", "error")
+      await Swal.fire("Error", "Failed to add selected arts", "error")
     }
   }
 
@@ -1040,6 +1230,12 @@ const SaleOrder: React.FC = () => {
     )
     setShowShadeModal(false)
     setShadeRowId(null)
+
+    // Shade select -> automatically focus Peti for the same row.
+    const selectedRowIndex = rows.findIndex((r) => r.id === shadeRowId)
+    if (selectedRowIndex >= 0) {
+      setPendingFocus({ rowIndex: selectedRowIndex, colIndex: 3 })
+    }
 
     if (row?.artNo) {
       const index = await getPackingRateIndex()
@@ -2414,6 +2610,7 @@ const SaleOrder: React.FC = () => {
           <div className="bg-white rounded-lg shadow-lg w-full max-w-5xl h-[80vh] p-6 flex flex-col">
             <h3 className="text-2xl font-bold text-center mb-4">Select Party</h3>
             <input
+              ref={partySearchRef}
               type="text"
               placeholder="Search party / serial / GST / station / agent..."
               value={partySearch}
@@ -2489,6 +2686,7 @@ const SaleOrder: React.FC = () => {
             </h3>
 
             <input
+              ref={artSearchRef}
               type="text"
               placeholder="Search by Art No / Name"
               value={artSearch}
@@ -2644,6 +2842,7 @@ const SaleOrder: React.FC = () => {
               </button>
             </div>
             <input
+              ref={shadeSearchRef}
               value={shadeSearch}
               onChange={(e) => setShadeSearch(e.target.value)}
               placeholder="Search shade name / code"
