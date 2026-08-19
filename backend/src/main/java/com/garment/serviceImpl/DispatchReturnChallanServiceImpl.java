@@ -2,15 +2,17 @@ package com.garment.serviceImpl;
 
 import java.time.LocalDate;
 import java.util.List;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import com.garment.DTO.DispatchReturnChallanRequestDTO;
-import com.garment.DTO.DispatchReturnChallanResponseDTO;
+import com.garment.DTO.DispatchReturnChallanDTO;
 import com.garment.DTO.DispatchReturnPackingRowDTO;
 import com.garment.DTO.DispatchReturnRowDTO;
+import com.garment.DTO.NextDispatchNumbersDTO;
 import com.garment.model.DispatchReturnChallan;
 import com.garment.model.DispatchReturnPackingRow;
 import com.garment.model.DispatchReturnRow;
@@ -23,68 +25,102 @@ public class DispatchReturnChallanServiceImpl implements DispatchReturnChallanSe
 
     private final DispatchReturnChallanRepository repository;
 
+    // Serial format: DRC-YYYY/00001
+    private static final String SERIAL_PREFIX = "DRC";
+
+    private static final Pattern SERIAL_PATTERN =
+            Pattern.compile("^([A-Z]+)-(\\d{4})/(\\d+)$"); // PREFIX-YYYY/SEQ
+
+    private static final Pattern CHALLAN_PATTERN =
+            Pattern.compile("^(\\d{4})/(\\d+)$"); // YYYY/SEQ
+
     public DispatchReturnChallanServiceImpl(DispatchReturnChallanRepository repository) {
         this.repository = repository;
     }
 
-    // ---------------- CREATE ----------------
+    // ----------------- CREATE -----------------
     @Override
-    public DispatchReturnChallanResponseDTO create(DispatchReturnChallanRequestDTO dto) {
+    public DispatchReturnChallanDTO create(DispatchReturnChallanDTO dto) {
         DispatchReturnChallan entity = new DispatchReturnChallan();
 
-        copyRequestToEntity(dto, entity);
+        // DTO → Entity (serialNo/challanNo ignore)
+        copyDtoToEntity(dto, entity);
 
         LocalDate date = entity.getDate() != null ? entity.getDate() : LocalDate.now();
         entity.setDate(date);
 
-        // backend generate numbers
-        String nextChallanNo = generateNextChallanNo(date);
-        String nextSerialNo = generateNextSerialNo(date, entity.getPartyName(), entity.getBrokerName());
+        // Backend generates next numbers
+        NextDispatchNumbersDTO next = getNextNumbers(date, entity.getPartyName(), entity.getBrokerName());
+        entity.setSerialNo(next.getSerialNo());
+        entity.setChallanNo(next.getChallanNo());
 
-        entity.setChallanNo(nextChallanNo);
-        entity.setSerialNo(nextSerialNo);
+        // ✅ SET YEAR + SEQ FIELDS (required by DB NOT NULL)
+        ParsedSerial ps = parseSerial(next.getSerialNo());
+        if (ps == null) {
+            throw new IllegalStateException("Invalid serialNo generated: " + next.getSerialNo());
+        }
+        entity.setSerialYear(ps.year);
+        entity.setSerialSeq(ps.seq);
+
+        ParsedChallan pc = parseChallanNo(next.getChallanNo());
+        if (pc == null) {
+            throw new IllegalStateException("Invalid challanNo generated: " + next.getChallanNo());
+        }
+        entity.setChallanYear(pc.year);
+        entity.setChallanSeq(pc.seq);
 
         DispatchReturnChallan saved = repository.save(entity);
-        return mapToResponse(saved);
+        return mapToDto(saved);
     }
 
-    // ---------------- UPDATE ----------------
+    // ----------------- UPDATE -----------------
     @Override
-    public DispatchReturnChallanResponseDTO update(Long id, DispatchReturnChallanRequestDTO dto) {
+    public DispatchReturnChallanDTO update(Long id, DispatchReturnChallanDTO dto) {
         DispatchReturnChallan existing = repository.findById(id)
                 .orElseThrow(() -> new IllegalArgumentException("Dispatch return challan not found: " + id));
 
-        // keep old numbers
-        String oldSerial = existing.getSerialNo();
-        String oldChallanNo = existing.getChallanNo();
+        // keep original numbers + year/seq
+        String existingSerial = existing.getSerialNo();
+        String existingChallanNo = existing.getChallanNo();
 
-        copyRequestToEntity(dto, existing);
+        Integer existingSerialYear = existing.getSerialYear();
+        Integer existingSerialSeq = existing.getSerialSeq();
+        Integer existingChallanYear = existing.getChallanYear();
+        Integer existingChallanSeq = existing.getChallanSeq();
 
-        existing.setSerialNo(oldSerial);
-        existing.setChallanNo(oldChallanNo);
+        copyDtoToEntity(dto, existing);
+
+        existing.setSerialNo(existingSerial);
+        existing.setChallanNo(existingChallanNo);
+
+        existing.setSerialYear(existingSerialYear);
+        existing.setSerialSeq(existingSerialSeq);
+        existing.setChallanYear(existingChallanYear);
+        existing.setChallanSeq(existingChallanSeq);
 
         DispatchReturnChallan saved = repository.save(existing);
-        return mapToResponse(saved);
+        return mapToDto(saved);
     }
 
-    // ---------------- READ ----------------
+    // ----------------- READ -----------------
     @Override
     @Transactional(readOnly = true)
-    public DispatchReturnChallanResponseDTO getById(Long id) {
+    public DispatchReturnChallanDTO getById(Long id) {
         DispatchReturnChallan entity = repository.findById(id)
                 .orElseThrow(() -> new IllegalArgumentException("Dispatch return challan not found: " + id));
-        return mapToResponse(entity);
+        return mapToDto(entity);
     }
 
     @Override
     @Transactional(readOnly = true)
-    public List<DispatchReturnChallanResponseDTO> getAll() {
-        return repository.findAll().stream()
-                .map(this::mapToResponse)
+    public List<DispatchReturnChallanDTO> getAll() {
+        return repository.findAll()
+                .stream()
+                .map(this::mapToDto)
                 .collect(Collectors.toList());
     }
 
-    // ---------------- DELETE ----------------
+    // ----------------- DELETE -----------------
     @Override
     public void delete(Long id) {
         if (!repository.existsById(id)) {
@@ -93,208 +129,240 @@ public class DispatchReturnChallanServiceImpl implements DispatchReturnChallanSe
         repository.deleteById(id);
     }
 
-    // =================================================================
-    // NUMBER GENERATION (same logic style as your DispatchChallanServiceImpl)
-    // challanNo: YYYY/00001 (year wise)
-    // serialNo : 00001 (year + party + broker wise)  <-- matches your frontend
-    // =================================================================
+    // ----------------- NEXT NUMBERS -----------------
+    @Override
+    @Transactional(readOnly = true)
+    public NextDispatchNumbersDTO getNextNumbers(LocalDate date, String partyName, String brokerName) {
+        if (date == null) date = LocalDate.now();
 
-    private String generateNextChallanNo(LocalDate date) {
         int year = date.getYear();
-        LocalDate start = LocalDate.of(year, 1, 1);
-        LocalDate end = LocalDate.of(year, 12, 31);
+        LocalDate startOfYear = LocalDate.of(year, 1, 1);
+        LocalDate endOfYear = LocalDate.of(year, 12, 31);
 
-        List<DispatchReturnChallan> yearList = repository.findByDateBetween(start, end);
+        List<DispatchReturnChallan> yearChallans =
+                repository.findByDateBetween(startOfYear, endOfYear);
 
+        String brokerKey = makeBrokerKey(brokerName, partyName);
+
+        String nextSerialNo = generateNextSerialNoFromList(brokerKey, year, yearChallans);
+        String nextChallanNo = generateNextChallanNoFromList(year, yearChallans);
+
+        NextDispatchNumbersDTO out = new NextDispatchNumbersDTO();
+        out.setSerialNo(nextSerialNo);
+        out.setChallanNo(nextChallanNo);
+        return out;
+    }
+
+    // ----------------- SEQUENCE HELPERS -----------------
+
+    private String makeBrokerKey(String brokerName, String partyName) {
+        String b = brokerName != null ? brokerName.trim() : "";
+        String p = partyName != null ? partyName.trim() : "";
+        String key = !b.isEmpty() ? b : (!p.isEmpty() ? p : "NO_BROKER");
+        return key.toUpperCase();
+    }
+
+    private String generateNextSerialNoFromList(String brokerKey, int year, List<DispatchReturnChallan> existing) {
         int maxSeq = 0;
-        for (DispatchReturnChallan c : yearList) {
-            ParsedChallanNo parsed = parseChallanNo(c.getChallanNo());
-            if (parsed == null) continue;
-            if (parsed.year != year) continue;
-            if (parsed.seq > maxSeq) maxSeq = parsed.seq;
+
+        for (DispatchReturnChallan ch : existing) {
+            String existingKey = makeBrokerKey(ch.getBrokerName(), ch.getPartyName());
+            if (!existingKey.equals(brokerKey)) continue;
+
+            String serialNo = ch.getSerialNo();
+            if (serialNo == null || serialNo.isBlank()) continue;
+
+            ParsedSerial ps = parseSerial(serialNo);
+            if (ps == null) continue;
+
+            if (!SERIAL_PREFIX.equals(ps.prefix)) continue;
+            if (ps.year != year) continue;
+
+            if (ps.seq > maxSeq) maxSeq = ps.seq;
         }
 
-        return year + "/" + String.format("%05d", maxSeq + 1);
+        int nextSeq = maxSeq + 1;
+        return SERIAL_PREFIX + "-" + year + "/" + String.format("%05d", nextSeq);
     }
 
-    private String generateNextSerialNo(LocalDate date, String partyName, String brokerName) {
-        int year = date.getYear();
-        LocalDate start = LocalDate.of(year, 1, 1);
-        LocalDate end = LocalDate.of(year, 12, 31);
+    private String generateNextChallanNoFromList(int year, List<DispatchReturnChallan> existing) {
+        int maxSeq = 0;
 
-        List<DispatchReturnChallan> yearList = repository.findByDateBetween(start, end);
+        for (DispatchReturnChallan ch : existing) {
+            String challanNo = ch.getChallanNo();
+            if (challanNo == null || challanNo.isBlank()) continue;
 
-        String party = safe(partyName);
-        String broker = safe(brokerName);
+            ParsedChallan pc = parseChallanNo(challanNo);
+            if (pc == null) continue;
 
-        int max = 0;
-        for (DispatchReturnChallan c : yearList) {
-            // same year already filtered by dateBetween
-            if (!safe(c.getPartyName()).equals(party)) continue;
-            if (!safe(c.getBrokerName()).equals(broker)) continue;
-
-            Integer seq = parseSerialSeq(c.getSerialNo());
-            if (seq != null && seq > max) max = seq;
+            if (pc.year != year) continue;
+            if (pc.seq > maxSeq) maxSeq = pc.seq;
         }
 
-        return String.format("%05d", max + 1);
+        int nextSeq = maxSeq + 1;
+        return year + "/" + String.format("%05d", nextSeq);
     }
 
-    private String safe(String s) {
-        return s == null ? "" : s.trim();
-    }
-
-    private Integer parseSerialSeq(String serialNo) {
-        if (serialNo == null) return null;
-        String s = serialNo.trim();
-        if (s.isEmpty()) return null;
-        // serial is expected "00001"
-        try {
-            return Integer.parseInt(s.replaceAll("\\D+", "")); // keeps it tolerant
-        } catch (Exception e) {
-            return null;
-        }
-    }
-
-    private static class ParsedChallanNo {
+    private static class ParsedSerial {
+        final String prefix;
         final int year;
         final int seq;
-        ParsedChallanNo(int year, int seq) { this.year = year; this.seq = seq; }
+
+        ParsedSerial(String prefix, int year, int seq) {
+            this.prefix = prefix;
+            this.year = year;
+            this.seq = seq;
+        }
     }
 
-    private ParsedChallanNo parseChallanNo(String challanNo) {
-        if (challanNo == null) return null;
-        String s = challanNo.trim();
-        // Expected: YYYY/00001
+    private ParsedSerial parseSerial(String serialNo) {
+        if (serialNo == null) return null;
+        Matcher m = SERIAL_PATTERN.matcher(serialNo.trim());
+        if (!m.matches()) return null;
         try {
-            String[] parts = s.split("/");
-            if (parts.length != 2) return null;
-            int year = Integer.parseInt(parts[0].trim());
-            int seq = Integer.parseInt(parts[1].trim());
-            return new ParsedChallanNo(year, seq);
+            String prefix = m.group(1);
+            int year = Integer.parseInt(m.group(2));
+            int seq = Integer.parseInt(m.group(3));
+            return new ParsedSerial(prefix, year, seq);
         } catch (Exception e) {
             return null;
         }
     }
 
-    // =================================================================
-    // MAPPING
-    // =================================================================
+    private static class ParsedChallan {
+        final int year;
+        final int seq;
 
-    private DispatchReturnChallanResponseDTO mapToResponse(DispatchReturnChallan entity) {
-        DispatchReturnChallanResponseDTO dto = new DispatchReturnChallanResponseDTO();
-
-        dto.setId(entity.getId());
-        dto.setSerialNo(entity.getSerialNo());
-        dto.setChallanNo(entity.getChallanNo());
-        dto.setDate(entity.getDate());
-
-        dto.setPartyName(entity.getPartyName());
-        dto.setBrokerName(entity.getBrokerName());
-        dto.setTransportName(entity.getTransportName());
-        dto.setDispatchedBy(entity.getDispatchedBy());
-        dto.setRemarks1(entity.getRemarks1());
-        dto.setRemarks2(entity.getRemarks2());
-        dto.setStation(entity.getStation());
-
-        dto.setTotalAmt(entity.getTotalAmt());
-        dto.setDiscount(entity.getDiscount());
-        dto.setDiscountPercent(entity.getDiscountPercent());
-        dto.setTax(entity.getTax());
-        dto.setTaxPercent(entity.getTaxPercent());
-        dto.setCartage(entity.getCartage());
-        dto.setNetAmt(entity.getNetAmt());
-
-        if (entity.getRows() != null) {
-            dto.setRows(entity.getRows().stream().map(r -> {
-                DispatchReturnRowDTO rd = new DispatchReturnRowDTO();
-                rd.setBarCode(r.getBarCode());
-                rd.setBaleNo(r.getBaleNo());
-                rd.setArtNo(r.getArtNo());
-                rd.setDescription(r.getDescription());
-                rd.setLotNumber(r.getLotNumber());
-                rd.setSize(r.getSize());
-                rd.setShade(r.getShade());
-                rd.setBox(r.getBox());
-                rd.setPcsPerBox(r.getPcsPerBox());
-                rd.setPcs(r.getPcs());
-                rd.setRate(r.getRate());
-                rd.setAmt(r.getAmt());
-                return rd;
-            }).collect(Collectors.toList()));
+        ParsedChallan(int year, int seq) {
+            this.year = year;
+            this.seq = seq;
         }
+    }
 
-        if (entity.getPackingRows() != null) {
-            dto.setPackingRows(entity.getPackingRows().stream().map(p -> {
-                DispatchReturnPackingRowDTO pd = new DispatchReturnPackingRowDTO();
-                pd.setItemName(p.getItemName());
-                pd.setQuantity(p.getQuantity());
-                return pd;
-            }).collect(Collectors.toList()));
+    private ParsedChallan parseChallanNo(String challanNo) {
+        if (challanNo == null) return null;
+        Matcher m = CHALLAN_PATTERN.matcher(challanNo.trim());
+        if (!m.matches()) return null;
+        try {
+            int year = Integer.parseInt(m.group(1));
+            int seq = Integer.parseInt(m.group(2));
+            return new ParsedChallan(year, seq);
+        } catch (Exception e) {
+            return null;
         }
+    }
 
-        return dto;
+    // ----------------- MAPPING HELPERS -----------------
+
+    private DispatchReturnChallanDTO mapToDto(DispatchReturnChallan entity) {
+
+        List<DispatchReturnRowDTO> rowDtos = entity.getRows() == null
+                ? List.of()
+                : entity.getRows().stream().map(this::mapRowToDto).collect(Collectors.toList());
+
+        List<DispatchReturnPackingRowDTO> packingDtos = entity.getPackingRows() == null
+                ? List.of()
+                : entity.getPackingRows().stream().map(this::mapPackingRowToDto).collect(Collectors.toList());
+
+        return new DispatchReturnChallanDTO(
+                entity.getId(),
+                entity.getSerialNo(),
+                entity.getDate(),
+                entity.getChallanNo(),
+                entity.getPartyName(),
+                entity.getBrokerName(),
+                entity.getTransportName(),
+                entity.getDispatchedBy(),
+                entity.getStation(),
+                entity.getRemarks1(),
+                entity.getRemarks2(),
+
+                entity.getSerialYear(),
+                entity.getSerialSeq(),
+                entity.getChallanYear(),
+                entity.getChallanSeq(),
+
+                entity.getTotalAmt(),
+                entity.getDiscount(),
+                entity.getDiscountPercent(),
+                entity.getTax(),
+                entity.getTaxPercent(),
+                entity.getCartage(),
+                entity.getNetAmt(),
+                rowDtos,
+                packingDtos
+        );
+    }
+
+    private DispatchReturnRowDTO mapRowToDto(DispatchReturnRow row) {
+        // TODO: implement properly (you had empty constructor before)
+        return new DispatchReturnRowDTO(
+                
+        );
+    }
+
+    private DispatchReturnPackingRowDTO mapPackingRowToDto(DispatchReturnPackingRow pr) {
+        return new DispatchReturnPackingRowDTO(
+                pr.getId(),
+                pr.getItemName(),
+                pr.getQuantity()
+        );
     }
 
     /**
-     * IMPORTANT:
-     * - serialNo/challanNo ignore on create/update (generated/kept)
-     * - rows/packingRows are replaced like your DispatchChallan code
+     * NOTE: serialNo / challanNo (and seq/year) are intentionally ignored here.
+     * They are generated only in create().
      */
-    private void copyRequestToEntity(DispatchReturnChallanRequestDTO dto, DispatchReturnChallan entity) {
-        entity.setDate(dto.getDate());
+    private void copyDtoToEntity(DispatchReturnChallanDTO dto, DispatchReturnChallan entity) {
 
-        entity.setPartyName(dto.getPartyName());
-        entity.setBrokerName(dto.getBrokerName());
-        entity.setStation(dto.getStation());
-        entity.setTransportName(dto.getTransportName());
-        entity.setDispatchedBy(dto.getDispatchedBy());
-        entity.setRemarks1(dto.getRemarks1());
-        entity.setRemarks2(dto.getRemarks2());
+        entity.setDate(dto.date());
 
-        entity.setTotalAmt(dto.getTotalAmt());
-        entity.setDiscount(dto.getDiscount());
-        entity.setDiscountPercent(dto.getDiscountPercent());
-        entity.setTax(dto.getTax());
-        entity.setTaxPercent(dto.getTaxPercent());
-        entity.setCartage(dto.getCartage());
-        entity.setNetAmt(dto.getNetAmt());
+        entity.setPartyName(dto.partyName());
+        entity.setBrokerName(dto.brokerName());
+        entity.setStation(dto.station());
+        entity.setTransportName(dto.transportName());
+        entity.setDispatchedBy(dto.dispatchedBy());
+        entity.setRemarks1(dto.remarks1());
+        entity.setRemarks2(dto.remarks2());
+
+        entity.setTotalAmt(dto.totalAmt());
+        entity.setDiscount(dto.discount());
+        entity.setDiscountPercent(dto.discountPercent());
+        entity.setTax(dto.tax());
+        entity.setTaxPercent(dto.taxPercent());
+        entity.setCartage(dto.cartage());
+        entity.setNetAmt(dto.netAmt());
 
         // Replace rows
         entity.getRows().clear();
-        if (dto.getRows() != null) {
-            for (DispatchReturnRowDTO r : dto.getRows()) {
+        if (dto.rows() != null) {
+            for (DispatchReturnRowDTO rowDto : dto.rows()) {
                 DispatchReturnRow row = new DispatchReturnRow();
                 row.setChallan(entity);
-
-                row.setBarCode(r.getBarCode());
-                row.setBaleNo(r.getBaleNo());
-                row.setArtNo(r.getArtNo());
-                row.setDescription(r.getDescription());
-                row.setLotNumber(r.getLotNumber());
-                row.setSize(r.getSize());
-                row.setShade(r.getShade());
-
-                row.setBox(r.getBox());
-                row.setPcsPerBox(r.getPcsPerBox());
-                row.setPcs(r.getPcs());
-                row.setRate(r.getRate());
-                row.setAmt(r.getAmt());
-
+                row.setBarCode(rowDto.getBarCode());
+                row.setBaleNo(rowDto.getBaleNo());
+                row.setArtNo(rowDto.getArtNo());
+                row.setDescription(rowDto.getDescription());
+                row.setLotNumber(rowDto.getLotNumber());
+                row.setSize(rowDto.getSize());
+                row.setShade(rowDto.getShade());
+                row.setBox(rowDto.getBox());
+                row.setPcsPerBox(rowDto.getPcsPerBox());
+                row.setPcs(rowDto.getPcs());
+                row.setRate(rowDto.getRate());
+                row.setAmt(rowDto.getAmt());
                 entity.getRows().add(row);
             }
         }
 
         // Replace packing rows
         entity.getPackingRows().clear();
-        if (dto.getPackingRows() != null) {
-            for (DispatchReturnPackingRowDTO p : dto.getPackingRows()) {
+        if (dto.packingRows() != null) {
+            for (DispatchReturnPackingRowDTO prDto : dto.packingRows()) {
                 DispatchReturnPackingRow pr = new DispatchReturnPackingRow();
                 pr.setChallan(entity);
-
-                pr.setItemName(p.getItemName());
-                pr.setQuantity(p.getQuantity());
-
+                pr.setItemName(prDto.itemName());
+                pr.setQuantity(prDto.quantity());
                 entity.getPackingRows().add(pr);
             }
         }

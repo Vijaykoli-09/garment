@@ -6,6 +6,7 @@
 export type TxType =
   | "Opening"
   | "Dispatch"
+  | "DispatchReturn"   // ✅ add
   | "OtherDispatch"
   | "PurchaseOrder"
   | "PurchaseEntry"
@@ -99,6 +100,8 @@ export const txSortRank = (t: TxType) => {
       return 10;
     case "OtherDispatch":
       return 11;
+    case "DispatchReturn":
+      return 12;
     case "PurchaseOrder":
       return 20;
     case "PurchaseEntry":

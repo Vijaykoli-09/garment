@@ -1,19 +1,22 @@
 package com.garment.service;
 
+import java.time.LocalDate;
 import java.util.List;
 
-import com.garment.DTO.DispatchReturnChallanRequestDTO;
-import com.garment.DTO.DispatchReturnChallanResponseDTO;
+import com.garment.DTO.DispatchReturnChallanDTO;
+import com.garment.DTO.NextDispatchNumbersDTO;
 
 public interface DispatchReturnChallanService {
 
-    DispatchReturnChallanResponseDTO create(DispatchReturnChallanRequestDTO dto);
+    DispatchReturnChallanDTO create(DispatchReturnChallanDTO dto);
 
-    DispatchReturnChallanResponseDTO update(Long id, DispatchReturnChallanRequestDTO dto);
+    DispatchReturnChallanDTO update(Long id, DispatchReturnChallanDTO dto);
 
-    DispatchReturnChallanResponseDTO getById(Long id);
+    DispatchReturnChallanDTO getById(Long id);
 
-    List<DispatchReturnChallanResponseDTO> getAll();
+    List<DispatchReturnChallanDTO> getAll();
 
     void delete(Long id);
+
+    NextDispatchNumbersDTO getNextNumbers(LocalDate date, String partyName, String brokerName);
 }
