@@ -2013,10 +2013,10 @@ const DispatchReturn: React.FC = () => {
     });
   }, [partySearchText, partyList]);
 
-  const openPartyModal = () => {
-    setPartySearchText("");
-    setIsPartyModalOpen(true);
-  };
+  // const openPartyModal = () => {
+  //   setPartySearchText("");
+  //   setIsPartyModalOpen(true);
+  // };
 
   const handlePartySelect = (party: Party) => {
     setPartyName(party.partyName);
