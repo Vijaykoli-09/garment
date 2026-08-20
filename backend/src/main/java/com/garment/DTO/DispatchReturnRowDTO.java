@@ -6,8 +6,8 @@ import lombok.Data;
 
 @Data
 public class DispatchReturnRowDTO {
+    private Long id;
 
-    private Long id; // for React row key; ignored on save
     private String barCode;
     private String baleNo;
     private String artNo;
@@ -15,9 +15,11 @@ public class DispatchReturnRowDTO {
     private String lotNumber;
     private String size;
     private String shade;
+
     private Integer box;
     private Integer pcsPerBox;
     private Integer pcs;
+
     private BigDecimal rate;
     private BigDecimal amt;
 }

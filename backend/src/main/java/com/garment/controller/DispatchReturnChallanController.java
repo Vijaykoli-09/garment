@@ -1,19 +1,25 @@
 package com.garment.controller;
 
-import java.time.LocalDate;
 import java.util.List;
 
-import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.*;
+import org.springframework.web.bind.annotation.CrossOrigin;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
 
-import com.garment.DTO.DispatchReturnChallanDTO;
-import com.garment.DTO.NextDispatchNumbersDTO;
+import com.garment.DTO.DispatchReturnChallanRequestDTO;
+import com.garment.DTO.DispatchReturnChallanResponseDTO;
 import com.garment.service.DispatchReturnChallanService;
 
 @RestController
-@RequestMapping("api/dispatch-return-challan")
-@CrossOrigin(origins = "http://localhost:3000")
+@RequestMapping("/api/dispatch-return-challan")
+@CrossOrigin(origins = "*")
 public class DispatchReturnChallanController {
 
     private final DispatchReturnChallanService service;
@@ -22,51 +28,31 @@ public class DispatchReturnChallanController {
         this.service = service;
     }
 
-    // POST /dispatch-return-challan/create
     @PostMapping("/create")
-    public ResponseEntity<DispatchReturnChallanDTO> create(@RequestBody DispatchReturnChallanDTO dto) {
-        DispatchReturnChallanDTO saved = service.create(dto);
-        return ResponseEntity.ok(saved);
+    public ResponseEntity<DispatchReturnChallanResponseDTO> create(@RequestBody DispatchReturnChallanRequestDTO dto) {
+        return ResponseEntity.ok(service.create(dto));
     }
 
-    // GET /dispatch-return-challan
     @GetMapping
-    public ResponseEntity<List<DispatchReturnChallanDTO>> getAll() {
+    public ResponseEntity<List<DispatchReturnChallanResponseDTO>> getAll() {
         return ResponseEntity.ok(service.getAll());
     }
 
-    // GET /dispatch-return-challan/{id}
     @GetMapping("/{id}")
-    public ResponseEntity<DispatchReturnChallanDTO> getById(@PathVariable Long id) {
+    public ResponseEntity<DispatchReturnChallanResponseDTO> getById(@PathVariable Long id) {
         return ResponseEntity.ok(service.getById(id));
     }
 
-    // PUT /dispatch-return-challan/{id}
     @PutMapping("/{id}")
-    public ResponseEntity<DispatchReturnChallanDTO> update(
+    public ResponseEntity<DispatchReturnChallanResponseDTO> update(
             @PathVariable Long id,
-            @RequestBody DispatchReturnChallanDTO dto
-    ) {
-        DispatchReturnChallanDTO updated = service.update(id, dto);
-        return ResponseEntity.ok(updated);
+            @RequestBody DispatchReturnChallanRequestDTO dto) {
+        return ResponseEntity.ok(service.update(id, dto));
     }
 
-    // DELETE /dispatch-return-challan/{id}
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> delete(@PathVariable Long id) {
         service.delete(id);
         return ResponseEntity.noContent().build();
-    }
-
-    // GET /dispatch-return-challan/next?date=2026-01-01&partyName=...&brokerName=...
-    @GetMapping("/next")
-    public ResponseEntity<NextDispatchNumbersDTO> getNextNumbers(
-            @RequestParam(required = false)
-            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
-            @RequestParam String partyName,
-            @RequestParam(required = false) String brokerName
-    ) {
-        NextDispatchNumbersDTO dto = service.getNextNumbers(date, partyName, brokerName);
-        return ResponseEntity.ok(dto);
     }
 }

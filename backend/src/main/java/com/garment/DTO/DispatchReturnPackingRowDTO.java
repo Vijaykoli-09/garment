@@ -2,8 +2,12 @@ package com.garment.DTO;
 
 import java.math.BigDecimal;
 
-public record DispatchReturnPackingRowDTO(
-        Long id,
-        String itemName,
-        BigDecimal quantity
-) {}
+import lombok.Data;
+
+@Data
+public class DispatchReturnPackingRowDTO {
+    private Long id;
+
+    private String itemName;
+    private BigDecimal quantity;
+}
