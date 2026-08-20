@@ -7,21 +7,26 @@ import java.util.List;
 import lombok.Data;
 
 @Data
-public class DispatchReturnChallanRequestDTO {
+public class DispatchReturnChallanDTO {
 
-    // serialNo/challanNo sent by frontend will be ignored on CREATE
+    private Long id;
+
     private String serialNo;
-    private String challanNo;
-
     private LocalDate date;
 
+    private String challanNo;
     private String partyName;
     private String brokerName;
     private String transportName;
     private String dispatchedBy;
+    private String station;
     private String remarks1;
     private String remarks2;
-    private String station;
+
+    private Integer challanYear;
+    private Integer challanSeq;
+    private Integer serialYear;
+    private Integer serialSeq;
 
     private BigDecimal totalAmt;
     private BigDecimal discount;

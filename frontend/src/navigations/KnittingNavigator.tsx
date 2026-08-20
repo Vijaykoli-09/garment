@@ -52,7 +52,7 @@ const KnittingNavigator: React.FC<KnittingNavigatorProps> = ({
         style={sidebarSubItemStyle}
         onClick={() => toggle("purchase-entry")}
       >
-        Purchase Entry
+        Yarn Purchase Entry
         <span style={{ marginLeft: "auto" }}>
           {open["purchase-entry"] ? (
             <ChevronUpIcon style={iconSmallStyle} />
@@ -65,10 +65,10 @@ const KnittingNavigator: React.FC<KnittingNavigatorProps> = ({
       {open["purchase-entry"] && (
         <div style={{ marginLeft: "15px" }}>
           {[
-            "Purchase Order",
-            "Purchase Entry",
-            "Purchase Pending Orders",
-            "Purchase Return",
+            "Yarn Yarn Order",
+            "Yarn Purchase Entry",
+            "Yarn Purchase Pending Orders",
+            "Yarn Purchase Return",
           ].map((sub, i) => (
             <button
               key={i}
@@ -149,8 +149,8 @@ const KnittingNavigator: React.FC<KnittingNavigatorProps> = ({
               sub === "Material Return"
                 ? "/knitting/dyeing/material-return"
                 : `/knitting/dyeing/${sub
-                    .toLowerCase()
-                    .replace(/\s+/g, "-")}`;
+                  .toLowerCase()
+                  .replace(/\s+/g, "-")}`;
 
             return (
               <button
@@ -244,7 +244,7 @@ const KnittingNavigator: React.FC<KnittingNavigatorProps> = ({
         style={sidebarSubItemStyle}
         onClick={() => toggle("purchase-reports")}
       >
-        Purchase Reports
+        Yarn Purchase Reports
         <span style={{ marginLeft: "auto" }}>
           {open["purchase-reports"] ? (
             <ChevronUpIcon style={iconSmallStyle} />
@@ -256,7 +256,7 @@ const KnittingNavigator: React.FC<KnittingNavigatorProps> = ({
 
       {open["purchase-reports"] && (
         <div style={{ marginLeft: "15px" }}>
-          {["Material Stock Report", "Amount Report"].map((sub, i) => (
+          {["Yarn Stock Report", "Yarn Amount Report"].map((sub, i) => (
             <button
               key={i}
               style={sidebarNestedItemStyle}

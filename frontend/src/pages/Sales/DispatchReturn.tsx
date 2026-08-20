@@ -28,11 +28,10 @@ const routes = {
   materials: "/materials",
 
   // ✅ Art Master
-  // NOTE: This assumes your backend supports:
-  //   GET  /arts  -> list
-  //   POST /arts  -> create
-  // If your backend uses POST /arts/create then change this to "/arts/create".
   arts: "/arts",
+
+  // ✅ NEW: backend next numbers (same concept as dispatch challan)
+  nextNumbers: "/dispatch-return-challan/next",
 };
 
 // ----------------- Types -----------------
@@ -79,11 +78,11 @@ interface DispatchedItem {
   perBox: number;
   pcs: number;
 
-  rate: number; // ✅ last dispatched rate (not average)
-  amount: number; // total dispatched amount (historical total)
+  rate: number; // ✅ last dispatched rate
+  amount: number; // total dispatched amount
 }
 
-// Art Master list view (minimum fields we need)
+// Art Master list view
 interface ArtListView {
   serialNumber?: string;
   artNo?: string;
@@ -144,22 +143,7 @@ const toNumberOrNull = (value: string): number | null => {
 const numToStr = (value: any): string =>
   value === null || value === undefined ? "" : String(value);
 
-// ✅ FRONTEND-ONLY next number generation helpers
-const getYearFromDateInput = (value?: string) => {
-  if (!value) return null;
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return null;
-  return d.getFullYear();
-};
-
-const parseSerialToNumber = (value: any): number => {
-  const digits = String(value ?? "")
-    .match(/\d+/g)
-    ?.join("");
-  const n = digits ? Number(digits) : NaN;
-  return Number.isFinite(n) ? n : NaN;
-};
-
+// challanNo parse (used for "last rate" ordering)
 const parseChallanNo = (
   challanNo: any
 ): { year: number; seq: number } | null => {
@@ -171,12 +155,6 @@ const parseChallanNo = (
   if (!Number.isFinite(year) || !Number.isFinite(seq)) return null;
   return { year, seq };
 };
-
-const formatChallanNo = (year: number, seq: number, width = 5) =>
-  `${year}/${String(seq).padStart(width, "0")}`;
-
-const formatSerialNo = (seq: number, width = 5) =>
-  String(seq).padStart(width, "0");
 
 // ✅ date compare: challanDate <= selectedDate
 const isISODate = (s: any) => /^\d{4}-\d{2}-\d{2}/.test(String(s ?? ""));
@@ -1227,7 +1205,7 @@ const DispatchReturn: React.FC = () => {
     [rows.length, fieldOrder.length]
   );
 
-  // ----------------- Totals (boxes/pcs/art count + amount) -----------------
+  // ----------------- Totals -----------------
   const { totalBoxes, totalPcsSum, uniqueArtNosCount } = useMemo(() => {
     let boxSum = 0;
     let pcsSum = 0;
@@ -1416,7 +1394,6 @@ const DispatchReturn: React.FC = () => {
   }, []);
 
   // ----------------- ✅ Dispatched items loader (Party + upto Date) -----------------
-  // ✅ rate = LAST dispatched rate for that art+size+shade+desc upto selected date.
   const loadDispatchedArtsForParty = useCallback(
     async (party: string, uptoDate: string) => {
       const partyKey = String(party || "").trim().toLowerCase();
@@ -1444,7 +1421,6 @@ const DispatchReturn: React.FC = () => {
         const res = await api.get<any[]>(routes.dispatchChallans);
         const challans = Array.isArray(res.data) ? res.data : [];
 
-        // filter by party + date <= uptoDate
         const filtered = challans.filter((ch: any) => {
           const chParty = String(ch?.partyName || "").trim().toLowerCase();
           if (chParty !== partyKey) return false;
@@ -1572,7 +1548,6 @@ const DispatchReturn: React.FC = () => {
     []
   );
 
-  // Whenever party/date changes => refresh dispatched list
   useEffect(() => {
     if (!partyName) {
       setProductList([]);
@@ -1581,71 +1556,75 @@ const DispatchReturn: React.FC = () => {
     loadDispatchedArtsForParty(partyName, date);
   }, [partyName, date, loadDispatchedArtsForParty]);
 
-  // ----------------- ✅ NEW: Sync selected arts into Art Master -----------------
-  const syncArtsToMasterFromRows = useCallback(async (rowsToSync: DispatchRow[]) => {
-    // 1) collect unique arts from challan rows
-    const artMap = new Map<
-      string,
-      { artNo: string; artName: string; saleRate?: number | null }
-    >();
+  // ----------------- ✅ Sync selected arts into Art Master -----------------
+  const syncArtsToMasterFromRows = useCallback(
+    async (rowsToSync: DispatchRow[]) => {
+      const artMap = new Map<
+        string,
+        { artNo: string; artName: string; saleRate?: number | null }
+      >();
 
-    for (const r of rowsToSync) {
-      const artNo = String(r.artNo || "").trim();
-      if (!artNo) continue;
+      for (const r of rowsToSync) {
+        const artNo = String(r.artNo || "").trim();
+        if (!artNo) continue;
 
-      const key = artNo.toLowerCase();
-      if (!artMap.has(key)) {
-        const artName = String(r.description || "").trim() || artNo;
-        const saleRate = toNumberOrNull(String(r.rate ?? ""));
-        artMap.set(key, { artNo, artName, saleRate });
+        const key = artNo.toLowerCase();
+        if (!artMap.has(key)) {
+          const artName = String(r.description || "").trim() || artNo;
+          const saleRate = toNumberOrNull(String(r.rate ?? ""));
+          artMap.set(key, { artNo, artName, saleRate });
+        }
       }
-    }
 
-    const newArts = Array.from(artMap.values());
-    if (newArts.length === 0) return;
+      const newArts = Array.from(artMap.values());
+      if (newArts.length === 0) return;
 
-    // 2) load existing art master list once
-    let existingSet = new Set<string>();
-    try {
-      const artsRes = await api.get<ArtListView[]>(routes.arts);
-      const artsArr = Array.isArray(artsRes.data) ? artsRes.data : [];
-      existingSet = new Set(
-        artsArr
-          .map((a) => String(a.artNo || "").trim().toLowerCase())
-          .filter(Boolean)
+      let existingSet = new Set<string>();
+      try {
+        const artsRes = await api.get<ArtListView[]>(routes.arts);
+        const artsArr = Array.isArray(artsRes.data) ? artsRes.data : [];
+        existingSet = new Set(
+          artsArr
+            .map((a) => String(a.artNo || "").trim().toLowerCase())
+            .filter(Boolean)
+        );
+      } catch (err) {
+        console.warn("Could not load arts list. Will try to create anyway.", err);
+      }
+
+      const toCreate = newArts.filter(
+        (a) => !existingSet.has(a.artNo.toLowerCase())
       );
-    } catch (err) {
-      // if list fails, still try to create (backend may handle duplicates)
-      console.warn("Could not load arts list. Will try to create anyway.", err);
-    }
+      if (toCreate.length === 0) return;
 
-    // 3) create missing
-    const toCreate = newArts.filter((a) => !existingSet.has(a.artNo.toLowerCase()));
-    if (toCreate.length === 0) return;
-
-    const results = await Promise.allSettled(
-      toCreate.map((a) =>
-        api.post(routes.arts, {
-          artNo: a.artNo,
-          artName: a.artName,
-          // Optional: if backend accepts it
-          saleRate: a.saleRate,
-        })
-      )
-    );
-
-    const failures = results.filter((r) => r.status === "rejected") as PromiseRejectedResult[];
-    const nonDupFailures = failures.filter((f) => !isLikelyDuplicateArtError(f.reason));
-
-    if (nonDupFailures.length > 0) {
-      console.error("Some arts failed to sync:", nonDupFailures);
-      Swal.fire(
-        "Warning",
-        "Challan saved, but some Arts could not be added to Art Master.",
-        "warning"
+      const results = await Promise.allSettled(
+        toCreate.map((a) =>
+          api.post(routes.arts, {
+            artNo: a.artNo,
+            artName: a.artName,
+            saleRate: a.saleRate,
+          })
+        )
       );
-    }
-  }, []);
+
+      const failures = results.filter(
+        (r) => r.status === "rejected"
+      ) as PromiseRejectedResult[];
+      const nonDupFailures = failures.filter(
+        (f) => !isLikelyDuplicateArtError(f.reason)
+      );
+
+      if (nonDupFailures.length > 0) {
+        console.error("Some arts failed to sync:", nonDupFailures);
+        Swal.fire(
+          "Warning",
+          "Challan saved, but some Arts could not be added to Art Master.",
+          "warning"
+        );
+      }
+    },
+    []
+  );
 
   // ----------------- New / Reset -----------------
   const handleAddNew = useCallback((showToast = false) => {
@@ -1687,59 +1666,31 @@ const DispatchReturn: React.FC = () => {
     handleAddNew(false);
   }, [loadParties, loadMaterialGroups, loadMaterialsMaster, handleAddNew]);
 
-  // ----------------- ✅ FRONTEND-ONLY Serial/Challan No generation -----------------
-  const generateNextNumbersFrontEnd = useCallback(
+  // ----------------- ✅ BACKEND Next numbers (same pattern as DispatchChallan) -----------------
+  const fetchNextNumbers = useCallback(
     async (currentDate: string, currentParty: string, currentBroker: string) => {
       if (!currentParty || !currentDate) return;
-
-      const year = getYearFromDateInput(currentDate);
-      if (!year) return;
-
       try {
-        const res = await api.get<any[]>(routes.list);
-        const all = Array.isArray(res.data) ? res.data : [];
-
-        // Next Challan No (YYYY/00001)
-        let maxChallanSeq = 0;
-        for (const ch of all) {
-          const parsed = parseChallanNo(ch?.challanNo);
-          if (!parsed) continue;
-          if (parsed.year !== year) continue;
-          if (parsed.seq > maxChallanSeq) maxChallanSeq = parsed.seq;
+        const res = await api.get(routes.nextNumbers, {
+          params: {
+            date: currentDate,
+            partyName: currentParty,
+            brokerName: currentBroker || undefined,
+          },
+        });
+        if (res?.data) {
+          setSerialNo(res.data.serialNo || "");
+          setChallanNo(res.data.challanNo || "");
         }
-        const nextChallanNo = formatChallanNo(year, maxChallanSeq + 1, 5);
-
-        // Next Serial No (per year + party + broker)
-        const party = String(currentParty || "").trim();
-        const broker = String(currentBroker || "").trim();
-
-        let maxSerial = 0;
-        for (const ch of all) {
-          const chYear = getYearFromDateInput(ch?.date || ch?.dated);
-          if (chYear !== year) continue;
-
-          const chParty = String(ch?.partyName || "").trim();
-          const chBroker = String(ch?.brokerName || "").trim();
-
-          if (chParty !== party) continue;
-          if (chBroker !== broker) continue;
-
-          const s = parseSerialToNumber(ch?.serialNo);
-          if (Number.isFinite(s) && s > maxSerial) maxSerial = s;
-        }
-        const nextSerialNo = formatSerialNo(maxSerial + 1, 5);
-
-        setSerialNo(nextSerialNo);
-        setChallanNo(nextChallanNo);
       } catch (err) {
-        console.error("Error generating next Serial/Challan No:", err);
-        Swal.fire("Error", "Failed to generate Serial/Challan No", "error");
+        console.error("Error fetching next numbers:", err);
+        Swal.fire("Error", "Failed to get next Serial/Challan No", "error");
       }
     },
     []
   );
 
-  // Party select => derive broker/transport/station; generate numbers in NEW mode
+  // Party select => derive broker/transport/station; fetch numbers ONLY in NEW mode
   useEffect(() => {
     if (hydratingChallanRef.current) return;
 
@@ -1749,11 +1700,6 @@ const DispatchReturn: React.FC = () => {
       setBrokerName("");
       setTransportName("");
       setStation("");
-
-      if (!editingId) {
-        setSerialNo("");
-        setChallanNo("");
-      }
       return;
     }
 
@@ -1766,9 +1712,9 @@ const DispatchReturn: React.FC = () => {
     setStation(derivedStation);
 
     if (!editingId) {
-      generateNextNumbersFrontEnd(date, partyName, derivedBroker);
+      fetchNextNumbers(date, partyName, derivedBroker);
     }
-  }, [partyName, partyList, date, editingId, generateNextNumbersFrontEnd]);
+  }, [partyName, partyList, date, editingId, fetchNextNumbers]);
 
   // ----------------- Art lookup (Dispatched Items) -----------------
   const filteredProducts = useMemo(() => {
@@ -1960,6 +1906,7 @@ const DispatchReturn: React.FC = () => {
       const res = await api.get(routes.get(id));
       const ch = res.data || {};
 
+      // ✅ set editingId early so nextNumbers effect doesn't run
       setEditingId(ch.id || id);
 
       setSerialNo(ch.serialNo || "");
@@ -2117,6 +2064,7 @@ const DispatchReturn: React.FC = () => {
       quantity: toNumberOrNull(p.quantity),
     }));
 
+    // ✅ keeping serialNo/challanNo in payload same as dispatch challan
     const payload = {
       serialNo,
       date,
@@ -2149,9 +2097,7 @@ const DispatchReturn: React.FC = () => {
           setChallanNo(updated.challanNo || challanNo || "");
         }
 
-        // ✅ after update, ensure arts exist
         await syncArtsToMasterFromRows(rows);
-
         Swal.fire("Success", "Dispatch return challan updated!", "success");
       } else {
         const res = await api.post(routes.create, payload);
@@ -2162,9 +2108,7 @@ const DispatchReturn: React.FC = () => {
           if (saved.id) setEditingId(saved.id);
         }
 
-        // ✅ after create, ensure arts exist
         await syncArtsToMasterFromRows(rows);
-
         Swal.fire(
           "Success",
           "Dispatch return challan saved successfully!",
@@ -2214,7 +2158,7 @@ const DispatchReturn: React.FC = () => {
     }
   };
 
-  // --- Print challan (Packing Details removed) ---
+  // --- Print challan ---
   const handlePrint = () => {
     if (typeof window === "undefined" || typeof document === "undefined") {
       return;
@@ -2544,8 +2488,14 @@ const DispatchReturn: React.FC = () => {
                 type="text"
                 value={partyName}
                 readOnly
-                onFocus={openPartyModal}
-                onClick={openPartyModal}
+                onFocus={() => {
+                  setPartySearchText("");
+                  setIsPartyModalOpen(true);
+                }}
+                onClick={() => {
+                  setPartySearchText("");
+                  setIsPartyModalOpen(true);
+                }}
                 placeholder="Click to select Party"
                 className="border p-2 rounded w-full bg-yellow-50 cursor-pointer"
               />
@@ -2899,3 +2849,4 @@ const DispatchReturn: React.FC = () => {
 };
 
 export default DispatchReturn;
+
