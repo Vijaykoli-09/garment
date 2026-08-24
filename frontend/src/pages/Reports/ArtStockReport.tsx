@@ -697,9 +697,10 @@ const ArtReport: React.FC = () => {
       }
 
       /* ---------- 2) Incoming from PACKING CHALLAN ---------- */
-      const [packingRes, dispatchRes, adjRes] = await Promise.all([
+      const [packingRes, dispatchRes, returnRes, adjRes] = await Promise.all([
         api.get<any[]>("/packing-challans"),
         api.get<any[]>("/dispatch-challan"),
+        api.get<any[]>("/dispatch-return-challan"), // ✅ NEW
         api.get<ArtAdjRow[]>("/art-stock-adjustments", {
           params: { toDate: asOn, limit: 100000 },
         }),
@@ -759,6 +760,42 @@ const ArtReport: React.FC = () => {
           const perBox = toNum(r.pcsPerBox);
 
           addDelta({ artNo, shadeName, sizeName, pcsDelta: -pcs, perBox });
+        });
+      });
+
+      /* ---------- 3B) Incoming from DISPATCH RETURN CHALLAN ---------- */
+      const returnChallans: any[] = Array.isArray(returnRes.data) ? returnRes.data : [];
+
+      returnChallans.forEach((ch) => {
+        // ✅ "As On" date filter (important)
+        const chDate = String(ch?.date || ch?.dated || "").slice(0, 10);
+        if (chDate && asOn && chDate > asOn) return;
+
+        const rows: any[] = Array.isArray(ch.rows) ? ch.rows : [];
+        rows.forEach((r) => {
+          const artNo = String(r.artNo || "").trim();
+          if (!artNo) return;
+          if (artNosFilter.size > 0 && !artNosFilter.has(artNo.toUpperCase())) return;
+
+          const shadeName = String(r.shade || r.shadeName || "").trim();
+          const sizeName = String(r.size || r.sizeName || "").trim();
+          if (!sizeName) return;
+
+          const box = toNum(r.box);
+          const perBox = toNum(r.pcsPerBox || r.perBox);
+          const pcs = r.pcs != null ? toNum(r.pcs) : (box * perBox);
+
+          const rate = toNum(r.rate);
+
+          // ✅ Return is IN stock => +pcs
+          addDelta({
+            artNo,
+            shadeName,
+            sizeName,
+            pcsDelta: +pcs,
+            perBox,
+            rate,
+          });
         });
       });
 

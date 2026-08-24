@@ -42,7 +42,7 @@ const PurchasePendingOrders: React.FC = () => {
       try {
         const [pRes, iRes] = await Promise.all([
           api.get<Party[]>("/party/category/Purchase"),
-          api.get<Item[]>("/purchase/orders/list"),
+          api.get<Item[]>("/purchase/orders/order-list"),
         ]);
         setParties(pRes.data || []);
         setMaterials(iRes.data || []);

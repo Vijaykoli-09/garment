@@ -1,25 +1,25 @@
-//package com.garment.repository;
-//
-//import java.time.LocalDate;
-//import java.util.List;
-//
-//import org.springframework.data.jpa.repository.Query;
-//import org.springframework.data.repository.Repository;
-//import org.springframework.data.repository.query.Param;
-//
-//public interface MaterialPurchasePendingRepository extends Repository<Object, Long> {
-//
+// package com.garment.repository;
+
+// import java.time.LocalDate;
+// import java.util.List;
+
+// import org.springframework.data.jpa.repository.Query;
+// import org.springframework.data.repository.Repository;
+// import org.springframework.data.repository.query.Param;
+
+// import com.garment.model.MaterialPurchaseOrderItem; // <-- change this to your actual entity package/class
+
+// public interface MaterialPurchasePendingRepository extends Repository<MaterialPurchaseOrderItem, Long> {
+
 //    // Used for item filter list
-//    // CHANGE table/column names as per your DB
 //    @Query(value = """
 //        SELECT i.id, i.item_name
 //        FROM item i
 //        ORDER BY i.item_name
 //        """, nativeQuery = true)
 //    List<Object[]> listMaterials();
-//
+
 //    // Pending report WITHOUT item filter
-//    // CHANGE table/column names as per your DB
 //    @Query(value = """
 //        SELECT
 //            poi.id                                 AS row_id,
@@ -47,11 +47,10 @@
 //            @Param("asOnDate") LocalDate asOnDate,
 //            @Param("partyIds") List<Long> partyIds
 //    );
-//
+
 //    // Pending report WITH item filter
-//    // CHANGE table/column names as per your DB
 //    @Query(value = """
-//        SELECT
+//        SELECT 
 //            poi.id                                 AS row_id,
 //            po.order_no                            AS order_no,
 //            po.order_date                          AS order_date,
@@ -79,4 +78,4 @@
 //            @Param("partyIds") List<Long> partyIds,
 //            @Param("itemIds") List<Long> itemIds
 //    );
-//}
+// }

@@ -30,7 +30,7 @@ const routes = {
   // ✅ Art Master
   arts: "/arts",
 
-  // ✅ NEW: backend next numbers (same concept as dispatch challan)
+  // ✅ backend next numbers
   nextNumbers: "/dispatch-return-challan/next",
 };
 
@@ -65,9 +65,9 @@ interface Party {
   transport?: { transportName?: string };
 }
 
-// ✅ items shown in Art lookup modal (based on Dispatch Challans)
+// ✅ items shown in Art lookup modal (based on Dispatch Challans - outstanding)
 interface DispatchedItem {
-  id: string;
+  id: string; // key: artNo||size||shade
 
   artNo: string;
   description: string;
@@ -78,8 +78,8 @@ interface DispatchedItem {
   perBox: number;
   pcs: number;
 
-  rate: number; // ✅ last dispatched rate
-  amount: number; // total dispatched amount
+  rate: number; // last dispatched rate
+  amount: number; // net outstanding amount (dispatch - return)
 }
 
 // Art Master list view
@@ -214,7 +214,7 @@ const ProductSearchModal: React.FC<ProductSearchModalProps> = ({
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
       <div className="bg-white rounded-lg shadow-xl w-5/6 max-w-6xl p-4">
         <h3 className="text-xl font-bold mb-4 text-blue-800">
-          Select Item (Dispatched to Party upto Date)
+          Select Item (Outstanding Dispatched = Dispatch - Return upto Date)
         </h3>
 
         <input
@@ -271,7 +271,7 @@ const ProductSearchModal: React.FC<ProductSearchModalProps> = ({
                     colSpan={9}
                     className="border p-2 text-center text-gray-500"
                   >
-                    No dispatched items found for selected party (upto date).
+                    No outstanding items found for selected party (upto date).
                   </td>
                 </tr>
               )}
@@ -1393,9 +1393,18 @@ const DispatchReturn: React.FC = () => {
     }
   }, []);
 
-  // ----------------- ✅ Dispatched items loader (Party + upto Date) -----------------
+  // ----------------- ✅ Outstanding loader (Dispatch - Return) -----------------
+  const makeKey = (artNo: string, size: string, shade: string) =>
+    `${String(artNo || "").trim()}||${String(size || "").trim()}||${String(
+      shade || ""
+    ).trim()}`;
+
   const loadDispatchedArtsForParty = useCallback(
-    async (party: string, uptoDate: string) => {
+    async (
+      party: string,
+      uptoDate: string,
+      excludeReturnChallanId?: number | null
+    ) => {
       const partyKey = String(party || "").trim().toLowerCase();
 
       if (!partyKey) {
@@ -1418,22 +1427,25 @@ const DispatchReturn: React.FC = () => {
       };
 
       try {
-        const res = await api.get<any[]>(routes.dispatchChallans);
-        const challans = Array.isArray(res.data) ? res.data : [];
+        const [dispatchRes, returnRes] = await Promise.all([
+          api.get<any[]>(routes.dispatchChallans),
+          api.get<any[]>(routes.list),
+        ]);
 
-        const filtered = challans.filter((ch: any) => {
-          const chParty = String(ch?.partyName || "").trim().toLowerCase();
-          if (chParty !== partyKey) return false;
+        const dispatchChallans = Array.isArray(dispatchRes.data)
+          ? dispatchRes.data
+          : [];
+        const returnChallans = Array.isArray(returnRes.data)
+          ? returnRes.data
+          : [];
 
-          const chDate = ch?.date || ch?.dated || "";
-          return isOnOrBefore(chDate, uptoDate);
-        });
-
-        type Agg = {
+        // ---- 1) DISPATCH aggregation ----
+        type DispatchAgg = {
           artNo: string;
           description: string;
           size: string;
           shade: string;
+
           box: number;
           pcs: number;
           amount: number;
@@ -1442,16 +1454,19 @@ const DispatchReturn: React.FC = () => {
           lastOrder: Order | null;
         };
 
-        const makeKey = (
-          artNo: string,
-          size: string,
-          shade: string,
-          description: string
-        ) => `${artNo}||${size}||${shade}||${description}`;
+        const dispatchMap = new Map<string, DispatchAgg>();
 
-        const map = new Map<string, Agg>();
+        const filteredDispatch = dispatchChallans.filter((ch: any) => {
+          const chParty = String(ch?.partyName || "")
+            .trim()
+            .toLowerCase();
+          if (chParty !== partyKey) return false;
 
-        filtered.forEach((ch: any) => {
+          const chDate = ch?.date || ch?.dated || "";
+          return isOnOrBefore(chDate, uptoDate);
+        });
+
+        filteredDispatch.forEach((ch: any) => {
           const rows = Array.isArray(ch.rows) ? ch.rows : [];
 
           const chDate = ch?.date || ch?.dated || "";
@@ -1487,10 +1502,10 @@ const DispatchReturn: React.FC = () => {
                 ? pcs * rate
                 : 0;
 
-            const key = makeKey(artNo, size, shade, description);
+            const key = makeKey(artNo, size, shade);
             const currentOrder: Order = { ts, seq, rowIndex };
 
-            const existing = map.get(key);
+            const existing = dispatchMap.get(key);
             if (existing) {
               existing.box += box;
               existing.pcs += pcs;
@@ -1502,9 +1517,10 @@ const DispatchReturn: React.FC = () => {
               ) {
                 existing.lastOrder = currentOrder;
                 existing.lastRate = rate;
+                if (description) existing.description = description;
               }
             } else {
-              map.set(key, {
+              dispatchMap.set(key, {
                 artNo,
                 description,
                 size,
@@ -1519,30 +1535,110 @@ const DispatchReturn: React.FC = () => {
           });
         });
 
-        const items: DispatchedItem[] = [];
-        map.forEach((agg, key) => {
-          const perBox = agg.box > 0 ? agg.pcs / agg.box : 0;
+        // ---- 2) RETURNS aggregation (exclude current editing challan) ----
+        type ReturnAgg = { box: number; pcs: number; amount: number };
+        const returnMap = new Map<string, ReturnAgg>();
 
-          items.push({
-            id: key,
-            artNo: agg.artNo,
-            description: agg.description,
-            size: agg.size,
-            shade: agg.shade,
-            box: agg.box,
-            perBox,
-            pcs: agg.pcs,
-            rate: agg.lastRate || 0,
-            amount: agg.amount,
+        const filteredReturns = returnChallans.filter((ch: any) => {
+          if (
+            excludeReturnChallanId &&
+            Number(ch?.id) === Number(excludeReturnChallanId)
+          )
+            return false;
+
+          const chParty = String(ch?.partyName || "")
+            .trim()
+            .toLowerCase();
+          if (chParty !== partyKey) return false;
+
+          const chDate = ch?.date || ch?.dated || "";
+          return isOnOrBefore(chDate, uptoDate);
+        });
+
+        filteredReturns.forEach((ch: any) => {
+          const rows = Array.isArray(ch.rows) ? ch.rows : [];
+          rows.forEach((r: any) => {
+            const artNo = String(r.artNo || "").trim();
+            if (!artNo) return;
+
+            const size = String(r.size || "").trim();
+            const shade = String(r.shade || "").trim();
+
+            const box = toNum(r.box);
+            const perBox = toNum(r.pcsPerBox);
+
+            const pcs =
+              r.pcs != null
+                ? toNum(r.pcs)
+                : Number.isFinite(box * perBox)
+                ? box * perBox
+                : 0;
+
+            const rate = toNum(r.rate);
+            const amt =
+              r.amt != null
+                ? toNum(r.amt)
+                : Number.isFinite(pcs * rate)
+                ? pcs * rate
+                : 0;
+
+            const key = makeKey(artNo, size, shade);
+
+            const ex = returnMap.get(key);
+            if (ex) {
+              ex.box += box;
+              ex.pcs += pcs;
+              ex.amount += amt;
+            } else {
+              returnMap.set(key, { box, pcs, amount: amt });
+            }
           });
         });
 
-        items.sort((a, b) => a.artNo.localeCompare(b.artNo));
+        // ---- 3) Outstanding list = Dispatch - Return ----
+        const items: DispatchedItem[] = [];
+
+        dispatchMap.forEach((dAgg, key) => {
+          const rAgg = returnMap.get(key);
+
+          const netBox = Math.max(0, dAgg.box - (rAgg?.box || 0));
+          const netPcs = Math.max(0, dAgg.pcs - (rAgg?.pcs || 0));
+          const netAmt = Math.max(0, dAgg.amount - (rAgg?.amount || 0));
+
+          if (netPcs <= 0 && netBox <= 0) return;
+
+          const perBox =
+            netBox > 0
+              ? netPcs / netBox
+              : dAgg.box > 0
+              ? dAgg.pcs / dAgg.box
+              : 0;
+
+          items.push({
+            id: key, // artNo||size||shade
+            artNo: dAgg.artNo,
+            description: dAgg.description,
+            size: dAgg.size,
+            shade: dAgg.shade,
+            box: netBox,
+            perBox,
+            pcs: netPcs,
+            rate: dAgg.lastRate || 0,
+            amount: netAmt,
+          });
+        });
+
+        items.sort(
+          (a, b) =>
+            a.artNo.localeCompare(b.artNo) ||
+            a.size.localeCompare(b.size) ||
+            a.shade.localeCompare(b.shade)
+        );
         setProductList(items);
       } catch (err) {
-        console.error("Error loading dispatched items:", err);
+        console.error("Error loading outstanding items:", err);
         setProductList([]);
-        Swal.fire("Error", "Failed to load dispatched arts for party", "error");
+        Swal.fire("Error", "Failed to load outstanding items for party", "error");
       }
     },
     []
@@ -1553,8 +1649,8 @@ const DispatchReturn: React.FC = () => {
       setProductList([]);
       return;
     }
-    loadDispatchedArtsForParty(partyName, date);
-  }, [partyName, date, loadDispatchedArtsForParty]);
+    loadDispatchedArtsForParty(partyName, date, editingId);
+  }, [partyName, date, editingId, loadDispatchedArtsForParty]);
 
   // ----------------- ✅ Sync selected arts into Art Master -----------------
   const syncArtsToMasterFromRows = useCallback(
@@ -1666,7 +1762,7 @@ const DispatchReturn: React.FC = () => {
     handleAddNew(false);
   }, [loadParties, loadMaterialGroups, loadMaterialsMaster, handleAddNew]);
 
-  // ----------------- ✅ BACKEND Next numbers (same pattern as DispatchChallan) -----------------
+  // ----------------- ✅ BACKEND Next numbers -----------------
   const fetchNextNumbers = useCallback(
     async (currentDate: string, currentParty: string, currentBroker: string) => {
       if (!currentParty || !currentDate) return;
@@ -1716,7 +1812,7 @@ const DispatchReturn: React.FC = () => {
     }
   }, [partyName, partyList, date, editingId, fetchNextNumbers]);
 
-  // ----------------- Art lookup (Dispatched Items) -----------------
+  // ----------------- Art lookup (Outstanding Items) -----------------
   const filteredProducts = useMemo(() => {
     const term = productSearchTerm.trim().toLowerCase();
     if (!term) return productList;
@@ -2013,11 +2109,6 @@ const DispatchReturn: React.FC = () => {
     });
   }, [partySearchText, partyList]);
 
-  // const openPartyModal = () => {
-  //   setPartySearchText("");
-  //   setIsPartyModalOpen(true);
-  // };
-
   const handlePartySelect = (party: Party) => {
     setPartyName(party.partyName);
     setIsPartyModalOpen(false);
@@ -2044,6 +2135,41 @@ const DispatchReturn: React.FC = () => {
       return;
     }
 
+    // ✅ Validate: cannot return more than outstanding (Dispatch - Return)
+    const outstandingMap = new Map<string, number>();
+    productList.forEach((p) => outstandingMap.set(p.id, toNum(p.pcs)));
+
+    const wantReturnMap = new Map<string, number>();
+    for (const r of rows) {
+      const artNo = String(r.artNo || "").trim();
+      if (!artNo) continue;
+
+      const size = String(r.size || "").trim();
+      const shade = String(r.shade || "").trim();
+      const key = makeKey(artNo, size, shade);
+
+      const pcs =
+        r.pcs !== ""
+          ? toNum(r.pcs)
+          : toNum(r.box) * toNum(r.pcsPerBox);
+
+      if (pcs <= 0) continue;
+      wantReturnMap.set(key, (wantReturnMap.get(key) || 0) + pcs);
+    }
+
+    wantReturnMap.forEach((wantPcs, key) => {
+      const allowed = outstandingMap.get(key) || 0;
+      if (wantPcs > allowed + 1e-6) {
+        const [a, s, sh] = key.split("||");
+        Swal.fire(
+          "Validation",
+          `Return qty exceeds outstanding.\nArt: ${a}\nSize: ${s}\nShade: ${sh}\nAllowed Pcs: ${allowed}\nEntered Pcs: ${wantPcs}`,
+          "warning"
+        );
+        return;
+      }
+    });
+
     const rowsPayload = rows.map((r) => ({
       barCode: r.barCode,
       baleNo: r.baleNo,
@@ -2064,7 +2190,6 @@ const DispatchReturn: React.FC = () => {
       quantity: toNumberOrNull(p.quantity),
     }));
 
-    // ✅ keeping serialNo/challanNo in payload same as dispatch challan
     const payload = {
       serialNo,
       date,
@@ -2609,7 +2734,7 @@ const DispatchReturn: React.FC = () => {
                           }`}
                           placeholder={
                             field === "artNo"
-                              ? "Click to select dispatched items"
+                              ? "Click to select outstanding items"
                               : ""
                           }
                         />
