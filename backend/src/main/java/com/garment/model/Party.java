@@ -1,11 +1,15 @@
 package com.garment.model;
 
 import java.time.LocalDate;
+import java.util.ArrayList;
+import java.util.List;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.ElementCollection;
+import jakarta.persistence.CollectionTable;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.GeneratedValue;
@@ -30,7 +34,13 @@ public class Party {
 
     private String partyName;
     private String address;
-    private String mobileNo;
+
+    // Supports one or multiple mobile numbers for a party
+    @ElementCollection
+    @CollectionTable(name = "party_mobile_numbers", joinColumns = @JoinColumn(name = "party_id"))
+    @Column(name = "mobile_no")
+    private List<String> mobileNos = new ArrayList<>();
+
     private String gstNo;
     private Double openingBalance;
 

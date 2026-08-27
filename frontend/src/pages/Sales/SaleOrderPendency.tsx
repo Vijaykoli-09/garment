@@ -61,6 +61,31 @@ type SizeAgg = {
   pending: number;
 };
 
+type PrintColumnKey =
+  | "sno"
+  | "broker"
+  | "party"
+  | "artNo"
+  | "shade"
+  | "sizes"
+  | "opening"
+  | "receipt"
+  | "dispatch"
+  | "pending";
+
+const PRINT_COLUMN_OPTIONS: { key: PrintColumnKey; label: string }[] = [
+  { key: "sno", label: "S.No" },
+  { key: "broker", label: "Broker" },
+  { key: "party", label: "Party Name" },
+  { key: "artNo", label: "Art No" },
+  { key: "shade", label: "Shade" },
+  { key: "sizes", label: "Size" },
+  { key: "opening", label: "Opening" },
+  { key: "receipt", label: "Receipt" },
+  { key: "dispatch", label: "Dispatch" },
+  { key: "pending", label: "Pending" },
+];
+
 type GroupedRow = {
   key: string;
   partyId: number;
@@ -153,6 +178,10 @@ const SaleOrderPendencyArtSizeWise: React.FC = () => {
   const [rows, setRows] = useState<SORow[]>([]);
   const [loading, setLoading] = useState(false);
   const [showReportView, setShowReportView] = useState(false);
+
+  // Print columns: empty means ALL columns.
+  const [selectedPrintColumns, setSelectedPrintColumns] = useState<PrintColumnKey[]>([]);
+
 
   const [fulfillingKey, setFulfillingKey] = useState<string | null>(null);
   const [fulfillingAll, setFulfillingAll] = useState(false);
@@ -804,53 +833,125 @@ const SaleOrderPendencyArtSizeWise: React.FC = () => {
   // ---------- print ----------
   const handlePrint = () => {
     const content = reportRef.current;
-    if (!content) return window.print();
+    if (!content) {
+      Swal.fire("Info", "Nothing to print", "info");
+      return;
+    }
 
-    const printWindow = window.open("", "_blank", "width=1200,height=800");
-    if (!printWindow) return window.print();
+    // The table already contains exactly the columns selected in the filter.
+    // Clone that table and print it as-is. This is more reliable than trying
+    // to calculate column indexes again inside the print window.
+    const cloned = content.cloneNode(true) as HTMLElement;
+    cloned.style.overflow = "visible";
+    cloned.style.maxHeight = "none";
+    cloned.querySelectorAll(".no-print").forEach((el) => el.remove());
+
+    const table = cloned.querySelector("table");
+    if (!table) {
+      Swal.fire("Info", "Report table not found", "info");
+      return;
+    }
 
     const title = `Sale-Order-Pendency-ArtSize_${fromDate}_to_${toDate}`;
+    const selectedLabel =
+      selectedPrintColumns.length === 0
+        ? "All columns"
+        : PRINT_COLUMN_OPTIONS
+            .filter((x) => selectedPrintColumns.includes(x.key))
+            .map((x) => x.label)
+            .join(", ");
+
     const styles = `
-      @page { size: A4 landscape; margin: 10mm; }
+      @page { size: A4 landscape; margin: 8mm; }
       * { box-sizing: border-box; }
-      body { font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif; font-size: 11px; }
-      table { width: 100%; border-collapse: collapse; font-size: 11px; border: 1px solid #111827; }
-      th, td { border: 1px solid #111827; padding: 5px 7px; }
-      thead th { background: #E5E7EB; position: sticky; top: 0; }
-      tbody tr:nth-child(even) { background: #F9FAFB; }
-      tfoot td { background: #F3F4F6; font-weight: 700; }
-      th, td { white-space: nowrap; }
-      @media print { .no-print { display: none !important; } }
+      html, body { margin: 0; padding: 0; background: #fff; }
+      body {
+        font-family: Arial, Helvetica, sans-serif;
+        font-size: 10px;
+        color: #111827;
+      }
+      .print-header { text-align: center; margin-bottom: 8px; }
+      .print-title { font-size: 17px; font-weight: 700; }
+      .print-meta { font-size: 10px; margin-top: 4px; }
+      .print-columns { font-size: 9px; margin-top: 4px; color: #374151; }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        table-layout: auto;
+        font-size: 9px;
+      }
+      th, td {
+        border: 1px solid #111827;
+        padding: 4px 5px;
+        white-space: nowrap;
+        vertical-align: middle;
+      }
+      thead th { background: #e5e7eb !important; font-weight: 700; }
+      tfoot td { background: #f3f4f6 !important; font-weight: 700; }
+      tr { page-break-inside: avoid; }
+      thead { display: table-header-group; }
+      tfoot { display: table-row-group; }
     `;
 
-    const header = `
-      <div style="text-align:center;margin-bottom:8px">
-        <div style="font-size:18px;font-weight:700;letter-spacing:0.5px">
-          Sale Order Pendency (Art + Size Wise)
-        </div>
-        <div style="font-size:11px;margin-top:4px">
-          <b>From:</b> ${fromDate} &nbsp; | &nbsp; <b>To:</b> ${toDate}
-        </div>
-        <hr style="margin-top:8px"/>
-      </div>
-    `;
+    const printWindow = window.open("", "_blank", "width=1400,height=900");
+    if (!printWindow) {
+      Swal.fire(
+        "Popup Blocked",
+        "Please allow popups for this site and click Print again.",
+        "warning",
+      );
+      return;
+    }
 
-    const html = content.outerHTML;
-
-    printWindow.document.write(`
+    const printHtml = `
+      <!doctype html>
       <html>
-        <head><title>${title}</title><style>${styles}</style></head>
-        <body>${header}${html}
-          <script>
-            window.onload = () => {
-              setTimeout(() => window.print(), 100);
-              setTimeout(() => window.close(), 400);
-            }
-          </script>
+        <head>
+          <meta charset="UTF-8" />
+          <title>${title}</title>
+          <style>${styles}</style>
+        </head>
+        <body>
+          <div class="print-header">
+            <div class="print-title">Sale Order Pendency (Art + Size Wise)</div>
+            <div class="print-meta"><b>From:</b> ${fromDate} &nbsp; | &nbsp; <b>To:</b> ${toDate}</div>
+            <div class="print-columns"><b>Printed Columns:</b> ${selectedLabel}</div>
+          </div>
+          ${cloned.outerHTML}
         </body>
       </html>
-    `);
+    `;
+
+    printWindow.document.open();
+    printWindow.document.write(printHtml);
     printWindow.document.close();
+
+    const doPrint = () => {
+      printWindow.focus();
+      setTimeout(() => {
+        try {
+          printWindow.print();
+        } catch (e) {
+          console.error("Print error:", e);
+        }
+      }, 300);
+    };
+
+    if (printWindow.document.readyState === "complete") {
+      doPrint();
+    } else {
+      printWindow.onload = doPrint;
+    }
+
+    printWindow.onafterprint = () => {
+      setTimeout(() => {
+        try {
+          printWindow.close();
+        } catch {
+          // Ignore close errors.
+        }
+      }, 300);
+    };
   };
 
   // ---------- PDF ----------
@@ -1068,6 +1169,29 @@ const SaleOrderPendencyArtSizeWise: React.FC = () => {
       setFulfillingAll(false);
       setLoading(false);
     }
+  };
+
+  const allPrintColumnKeys = PRINT_COLUMN_OPTIONS.map((x) => x.key);
+
+  // Empty selection means ALL columns, matching the Art Stock report behavior.
+  const isPrintColumnSelected = (key: PrintColumnKey) =>
+    selectedPrintColumns.length === 0 || selectedPrintColumns.includes(key);
+
+  const togglePrintColumn = (key: PrintColumnKey) => {
+    setSelectedPrintColumns((prev) => {
+      // When everything is currently visible, unchecking one column means
+      // select every other column.
+      if (prev.length === 0) {
+        return allPrintColumnKeys.filter((x) => x !== key);
+      }
+
+      const next = prev.includes(key)
+        ? prev.filter((x) => x !== key)
+        : [...prev, key];
+
+      // If all columns become selected again, store it as empty = ALL.
+      return next.length === allPrintColumnKeys.length ? [] : next;
+    });
   };
 
   // ---------- render ----------
@@ -1558,7 +1682,7 @@ const SaleOrderPendencyArtSizeWise: React.FC = () => {
                   </div>
                 </div>
 
-                <div className="flex gap-2">
+                <div className="flex items-center gap-2">
                   <button
                     onClick={handleBack}
                     className="bg-slate-500 text-white px-4 py-1.5 rounded-lg text-xs font-semibold hover:bg-slate-600"
@@ -1583,19 +1707,70 @@ const SaleOrderPendencyArtSizeWise: React.FC = () => {
                   </button>
 
                   <button
+                    type="button"
                     onClick={handlePrint}
-                    className="bg-emerald-600 text-white px-4 py-1.5 rounded-lg text-xs font-semibold hover:bg-emerald-700"
+                    disabled={loading || groupedRows.length === 0}
+                    className={`px-4 py-1.5 rounded-lg text-xs font-semibold ${
+                      loading || groupedRows.length === 0
+                        ? "bg-emerald-300 text-white cursor-not-allowed"
+                        : "bg-emerald-600 text-white hover:bg-emerald-700"
+                    }`}
+                    title="Print selected columns"
                   >
                     Print
                   </button>
+
                   <button
                     onClick={handleExportPDF}
-                    className="bg-indigo-600 text-white px-4 py-1.5 rounded-lg text-xs font-semibold hover:bg-indigo-700"
+                    disabled={loading || groupedRows.length === 0}
+                    className={`px-4 py-1.5 rounded-lg text-xs font-semibold ${
+                      loading || groupedRows.length === 0
+                        ? "bg-indigo-300 text-white cursor-not-allowed"
+                        : "bg-indigo-600 text-white hover:bg-indigo-700"
+                    }`}
                     title="Export to PDF"
                   >
                     Export PDF
                   </button>
                 </div>
+              </div>
+
+              {/* COLUMN FILTER - same style/behavior as Art Stock */}
+              <div className="mt-2 mb-4 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm no-print">
+                <span className="font-semibold text-slate-700">Filter:</span>
+
+                <label className="inline-flex items-center gap-1.5 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={selectedPrintColumns.length === 0}
+                    onChange={(e) => {
+                      if (e.target.checked) setSelectedPrintColumns([]);
+                      else setSelectedPrintColumns(allPrintColumnKeys.slice(1));
+                    }}
+                    className="h-4 w-4 accent-blue-600"
+                  />
+                  <span>All</span>
+                </label>
+
+                {PRINT_COLUMN_OPTIONS.map((column) => (
+                  <label
+                    key={column.key}
+                    className="inline-flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={isPrintColumnSelected(column.key)}
+                      onChange={() => togglePrintColumn(column.key)}
+                      className="h-4 w-4 accent-blue-600"
+                    />
+                    <span>{column.label}</span>
+                  </label>
+                ))}
+
+                <span className="text-xs text-slate-500 ml-1">
+                  (Agar koi filter select nahi karte / sab uncheck kar dete ho,
+                  to system automatically sab columns show/print karega.)
+                </span>
               </div>
 
               {loading ? (
@@ -1614,35 +1789,53 @@ const SaleOrderPendencyArtSizeWise: React.FC = () => {
                   <table className="min-w-full text-xs">
                     <thead className="bg-slate-100 text-slate-700 sticky top-0 z-10">
                       <tr>
-                        <th className="border border-slate-200 p-2">S.No</th>
-                        <th className="border border-slate-200 p-2">Broker</th>
-                        <th className="border border-slate-200 p-2">
-                          Party Name
-                        </th>
-                        <th className="border border-slate-200 p-2">Art No</th>
-                        <th className="border border-slate-200 p-2">Shade</th>
+                        {isPrintColumnSelected("sno") && (
+                          <th className="border border-slate-200 p-2">S.No</th>
+                        )}
+                        {isPrintColumnSelected("broker") && (
+                          <th className="border border-slate-200 p-2">Broker</th>
+                        )}
+                        {isPrintColumnSelected("party") && (
+                          <th className="border border-slate-200 p-2">Party Name</th>
+                        )}
+                        {isPrintColumnSelected("artNo") && (
+                          <th className="border border-slate-200 p-2">Art No</th>
+                        )}
+                        {isPrintColumnSelected("shade") && (
+                          <th className="border border-slate-200 p-2">Shade</th>
+                        )}
 
-                        {sizeColumns.map((s) => (
-                          <th
-                            key={s}
-                            className="border border-slate-200 p-2 text-right"
-                          >
-                            {s}
+                        {isPrintColumnSelected("sizes") &&
+                          sizeColumns.map((s) => (
+                            <th
+                              key={s}
+                              className="border border-slate-200 p-2 text-right"
+                            >
+                              {s}
+                            </th>
+                          ))}
+
+                        {isPrintColumnSelected("opening") && (
+                          <th className="border border-slate-200 p-2 text-right">
+                            Opening
                           </th>
-                        ))}
+                        )}
+                        {isPrintColumnSelected("receipt") && (
+                          <th className="border border-slate-200 p-2 text-right">
+                            Receipt
+                          </th>
+                        )}
+                        {isPrintColumnSelected("dispatch") && (
+                          <th className="border border-slate-200 p-2 text-right">
+                            Dispatch
+                          </th>
+                        )}
+                        {isPrintColumnSelected("pending") && (
+                          <th className="border border-slate-200 p-2 text-right">
+                            Pending
+                          </th>
+                        )}
 
-                        <th className="border border-slate-200 p-2 text-right">
-                          Opening
-                        </th>
-                        <th className="border border-slate-200 p-2 text-right">
-                          Receipt
-                        </th>
-                        <th className="border border-slate-200 p-2 text-right">
-                          Dispatch
-                        </th>
-                        <th className="border border-slate-200 p-2 text-right">
-                          Pending
-                        </th>
                         <th className="border border-slate-200 p-2 no-print">
                           Action
                         </th>
@@ -1655,46 +1848,65 @@ const SaleOrderPendencyArtSizeWise: React.FC = () => {
                           key={g.key}
                           className={i % 2 === 0 ? "bg-white" : "bg-slate-50"}
                         >
-                          <td className="border border-slate-200 p-1.5 text-center">
-                            {i + 1}
-                          </td>
-                          <td className="border border-slate-200 p-1.5">
-                            {g.brokerName}
-                          </td>
-                          <td className="border border-slate-200 p-1.5">
-                            {g.partyName}
-                          </td>
-                          <td className="border border-slate-200 p-1.5">
-                            {g.artNo}
-                          </td>
-                          <td className="border border-slate-200 p-1.5">
-                            {g.shade}
-                          </td>
+                          {isPrintColumnSelected("sno") && (
+                            <td className="border border-slate-200 p-1.5 text-center">
+                              {i + 1}
+                            </td>
+                          )}
+                          {isPrintColumnSelected("broker") && (
+                            <td className="border border-slate-200 p-1.5">
+                              {g.brokerName}
+                            </td>
+                          )}
+                          {isPrintColumnSelected("party") && (
+                            <td className="border border-slate-200 p-1.5">
+                              {g.partyName}
+                            </td>
+                          )}
+                          {isPrintColumnSelected("artNo") && (
+                            <td className="border border-slate-200 p-1.5">
+                              {g.artNo}
+                            </td>
+                          )}
+                          {isPrintColumnSelected("shade") && (
+                            <td className="border border-slate-200 p-1.5">
+                              {g.shade}
+                            </td>
+                          )}
 
-                          {sizeColumns.map((s) => {
-                            const cell = g.perSize[s];
-                            return (
-                              <td
-                                key={s}
-                                className="border border-slate-200 p-1.5 text-right"
-                              >
-                                {cell ? fmt(cell.pending) : ""}
-                              </td>
-                            );
-                          })}
+                          {isPrintColumnSelected("sizes") &&
+                            sizeColumns.map((s) => {
+                              const cell = g.perSize[s];
+                              return (
+                                <td
+                                  key={s}
+                                  className="border border-slate-200 p-1.5 text-right"
+                                >
+                                  {cell ? fmt(cell.pending) : ""}
+                                </td>
+                              );
+                            })}
 
-                          <td className="border border-slate-200 p-1.5 text-right">
-                            {fmt(g.openingTotal)}
-                          </td>
-                          <td className="border border-slate-200 p-1.5 text-right">
-                            {fmt(g.receiptTotal)}
-                          </td>
-                          <td className="border border-slate-200 p-1.5 text-right">
-                            {fmt(g.dispatchTotal)}
-                          </td>
-                          <td className="border border-slate-200 p-1.5 text-right font-semibold text-slate-800">
-                            {fmt(g.pendingTotal)}
-                          </td>
+                          {isPrintColumnSelected("opening") && (
+                            <td className="border border-slate-200 p-1.5 text-right">
+                              {fmt(g.openingTotal)}
+                            </td>
+                          )}
+                          {isPrintColumnSelected("receipt") && (
+                            <td className="border border-slate-200 p-1.5 text-right">
+                              {fmt(g.receiptTotal)}
+                            </td>
+                          )}
+                          {isPrintColumnSelected("dispatch") && (
+                            <td className="border border-slate-200 p-1.5 text-right">
+                              {fmt(g.dispatchTotal)}
+                            </td>
+                          )}
+                          {isPrintColumnSelected("pending") && (
+                            <td className="border border-slate-200 p-1.5 text-right font-semibold text-slate-800">
+                              {fmt(g.pendingTotal)}
+                            </td>
+                          )}
 
                           <td className="border border-slate-200 p-1.5 no-print">
                             <button
@@ -1727,34 +1939,63 @@ const SaleOrderPendencyArtSizeWise: React.FC = () => {
 
                     <tfoot>
                       <tr className="bg-slate-100 font-semibold text-slate-800">
-                        <td
-                          className="border border-slate-200 p-1.5 text-right"
-                          colSpan={5}
-                        >
-                          Total
-                        </td>
+                        {(() => {
+                          const identityKeys: PrintColumnKey[] = [
+                            "sno",
+                            "broker",
+                            "party",
+                            "artNo",
+                            "shade",
+                          ];
+                          const visibleIdentityCount = identityKeys.filter(
+                            (key) => isPrintColumnSelected(key),
+                          ).length;
 
-                        {sizeColumns.map((s) => (
-                          <td
-                            key={s}
-                            className="border border-slate-200 p-1.5 text-right"
-                          >
-                            {sizeTotals[s] ? fmt(sizeTotals[s].pending) : ""}
+                          if (visibleIdentityCount > 0) {
+                            return (
+                              <td
+                                className="border border-slate-200 p-1.5 text-right"
+                                colSpan={visibleIdentityCount}
+                              >
+                                Total
+                              </td>
+                            );
+                          }
+
+                          return null;
+                        })()}
+
+                        {isPrintColumnSelected("sizes") &&
+                          sizeColumns.map((s) => (
+                            <td
+                              key={s}
+                              className="border border-slate-200 p-1.5 text-right"
+                            >
+                              {sizeTotals[s] ? fmt(sizeTotals[s].pending) : ""}
+                            </td>
+                          ))}
+
+                        {isPrintColumnSelected("opening") && (
+                          <td className="border border-slate-200 p-1.5 text-right">
+                            {fmt(totals.opening)}
                           </td>
-                        ))}
+                        )}
+                        {isPrintColumnSelected("receipt") && (
+                          <td className="border border-slate-200 p-1.5 text-right">
+                            {fmt(totals.receipt)}
+                          </td>
+                        )}
+                        {isPrintColumnSelected("dispatch") && (
+                          <td className="border border-slate-200 p-1.5 text-right">
+                            {fmt(totals.dispatch)}
+                          </td>
+                        )}
+                        {isPrintColumnSelected("pending") && (
+                          <td className="border border-slate-200 p-1.5 text-right">
+                            {fmt(totals.pending)}
+                          </td>
+                        )}
 
-                        <td className="border border-slate-200 p-1.5 text-right">
-                          {fmt(totals.opening)}
-                        </td>
-                        <td className="border border-slate-200 p-1.5 text-right">
-                          {fmt(totals.receipt)}
-                        </td>
-                        <td className="border border-slate-200 p-1.5 text-right">
-                          {fmt(totals.dispatch)}
-                        </td>
-                        <td className="border border-slate-200 p-1.5 text-right">
-                          {fmt(totals.pending)}
-                        </td>
                         <td className="border border-slate-200 p-1.5 no-print" />
                       </tr>
                     </tfoot>

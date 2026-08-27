@@ -65,5 +65,5 @@ public class PartyController {
             @RequestParam(required = false) String search) {
         return service.searchPartiesByAgent(serialNo, search);
     }
-    
+
 }

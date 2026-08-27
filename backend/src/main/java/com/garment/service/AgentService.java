@@ -32,7 +32,7 @@ public class AgentService {
         return repository.findById(serialNo)
                 .map(agent -> {
                     agent.setAgentName(updatedAgent.getAgentName());
-                    agent.setContactNo(updatedAgent.getContactNo());
+                    agent.setContactNos(updatedAgent.getContactNos());
                     agent.setEmail(updatedAgent.getEmail());
                     agent.setAddress(updatedAgent.getAddress());
                     agent.setCity(updatedAgent.getCity());

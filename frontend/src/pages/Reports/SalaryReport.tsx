@@ -142,6 +142,12 @@ type AttendanceExceptionRow = {
   status: AttendanceStatus;
 };
 
+type DailyAttendanceRow = {
+  date: string;
+  day: string;
+  status?: AttendanceStatus;
+};
+
 type EmployeeWiseRow = {
   employeeCode: string;
   employeeName: string;
@@ -649,37 +655,27 @@ const SalaryReport: React.FC = () => {
       setSalarySupport(list);
 
       /**
-       * ✅ Monthly salary payable fallback:
-       * If a Salary-process employee has monthlySalary but monthlyBreakdown is missing,
-       * we fetch attendance exceptions for Salary process to compute month-by-month payable.
+       * Daily attendance chart needs the actual attendance exceptions even when
+       * monthlyBreakdown is already returned by the backend.
+       *
+       * Rule:
+       * - Salary process scope -> load Salary attendance.
+       * - All processes scope -> load Salary attendance.
+       * - Selected Salary employee -> load that employee's attendance.
+       * - Non-salary employee/process -> no attendance chart data.
        */
       const procIsAll = !String(processName || "").trim();
       const selProcUpper = normUpper(processName);
-      const scopeAllowsSalaryProcess = procIsAll || selProcUpper === "SALARY";
+      const selectedMaster = selectedEmployeeCode ? employeeByCode.get(selectedEmployeeCode) : undefined;
+      const selectedEmployeeIsSalaryProcess =
+        !!selectedMaster && isSalaryProcessEmployeeByProcessName(selectedMaster.process?.processName);
+
+      const scopeAllowsSalaryProcess =
+        procIsAll ||
+        selProcUpper === "SALARY" ||
+        selectedEmployeeIsSalaryProcess;
 
       if (!scopeAllowsSalaryProcess) {
-        setAttendanceExceptions([]);
-        return;
-      }
-
-      // Apply same scope filters (process + employee) BEFORE deciding if we need exceptions
-      const needsFallback = list.some((s) => {
-        const procUpper = normUpper(s.processName);
-        const isSalaryProc = procUpper === "SALARY";
-        if (!isSalaryProc) return false;
-
-        if (!procIsAll && procUpper !== selProcUpper) return false;
-
-        if (selectedEmployeeCode && String(s.employeeCode || "").trim() !== selectedEmployeeCode) return false;
-
-        const monthlySalary = Number(s.monthlySalary || 0);
-        if (monthlySalary <= 0) return false;
-
-        const br = Array.isArray(s.monthlyBreakdown) ? s.monthlyBreakdown : [];
-        return br.length === 0;
-      });
-
-      if (!needsFallback) {
         setAttendanceExceptions([]);
         return;
       }
@@ -689,24 +685,44 @@ const SalaryReport: React.FC = () => {
       if (selectedEmployeeCode) {
         excParams.employeeCode = selectedEmployeeCode;
       } else {
-        // Use Salary process serialNo if available
+        // Use Salary process serialNo when employee is not selected.
         const salaryProcSerial =
           selProcUpper === "SALARY" ? selectedProcessSerialNo : salaryProcessSerialNoMaster;
-        if (salaryProcSerial) excParams.processSerialNo = salaryProcSerial;
+
+        if (salaryProcSerial) {
+          excParams.processSerialNo = salaryProcSerial;
+        }
       }
 
       const excRes = await api.get("/attendance/exceptions", { params: excParams });
-      const excList: AttendanceExceptionRow[] = Array.isArray(excRes.data) ? excRes.data : excRes.data?.data || [];
+      const excList: AttendanceExceptionRow[] = Array.isArray(excRes.data)
+        ? excRes.data
+        : excRes.data?.data || [];
 
-      // normalize minimal fields
+      // Normalize both full status names and compact P/A/H values.
       setAttendanceExceptions(
         (excList || [])
-          .map((x: any) => ({
-            employeeCode: String(x.employeeCode || "").trim(),
-            date: String(x.date || "").trim(),
-            status: String(x.status || "PRESENT").trim().toUpperCase() as AttendanceStatus,
-          }))
-          .filter((x) => x.employeeCode && x.date && (x.status === "ABSENT" || x.status === "HALF_DAY" || x.status === "PRESENT"))
+          .map((x: any) => {
+            const rawStatus = normUpper(x.status || x.attendanceStatus || "PRESENT");
+            const status: AttendanceStatus =
+              rawStatus === "A" || rawStatus === "ABSENT"
+                ? "ABSENT"
+                : rawStatus === "H" || rawStatus === "HALF" || rawStatus === "HALF_DAY"
+                ? "HALF_DAY"
+                : "PRESENT";
+
+            return {
+              employeeCode: String(x.employeeCode || x.empCode || x.employeeId || "").trim(),
+              date: String(x.date || x.attendanceDate || x.dated || "").trim(),
+              status,
+            };
+          })
+          .filter(
+            (x) =>
+              x.employeeCode &&
+              x.date &&
+              (x.status === "ABSENT" || x.status === "HALF_DAY" || x.status === "PRESENT")
+          )
       );
     } catch (err) {
       console.error(err);
@@ -742,6 +758,149 @@ const SalaryReport: React.FC = () => {
     });
     return m;
   }, [attendanceExceptions]);
+
+  // ---------- Daily Attendance Calendar ----------
+  // Build the calendar strictly from the selected From/To range.
+  // Attendance exceptions (A/H/P) override the default PRESENT status.
+  // This guarantees that Jan/Feb/... months are shown even when the
+  // /attendance/exceptions endpoint returns no exception rows for that month.
+  const attendanceCalendarDays = useMemo<DailyAttendanceRow[]>(() => {
+    if (!selectedEmployeeCode) return [];
+
+    const emp = employeeByCode.get(selectedEmployeeCode);
+    if (!emp || !isSalaryProcessEmployeeByProcessName(emp.process?.processName)) return [];
+
+    const fromTS = parseYMDLocalToTS(fromDate);
+    const toTS = parseYMDLocalToTS(toDate);
+
+    if (!Number.isFinite(fromTS) || !Number.isFinite(toTS) || fromTS > toTS) return [];
+
+    const exceptionMap = new Map<string, AttendanceStatus>();
+
+    attendanceExceptions.forEach((x) => {
+      if (String(x.employeeCode || "").trim() !== selectedEmployeeCode) return;
+
+      const ts = parseYMDLocalToTS(x.date);
+      if (!Number.isFinite(ts)) return;
+
+      const iso = toLocalISODateFromTS(ts);
+      exceptionMap.set(iso, x.status);
+    });
+
+    const dojTS = emp.dateOfJoining ? parseYMDLocalToTS(String(emp.dateOfJoining)) : NaN;
+    const todayTS = parseYMDLocalToTS(getTodayIso());
+
+    const rows: DailyAttendanceRow[] = [];
+
+    for (let ts = fromTS; ts <= toTS; ts += DAY_MS) {
+      const iso = toLocalISODateFromTS(ts);
+
+      // Keep the selected month visible, but do not mark dates before DOJ
+      // or future dates as attendance.
+      if (Number.isFinite(dojTS) && ts < dojTS) {
+        rows.push({
+          date: iso,
+          day: new Date(ts).toLocaleDateString(undefined, { weekday: "short" }),
+          status: undefined,
+        });
+        continue;
+      }
+
+      if (ts > todayTS) {
+        rows.push({
+          date: iso,
+          day: new Date(ts).toLocaleDateString(undefined, { weekday: "short" }),
+          status: undefined,
+        });
+        continue;
+      }
+
+      rows.push({
+        date: iso,
+        day: new Date(ts).toLocaleDateString(undefined, { weekday: "short" }),
+        status: exceptionMap.get(iso) || "PRESENT",
+      });
+    }
+
+    return rows;
+  }, [selectedEmployeeCode, employeeByCode, attendanceExceptions, fromDate, toDate]);
+
+  const dailyAttendanceRows = useMemo(
+    () => attendanceCalendarDays.filter((r) => !!r.status),
+    [attendanceCalendarDays]
+  );
+
+  const dailyAttendanceTotals = useMemo(() => {
+    const totals = { present: 0, halfDay: 0, absent: 0 };
+
+    dailyAttendanceRows.forEach((r) => {
+      if (r.status === "PRESENT") totals.present += 1;
+      else if (r.status === "HALF_DAY") totals.halfDay += 1;
+      else if (r.status === "ABSENT") totals.absent += 1;
+    });
+
+    return totals;
+  }, [dailyAttendanceRows]);
+
+  // IMPORTANT: Create month list from From/To directly.
+  // Do not depend on attendance rows, otherwise a month with no
+  // exception records can disappear from the calendar.
+  const attendanceByMonth = useMemo(() => {
+    const fromTS = parseYMDLocalToTS(fromDate);
+    const toTS = parseYMDLocalToTS(toDate);
+
+    if (!Number.isFinite(fromTS) || !Number.isFinite(toTS) || fromTS > toTS) return [];
+
+    const statusByDate = new Map<string, AttendanceStatus>();
+
+    attendanceCalendarDays.forEach((row) => {
+      if (row.status) statusByDate.set(row.date, row.status);
+    });
+
+    const result: {
+      month: string;
+      label: string;
+      rows: DailyAttendanceRow[];
+    }[] = [];
+
+    let d = new Date(new Date(fromTS).getFullYear(), new Date(fromTS).getMonth(), 1);
+    const end = new Date(new Date(toTS).getFullYear(), new Date(toTS).getMonth(), 1);
+
+    while (d <= end) {
+      const year = d.getFullYear();
+      const monthIndex = d.getMonth();
+      const month = `${year}-${pad2(monthIndex + 1)}`;
+
+      const rows: DailyAttendanceRow[] = [];
+      const totalDays = daysInMonth(year, monthIndex);
+
+      for (let day = 1; day <= totalDays; day += 1) {
+        const iso = `${year}-${pad2(monthIndex + 1)}-${pad2(day)}`;
+        const dayTS = parseYMDLocalToTS(iso);
+
+        if (dayTS < fromTS || dayTS > toTS) continue;
+
+        rows.push({
+          date: iso,
+          day: new Date(dayTS).toLocaleDateString(undefined, { weekday: "short" }),
+          status: statusByDate.get(iso),
+        });
+      }
+
+      result.push({
+        month,
+        label: d.toLocaleDateString(undefined, {
+          month: "long",
+          year: "numeric",
+        }),
+        rows,
+      });
+
+      d = new Date(year, monthIndex + 1, 1);
+    }
+
+    return result;
+  }, [attendanceCalendarDays, fromDate, toDate]);
 
   // ---------- Employee Wise Summary rows (FINAL filtered list respecting Process/Employee + salary-process + extra work) ----------
   const employeeWiseRows: EmployeeWiseRow[] = useMemo(() => {
@@ -1120,80 +1279,8 @@ const SalaryReport: React.FC = () => {
     const totalPieces = totals.pieces;
     const totalAmount = totals.amount;
 
-    const shouldPrintEmpSummary = employeeWiseRows.length > 0;
-
-    const empSummarySection = shouldPrintEmpSummary
-      ? (() => {
-          const empWiseLines = employeeWiseRows
-            .map((r, i) => {
-              const td = (v: string, cls = "") => `<td class="${cls}">${v}</td>`;
-              const dashIf = (ok: boolean, v: string) => (ok ? v : "-");
-
-              return `
-                <tr>
-                  ${td(String(i + 1))}
-                  ${td(r.employeeCode || "")}
-                  ${td(r.employeeName || "")}
-                  ${td(r.processDisplay || "")}
-
-                  ${td(dashIf(r.isSalaryProcessEmployee, String(r.present)), "text-right")}
-                  ${td(dashIf(r.isSalaryProcessEmployee, String(r.halfDay)), "text-right")}
-                  ${td(dashIf(r.isSalaryProcessEmployee, String(r.absent)), "text-right")}
-                  ${td(dashIf(r.isSalaryProcessEmployee, fmtNumber(r.effectiveDays)), "text-right")}
-                  ${td(dashIf(r.isSalaryProcessEmployee, fmtNumber(r.attendancePercent) + "%"), "text-right")}
-
-                  ${td(fmtNumber(r.extraHours), "text-right")}
-                  ${td(fmtNumber(r.extraHourRateAvg), "text-right")}
-                  ${td(fmtNumber(r.extraHourAmount), "text-right")}
-
-                  ${td(dashIf(r.isSalaryProcessEmployee, fmtNumber(r.monthlySalary)), "text-right")}
-                  ${td(dashIf(r.isSalaryProcessEmployee, fmtNumber(r.salaryPayable)), "text-right")}
-
-                  ${td(fmtNumber(r.gross), "text-right")}
-                  ${td(fmtNumber(r.advInRange), "text-right")}
-                  ${td(fmtNumber(r.opening), "text-right")}
-                  ${td(fmtNumber(r.net), "text-right")}
-                </tr>
-              `;
-            })
-            .join("");
-
-          return `
-            <div class="section-title">Employee Wise Summary</div>
-            <table>
-              <thead>
-                <tr>
-                  <th>S No</th>
-                  <th>Emp Code</th>
-                  <th>Employee</th>
-                  <th>Process</th>
-
-                  <th class="text-right">P</th>
-                  <th class="text-right">H</th>
-                  <th class="text-right">A</th>
-                  <th class="text-right">Eff Days</th>
-                  <th class="text-right">Att %</th>
-
-                  <th class="text-right">Extra Hrs</th>
-                  <th class="text-right">Extra Rate(avg)</th>
-                  <th class="text-right">Extra Amt</th>
-
-                  <th class="text-right">Monthly Salary</th>
-                  <th class="text-right">Salary Payable</th>
-
-                  <th class="text-right">Gross</th>
-                  <th class="text-right">ADV</th>
-                  <th class="text-right">Opening</th>
-                  <th class="text-right">Net</th>
-                </tr>
-              </thead>
-              <tbody>
-                ${empWiseLines}
-              </tbody>
-            </table>
-          `;
-        })()
-      : "";
+    // Employee Wise Summary and Attendance Calendar are intentionally NOT included in print.
+    //const attendancePrintSection = "";
 
     const paymentLines = paymentRowsForSelection.inRangePayments
       .map(
@@ -1242,17 +1329,7 @@ const SalaryReport: React.FC = () => {
         <strong>Production Amount:</strong> ${fmtNumber(totalAmount)}
       </div>
 
-      ${
-        shouldPrintEmpSummary
-          ? `<div style="margin-top:6px;">
-              <strong>Employee-wise Net Total:</strong> ${fmtNumber(employeeWiseTotals.net)}
-              (Gross ${fmtNumber(employeeWiseTotals.gross)} - ADV ${fmtNumber(employeeWiseTotals.adv)} + Opening ${fmtNumber(employeeWiseTotals.opening)})
-            </div>`
-          : ""
-      }
     </div>
-
-    ${empSummarySection}
 
     <div class="section-title">Production Details</div>
     <table>
@@ -1653,6 +1730,139 @@ const SalaryReport: React.FC = () => {
                       </div>
                     </div>
                   )}
+
+                  {/* Attendance Monthly Calendar - screen only (NOT printed) */}
+                  {selectedEmployeeCode && attendanceByMonth.length > 0 && (
+                    <div className="border rounded bg-white mb-4 overflow-hidden">
+                      <div className="p-3 border-b bg-gray-50">
+                        <div className="flex flex-wrap items-center justify-between gap-3">
+                          <div>
+                            <div className="text-sm font-semibold">Attendance Monthly Calendar</div>
+                            <div className="text-xs text-gray-600 mt-1">
+                              <strong>{selectedEmployee?.employeeName || employeeName}</strong>
+                              {" · "}
+                              {fmtDateHeader(fromDate)} to {fmtDateHeader(toDate)}
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-2 text-xs font-semibold">
+                            <span className="px-2 py-1 rounded bg-green-100 text-green-700">
+                              P: {dailyAttendanceTotals.present}
+                            </span>
+                            <span className="px-2 py-1 rounded bg-yellow-100 text-yellow-700">
+                              H: {dailyAttendanceTotals.halfDay}
+                            </span>
+                            <span className="px-2 py-1 rounded bg-red-100 text-red-700">
+                              A: {dailyAttendanceTotals.absent}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="p-3 space-y-3">
+                        {attendanceByMonth.map((month) => {
+                          const year = Number(month.month.slice(0, 4));
+                          const monthIndex = Number(month.month.slice(5, 7)) - 1;
+                          const totalDays = daysInMonth(year, monthIndex);
+                          const firstDay = new Date(year, monthIndex, 1).getDay();
+                          const statusByDate = new Map<string, AttendanceStatus>();
+                          month.rows.forEach((row) => {
+                            if (row.status) statusByDate.set(row.date, row.status);
+                          });
+
+                          const calendarCells: Array<{ day: number | null; status?: AttendanceStatus }> = [];
+                          for (let i = 0; i < firstDay; i += 1) {
+                            calendarCells.push({ day: null });
+                          }
+                          for (let day = 1; day <= totalDays; day += 1) {
+                            const iso = `${year}-${pad2(monthIndex + 1)}-${pad2(day)}`;
+                            calendarCells.push({ day, status: statusByDate.get(iso) });
+                          }
+                          while (calendarCells.length % 7 !== 0) {
+                            calendarCells.push({ day: null });
+                          }
+
+                          return (
+                            <div key={month.month} className="border rounded overflow-hidden">
+                              <div className="px-3 py-2 bg-gray-100 text-sm font-semibold border-b">
+                                {month.label}
+                              </div>
+
+                              <div className="grid grid-cols-7 bg-gray-50">
+                                {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((dayName) => (
+                                  <div
+                                    key={dayName}
+                                    className="border-r border-b px-1 py-1.5 text-center text-[11px] font-semibold text-gray-600 last:border-r-0"
+                                  >
+                                    {dayName}
+                                  </div>
+                                ))}
+                              </div>
+
+                              <div className="grid grid-cols-7">
+                                {calendarCells.map((cell, index) => {
+                                  if (cell.day === null) {
+                                    return (
+                                      <div
+                                        key={`blank-${index}`}
+                                        className="min-h-[58px] sm:min-h-[64px] border-r border-b bg-gray-50/60"
+                                      />
+                                    );
+                                  }
+
+                                  const status = cell.status;
+                                  const isP = status === "PRESENT";
+                                  const isA = status === "ABSENT";
+                                  const isH = status === "HALF_DAY";
+
+                                  return (
+                                    <div
+                                      key={`${month.month}-${cell.day}`}
+                                      className="min-h-[58px] sm:min-h-[64px] border-r border-b p-1.5 relative bg-white"
+                                    >
+                                      <div className="text-xs font-semibold text-gray-700">{cell.day}</div>
+                                      {status && (
+                                        <div className="flex justify-center items-center h-8">
+                                          <span
+                                            className={`inline-flex w-8 h-8 items-center justify-center rounded-full text-sm font-extrabold ${
+                                              isP
+                                                ? "bg-green-100 text-green-700"
+                                                : isA
+                                                ? "bg-red-100 text-red-700"
+                                                : isH
+                                                ? "bg-yellow-100 text-yellow-700"
+                                                : "bg-gray-100 text-gray-500"
+                                            }`}
+                                          >
+                                            {isP ? "P" : isA ? "A" : isH ? "H" : ""}
+                                          </span>
+                                        </div>
+                                      )}
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+
+                      <div className="px-3 pb-3 flex gap-4 text-[11px] text-gray-600">
+                        <span><strong className="text-green-700">P</strong> = Present</span>
+                        <span><strong className="text-yellow-700">H</strong> = Half Day</span>
+                        <span><strong className="text-red-700">A</strong> = Absent</span>
+                      </div>
+                    </div>
+                  )}
+
+                  {selectedEmployeeCode &&
+                    !supportLoading &&
+                    dailyAttendanceRows.length === 0 &&
+                    isSalaryProcessEmployeeByProcessName(selectedEmployee?.process?.processName) && (
+                      <div className="border rounded bg-white mb-4 p-4 text-sm text-gray-500">
+                        No attendance dates found for the selected employee and date range.
+                      </div>
+                    )}
 
                   {/* Production Table (KEEP EXISTING) */}
                   <table className="w-full table-auto text-sm border-collapse">

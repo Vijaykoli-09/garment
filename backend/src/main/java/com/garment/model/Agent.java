@@ -4,6 +4,8 @@ import jakarta.persistence.*;
 import lombok.*;
 
 import java.math.BigDecimal;
+import java.util.ArrayList;
+import java.util.List;
 
 @Entity
 @Table(name = "agents")
@@ -19,7 +21,11 @@ public class Agent {
     @Column(nullable = false)
     private String agentName;
 
-    private String contactNo;
+    @ElementCollection
+    @CollectionTable(name = "agent_contact_numbers", joinColumns = @JoinColumn(name = "agent_serial_no"))
+    @Column(name = "contact_no")
+    private List<String> contactNos = new ArrayList<>();
+
     private String email;
     private String address;
     private String city;
