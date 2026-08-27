@@ -24,6 +24,7 @@ export type BalanceType = 'CR' | 'DR';
 export type TxType =
   | 'Opening'
   | 'Dispatch'
+  | 'DispatchReturn'
   | 'OtherDispatch'
   | 'PurchaseOrder'
   | 'PurchaseEntry'
@@ -63,6 +64,7 @@ export interface RawStatementData {
   parties: PartyRawDto[];
   agents: AgentRawDto[];
   dispatchChallans: any[];
+  dispatchReturnChallans: any[];
   otherDispatchChallans: any[];
   purchaseOrders: any[];
   purchaseEntries: any[];
@@ -97,6 +99,7 @@ const txSortRank = (t: TxType): number => {
     case 'Opening': return 0;
     case 'Dispatch': return 10;
     case 'OtherDispatch': return 11;
+    case 'DispatchReturn': return 12;
     case 'PurchaseOrder': return 20;
     case 'PurchaseEntry': return 21;
     case 'PurchaseReturn': return 22;
@@ -111,6 +114,7 @@ const txSortRank = (t: TxType): number => {
 export const typeLabel = (t: TxType): string => {
   switch (t) {
     case 'OtherDispatch': return 'Other Dispatch';
+    case 'DispatchReturn': return 'Dispatch Return';
     case 'PurchaseOrder': return 'Purchase Order';
     case 'PurchaseEntry': return 'Purchase Entry';
     case 'PurchaseReturn': return 'Purchase Return';
@@ -134,6 +138,7 @@ function getDrCr(source: TxType, amount: number): { debit: number; credit: numbe
   if (source === 'PurchaseOrder') return { debit: 0, credit: amt };
   if (source === 'PurchaseEntry') return { debit: 0, credit: amt };
   if (source === 'OtherDispatch') return { debit: 0, credit: amt };
+  if (source === 'DispatchReturn') return { debit: 0, credit: amt };
   if (source === 'PurchaseReturn') return { debit: amt, credit: 0 };
   if (source === 'JobInward') return { debit: 0, credit: amt };
   if (source === 'JobOutward') return { debit: 0, credit: 0 };
@@ -175,6 +180,16 @@ function collectPartyDocs(raw: RawStatementData, partyName: string): Doc[] {
       date: dc.date || dc.dated || '',
       number: String(dc.challanNo ?? ''),
       amount: toNum(dc.netAmt),
+    });
+  });
+
+  raw.dispatchReturnChallans.filter((d) => belongsToParty(d.partyName)).forEach((drc) => {
+    docs.push({
+      source: 'DispatchReturn',
+      id: drc.id,
+      date: drc.date || drc.dated || '',
+      number: String(drc.challanNo ?? ''),
+      amount: toNum(drc.netAmt),
     });
   });
 

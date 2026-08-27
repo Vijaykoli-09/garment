@@ -1,24 +1,38 @@
 /**
- * PartyStatementScreen.tsx
+ * MyStatementScreen.tsx
  *
- * The broker's "Statement" view for one party — full account
- * statement (opening balance, every Dispatch/Purchase/JobWork/
- * Payment/Receipt entry, running balance, LIFO-based pending amount,
- * and 60+ day overdue highlighting), calculated ON-DEVICE from the
- * same raw org-wide data the web AccountStatement.tsx page uses.
+ * Self-service version of the broker's PartyStatementScreen — instead
+ * of taking { partyId, partyName } as route params, it reads the
+ * LOGGED-IN party's identity straight from AppContext, so a party
+ * user can only ever see their own account statement.
  *
- * Route params expected: { partyId: number; partyName: string }
+ * Same visual layout / calculation engine as the broker screen
+ * (usePartyStatement + statementCalculator + CalendarModal), kept in
+ * sync deliberately — see the big warning comment in
+ * usePartyStatement.ts about /party/all etc. being org-wide.
  *
- * Register in BrokerNavigator:
- *   <Stack.Screen name="PartyStatement" component={PartyStatementScreen} />
+ * ⚠ KNOWN LIMITATION (carried over from the broker screen on purpose,
+ * for now): usePartyStatement fetches org-wide raw collections and
+ * filters client-side by partyName. That's acceptable for the
+ * broker app (trusted staff) but means a customer's device currently
+ * downloads other parties' financial data before filtering it out
+ * locally. Swap usePartyStatement's calls for a backend-scoped
+ * endpoint (e.g. GET /statement/party/{partyId}) before shipping this
+ * screen to real customers — see hooks/usePartyStatement.ts.
+ *
+ * Register in MainNavigator:
+ *   <Stack.Screen name="PartyStatement" component={MyStatementScreen} />
+ *
+ * No route params needed — navigation.navigate('PartyStatement') is enough.
  */
 
-import React, { useMemo, useState } from 'react';
+import React, { useContext, useMemo, useState } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet,
   FlatList, ActivityIndicator, RefreshControl, ScrollView,
 } from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
+import { AppContext } from '../context/AppContext';
 import CalendarModal, { toISODate, formatDisplay, defaultFromDate } from '../components/CalendarModal';
 import { usePartyStatement } from '../hooks/usePartyStatement';
 import { OVERDUE_DAYS, StatementResult, StatementRow, TxType, typeLabel } from '../utils/statementCalculator';
@@ -38,8 +52,15 @@ const TYPE_FILTERS: Array<TxType | 'all'> = [
   'PurchaseReturn', 'JobOutward', 'JobInward', 'Payment', 'Receipt',
 ];
 
-export default function PartyStatementScreen({ route, navigation }: any) {
-  const { partyId, partyName } = route.params ?? {};
+export default function MyStatementScreen({ navigation }: any) {
+  const { user } = useContext(AppContext);
+
+  // Party accounts store their ledger name in `user.name` — same
+  // value used elsewhere as `partyName` when creating orders
+  // (see buildSaleOrderPayload in api.ts). `user.partyId` tells us
+  // whether this account is actually linked to a party ledger.
+  const partyName = user?.name ?? '';
+  const isLinkedToParty = user?.partyId != null;
 
   const [fromDate, setFromDate] = useState<Date>(defaultFromDate());
   const [toDate, setToDate]     = useState<Date>(new Date());
@@ -52,9 +73,9 @@ export default function PartyStatementScreen({ route, navigation }: any) {
   const { loading, refreshing, error, hasData, refresh, retry, compute } = usePartyStatement(partyName);
 
   const result = useMemo(() => {
-    if (!hasData) return null;
+    if (!hasData || !isLinkedToParty) return null;
     return compute(toISODate(fromDate), toISODate(toDate), showOpening);
-  }, [hasData, compute, fromDate, toDate, showOpening]);
+  }, [hasData, isLinkedToParty, compute, fromDate, toDate, showOpening]);
 
   const filteredRows: StatementRow[] = useMemo(() => {
     if (!result) return [];
@@ -84,6 +105,26 @@ export default function PartyStatementScreen({ route, navigation }: any) {
     else if (pickerOpen === 'to') setToDate(d < fromDate ? fromDate : d);
   };
 
+  // ── Account not linked to a party ledger — nothing to show ─────────
+  if (!isLinkedToParty) {
+    return (
+      <View style={s.screen}>
+        <View style={s.header}>
+          <TouchableOpacity onPress={() => navigation.goBack()} style={s.backBtn}>
+            <Text style={s.backTxt}>← Back</Text>
+          </TouchableOpacity>
+          <Text style={s.title}>My Statement</Text>
+        </View>
+        <View style={s.centerWrap}>
+          <Text style={s.emptyIcon}>🧾</Text>
+          <Text style={s.emptyTxt}>
+            No account statement is linked to your profile yet.{'\n'}Contact support if you think this is a mistake.
+          </Text>
+        </View>
+      </View>
+    );
+  }
+
   return (
     <View style={s.screen}>
       {/* Header */}
@@ -91,8 +132,8 @@ export default function PartyStatementScreen({ route, navigation }: any) {
         <TouchableOpacity onPress={() => navigation.goBack()} style={s.backBtn}>
           <Text style={s.backTxt}>← Back</Text>
         </TouchableOpacity>
-        <Text style={s.title}>{partyName || 'Party'}</Text>
-        <Text style={s.subtitle}>Account Statement</Text>
+        <Text style={s.title}>My Statement</Text>
+        <Text style={s.subtitle}>{partyName}</Text>
       </View>
 
       {/* Date range picker */}
@@ -167,7 +208,7 @@ export default function PartyStatementScreen({ route, navigation }: any) {
       {/* Content */}
       {loading ? (
         <View style={s.centerWrap}>
-          <ActivityIndicator size="large" color="#d97706" />
+          <ActivityIndicator size="large" color="#2563EB" />
         </View>
       ) : error ? (
         <View style={s.centerWrap}>
@@ -182,7 +223,7 @@ export default function PartyStatementScreen({ route, navigation }: any) {
           keyExtractor={(item) => `${item.type}-${item.id}-${item.srNo}`}
           contentContainerStyle={s.list}
           refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={refresh} colors={['#d97706']} />
+            <RefreshControl refreshing={refreshing} onRefresh={refresh} colors={['#2563EB']} />
           }
           ListHeaderComponent={
             result ? (
@@ -287,7 +328,7 @@ function OverdueBanner({
   );
 }
 
-// ── Footer summary — mirrors the web report's bottom totals block ──
+// ── Footer summary — mirrors the broker report's bottom totals block ──
 function FooterSummary({
   result, filteredDebit, filteredCredit, typeFilter,
 }: {
@@ -300,11 +341,9 @@ function FooterSummary({
   const isAll = typeFilter === 'all';
   const netPositionLabel = isAll ? 'Net Position (All)' : 'Net (Filtered)';
   const netPositionValue = isAll ? result.closingBalance : netFiltered;
-  const netPositionPositive = netPositionValue >= 0;
 
   return (
     <View style={s.footerCard}>
-      {/* Totals (Filtered) */}
       <Text style={s.footerSectionTitle}>Totals (Filtered)</Text>
       <View style={s.footerLineRow}>
         <Text style={s.footerLineLabel}>Debit</Text>
@@ -324,7 +363,6 @@ function FooterSummary({
 
       <View style={s.footerDivider} />
 
-      {/* Balance Summary (All) */}
       <Text style={s.footerSectionTitle}>Balance Summary (All)</Text>
       <View style={s.footerLineRow}>
         <Text style={s.footerLineLabel}>Opening Balance</Text>
@@ -337,9 +375,8 @@ function FooterSummary({
 
       <View style={s.footerDivider} />
 
-      {/* Net Position (All) / Net (Filtered) */}
       <Text style={s.footerSectionTitle}>{netPositionLabel}</Text>
-      <View style={[s.footerNetBadge, { backgroundColor: netPositionPositive ? '#fef9c3' : '#fef9c3' }]}>
+      <View style={s.footerNetBadge}>
         <Text style={s.footerNetValue}>
           {fmtMoney(Math.abs(netPositionValue))} {netPositionValue >= 0 ? 'DR' : 'CR'}
         </Text>
@@ -409,7 +446,7 @@ const s = StyleSheet.create({
     backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#f3f4f6',
   },
   backBtn: { marginBottom: 10 },
-  backTxt: { color: '#d97706', fontWeight: '700', fontSize: 14 },
+  backTxt: { color: '#2563EB', fontWeight: '700', fontSize: 14 },
   title:   { fontSize: 22, fontWeight: '800', color: '#1f2937' },
   subtitle:{ fontSize: 12, color: '#9ca3af', marginTop: 2, fontWeight: '600' },
 
@@ -430,7 +467,7 @@ const s = StyleSheet.create({
     width: 18, height: 18, borderRadius: 4, borderWidth: 1.5, borderColor: '#d1d5db',
     justifyContent: 'center', alignItems: 'center', marginRight: 8,
   },
-  checkboxChecked: { backgroundColor: '#d97706', borderColor: '#d97706' },
+  checkboxChecked: { backgroundColor: '#2563EB', borderColor: '#2563EB' },
   checkboxTick: { color: '#fff', fontSize: 11, fontWeight: '800' },
   openingToggleTxt: { fontSize: 13, color: '#374151', fontWeight: '600' },
 
@@ -443,20 +480,19 @@ const s = StyleSheet.create({
     backgroundColor: '#fff', borderWidth: 1.5, borderColor: '#e5e7eb',
     borderRadius: 999, paddingHorizontal: 14, paddingVertical: 7, marginRight: 8,
   },
-  chipActive: { backgroundColor: '#d97706', borderColor: '#d97706' },
+  chipActive: { backgroundColor: '#2563EB', borderColor: '#2563EB' },
   chipTxt: { fontSize: 12, fontWeight: '700', color: '#6b7280' },
   chipTxtActive: { color: '#fff' },
 
   list: { padding: 20, paddingTop: 12, flexGrow: 1 },
 
-  centerWrap: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingVertical: 60 },
+  centerWrap: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingVertical: 60, paddingHorizontal: 30 },
   errorTxt:   { color: '#dc2626', fontSize: 13, textAlign: 'center', marginBottom: 12 },
-  retryBtn:   { backgroundColor: '#d97706', paddingHorizontal: 20, paddingVertical: 10, borderRadius: 8 },
+  retryBtn:   { backgroundColor: '#2563EB', paddingHorizontal: 20, paddingVertical: 10, borderRadius: 8 },
   retryTxt:   { color: '#fff', fontWeight: '700', fontSize: 13 },
   emptyIcon:  { fontSize: 36, marginBottom: 8 },
   emptyTxt:   { color: '#9ca3af', fontSize: 13, textAlign: 'center' },
 
-  // Summary card
   summaryCard: {
     backgroundColor: '#fff', borderRadius: 14, padding: 16, marginBottom: 14,
     borderWidth: 1, borderColor: '#f3f4f6',
@@ -471,7 +507,6 @@ const s = StyleSheet.create({
   closingBadge: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8 },
   closingValue: { fontSize: 14, fontWeight: '800' },
 
-  // Overdue banner
   overdueBanner: {
     backgroundColor: '#fef2f2', borderWidth: 1, borderColor: '#fecaca',
     borderRadius: 12, padding: 12, marginBottom: 14,
@@ -485,7 +520,6 @@ const s = StyleSheet.create({
   overdueLineDays: { fontSize: 11, color: '#b91c1c', fontWeight: '800', marginHorizontal: 8 },
   overdueLinePending: { fontSize: 11, color: '#b91c1c', fontWeight: '800' },
 
-  // Row card
   rowCard: {
     backgroundColor: '#fff', borderRadius: 14, padding: 14, marginBottom: 12,
     borderWidth: 1, borderColor: '#f3f4f6',
@@ -513,7 +547,6 @@ const s = StyleSheet.create({
   rowDaysOverdue: { color: '#b91c1c', fontWeight: '800' },
   rowPending: { fontSize: 11, color: '#374151', fontWeight: '700' },
 
-  // Footer summary (mirrors web's Totals/Balance Summary/Net Position block)
   footerCard: {
     backgroundColor: '#fff', borderRadius: 14, padding: 16, marginTop: 4,
     borderWidth: 1, borderColor: '#f3f4f6',
@@ -526,7 +559,7 @@ const s = StyleSheet.create({
   footerDivider: { height: 1, backgroundColor: '#f3f4f6', marginVertical: 12 },
   footerNetBadge: {
     alignSelf: 'flex-start', paddingHorizontal: 14, paddingVertical: 8,
-    borderRadius: 8, marginTop: 4,
+    borderRadius: 8, marginTop: 4, backgroundColor: '#fef9c3',
   },
   footerNetValue: { fontSize: 15, fontWeight: '800', color: '#1f2937' },
   footerLegend: { fontSize: 10, color: '#9ca3af', fontWeight: '600', marginTop: 14 },

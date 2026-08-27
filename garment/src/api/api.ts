@@ -2,8 +2,8 @@ import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { CartItem, AppUser } from '../context/AppContext';
 
-export const BASE_URL = 'https://garment-1-1v21.onrender.com/api';
-// export const BASE_URL = 'http://192.168.1.16:8080/api';
+// export const BASE_URL = 'https://garment-1-1v21.onrender.com/api';
+export const BASE_URL = 'http://192.168.1.26:8080/api';
 
 // ════════════════════════════════════════════════════════════════════
 // AXIOS INSTANCE
@@ -410,8 +410,9 @@ export interface PartyRawDto {
 export const statementRawApi = {
   getAllParties:      () => api.get<PartyRawDto[]>('/party/all'),
   getAllAgents:       () => api.get<AgentRawDto[]>('/agent/list'),
-  getDispatchChallans:      () => api.get<any[]>('/dispatch-challan'),
-  getOtherDispatchChallans: () => api.get<any[]>('/other-dispatch-challan'),
+  getDispatchChallans:       () => api.get<any[]>('/dispatch-challan'),
+  getDispatchReturnChallans: () => api.get<any[]>('/dispatch-return-challan'),
+  getOtherDispatchChallans:  () => api.get<any[]>('/other-dispatch-challan'),
   getPurchaseOrders:        () => api.get<any[]>('/purchase-orders'),
   getPurchaseEntries:       () => api.get<any[]>('/purchase-entry'),
   getPurchaseReturns:       () => api.get<any[]>('/purchase-returns'),

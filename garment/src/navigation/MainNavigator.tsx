@@ -16,6 +16,8 @@ import ProfileScreen from '../screens/ProfileScreen';
 
 import OrderDetailScreen from '../screens/OrderDetailScreen';
 import CreditOrdersScreen from '../screens/CreditOrdersScreen';
+import MyStatementScreen from '../screens/MyStatementScreen';
+import DispatchChallanListScreen from '../screens/DispatchChallanListScreen';
 
 export type RootStackParamList = {
   Dashboard: undefined;
@@ -32,6 +34,8 @@ export type RootStackParamList = {
   AcceptedOrders: undefined;
   OrderDetail: { orderId: number };
   CreditOrders: undefined;
+  MyStatement: undefined;
+  DispatchChallanList: undefined;
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -156,6 +160,18 @@ export default function MainNavigator() {
         name="CreditOrders"
         component={CreditOrdersScreen}
         options={{ title: 'Pending Credit Payments' }}
+      />
+
+      <Stack.Screen
+        name="MyStatement"
+        component={MyStatementScreen}
+        options={{ headerShown: false }}
+      />
+
+      <Stack.Screen
+        name="DispatchChallanList"
+        component={DispatchChallanListScreen}
+        options={{ headerShown: false }}
       />
 
     </Stack.Navigator>

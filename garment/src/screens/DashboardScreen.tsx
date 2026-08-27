@@ -145,6 +145,30 @@ export default function DashboardScreen({ navigation }: any) {
             </View>
           </TouchableOpacity>
 
+          {user?.partyId != null && (
+            <TouchableOpacity style={[styles.cardLarge, { backgroundColor: '#b93e4c' }]}
+              onPress={() => navigation.navigate('MyStatement')} activeOpacity={0.85}>
+              <View style={styles.cardInner}>
+                <Text style={styles.cardIcon}>🧾</Text>
+                <Text style={styles.cardTitle}>Statements</Text>
+                <Text style={styles.cardDesc}>View your account statement with dates</Text>
+                <Text style={styles.arrowText}>→</Text>
+              </View>
+            </TouchableOpacity>
+          )}
+
+          {user?.partyId != null && (
+            <TouchableOpacity style={[styles.cardLarge, { backgroundColor: '#d97706' }]}
+              onPress={() => navigation.navigate('DispatchChallanList')} activeOpacity={0.85}>
+              <View style={styles.cardInner}>
+                <Text style={styles.cardIcon}>🚚</Text>
+                <Text style={styles.cardTitle}>Dispatch Challan</Text>
+                <Text style={styles.cardDesc}>View & varify your dispatch challans</Text>
+                <Text style={styles.arrowText}>→</Text>
+              </View>
+            </TouchableOpacity>
+          )}
+
           {/* Credit Orders card — purple, shows pending badge */}
           <TouchableOpacity style={[styles.cardLarge, { backgroundColor: '#7C3AED' }]}
             onPress={() => navigation.navigate('CreditOrders')} activeOpacity={0.85}>
