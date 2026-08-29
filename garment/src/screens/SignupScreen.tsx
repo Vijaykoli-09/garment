@@ -24,6 +24,26 @@ export default function SignupScreen({ navigation }: any) {
   const [errors, setErrors]           = useState<Record<string, string>>({});
   const [loading, setLoading]         = useState(false);
 
+  // ── Additional phone numbers (any of these can also be used to login) ──
+  const [extraPhones, setExtraPhones]           = useState<string[]>([]);
+  const [extraPhoneErrors, setExtraPhoneErrors] = useState<Record<number, string>>({});
+
+  const addExtraPhone = () => setExtraPhones(prev => [...prev, '']);
+
+  const removeExtraPhone = (index: number) => {
+    setExtraPhones(prev => prev.filter((_, i) => i !== index));
+    setExtraPhoneErrors(prev => {
+      const next = { ...prev };
+      delete next[index];
+      return next;
+    });
+  };
+
+  const updateExtraPhone = (index: number, value: string) => {
+    setExtraPhones(prev => prev.map((p, i) => (i === index ? value : p)));
+    setExtraPhoneErrors(prev => ({ ...prev, [index]: '' }));
+  };
+
   const set = (key: string) => (val: string) => {
     setForm(f => ({ ...f, [key]: val }));
     setErrors(e => ({ ...e, [key]: '' }));
@@ -62,7 +82,25 @@ export default function SignupScreen({ navigation }: any) {
       e.confirmPassword = 'Passwords do not match';
 
     setErrors(e);
-    return Object.keys(e).length === 0;
+
+    // ── Validate extra phone numbers ──
+    const extraErrors: Record<number, string> = {};
+    const seen = new Set<string>([form.phone.trim()]);
+    extraPhones.forEach((p, i) => {
+      const trimmed = p.trim();
+      if (!trimmed) {
+        extraErrors[i] = 'Enter a phone number or remove this field';
+      } else if (!/^[0-9]{10}$/.test(trimmed)) {
+        extraErrors[i] = 'Enter a valid 10-digit phone number';
+      } else if (seen.has(trimmed)) {
+        extraErrors[i] = 'This number is already used above';
+      } else {
+        seen.add(trimmed);
+      }
+    });
+    setExtraPhoneErrors(extraErrors);
+
+    return Object.keys(e).length === 0 && Object.keys(extraErrors).length === 0;
   };
 
   const handleSignup = async () => {
@@ -71,8 +109,9 @@ export default function SignupScreen({ navigation }: any) {
     try {
       await authApi.signup({
         fullName:        form.fullName.trim(),
-        email:           form.email.trim() || '',
+        email:           form.email.trim() || undefined,
         phone:           form.phone.trim(),
+        extraPhoneNumbers: extraPhones.map(p => p.trim()).filter(Boolean),
         password:        form.password,
         // customerType not sent — admin sets it during approval
         deliveryAddress: form.deliveryAddress.trim(),
@@ -136,6 +175,42 @@ export default function SignupScreen({ navigation }: any) {
                 maxLength={10}
               />
             </F>
+
+            {/* ── Additional Phone Numbers (optional, any works for login) ── */}
+            <View style={s.dividerRow}>
+              <View style={s.dividerLine} />
+              <Text style={s.dividerTxt}>Additional Phone Numbers (Optional)</Text>
+              <View style={s.dividerLine} />
+            </View>
+            <Text style={s.hint}>
+              Add more numbers if others should also be able to login to this account.
+            </Text>
+
+            {extraPhones.map((num, index) => (
+              <F
+                key={index}
+                label={`Phone ${index + 2}`}
+                error={extraPhoneErrors[index]}
+              >
+                <Text style={s.prefix}>+91</Text>
+                <TextInput
+                  style={s.input}
+                  value={num}
+                  onChangeText={v => updateExtraPhone(index, v)}
+                  placeholder="10-digit number"
+                  placeholderTextColor="#9CA3AF"
+                  keyboardType="number-pad"
+                  maxLength={10}
+                />
+                <TouchableOpacity onPress={() => removeExtraPhone(index)}>
+                  <Text style={s.removeTxt}>Remove</Text>
+                </TouchableOpacity>
+              </F>
+            ))}
+
+            <TouchableOpacity onPress={addExtraPhone} style={s.addPhoneBtn}>
+              <Text style={s.addPhoneTxt}>+ Add another number</Text>
+            </TouchableOpacity>
 
             {/* ── Email (optional) ── */}
             <F label="Email (Optional)" error={errors.email}>
@@ -309,6 +384,9 @@ const s = StyleSheet.create({
   err:          { color: '#EF4444', fontSize: 11, marginTop: 3, fontWeight: '500' },
   hint:         { color: '#6B7280', fontSize: 11, marginTop: 3 },
   gstIcon:      { fontSize: 16, marginRight: 8 },
+  removeTxt:    { color: '#EF4444', fontWeight: '700', fontSize: 12 },
+  addPhoneBtn:  { alignSelf: 'flex-start', marginTop: 4, marginBottom: 4 },
+  addPhoneTxt:  { color: '#2563EB', fontWeight: '700', fontSize: 13 },
   // Info banner
   infoBanner:   { flexDirection: 'row', alignItems: 'flex-start', gap: 8, backgroundColor: '#EFF6FF', borderRadius: 10, padding: 12, marginTop: 16, borderWidth: 1, borderColor: '#BFDBFE' },
   infoIcon:     { fontSize: 16, marginTop: 1 },

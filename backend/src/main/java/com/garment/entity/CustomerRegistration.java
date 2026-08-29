@@ -2,6 +2,8 @@ package com.garment.entity;
 
 import jakarta.persistence.*;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
 
 @Entity
 @Table(name = "customer_registrations")
@@ -18,8 +20,18 @@ public class CustomerRegistration {
     @Column(unique = true)
     private String email;
 
+    // Primary phone — still unique, still the JWT subject / display number.
+    // Login can ALSO succeed via any number in extraPhoneNumbers below.
     @Column(nullable = false, unique = true, length = 10)
     private String phone;
+
+    // ── NEW: additional registered numbers for this customer/party ──
+    // Mirrors the Agent.contactNos pattern already used for brokers.
+    // Any number in this list can be used to log in, same as `phone`.
+    @ElementCollection
+    @CollectionTable(name = "customer_extra_phone_numbers", joinColumns = @JoinColumn(name = "customer_id"))
+    @Column(name = "phone_number", length = 10)
+    private List<String> extraPhoneNumbers = new ArrayList<>();
 
     @Column(nullable = false)
     private String password; // BCrypt hashed
@@ -73,6 +85,11 @@ public class CustomerRegistration {
 
     public String getPhone() { return phone; }
     public void setPhone(String phone) { this.phone = phone; }
+
+    public List<String> getExtraPhoneNumbers() { return extraPhoneNumbers; }
+    public void setExtraPhoneNumbers(List<String> extraPhoneNumbers) {
+        this.extraPhoneNumbers = extraPhoneNumbers != null ? extraPhoneNumbers : new ArrayList<>();
+    }
 
     public String getPassword() { return password; }
     public void setPassword(String password) { this.password = password; }

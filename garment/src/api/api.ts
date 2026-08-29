@@ -2,8 +2,8 @@ import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { CartItem, AppUser } from '../context/AppContext';
 
-// export const BASE_URL = 'https://garment-1-1v21.onrender.com/api';
-export const BASE_URL = 'http://192.168.1.26:8080/api';
+export const BASE_URL = 'https://garment-1-1v21.onrender.com/api';
+// export const BASE_URL = 'http://192.168.1.33:8080/api';
 
 // ════════════════════════════════════════════════════════════════════
 // AXIOS INSTANCE
@@ -96,8 +96,9 @@ export const authApi = {
   // ── Customer signup (existing) ──────────────────────────────────
   signup: (data: {
     fullName: string;
-    email: string;
+    email?: string;
     phone: string;
+    extraPhoneNumbers?: string[]; // NEW — any of these can also be used to login
     password: string;
     customerType?: string;
     deliveryAddress: string;
