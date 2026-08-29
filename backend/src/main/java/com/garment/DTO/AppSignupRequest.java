@@ -1,10 +1,17 @@
 package com.garment.DTO;
 
+import java.util.List;
+
 public class AppSignupRequest {
 
     private String fullName;
     private String email;
     private String phone;
+
+    // ── NEW: additional phone numbers the party wants to log in with ──
+    // Optional — frontend sends [] or omits it if user adds none.
+    private List<String> extraPhoneNumbers;
+
     private String password;
     private String customerType;   // "Wholesaler" | "Semi-Wholesaler" | "Retailer"
     private String deliveryAddress;
@@ -21,6 +28,9 @@ public class AppSignupRequest {
 
     public String getPhone() { return phone; }
     public void setPhone(String phone) { this.phone = phone; }
+
+    public List<String> getExtraPhoneNumbers() { return extraPhoneNumbers; }
+    public void setExtraPhoneNumbers(List<String> extraPhoneNumbers) { this.extraPhoneNumbers = extraPhoneNumbers; }
 
     public String getPassword() { return password; }
     public void setPassword(String password) { this.password = password; }

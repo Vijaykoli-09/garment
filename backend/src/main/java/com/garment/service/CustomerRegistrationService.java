@@ -10,7 +10,10 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 
 @Service
 public class CustomerRegistrationService {
@@ -32,20 +35,40 @@ public class CustomerRegistrationService {
     // ────────────────────────────────────────────────────────────────
     public String signup(AppSignupRequest req) {
 
-        // 1. Duplicate checks
-        if (repo.existsByPhone(req.getPhone())) {
+        String primaryPhone = req.getPhone() != null ? req.getPhone().trim() : "";
+
+        // 1. Clean + dedupe extra numbers, drop anything blank or equal to primary
+        List<String> extraPhones = cleanExtraPhones(req.getExtraPhoneNumbers(), primaryPhone);
+
+        // 2. Duplicate checks — primary number must be free across BOTH
+        //    the primary column and everyone else's extra numbers.
+        if (repo.existsByPhoneOrExtraPhoneNumber(primaryPhone)) {
             throw new RuntimeException("Phone number already registered.");
         }
-       if (req.getEmail() != null && !req.getEmail().isBlank() && repo.existsByEmail(req.getEmail())) {
-    throw new RuntimeException("Email already registered.");
-}
+        // Each extra number must also be free (as primary OR extra elsewhere)
+        for (String extra : extraPhones) {
+            if (repo.existsByPhoneOrExtraPhoneNumber(extra)) {
+                throw new RuntimeException("Phone number " + extra + " is already registered.");
+            }
+        }
+        if (req.getEmail() != null && !req.getEmail().isBlank() && repo.existsByEmail(req.getEmail())) {
+            throw new RuntimeException("Email already registered.");
+        }
 
-        // 2. Build entity — customerType is intentionally null here.
+        // 3. Build entity — customerType is intentionally null here.
         //    Admin will set it when approving the customer via CustomerRequests page.
+        // NOTE: email must be stored as NULL (not "") when blank — Postgres
+        // allows multiple NULLs under a unique constraint but NOT multiple
+        // empty strings, which caused the duplicate-key error on signup.
+        String normalizedEmail = (req.getEmail() != null && !req.getEmail().isBlank())
+                ? req.getEmail().trim()
+                : null;
+
         CustomerRegistration customer = new CustomerRegistration();
         customer.setFullName(req.getFullName());
-        customer.setEmail(req.getEmail());
-        customer.setPhone(req.getPhone());
+        customer.setEmail(normalizedEmail);
+        customer.setPhone(primaryPhone);
+        customer.setExtraPhoneNumbers(extraPhones);
         customer.setPassword(passwordEncoder.encode(req.getPassword()));
         // customerType is NOT set here — admin sets it during approval
         customer.setDeliveryAddress(req.getDeliveryAddress());
@@ -63,11 +86,12 @@ public class CustomerRegistrationService {
 
     // ────────────────────────────────────────────────────────────────
     // LOGIN  (called from React Native LoginScreen)
+    // Now matches the primary phone OR any registered extra number.
     // ────────────────────────────────────────────────────────────────
     public CustomerLoginResponse login(CustomerLoginRequest req) {
 
-        // 1. Find by phone
-        CustomerRegistration customer = repo.findByPhone(req.getPhone())
+        // 1. Find by ANY registered number (primary or extra)
+        CustomerRegistration customer = repo.findByPhoneOrExtraPhoneNumber(req.getPhone())
                 .orElseThrow(() -> new RuntimeException("Invalid phone number or password."));
 
         // 2. Check password
@@ -83,7 +107,10 @@ public class CustomerRegistrationService {
             throw new RuntimeException("REJECTED: Your account has been rejected. Please contact support.");
         }
 
-        // 4. Generate JWT using phone as subject
+        // 4. Generate JWT using the PRIMARY phone as subject — regardless of
+        //    which registered number was used to log in. This keeps
+        //    JwtAuthFilter / CustomerUserDetailsService / profile refresh
+        //    unchanged, since they all key off customer.getPhone().
         String token = jwtUtil.generateToken(customer.getPhone());
 
         return new CustomerLoginResponse(
@@ -166,6 +193,8 @@ public class CustomerRegistrationService {
     // ────────────────────────────────────────────────────────────────
     // PROFILE — returns fresh credit settings for the logged-in customer
     // Called by the app on launch to pick up admin changes after login.
+    // JWT subject is always the PRIMARY phone (see login() above), so a
+    // plain findByPhone is correct and unchanged here.
     // ────────────────────────────────────────────────────────────────
     public CustomerLoginResponse getProfile(String phone) {
         CustomerRegistration customer = repo.findByPhone(phone)
@@ -251,34 +280,53 @@ public class CustomerRegistrationService {
         customer.setPartyId(partyId);
         return repo.save(customer);
     }
-    // ────────────────────────────────────────────────────────────────
-// ADMIN: Sync customerType from Party → CustomerRegistration
-// Called automatically after party is saved in PartyCreation and
-// auto-linked. Keeps customerType in sync without admin re-entering it.
-// ────────────────────────────────────────────────────────────────
-public CustomerRegistration syncCustomerType(Long customerId, String customerTypeStr) {
-    CustomerRegistration customer = repo.findById(customerId)
-            .orElseThrow(() -> new RuntimeException("Customer not found with id: " + customerId));
 
-    if (customerTypeStr != null && !customerTypeStr.isBlank()) {
-        try {
-            // Party uses: WHOLESALER, SEMI_WHOLESALER, RETAILER
-            // CustomerRegistration uses: Wholesaler, Semi_Wholesaler, Retailer
-            // Map party enum → registration enum
-            CustomerType type = switch (customerTypeStr.toUpperCase()) {
-                case "WHOLESALER"      -> CustomerType.Wholesaler;
-                case "SEMI_WHOLESALER" -> CustomerType.Semi_Wholesaler;
-                case "RETAILER"        -> CustomerType.Retailer;
-                default -> CustomerType.valueOf(
-                    customerTypeStr.replace("-", "_").replace(" ", "_")
-                );
-            };
-            customer.setCustomerType(type);
-            return repo.save(customer);
-        } catch (IllegalArgumentException e) {
-            throw new RuntimeException("Invalid customer type: " + customerTypeStr);
+    // ────────────────────────────────────────────────────────────────
+    // ADMIN: Sync customerType from Party → CustomerRegistration
+    // Called automatically after party is saved in PartyCreation and
+    // auto-linked. Keeps customerType in sync without admin re-entering it.
+    // ────────────────────────────────────────────────────────────────
+    public CustomerRegistration syncCustomerType(Long customerId, String customerTypeStr) {
+        CustomerRegistration customer = repo.findById(customerId)
+                .orElseThrow(() -> new RuntimeException("Customer not found with id: " + customerId));
+
+        if (customerTypeStr != null && !customerTypeStr.isBlank()) {
+            try {
+                // Party uses: WHOLESALER, SEMI_WHOLESALER, RETAILER
+                // CustomerRegistration uses: Wholesaler, Semi_Wholesaler, Retailer
+                // Map party enum → registration enum
+                CustomerType type = switch (customerTypeStr.toUpperCase()) {
+                    case "WHOLESALER"      -> CustomerType.Wholesaler;
+                    case "SEMI_WHOLESALER" -> CustomerType.Semi_Wholesaler;
+                    case "RETAILER"        -> CustomerType.Retailer;
+                    default -> CustomerType.valueOf(
+                        customerTypeStr.replace("-", "_").replace(" ", "_")
+                    );
+                };
+                customer.setCustomerType(type);
+                return repo.save(customer);
+            } catch (IllegalArgumentException e) {
+                throw new RuntimeException("Invalid customer type: " + customerTypeStr);
+            }
         }
+        return customer; // nothing to sync if type is null/blank
     }
-    return customer; // nothing to sync if type is null/blank
-}
+
+    // ────────────────────────────────────────────────────────────────
+    // Helper: trim, dedupe, and strip blanks/primary-number duplicates
+    // from a raw list of extra phone numbers coming from the app.
+    // ────────────────────────────────────────────────────────────────
+    private List<String> cleanExtraPhones(List<String> raw, String primaryPhone) {
+        if (raw == null || raw.isEmpty()) return new ArrayList<>();
+
+        Set<String> seen = new LinkedHashSet<>();
+        for (String p : raw) {
+            if (p == null) continue;
+            String trimmed = p.trim();
+            if (trimmed.isEmpty()) continue;
+            if (trimmed.equals(primaryPhone)) continue; // no point duplicating primary
+            seen.add(trimmed);
+        }
+        return new ArrayList<>(seen);
+    }
 }
