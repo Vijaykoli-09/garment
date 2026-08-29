@@ -67,7 +67,7 @@ const PartyCreation: React.FC<{ prefill?: PartyPrefill | null }> = ({ prefill: p
     partyName: "",
     customerType: "" as CustomerTypeOrEmpty, // ✅ optional default blank
     address: "",
-    mobileNo: "",
+    mobileNos: [""],
     gstNo: "",
     openingBalance: "",
     openingBalanceType: "CR",
@@ -89,7 +89,7 @@ const PartyCreation: React.FC<{ prefill?: PartyPrefill | null }> = ({ prefill: p
   setFormData((prev: any) => ({
     ...prev,
     partyName: prefill.partyName ?? "",
-    mobileNo:  prefill.mobileNo  ?? "",
+    mobileNos: prefill.mobileNo ? [prefill.mobileNo] : [""],
     gstNo:     prefill.gstNo     ?? "",
     address:   prefill.address   ?? "",
   }));
@@ -265,6 +265,34 @@ const PartyCreation: React.FC<{ prefill?: PartyPrefill | null }> = ({ prefill: p
     }
   };
 
+  // ------------ Multiple Mobile Numbers ------------
+  const handleMobileChange = (index: number, value: string) => {
+    setFormData((prev: any) => {
+      const mobileNos = [...(prev.mobileNos || [""])];
+      mobileNos[index] = value;
+      return { ...prev, mobileNos };
+    });
+  };
+
+  const addMobileNumber = () => {
+    setFormData((prev: any) => ({
+      ...prev,
+      mobileNos: [...(prev.mobileNos || []), ""],
+    }));
+  };
+
+  const removeMobileNumber = (index: number) => {
+    setFormData((prev: any) => {
+      const mobileNos = [...(prev.mobileNos || [""])];
+      if (mobileNos.length === 1) {
+        mobileNos[0] = "";
+      } else {
+        mobileNos.splice(index, 1);
+      }
+      return { ...prev, mobileNos };
+    });
+  };
+
   const isEditMode = useMemo(
     () =>
       formData.serialNumber &&
@@ -290,6 +318,9 @@ const PartyCreation: React.FC<{ prefill?: PartyPrefill | null }> = ({ prefill: p
         ...formData,
         openingBalanceType: formData.openingBalanceType || "CR",
         customerType: formData.customerType ? formData.customerType : null,
+        mobileNos: (formData.mobileNos || [])
+          .map((mobile: string) => mobile.trim())
+          .filter(Boolean),
       };
 
       if (formData.id) {
@@ -365,7 +396,7 @@ const PartyCreation: React.FC<{ prefill?: PartyPrefill | null }> = ({ prefill: p
       partyName: "",
       customerType: "" as CustomerTypeOrEmpty, // ✅ reset blank (optional)
       address: "",
-      mobileNo: "",
+      mobileNos: [""],
       gstNo: "",
       openingBalance: "",
       openingBalanceType: "CR",
@@ -420,7 +451,7 @@ const PartyCreation: React.FC<{ prefill?: PartyPrefill | null }> = ({ prefill: p
           p.partyName,
           p.customerType,
           p.gstNo,
-          p.mobileNo,
+          ...(Array.isArray(p.mobileNos) ? p.mobileNos : (p.mobileNo ? [p.mobileNo] : [])),
           p.stateName,
           p.station,
           p.category?.categoryName,
@@ -535,7 +566,7 @@ const PartyCreation: React.FC<{ prefill?: PartyPrefill | null }> = ({ prefill: p
       case "gstNo":
         return p.gstNo || "";
       case "mobileNo":
-        return p.mobileNo || "";
+        return Array.isArray(p.mobileNos) ? p.mobileNos.filter(Boolean).join(", ") : (p.mobileNo || "");
       case "stateName":
         return p.stateName || "";
       case "station":
@@ -689,7 +720,7 @@ const PartyCreation: React.FC<{ prefill?: PartyPrefill | null }> = ({ prefill: p
                 <td>${(p.partyName || "").toString().replace(/</g, "&lt;").replace(/>/g, "&gt;")}</td>
                 <td>${formatCustomerType(p.customerType) || ""}</td>
                 <td>${p.gstNo || ""}</td>
-                <td>${p.mobileNo || ""}</td>
+                <td>${Array.isArray(p.mobileNos) ? p.mobileNos.filter(Boolean).join(", ") : (p.mobileNo || "")}</td>
                 <td>${p.stateName || ""}</td>
                 <td>${p.station || ""}</td>
                 <td>${p.category?.categoryName || ""}</td>
@@ -958,13 +989,52 @@ const PartyCreation: React.FC<{ prefill?: PartyPrefill | null }> = ({ prefill: p
             </select>
 
             <label style={labelStyle}>Mobile No.</label>
-            <input
-              type="text"
-              name="mobileNo"
-              value={formData.mobileNo}
-              onChange={handleChange}
-              style={inputStyle}
-            />
+            <div style={{ flex: 1 }}>
+              {(formData.mobileNos || [""]).map((mobile: string, index: number) => (
+                <div
+                  key={index}
+                  style={{ display: "flex", gap: 6, marginBottom: index === 0 ? 6 : 0 }}
+                >
+                  <input
+                    type="text"
+                    value={mobile}
+                    onChange={(e) => handleMobileChange(index, e.target.value)}
+                    placeholder={`Mobile No. ${index + 1}`}
+                    style={inputStyle}
+                  />
+
+                  <button
+                    type="button"
+                    onClick={() => removeMobileNumber(index)}
+                    style={{
+                      ...buttonStyle,
+                      backgroundColor: "#dc3545",
+                      padding: "6px 10px",
+                      minWidth: 42,
+                    }}
+                    title="Remove Mobile Number"
+                  >
+                    −
+                  </button>
+
+                  {index === (formData.mobileNos || []).length - 1 && (
+                    <button
+                      type="button"
+                      onClick={addMobileNumber}
+                      style={{
+                        ...buttonStyle,
+                        backgroundColor: "#198754",
+                        padding: "6px 10px",
+                        minWidth: 42,
+                      }}
+                      title="Add Mobile Number"
+                    >
+                      +
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
           </div>
 
           <div style={formRowStyle}>
@@ -1423,7 +1493,7 @@ const PartyCreation: React.FC<{ prefill?: PartyPrefill | null }> = ({ prefill: p
                           {columnVisibility.partyName && <td style={{ border: "1px solid #eee", padding: 8 }}>{p.partyName}</td>}
                           {columnVisibility.customerType && <td style={{ border: "1px solid #eee", padding: 8 }}>{formatCustomerType(p.customerType)}</td>}
                           {columnVisibility.gstNo && <td style={{ border: "1px solid #eee", padding: 8 }}>{p.gstNo}</td>}
-                          {columnVisibility.mobileNo && <td style={{ border: "1px solid #eee", padding: 8 }}>{p.mobileNo}</td>}
+                          {columnVisibility.mobileNo && <td style={{ border: "1px solid #eee", padding: 8 }}>{Array.isArray(p.mobileNos) ? p.mobileNos.filter(Boolean).join(", ") : p.mobileNo}</td>}
                           {columnVisibility.stateName && <td style={{ border: "1px solid #eee", padding: 8 }}>{p.stateName}</td>}
                           {columnVisibility.station && <td style={{ border: "1px solid #eee", padding: 8 }}>{p.station}</td>}
                           {columnVisibility.category && <td style={{ border: "1px solid #eee", padding: 8 }}>{p.category?.categoryName}</td>}
@@ -1450,6 +1520,9 @@ const PartyCreation: React.FC<{ prefill?: PartyPrefill | null }> = ({ prefill: p
                                   ...p,
                                   openingBalanceType: p.openingBalanceType || "CR",
                                   customerType: p.customerType || "", // ✅ null => ""
+                                  mobileNos: Array.isArray(p.mobileNos)
+                                    ? (p.mobileNos.length ? p.mobileNos : [""])
+                                    : (p.mobileNo ? [p.mobileNo] : [""]),
                                 });
                                 setShowListModal(false);
                                 setIsFullScreen(false);

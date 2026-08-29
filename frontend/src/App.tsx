@@ -3,13 +3,15 @@ import {
   Routes,
   Route,
   Navigate,
+  Outlet,
+  useLocation,
   useNavigate,
 } from "react-router-dom";
 
 import Login from "./pages/Login";
+import api from "./api/axiosInstance";
 import Signup from "./pages/Signup";
 import Dashboard from "./pages/Dashboard";
-import RequireAuth from "./components/RequireAuth";
 import SizeCreation from "./pages/Master/SizeCreation";
 import PartyCreation from "./pages/Master/PartyCreation";
 import CompanyDetails from "./pages/Master/CompanyDetails";
@@ -118,14 +120,125 @@ function CustomerRequestsPage() {
   );
 }
 
+
+/**
+ * Checks whether the stored JWT is present and, when it contains an
+ * expiration claim, whether it has expired.
+ */
+function hasValidAuthToken(): boolean {
+  const rawToken = sessionStorage.getItem("token");
+
+  if (!rawToken || !rawToken.trim()) {
+    return false;
+  }
+
+  const token = rawToken.replace(/^Bearer\s+/i, "").trim();
+
+  // Spring Security JWT tokens normally have 3 dot-separated parts.
+  const parts = token.split(".");
+  if (parts.length !== 3) {
+    sessionStorage.removeItem("token");
+    return false;
+  }
+
+  try {
+    const payload = JSON.parse(
+      decodeURIComponent(
+        atob(parts[1].replace(/-/g, "+").replace(/_/g, "/"))
+          .split("")
+          .map((c) => "%" + ("00" + c.charCodeAt(0).toString(16)).slice(-2))
+          .join("")
+      )
+    );
+
+    // If exp exists, reject expired token.
+    if (typeof payload.exp === "number" && payload.exp * 1000 <= Date.now()) {
+      sessionStorage.removeItem("token");
+      return false;
+    }
+
+    return true;
+  } catch {
+    // Invalid JWT => treat as logged out.
+    sessionStorage.removeItem("token");
+    return false;
+  }
+}
+
+
+/*
+ * IMPORTANT:
+ * Authentication is TAB-SPECIFIC.
+ *
+ * sessionStorage is different for every browser tab/window.
+ * We also override Authorization here so an old axiosInstance interceptor
+ * that reads localStorage cannot accidentally authenticate another tab.
+ */
+api.interceptors.request.use(
+  (config) => {
+    const token = sessionStorage.getItem("token");
+
+    if (token) {
+      config.headers = config.headers ?? {};
+      config.headers.Authorization = token.startsWith("Bearer ")
+        ? token
+        : `Bearer ${token}`;
+    } else if (config.headers) {
+      delete config.headers.Authorization;
+    }
+
+    return config;
+  },
+  (error) => Promise.reject(error)
+);
+
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error?.response?.status === 401) {
+      sessionStorage.removeItem("token");
+
+      // Do not redirect repeatedly if already on login.
+      if (window.location.pathname !== "/login") {
+        window.location.replace("/login");
+      }
+    }
+
+    return Promise.reject(error);
+  }
+);
+
+function ProtectedRoute() {
+  const location = useLocation();
+  const isAuthenticated = hasValidAuthToken();
+
+  if (!isAuthenticated) {
+    const returnUrl = `${location.pathname}${location.search}${location.hash}`;
+
+    return (
+      <Navigate
+        to="/login"
+        replace
+        state={{ from: returnUrl }}
+      />
+    );
+  }
+
+  return <Outlet />;
+}
+
 function App() {
   return (
     <Router>
       <Routes>
-        {/* Redirect root to /login */}
+        {/* ONLY these routes are public */}
         <Route path="/" element={<Navigate to="/login" replace />} />
         <Route path="/login" element={<Login />} />
         <Route path="/signup" element={<Signup />} />
+
+        {/* ALL application routes are protected */}
+        <Route element={<ProtectedRoute />}>
+
 
         {/* Master */}
         <Route path="/master/company" element={<CompanyDetails />} />
@@ -234,16 +347,8 @@ function App() {
          <Route path="/app/AddProduct" element={<AddProduct />} />
         <Route path="/app/CustomerRequests" element={<CustomerRequestsPage />} />
         <Route path="/app/ViewSales" element={<ViewSales />} />
-
-        {/* Dashboard (protected) */}
-        <Route
-          path="/dashboard"
-          element={
-            <RequireAuth>
-              <Dashboard children={undefined} />
-            </RequireAuth>
-          }
-        />
+        {/* Dashboard */}
+        <Route path="/dashboard" element={<Dashboard children={undefined} />} />
 <Route
   path="/notifications"
   element={
@@ -252,8 +357,12 @@ function App() {
     </Dashboard>
   }
 />
-      </Routes>
+      
+        </Route>
 
+        {/* Any unknown/direct URL also goes to Login */}
+        <Route path="*" element={<Navigate to="/login" replace />} />
+      </Routes>
     </Router>
   );
 }
