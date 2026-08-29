@@ -12,6 +12,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -58,16 +59,18 @@ public class PartyAuthService {
         Party party = partyRepo.findByGstNo(gstNo);
         if (party == null) {
             throw new RuntimeException(
-                "GST_NOT_FOUND: No party found with GST number: " + gstNo
+                    "GST_NOT_FOUND: No party found with GST number: " + gstNo
             );
         }
 
         // 2. Check if this party already has a CustomerRegistration
         //    (i.e. they already set a password before)
-        String phone = party.getMobileNo();
+        // Party now supports multiple mobile numbers.
+        // Use the first valid mobile number for the login flow.
+        String phone = getPrimaryMobileNo(party);
         if (phone != null && !phone.isBlank() && customerRepo.existsByPhone(phone)) {
             throw new RuntimeException(
-                "ALREADY_REGISTERED: This party already has login credentials. Please login normally."
+                    "ALREADY_REGISTERED: This party already has login credentials. Please login normally."
             );
         }
 
@@ -90,21 +93,21 @@ public class PartyAuthService {
     //   "ALREADY_REGISTERED: ..." → 409
     // ────────────────────────────────────────────────────────────────
     @Transactional
-public void setPassword(Long partyId, String rawPassword, String phoneFromRequest) {
+    public void setPassword(Long partyId, String rawPassword, String phoneFromRequest) {
         // 1. Find the party
         Party party = partyRepo.findById(partyId)
                 .orElseThrow(() -> new RuntimeException(
-                    "PARTY_NOT_FOUND: Party not found with id: " + partyId
+                        "PARTY_NOT_FOUND: Party not found with id: " + partyId
                 ));
 
-      String phone = (phoneFromRequest != null && !phoneFromRequest.isBlank())
-        ? phoneFromRequest.trim()
-        : party.getMobileNo();
+        String phone = (phoneFromRequest != null && !phoneFromRequest.isBlank())
+                ? phoneFromRequest.trim()
+                : getPrimaryMobileNo(party);
 
 // 2. Guard: already registered
-if (phone != null && !phone.isBlank() && customerRepo.existsByPhone(phone)) {
+        if (phone != null && !phone.isBlank() && customerRepo.existsByPhone(phone)) {
             throw new RuntimeException(
-                "ALREADY_REGISTERED: This party already has login credentials."
+                    "ALREADY_REGISTERED: This party already has login credentials."
             );
         }
 
@@ -115,7 +118,7 @@ if (phone != null && !phone.isBlank() && customerRepo.existsByPhone(phone)) {
         reg.setEmail(null);                                  // party may not have email
         reg.setPassword(passwordEncoder.encode(rawPassword));
         reg.setDeliveryAddress(
-            buildAddress(party)                              // pull address from party
+                buildAddress(party)                              // pull address from party
         );
         reg.setGstNo(party.getGstNo());
         reg.setStatus(AccountStatus.APPROVED);               // ← directly APPROVED, no admin step
@@ -142,6 +145,28 @@ if (phone != null && !phone.isBlank() && customerRepo.existsByPhone(phone)) {
 
         customerRepo.save(reg);
         // That's it. Party can now POST /customer/auth/login with phone + password.
+    }
+
+
+    /**
+     * Returns the first valid mobile number from the Party's multiple mobile numbers.
+     * Party.mobileNos is stored as a List<String>.
+     */
+    private String getPrimaryMobileNo(Party party) {
+        if (party == null) {
+            return "";
+        }
+
+        List<String> mobileNos = party.getMobileNos();
+        if (mobileNos == null || mobileNos.isEmpty()) {
+            return "";
+        }
+
+        return mobileNos.stream()
+                .filter(mobile -> mobile != null && !mobile.isBlank())
+                .map(String::trim)
+                .findFirst()
+                .orElse("");
     }
 
     // ── Helper: build a delivery address string from party fields ────

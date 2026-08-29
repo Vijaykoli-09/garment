@@ -21,9 +21,9 @@ public interface PartyRepository extends JpaRepository<Party, Long> {
 
     // Used by the Broker Dashboard's party list + search bar.
     // Matches against name, mobile, and GST no — case-insensitive.
-    @Query("SELECT p FROM Party p WHERE p.agent.serialNo = :serialNo AND (" +
-           "LOWER(p.partyName) LIKE LOWER(CONCAT('%', :search, '%')) OR " +
-           "p.mobileNo LIKE CONCAT('%', :search, '%') OR " +
-           "LOWER(p.gstNo) LIKE LOWER(CONCAT('%', :search, '%')))")
+    @Query("SELECT DISTINCT p FROM Party p LEFT JOIN p.mobileNos m WHERE p.agent.serialNo = :serialNo AND (" +
+            "LOWER(p.partyName) LIKE LOWER(CONCAT('%', :search, '%')) OR " +
+            "m LIKE CONCAT('%', :search, '%') OR " +
+            "LOWER(p.gstNo) LIKE LOWER(CONCAT('%', :search, '%')))")
     List<Party> searchByAgentSerialNo(@Param("serialNo") String serialNo, @Param("search") String search);
 }

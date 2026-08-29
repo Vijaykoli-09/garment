@@ -9,7 +9,7 @@ type BalanceType = "CR" | "DR";
 interface Agent {
   serialNo: string;
   agentName: string;
-  contactNo: string;
+  contactNos: string[];
   email: string;
   address: string;
   city: string;
@@ -24,7 +24,7 @@ interface Agent {
 interface AgentFormData {
   serialNo: string;
   agentName: string;
-  contactNo: string;
+  contactNos: string[];
   email: string;
   address: string;
   city: string;
@@ -39,7 +39,7 @@ const AgentCreation = () => {
   const [formData, setFormData] = useState<AgentFormData>({
     serialNo: "",
     agentName: "",
-    contactNo: "",
+    contactNos: [""],
     email: "",
     address: "",
     city: "",
@@ -100,11 +100,39 @@ const AgentCreation = () => {
     setFormData((prev) => ({ ...prev, [name]: value }));
   };
 
+  // ------------ Multiple Contact Numbers ------------
+  const handleContactChange = (index: number, value: string) => {
+    setFormData((prev) => {
+      const contactNos = [...(prev.contactNos || [""])];
+      contactNos[index] = value;
+      return { ...prev, contactNos };
+    });
+  };
+
+  const addContactNumber = () => {
+    setFormData((prev) => ({
+      ...prev,
+      contactNos: [...(prev.contactNos || []), ""],
+    }));
+  };
+
+  const removeContactNumber = (index: number) => {
+    setFormData((prev) => {
+      const contactNos = [...(prev.contactNos || [""])];
+      if (contactNos.length === 1) {
+        contactNos[0] = "";
+      } else {
+        contactNos.splice(index, 1);
+      }
+      return { ...prev, contactNos };
+    });
+  };
+
   const resetForm = () => {
     setFormData({
       serialNo: "",
       agentName: "",
-      contactNo: "",
+      contactNos: [""],
       email: "",
       address: "",
       city: "",
@@ -136,6 +164,9 @@ const AgentCreation = () => {
 
     const payload = {
       ...formData,
+      contactNos: (formData.contactNos || [])
+        .map((contact) => contact.trim())
+        .filter(Boolean),
       openingBalance: openingBalanceNumber, // backend gets number
     };
 
@@ -159,7 +190,9 @@ const AgentCreation = () => {
     setFormData({
       serialNo: agent.serialNo,
       agentName: agent.agentName || "",
-      contactNo: agent.contactNo || "",
+      contactNos: Array.isArray(agent.contactNos) && agent.contactNos.length
+        ? agent.contactNos
+        : [""] ,
       email: agent.email || "",
       address: agent.address || "",
       city: agent.city || "",
@@ -201,7 +234,7 @@ const AgentCreation = () => {
       const haystack = [
         a.serialNo,
         a.agentName,
-        a.contactNo,
+        ...(a.contactNos || []),
         a.email,
         a.address,
         a.city,
@@ -286,7 +319,54 @@ const AgentCreation = () => {
 
           <div style={formRowStyle}>
             <label style={labelStyle}>Contact No</label>
-            <input style={inputStyle} name="contactNo" value={formData.contactNo} onChange={handleChange} />
+            <div style={{ flex: 1 }}>
+              {(formData.contactNos || [""]).map((contact, index) => (
+                <div
+                  key={index}
+                  style={{ display: "flex", gap: 6, marginBottom: 6 }}
+                >
+                  <input
+                    style={inputStyle}
+                    type="text"
+                    value={contact}
+                    onChange={(e) => handleContactChange(index, e.target.value)}
+                    placeholder={`Contact No. ${index + 1}`}
+                  />
+
+                  <button
+                    type="button"
+                    onClick={() => removeContactNumber(index)}
+                    style={{
+                      ...buttonStyle,
+                      backgroundColor: "#dc3545",
+                      color: "white",
+                      padding: "6px 10px",
+                      minWidth: 42,
+                    }}
+                    title="Remove Contact Number"
+                  >
+                    −
+                  </button>
+
+                  {index === (formData.contactNos || []).length - 1 && (
+                    <button
+                      type="button"
+                      onClick={addContactNumber}
+                      style={{
+                        ...buttonStyle,
+                        backgroundColor: "#198754",
+                        color: "white",
+                        padding: "6px 10px",
+                        minWidth: 42,
+                      }}
+                      title="Add Contact Number"
+                    >
+                      +
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
           </div>
 
           <div style={formRowStyle}>
@@ -462,7 +542,7 @@ const AgentCreation = () => {
                     <tr key={agent.serialNo}>
                       <td style={{ border: "1px solid #ccc", padding: "8px" }}>{agent.serialNo}</td>
                       <td style={{ border: "1px solid #ccc", padding: "8px" }}>{agent.agentName}</td>
-                      <td style={{ border: "1px solid #ccc", padding: "8px" }}>{agent.contactNo}</td>
+                      <td style={{ border: "1px solid #ccc", padding: "8px" }}>{(agent.contactNos || []).filter(Boolean).join(", ")}</td>
                       <td style={{ border: "1px solid #ccc", padding: "8px" }}>{agent.email}</td>
                       <td style={{ border: "1px solid #ccc", padding: "8px" }}>{agent.city}</td>
                       <td style={{ border: "1px solid #ccc", padding: "8px" }}>{agent.state}</td>
