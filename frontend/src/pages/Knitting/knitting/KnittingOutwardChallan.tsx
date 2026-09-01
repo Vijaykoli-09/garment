@@ -7,6 +7,7 @@ import { useLocation } from "react-router-dom";
 interface RowData {
   id: number;
   orderNo: string;
+  yarnName: string;
   materialId: string;
   materialName: string;
   unit: string;
@@ -33,6 +34,11 @@ interface Material {
 interface Shade {
   shadeCode: string;
   shadeName: string;
+}
+
+interface Yarn {
+  serialNo: string;
+  yarnName: string;
 }
 
 // Local “consumed items” helpers
@@ -109,6 +115,7 @@ const KnittingOutwardChallan: React.FC = () => {
   const [allParties, setAllParties] = useState<Party[]>([]); // Knitting parties
   const [allMaterials, setAllMaterials] = useState<Material[]>([]);
   const [allShades, setAllShades] = useState<Shade[]>([]);
+  const [allYarns, setAllYarns] = useState<Yarn[]>([]);
 
   const [refPartyId, setRefPartyId] = useState<string>("");
   const [fromPurchaseEntryId, setFromPurchaseEntryId] = useState<number | null>(null);
@@ -143,6 +150,7 @@ const KnittingOutwardChallan: React.FC = () => {
       {
         id: prev.length + 1,
         orderNo: "",
+        yarnName: "",
         materialId: "",
         materialName: "",
         unit: "",
@@ -165,16 +173,18 @@ const KnittingOutwardChallan: React.FC = () => {
   useEffect(() => {
     const loadInitialData = async () => {
       try {
-        const [refPartyRes, knitPartyRes, matRes, shadeRes] = await Promise.all([
+        const [refPartyRes, knitPartyRes, matRes, shadeRes, yarnRes] = await Promise.all([
           api.get("/party/category/Purchase"),  // Reference parties
           api.get("/party/category/Knitting"),  // Knitting parties
           api.get(`/materials`),
           api.get("/shade/list"),
+          api.get("/yarn/list"),
         ]);
         setReferenceParties(refPartyRes.data);
         setAllParties(knitPartyRes.data);
         setAllMaterials(matRes.data);
         setAllShades(shadeRes.data);
+        setAllYarns(yarnRes.data);
       } catch (err) {
         console.error(err);
         Swal.fire("Error", "Failed to load data", "error");
@@ -223,7 +233,7 @@ const KnittingOutwardChallan: React.FC = () => {
     partyId: Number(partyId), // Knitting party id
     challanNo,
     items: selectedRows.map((r) => ({
-      materialId: Number(r.materialId),
+      materialId: r.materialId ? Number(r.materialId) : null,
       materialName: r.materialName,
       shadeCode: r.shadeCode || "",
       shadeName: r.shadeName || "",
@@ -233,7 +243,8 @@ const KnittingOutwardChallan: React.FC = () => {
       rate: parseFloat(r.rate) || 0,
       amount: parseFloat(r.amount) || 0,
       orderNo: r.orderNo || "",
-      // unit: r.unit, // send only if backend expects
+      yarnName: r.yarnName || "",
+      unit: r.unit || "",
     })),
   });
 
@@ -257,6 +268,7 @@ const KnittingOutwardChallan: React.FC = () => {
         return {
           id: idx + 1,
           orderNo: item.orderNo || "",
+          yarnName: item.yarnName || "",
           materialId: String(item.materialId || item.material?.id || ""),
           materialName: item.materialName || mat?.materialName || "",
           unit: item.unit || mat?.materialUnit || "",
@@ -358,7 +370,7 @@ const KnittingOutwardChallan: React.FC = () => {
           await api.post(`/purchase-entry/${fromPurchaseEntryId}/consume`, {
             items: selectedRows.map((r) => ({
               orderNo: r.orderNo || "",
-              materialId: Number(r.materialId) || 0,
+              materialId: r.materialId ? Number(r.materialId) : null,
               shadeCode: r.shadeCode || "",
               wtPerBox: Number(r.receivedWtBox) || 0,
               roll: Number(r.receivedRolls) || 0,
@@ -387,6 +399,8 @@ const KnittingOutwardChallan: React.FC = () => {
       // Reset form and generate fresh challan
       setEntryId(null);
       setPartyId("");
+      setRefPartyId("");
+      setFromPurchaseEntryId(null);
       setDate("");
       setRows([]);
       setSelectedOrders([]);
@@ -439,6 +453,7 @@ const KnittingOutwardChallan: React.FC = () => {
             <thead>
               <tr>
                 <th>#</th>
+                <th>Yarn</th>
                 <th>Material</th>
                 <th>Shade</th>
                 <th>Rolls</th>
@@ -454,6 +469,7 @@ const KnittingOutwardChallan: React.FC = () => {
                   (r, i) => `
                 <tr>
                   <td>${i + 1}</td>
+                  <td>${r.yarnName || "-"}</td>
                   <td>${r.materialName || "-"}</td>
                   <td>${r.shadeName || "-"}</td>
                   <td>${r.receivedRolls || "-"}</td>
@@ -539,6 +555,7 @@ const KnittingOutwardChallan: React.FC = () => {
         return {
           id: i.id || idx + 1,
           orderNo: i.orderNo || "",
+          yarnName: i.yarnName || "",
           materialId: mat.id?.toString() || "",
           materialName: mat.materialName || "",
           unit: mat.materialUnit || "",
@@ -645,6 +662,7 @@ const KnittingOutwardChallan: React.FC = () => {
                 <tr>
                   <th className="border p-2 text-center">#</th>
                   <th className="border p-2 text-center">Select</th>
+                  <th className="border p-2 text-center">Yarn Name</th>
                   <th className="border p-2 text-center">Material</th>
                   <th className="border p-2 text-center">Unit</th>
                   <th className="border p-2 text-center">Shade</th>
@@ -670,6 +688,23 @@ const KnittingOutwardChallan: React.FC = () => {
                             onChange={() => handleOrderSelect(row.id)}
                             className="w-4 h-4 cursor-pointer"
                           />
+                        </td>
+
+                        <td className="border p-1">
+                          <select
+                            value={row.yarnName || ""}
+                            onChange={(e) =>
+                              handleChange(row.id, "yarnName", e.target.value)
+                            }
+                            className="border p-1 rounded w-full"
+                          >
+                            <option value="">Select Yarn</option>
+                            {allYarns.map((y) => (
+                              <option key={y.serialNo} value={y.yarnName}>
+                                {y.yarnName}
+                              </option>
+                            ))}
+                          </select>
                         </td>
 
                         <td className="border p-1">
@@ -841,6 +876,7 @@ const KnittingOutwardChallan: React.FC = () => {
                         <th className="border p-2 text-center">Challan No</th>
                         <th className="border p-2 text-center">Party Name</th>
                         <th className="border p-2 text-center">Date</th>
+                        <th className="border p-2 text-center">Yarn Name</th>
                         <th className="border p-2 text-center">Material Name</th>
                         <th className="border p-2 text-center">Receive Wt/Box</th>
                         <th className="border p-2 text-center">Amount</th>
@@ -852,7 +888,7 @@ const KnittingOutwardChallan: React.FC = () => {
                       {filteredEntries.length === 0 ? (
                         <tr>
                           <td
-                            colSpan={8}
+                            colSpan={9}
                             className="text-center py-3 text-gray-500"
                           >
                             No Entries Found
@@ -885,19 +921,36 @@ const KnittingOutwardChallan: React.FC = () => {
                               <td className="border p-2 text-center">
                                 {entry.date}
                               </td>
+                              {/* Yarn Name */}
                               <td className="border p-2 text-center">
-                                {(entry.items || [])
-                                  .map(
-                                    (i: any) =>
-                                      i.material?.materialName ||
-                                      i.materialName ||
-                                      "-"
+                                {Array.from(
+                                  new Set(
+                                    (entry.items || [])
+                                      .map((i: any) => i.yarnName || "")
+                                      .filter(Boolean)
                                   )
-                                  .join(", ")}
+                                ).join(", ") || "-"}
                               </td>
 
+                              {/* Material Name */}
                               <td className="border p-2 text-center">
-                                {totalWtBox}
+                                {Array.from(
+                                  new Set(
+                                    (entry.items || [])
+                                      .map(
+                                        (i: any) =>
+                                          i.material?.materialName ||
+                                          i.materialName ||
+                                          ""
+                                      )
+                                      .filter(Boolean)
+                                  )
+                                ).join(", ") || "-"}
+                              </td>
+
+                              {/* Total Receive Wt/Box */}
+                              <td className="border p-2 text-center">
+                                {totalWtBox || 0}
                               </td>
                               <td className="border p-2 text-center">
                                 ₹{totalAmount?.toFixed(2)}

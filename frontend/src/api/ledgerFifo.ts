@@ -13,6 +13,8 @@ export type TxType =
   | "PurchaseReturn"
   | "JobOutward"
   | "JobInward"
+  | "KnittingOutward"
+  | "KnittingInward"
   | "Payment"
   | "Receipt";
 
@@ -112,6 +114,10 @@ export const txSortRank = (t: TxType) => {
       return 30;
     case "JobInward":
       return 31;
+    case "KnittingOutward":
+      return 32;
+    case "KnittingInward":
+      return 33;
     case "Payment":
       return 90;
     case "Receipt":

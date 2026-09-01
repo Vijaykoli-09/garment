@@ -17,4 +17,5 @@ public class KnittingOutwardChallanRowDTO {
     private Double amount;
     private String unit;            // ✅ new
     private String orderNo;
+    private String yarnName;
 }

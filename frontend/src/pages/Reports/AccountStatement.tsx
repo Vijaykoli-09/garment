@@ -126,6 +126,22 @@ interface JobInwardChallanDoc {
   amount: number;
 }
 
+interface KnittingOutwardChallanDoc {
+  id: string | number;
+  challanNo: string;
+  date: string;
+  partyName: string;
+  amount: number;
+}
+
+interface KnittingInwardChallanDoc {
+  id: string | number;
+  challanNo: string;
+  date: string;
+  partyName: string;
+  amount: number;
+}
+
 interface BrokerInfo {
   name: string;
   parties: string[];
@@ -145,6 +161,10 @@ type BaseTransaction = {
   credit: number; // cash (receipt) or credit amount
   discount: number; // receipt discount only
   type: TxType;
+
+  // Display-only category for documents that reuse an existing ledger direction.
+  // Knitting Outward behaves like a payable/purchase bill (Credit side).
+  ledgerType?: "KnittingOutward" | "KnittingInward";
 
   // ✅ stable docKey for FIFO + manual paid + purple highlight
   docKey?: string;
@@ -264,6 +284,15 @@ const typeLabel = (t: TxType): string => {
   }
 };
 
+const displayTypeLabel = (row: {
+  type: TxType;
+  ledgerType?: "KnittingOutward" | "KnittingInward";
+}) => {
+  if (row.ledgerType === "KnittingOutward") return "Knitting Outward Challan";
+  if (row.ledgerType === "KnittingInward") return "Knitting Inward Challan";
+  return typeLabel(row.type);
+};
+
 const hashToInt = (s: string) => {
   let h = 0;
   for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
@@ -331,6 +360,8 @@ const AccountStatement: React.FC = () => {
   const [purchaseReturns, setPurchaseReturns] = useState<PurchaseReturnDoc[]>([]);
   const [jobOutwards, setJobOutwards] = useState<JobOutwardChallanDoc[]>([]);
   const [jobInwards, setJobInwards] = useState<JobInwardChallanDoc[]>([]);
+  const [knittingOutwards, setKnittingOutwards] = useState<KnittingOutwardChallanDoc[]>([]);
+  const [knittingInwards, setKnittingInwards] = useState<KnittingInwardChallanDoc[]>([]);
   const [payments, setPayments] = useState<PaymentDoc[]>([]);
   const [receipts, setReceipts] = useState<ReceiptDoc[]>([]);
 
@@ -368,7 +399,7 @@ const AccountStatement: React.FC = () => {
 
   const [pendingOnly, setPendingOnly] = useState(false);
 
-  type TxFilter = "all" | TxType;
+  type TxFilter = "all" | TxType | "KnittingOutward" | "KnittingInward";
   const [transactions, setTransactions] = useState<BaseTransaction[]>([]);
   const [transactionFilter, setTransactionFilter] = useState<TxFilter>("all");
 
@@ -438,7 +469,7 @@ const AccountStatement: React.FC = () => {
       setLoading(true);
       setError(null);
       try {
-        const [partyRaw, agentRaw, dcRaw, drcRaw, odcRaw, poRaw, peRaw, prRaw, payRaw, jobOutRaw, jobInRaw] =
+        const [partyRaw, agentRaw, dcRaw, drcRaw, odcRaw, poRaw, peRaw, prRaw, payRaw, jobOutRaw, jobInRaw, knittingOutRaw, knittingInRaw] =
           await Promise.all([
             safeGet<Party[]>("/party/all"),
             safeGet<Agent[]>("/agent/list"),
@@ -451,6 +482,8 @@ const AccountStatement: React.FC = () => {
             safeGet<any[]>("/payment"),
             safeGet<any[]>("/job-outward-challan"),
             safeGet<any[]>("/job-inward-challan"),
+            safeGet<any[]>("/knitting-outward-challan"),
+            safeGet<any[]>("/knitting/list"),
           ]);
 
         const recRaw = await safeGetReceipts();
@@ -569,6 +602,67 @@ const AccountStatement: React.FC = () => {
               } as JobInwardChallanDoc;
             })
             .filter((x) => x.partyName && x.date && x.challanNo),
+        );
+
+        // Knitting Outward Challan
+        // Amount is the total of all outward rows. This is payable to the Knitting Party,
+        // therefore it is handled on the Credit side like a purchase/service bill.
+        setKnittingOutwards(
+          (Array.isArray(knittingOutRaw) ? knittingOutRaw : [])
+            .map((d: any) => {
+              const rows: any[] = Array.isArray(d.rows)
+                ? d.rows
+                : Array.isArray(d.items)
+                  ? d.items
+                  : [];
+              const amount = rows.reduce((sum, r) => sum + toNum(r.amount), 0);
+              const partyName =
+                String(d.partyName ?? d.party?.partyName ?? "").trim() ||
+                partyIdToName.get(String(d.partyId ?? d.party?.id ?? "")) ||
+                "";
+
+              return {
+                id: d.id ?? d.serialNo ?? "",
+                challanNo: String(d.challanNo ?? d.orderChallanNo ?? ""),
+                date: String(d.date ?? d.dated ?? ""),
+                partyName,
+                amount,
+              } as KnittingOutwardChallanDoc;
+            })
+            .filter((x) => x.partyName && x.date && x.challanNo),
+        );
+
+        // Knitting Inward / Knitting Receipt
+        // Exact backend entity fields:
+        // id, challanNo, dated, party, totalRolls, totalWeight, totalAmount, rows
+        setKnittingInwards(
+          (Array.isArray(knittingInRaw) ? knittingInRaw : [])
+            .map((d: any) => {
+              const rows: any[] = Array.isArray(d.rows) ? d.rows : [];
+
+              // Prefer the exact entity totalAmount.
+              // Fallback calculation is only for old records where totalAmount is null/0.
+              const calculatedAmount = rows.reduce((sum, r) => {
+                const amount =
+                  toNum(r.weight) * toNum(r.knittingRate);
+                return sum + amount;
+              }, 0);
+
+              const backendAmount = toNum(d.totalAmount);
+              const amount =
+                backendAmount !== 0 || rows.length === 0
+                  ? backendAmount
+                  : calculatedAmount;
+
+              return {
+                id: d.id,
+                challanNo: String(d.challanNo || ""),
+                date: String(d.dated || ""),
+                partyName: String(d.party?.partyName || "").trim(),
+                amount,
+              } as KnittingInwardChallanDoc;
+            })
+            .filter((x) => x.id != null && x.challanNo && x.date && x.partyName),
         );
 
         setPayments(
@@ -722,6 +816,8 @@ const AccountStatement: React.FC = () => {
     purchaseReturns.forEach((d) => add(getBrokerFromPartyName(d.partyName), d.partyName));
     jobOutwards.forEach((d) => add(getBrokerFromPartyName(d.partyName), d.partyName));
     jobInwards.forEach((d) => add(getBrokerFromPartyName(d.partyName), d.partyName));
+    knittingOutwards.forEach((d) => add(getBrokerFromPartyName(d.partyName), d.partyName));
+    knittingInwards.forEach((d) => add(getBrokerFromPartyName(d.partyName), d.partyName));
 
     payments.forEach((d) => {
       const b = d.brokerName || (d.partyName ? getBrokerFromPartyName(d.partyName) : "");
@@ -749,6 +845,8 @@ const AccountStatement: React.FC = () => {
     purchaseReturns,
     jobOutwards,
     jobInwards,
+    knittingOutwards,
+    knittingInwards,
     payments,
     receipts,
     getBrokerFromPartyName,
@@ -887,6 +985,8 @@ const AccountStatement: React.FC = () => {
 
       type Doc = {
         source: TxType;
+        // Knitting Outward reuses PurchaseEntry accounting direction internally.
+        ledgerType?: "KnittingOutward" | "KnittingInward";
         id: number;
         date: string;
         number: string;
@@ -1060,6 +1160,48 @@ const AccountStatement: React.FC = () => {
           brokerName: bName,
           amount: toNum(j.amount),
           docKey: makeDocKey("JobInward", String(j.id)),
+        });
+      });
+
+      // Knitting Outward Challan
+      // Accounting direction: Credit/payable to the Knitting Party.
+      // We reuse PurchaseEntry in the FIFO engine, while ledgerType keeps the UI/filter separate.
+      knittingOutwards.forEach((k) => {
+        const bName = getBrokerFromPartyName(k.partyName);
+        if (!brokerOk(bName)) return;
+        if (!partyOk(k.partyName)) return;
+
+        docs.push({
+          source: "PurchaseEntry",
+          ledgerType: "KnittingOutward",
+          id: typeof k.id === "number" ? k.id : hashToInt(String(k.id)),
+          date: k.date || fromDate,
+          number: k.challanNo,
+          partyName: k.partyName,
+          brokerName: bName,
+          amount: toNum(k.amount),
+          docKey: `KnittingOutward:${String(k.id)}`,
+        });
+      });
+
+      // Knitting Inward Challan / Knitting Receipt
+      // Keep this as a separate Account Report transaction type so it can be filtered.
+      // Accounting direction follows the existing inward/job-inward payable (Credit) convention.
+      knittingInwards.forEach((k) => {
+        const bName = getBrokerFromPartyName(k.partyName);
+        if (!brokerOk(bName)) return;
+        if (!partyOk(k.partyName)) return;
+
+        docs.push({
+          source: "JobInward",
+          ledgerType: "KnittingInward",
+          id: typeof k.id === "number" ? k.id : hashToInt(String(k.id)),
+          date: k.date || fromDate,
+          number: k.challanNo,
+          partyName: k.partyName,
+          brokerName: bName,
+          amount: toNum(k.amount),
+          docKey: `KnittingInward:${String(k.id)}`,
         });
       });
 
@@ -1260,6 +1402,7 @@ const AccountStatement: React.FC = () => {
             credit: 0,
             discount: docDisc,        // discount
             type: d.source,
+            ledgerType: d.ledgerType,
             docKey: d.docKey,
           });
           continue;
@@ -1279,6 +1422,7 @@ const AccountStatement: React.FC = () => {
           credit: toNum(credit),
           discount: d.source === "Receipt" ? docDisc : toNum(discount),
           type: d.source,
+          ledgerType: d.ledgerType,
           docKey: d.docKey,
         });
       }
@@ -1708,8 +1852,15 @@ const AccountStatement: React.FC = () => {
   const filteredRows: DisplayRowFinal[] = useMemo(() => {
     let rows = rowsFinal;
 
-    // Apply Tx filter first (existing behavior)
-    if (transactionFilter !== "all") rows = rows.filter((r) => r.type === transactionFilter);
+    // Apply Tx filter first. Knitting Outward has its own UI category while
+    // internally using PurchaseEntry accounting direction for FIFO/payable calculations.
+    if (transactionFilter === "KnittingOutward") {
+      rows = rows.filter((r) => r.ledgerType === "KnittingOutward");
+    } else if (transactionFilter === "KnittingInward") {
+      rows = rows.filter((r) => r.ledgerType === "KnittingInward");
+    } else if (transactionFilter !== "all") {
+      rows = rows.filter((r) => r.type === transactionFilter);
+    }
 
     // Pending Only (existing behavior)
     if (pendingOnly) {
@@ -1727,6 +1878,9 @@ const AccountStatement: React.FC = () => {
         if ((b as any)?.manualPaidEffective) continue;
 
         // Respect current Tx filter if user selected a specific type
+        // Knitting Outward uses PurchaseEntry inside FIFO, so its opening-pending
+        // rows cannot be safely isolated by the FIFO type alone.
+        if (transactionFilter === "KnittingOutward" || transactionFilter === "KnittingInward") continue;
         if (transactionFilter !== "all" && (b as any)?.type !== transactionFilter) continue;
 
         const dt = toTime(String((b as any)?.date || ""));
@@ -2005,7 +2159,7 @@ const AccountStatement: React.FC = () => {
             <td>${r.orderNo || ""}</td>
             <td style="text-align:right;">${fmtNumber(amountToShow)}</td>
             <td style="text-align:right;">${fmtNumber(r.pending)}</td>
-            <td>${typeLabel(r.type)}</td>
+            <td>${displayTypeLabel(r)}</td>
             <td style="text-align:right;">${r.days || 0}</td>
           </tr>
         `;
@@ -2103,7 +2257,7 @@ const AccountStatement: React.FC = () => {
             <td style="text-align:right;">${fmtNumber(r.discount)}</td>
             <td style="text-align:right;">${fmtNumber(r.balance)}</td>
             <td style="text-align:right;">${fmtNumber(r.pending)}</td>
-            <td>${typeLabel(r.type)}</td>
+            <td>${displayTypeLabel(r)}</td>
             <td style="text-align:right;">${r.days}</td>
             <td style="text-align:center;">${r.paidAuto ? "Yes" : ""}</td>
             <td style="text-align:center;">${r.manualPaidEffective ? "Yes" : ""}</td>
@@ -2392,6 +2546,8 @@ const AccountStatement: React.FC = () => {
                       <option value="PurchaseReturn">Purchase Return</option>
                       <option value="JobOutward">Job Outward Challan</option>
                       <option value="JobInward">Job Inward Challan</option>
+                      <option value="KnittingOutward">Knitting Outward Challan</option>
+                      <option value="KnittingInward">Knitting Inward Challan</option>
                       <option value="Payment">Payment</option>
                       <option value="Receipt">Receipt</option>
                       <option value="Opening">Opening</option>
@@ -2510,7 +2666,7 @@ const AccountStatement: React.FC = () => {
                               <td className="px-2 py-1 border">{modeText}</td>
                               <td className="px-2 py-1 border text-right">{fmtNumber(r.debit)}</td>
                               <td className="px-2 py-1 border text-right">{fmtNumber(r.pending)}</td>
-                              <td className="px-2 py-1 border">{typeLabel(r.type)}</td>
+                              <td className="px-2 py-1 border">{displayTypeLabel(r)}</td>
                               <td className={`px-2 py-1 border text-right ${overdue ? "text-red-700 font-bold" : ""}`}>{r.days}</td>
                             </tr>
                           );
@@ -2532,7 +2688,7 @@ const AccountStatement: React.FC = () => {
                             <td className="px-2 py-1 border text-right">{fmtNumber(r.balance)}</td>
                             <td className="px-2 py-1 border text-right">{fmtNumber(r.pending)}</td>
 
-                            <td className="px-2 py-1 border">{typeLabel(r.type)}</td>
+                            <td className="px-2 py-1 border">{displayTypeLabel(r)}</td>
                             <td className={`px-2 py-1 border text-right ${overdue ? "text-red-700 font-bold" : ""}`}>{r.days}</td>
 
                             <td className="px-2 py-1 border text-center">

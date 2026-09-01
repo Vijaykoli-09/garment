@@ -102,12 +102,29 @@ const KnittingStockStatement: React.FC = () => {
   const collectOutwardTokens = (outs: KnittingOutward[], tokens: Set<string>) => {
     outs.forEach((e) =>
       (e.items || []).forEach((it: any) => {
+        // Yarn is also supported because Knitting Outward can be created
+        // directly from Purchase Entry with Yarn only (without Material).
+        const yarn =
+          it.yarnName ||
+          it.yarn?.yarnName ||
+          it.yarn?.name ||
+          it.yarn?.yarn ||
+          "";
+
         const mat =
           it.material?.materialName || it.materialName || it?.material?.name || "";
         const shade = it.shadeName || it.shade?.shadeName || it.shadeCode || "";
+
+        // Add Yarn separately so it is available in the Item/Yarn suggestion list.
+        if (yarn) tokens.add(yarn);
         if (mat) tokens.add(mat);
         if (shade) tokens.add(shade);
+
+        // Keep combined Material-Shade suggestions for existing entries.
         if (mat && shade) tokens.add(`${mat} - ${shade}`);
+
+        // Yarn + Shade suggestion when shade exists.
+        if (yarn && shade) tokens.add(`${yarn} - ${shade}`);
       })
     );
   };
@@ -192,9 +209,17 @@ const KnittingStockStatement: React.FC = () => {
   // Matchers for filters (support "Mat - Shade" or multiple tokens)
   const outwardItemMatches = (it: any, needle: string) => {
     if (!needle) return true;
+    // Support Yarn-only outward entries as well as Material/Shade entries.
+    const yarn =
+      it.yarnName ||
+      it.yarn?.yarnName ||
+      it.yarn?.name ||
+      it.yarn?.yarn ||
+      "";
     const mat = it.material?.materialName || it.materialName || it?.material?.name || "";
     const shade = it.shadeName || it.shade?.shadeName || it.shadeCode || "";
-    const subject = `${mat} ${shade}`;
+
+    const subject = `${yarn} ${mat} ${shade}`;
     return includesAllTokens(subject, needle);
   };
 
@@ -546,12 +571,12 @@ const KnittingStockStatement: React.FC = () => {
             </div>
 
             <div>
-              <label className="block text-sm font-semibold mb-1">Item (optional)</label>
+              <label className="block text-sm font-semibold mb-1">Yarn / Item (optional)</label>
               <div className="flex gap-2">
                 <input
                   type="text"
                   list="itemOptionList"
-                  placeholder="Material/Fabrication/Shade... (type or pick)"
+                  placeholder="Yarn / Material / Fabrication / Shade... (type or pick)"
                   value={itemName}
                   onChange={(e) => setItemName(e.target.value)}
                   className="border p-2 rounded w-full"
@@ -631,7 +656,7 @@ const KnittingStockStatement: React.FC = () => {
                       Party: <span className="font-normal">{selectedPartyName}</span>
                     </div>
                     <div>
-                      Item: <span className="font-normal">{itemName || "-"}</span>
+                      Yarn / Item: <span className="font-normal">{itemName || "-"}</span>
                     </div>
                     <div>
                       Date: <span className="font-normal">{fromDate || "-"}</span>
