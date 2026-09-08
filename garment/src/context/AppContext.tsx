@@ -202,6 +202,28 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const saved = await loadCartFromStorage();
     setCart(saved.cart);
     setUsedCredit(saved.usedCredit);
+
+    // The login API response may not carry every field (e.g. partyId) —
+    // fetch the full profile right away so screens like Dashboard that
+    // gate content on user.partyId don't have to wait for a manual
+    // pull-to-refresh to see it. Mirrors the background refresh done
+    // on session restore above.
+    try {
+      const profileRes = await authApi.getProfile();
+      const fresh = profileRes.data;
+      const refreshed: AppUser = {
+        ...userData,
+        name:            fresh.name           ?? fresh.fullName     ?? userData.name,
+        type:            fresh.type           ?? fresh.customerType ?? userData.type,
+        creditEnabled:   Boolean(fresh.creditEnabled),
+        creditLimit:     Number(fresh.creditLimit ?? 0),
+        advanceOption:   Boolean(fresh.advanceOption),
+        partyId:         fresh.partyId         ?? userData.partyId,
+        deliveryAddress: fresh.deliveryAddress  ?? userData.deliveryAddress,
+      };
+      setUser(refreshed);
+      SessionStorage.saveUser(refreshed);
+    } catch { /* login API data still stands, background refresh skipped */ }
   }, []);
 
   const logout = useCallback(async () => {

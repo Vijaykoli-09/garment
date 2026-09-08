@@ -19,10 +19,11 @@ const ORDER_STATUS: Record<string, { label: string; color: string; bg: string; e
 
 // Payment status — whether money was received
 const PAYMENT_STATUS: Record<string, { label: string; color: string; bg: string }> = {
-  PENDING:  { label: 'Payment Pending', color: '#92400E', bg: '#FEF3C7' },
-  PAID:     { label: 'Paid',            color: '#065F46', bg: '#D1FAE5' },
-  FAILED:   { label: 'Failed',          color: '#991B1B', bg: '#FEE2E2' },
-  REFUNDED: { label: 'Refunded',        color: '#5B21B6', bg: '#EDE9FE' },
+  PENDING:        { label: 'Payment Pending',   color: '#92400E', bg: '#FEF3C7' },
+  PAID:           { label: 'Paid',              color: '#065F46', bg: '#D1FAE5' },
+  PARTIALLY_PAID: { label: 'Advance Paid',      color: '#7C3AED', bg: '#EDE9FE' },
+  FAILED:         { label: 'Failed',             color: '#991B1B', bg: '#FEE2E2' },
+  REFUNDED:       { label: 'Refunded',           color: '#5B21B6', bg: '#EDE9FE' },
 };
 
 const PAYMENT_METHOD_LABELS: Record<string, string> = {

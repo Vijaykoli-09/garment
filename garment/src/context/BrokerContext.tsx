@@ -9,7 +9,7 @@ export type BrokerSession = AgentDto;
 interface BrokerContextType {
   broker:          BrokerSession | null;
   isLoadingBroker: boolean;
-  loginBroker:     (agent: BrokerSession) => Promise<void>;
+  loginBroker:     (agent: BrokerSession, token: string) => Promise<void>;
   logoutBroker:    () => Promise<void>;
 }
 
@@ -27,8 +27,15 @@ export function BrokerProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     (async () => {
       try {
-        const saved = await BrokerSessionStorage.getBroker();
-        if (saved) setBroker(saved);
+        const [saved, token] = await Promise.all([
+          BrokerSessionStorage.getBroker(),
+          BrokerSessionStorage.getToken(),
+        ]);
+        // Require both — a broker record without a token isn't a valid
+        // authenticated session (e.g. leftover data from before PIN auth
+        // was added). Treat as logged out rather than silently trusting it.
+        if (saved && token) setBroker(saved);
+        else await BrokerSessionStorage.clear();
       } catch {
         // fresh start / corrupted storage — treat as logged out
       } finally {
@@ -37,8 +44,11 @@ export function BrokerProvider({ children }: { children: ReactNode }) {
     })();
   }, []);
 
-  const loginBroker = useCallback(async (agent: BrokerSession) => {
-    await BrokerSessionStorage.saveBroker(agent);
+  const loginBroker = useCallback(async (agent: BrokerSession, token: string) => {
+    await Promise.all([
+      BrokerSessionStorage.saveBroker(agent),
+      BrokerSessionStorage.saveToken(token),
+    ]);
     setBroker(agent);
   }, []);
 

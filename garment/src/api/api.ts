@@ -3,7 +3,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { CartItem, AppUser } from '../context/AppContext';
 
 export const BASE_URL = 'https://garment-1-1v21.onrender.com/api';
-// export const BASE_URL = 'http://192.168.1.33:8080/api';
+// export const BASE_URL = 'http://192.168.1.24:8080/api';
 
 // ════════════════════════════════════════════════════════════════════
 // AXIOS INSTANCE
@@ -15,12 +15,17 @@ const api = axios.create({
 });
 
 // ── Auto-attach JWT token to every request ───────────────────────────
+// Only fills in Authorization if the call hasn't already set one itself
+// (see withBrokerAuth() below) — this is what lets broker-scoped calls
+// attach the broker's own token without the customer token overwriting it.
 api.interceptors.request.use(
   async config => {
-    const token = await AsyncStorage.getItem('auth_token');
-    if (token) {
-      config.headers = config.headers ?? {};
-      config.headers['Authorization'] = `Bearer ${token}`;
+    config.headers = config.headers ?? {};
+    if (!config.headers['Authorization']) {
+      const token = await AsyncStorage.getItem('auth_token');
+      if (token) {
+        config.headers['Authorization'] = `Bearer ${token}`;
+      }
     }
     return config;
   },
@@ -73,7 +78,8 @@ export const SessionStorage = {
 // separate lightweight session, independent of SessionStorage above.
 // Keeping it separate means broker sessions can't collide with, or get
 // wiped by, customer/party auth logic (e.g. the 401 interceptor above).
-const BROKER_STORAGE_KEY = 'broker_session';
+const BROKER_STORAGE_KEY       = 'broker_session';
+const BROKER_TOKEN_STORAGE_KEY = 'broker_auth_token';
 
 export const BrokerSessionStorage = {
   saveBroker: (agent: object) =>
@@ -84,8 +90,28 @@ export const BrokerSessionStorage = {
     return raw ? JSON.parse(raw) : null;
   },
 
+  saveToken: (token: string) =>
+    AsyncStorage.setItem(BROKER_TOKEN_STORAGE_KEY, token),
+
+  getToken: () =>
+    AsyncStorage.getItem(BROKER_TOKEN_STORAGE_KEY),
+
   clear: () =>
-    AsyncStorage.removeItem(BROKER_STORAGE_KEY),
+    Promise.all([
+      AsyncStorage.removeItem(BROKER_STORAGE_KEY),
+      AsyncStorage.removeItem(BROKER_TOKEN_STORAGE_KEY),
+    ]),
+};
+
+// Attach the broker's own JWT to a single request, e.g.:
+//   api.get(url, await withBrokerAuth())
+// Use this for every broker-scoped call (partyApi.getByAgent and any
+// future broker screens) instead of relying on the global interceptor,
+// since some endpoints (e.g. /party/{id}/orders) are shared with the
+// customer flow and must not silently pick up the wrong token.
+export const withBrokerAuth = async () => {
+  const token = await BrokerSessionStorage.getToken();
+  return { headers: { Authorization: token ? `Bearer ${token}` : '' } };
 };
 
 // ════════════════════════════════════════════════════════════════════
@@ -182,9 +208,10 @@ export const partyApi = {
    * across name / mobile / GST no.
    * GET /api/party/by-agent/{serialNo}?search=...
    */
-  getByAgent: (agentSerialNo: string, search?: string) =>
+  getByAgent: async (agentSerialNo: string, search?: string) =>
     api.get<PartyDto[]>(`/party/by-agent/${agentSerialNo}`, {
       params: search ? { search } : {},
+      ...(await withBrokerAuth()),
     }),
 };
 
@@ -206,13 +233,47 @@ export interface AgentDto {
 
 export const agentApi = {
   /**
-   * Broker Login — phone-only lookup against the `agents` table.
+   * Step 1 — does this phone belong to a broker, and have they already
+   * set up a PIN? This endpoint is intentionally lightweight: it never
+   * returns the agent record or any token — it only tells the UI which
+   * screen to route to next. Actual authentication happens in
+   * setPin/verifyPin below.
+   *
    * GET /api/agent/check-phone/{contactNo}
-   *   -> { exists: true,  agent: AgentDto }
-   *   -> { exists: false }
+   *   -> { exists: true,  hasPinSet: true }   -> route to PIN login
+   *   -> { exists: true,  hasPinSet: false }  -> route to PIN setup
+   *   -> { exists: false }                    -> "no broker found"
    */
   checkPhone: (contactNo: string) =>
-    api.get<{ exists: boolean; agent?: AgentDto }>(`/agent/check-phone/${contactNo}`),
+    api.get<{ exists: boolean; hasPinSet?: boolean }>(`/agent/check-phone/${contactNo}`),
+
+  /**
+   * Step 2a — FIRST TIME ONLY. Sets the broker's PIN. Backend must
+   * reject this if a PIN is already set for that phone (use verify-pin
+   * to log in, not this) to stop someone re-registering over an
+   * existing broker's PIN.
+   *
+   * POST /api/agent/set-pin
+   * Body: { contactNo, pin }
+   * Success 200: { token: string, agent: AgentDto }
+   * Errors: 404 AGENT_NOT_FOUND · 409 PIN_ALREADY_SET
+   */
+  setPin: (contactNo: string, pin: string) =>
+    api.post<{ token: string; agent: AgentDto }>('/agent/set-pin', { contactNo, pin }),
+
+  /**
+   * Step 2b — RETURNING BROKER. Verifies PIN against the stored hash.
+   * Backend enforces attempt-limiting/lockout server-side.
+   *
+   * POST /api/agent/verify-pin
+   * Body: { contactNo, pin }
+   * Success 200: { token: string, agent: AgentDto }
+   * Errors:
+   *   401 { code: 'INVALID_PIN', attemptsRemaining: number }
+   *   423 { code: 'PIN_LOCKED', error: '...' }  ← too many failed attempts
+   */
+  verifyPin: (contactNo: string, pin: string) =>
+    api.post<{ token: string; agent: AgentDto }>('/agent/verify-pin', { contactNo, pin }),
 };
 
 // ════════════════════════════════════════════════════════════════════

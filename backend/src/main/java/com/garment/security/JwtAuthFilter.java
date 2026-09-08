@@ -28,6 +28,9 @@ public class JwtAuthFilter extends OncePerRequestFilter {
     @Autowired
     private CustomerUserDetailsService customerUserDetailsService;
 
+    @Autowired
+    private BrokerUserDetailsService brokerUserDetailsService;
+
   @Override
 protected boolean shouldNotFilter(HttpServletRequest request) {
     String path   = request.getServletPath();
@@ -69,14 +72,20 @@ protected boolean shouldNotFilter(HttpServletRequest request) {
                 //      Problem: any new mobile endpoint not in that list would fail.
                 //
                 // NEW: detect by JWT subject format.
+                //      "broker:<serialNo>" → broker token (checked first — it's a
+                //      fixed, unambiguous prefix, unlike the phone/email checks
+                //      below, which is what makes it safe to add without touching
+                //      what already works for customer/web tokens).
                 //      Phone numbers are 10 digits → mobile customer token.
                 //      Emails contain '@' → web admin token.
-                //      This works for ALL endpoints automatically.
-                boolean isMobileToken = subject.matches("^[0-9]{10}$");
+                boolean isBrokerToken = subject.startsWith("broker:");
+                boolean isMobileToken = !isBrokerToken && subject.matches("^[0-9]{10}$");
 
-                UserDetails userDetails = isMobileToken
-                        ? customerUserDetailsService.loadUserByUsername(subject)
-                        : webUserDetailsService.loadUserByUsername(subject);
+                UserDetails userDetails = isBrokerToken
+                        ? brokerUserDetailsService.loadUserByUsername(subject)
+                        : isMobileToken
+                            ? customerUserDetailsService.loadUserByUsername(subject)
+                            : webUserDetailsService.loadUserByUsername(subject);
 
                 if (jwtUtil.validateToken(jwt, userDetails.getUsername())) {
                     UsernamePasswordAuthenticationToken authToken =

@@ -88,6 +88,12 @@ public class SecurityConfig {
                       .requestMatchers("/api/party/auth/verify-gst").permitAll()
                       .requestMatchers("/api/party/auth/set-password").permitAll()
 
+                      // ── Broker-scoped party listing — requires a valid
+                      //    broker JWT. MUST come before the broad
+                      //    "/api/party/**" permitAll below, since Spring
+                      //    Security uses the first matching rule.
+                      .requestMatchers("/api/party/by-agent/**").hasRole("BROKER")
+
                       // ── Admin & product endpoints (open) ──────────────────
                       .requestMatchers("/api/admin/customers/**").permitAll()
                       .requestMatchers("/api/admin/products/**").permitAll()

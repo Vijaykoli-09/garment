@@ -2,8 +2,10 @@ package com.garment.model;
 
 import jakarta.persistence.*;
 import lombok.*;
+import org.hibernate.annotations.ColumnDefault;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -38,4 +40,18 @@ public class Agent {
     // "CR" or "DR"
     @Column(length = 2)
     private String openingBalanceType;
+
+    // ══════════════════════════════════════════════════════════════════
+    // Broker mobile-app PIN auth. pinHash is a BCrypt hash — never the
+    // raw PIN. Null pinHash means this broker hasn't set a PIN yet
+    // (either brand new, or reset by admin) and should go through the
+    // "set PIN" first-time flow, not "verify PIN" login.
+    // ══════════════════════════════════════════════════════════════════
+    private String pinHash;
+
+    @Column(nullable = false)
+    @ColumnDefault("0")
+    private int failedPinAttempts = 0;
+
+    private LocalDateTime pinLockedUntil;
 }

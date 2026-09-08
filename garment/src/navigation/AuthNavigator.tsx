@@ -6,6 +6,8 @@ import LoginScreen from '../screens/LoginScreen';
 import SignupScreen from '../screens/SignupScreen';
 import PartyGstScreen from '../screens/PartyGstScreen';
 import BrokerLoginScreen from '../screens/BrokerLoginScreen';
+import BrokerPinSetupScreen from '../screens/BrokerPinSetupScreen';
+import BrokerPinLoginScreen from '../screens/BrokerPinLoginScreen';
 
 const Stack = createNativeStackNavigator();
 
@@ -30,6 +32,8 @@ export default function AuthNavigator() {
       <Stack.Screen name="PartyGst" component={PartyGstScreen} options={{ headerShown: false }} />
 
       <Stack.Screen name="BrokerLogin" component={BrokerLoginScreen} options={{ headerShown: false }} />
+      <Stack.Screen name="BrokerPinSetup" component={BrokerPinSetupScreen} options={{ headerShown: false }} />
+      <Stack.Screen name="BrokerPinLogin" component={BrokerPinLoginScreen} options={{ headerShown: false }} />
 
     </Stack.Navigator>
   );

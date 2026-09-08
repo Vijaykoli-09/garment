@@ -13,18 +13,15 @@
  *   <Stack.Screen name="BrokerLogin" component={BrokerLoginScreen} />
  */
 
-import React, { useContext, useState } from 'react';
+import React, { useState } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, StyleSheet,
   ActivityIndicator, KeyboardAvoidingView, Platform, ScrollView,
 } from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
 import { agentApi } from '../api/api';
-import { BrokerContext } from '../context/BrokerContext';
 
 export default function BrokerLoginScreen({ navigation }: any) {
-  const { loginBroker } = useContext(BrokerContext);
-
   const [phone, setPhone]     = useState('');
   const [error, setError]     = useState('');
   const [loading, setLoading] = useState(false);
@@ -45,12 +42,17 @@ export default function BrokerLoginScreen({ navigation }: any) {
       const res = await agentApi.checkPhone(phone);
       const data = res.data;
 
-      if (data?.exists && data?.agent) {
-        await loginBroker(data.agent);
-        // reset (not navigate) so "back" can't return to the login screen
-        navigation.reset({ index: 0, routes: [{ name: 'BrokerDashboard' }] });
-      } else {
+      if (!data?.exists) {
         setError('No broker found with this phone number.');
+        return;
+      }
+
+      // Phone alone never logs anyone in anymore — route to whichever
+      // PIN step this broker needs next.
+      if (data.hasPinSet) {
+        navigation.navigate('BrokerPinLogin', { phone });
+      } else {
+        navigation.navigate('BrokerPinSetup', { phone });
       }
     } catch (err: any) {
       const msg = err?.response?.data?.error;

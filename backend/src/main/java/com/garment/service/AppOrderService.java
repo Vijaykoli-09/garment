@@ -196,10 +196,26 @@ public class AppOrderService {
 
         order.setRazorpayPaymentId(req.getRazorpayPaymentId());
         order.setRazorpaySignature(req.getRazorpaySignature());
-        order.setPaymentStatus(PaymentStatus.PAID);
         order.setOrderStatus(OrderStatus.ACCEPTED);
-        order.setPaidAt(LocalDateTime.now());
         order.setUpdatedAt(LocalDateTime.now());
+
+        // ════════════════════════════════════════════════════════════════
+        // PAYMENT STATUS — only the amount actually collected here
+        // ════════════════════════════════════════════════════════════════
+        // ADVANCE_CREDIT only collects 30% via Razorpay at this step; the
+        // remaining 70% is still outstanding as credit, so the order must
+        // NOT be marked PAID yet — that would hide it from "pending credit"
+        // screens and block the customer from ever paying the balance.
+        // The order becomes fully PAID later, in verifyCreditPayment(),
+        // once the customer clears the remaining credit amount.
+        if (order.getPaymentMethod() == PaymentMethod.ADVANCE_CREDIT) {
+            order.setPaymentStatus(PaymentStatus.PARTIALLY_PAID);
+            // paidAt is reserved for when the order becomes FULLY paid —
+            // leave it null here; verifyCreditPayment() sets it later.
+        } else {
+            order.setPaymentStatus(PaymentStatus.PAID);
+            order.setPaidAt(LocalDateTime.now());
+        }
 
         AppOrder saved = orderRepo.save(order);
 
