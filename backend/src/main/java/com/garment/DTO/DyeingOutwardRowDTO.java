@@ -10,6 +10,7 @@ public class DyeingOutwardRowDTO {
     private String processing;
     private String roll;
     private String weight;
+    private String receivedWeight;
     private String knittingYarnRate;
     private String rate;
     private String amount;
@@ -33,6 +34,8 @@ public class DyeingOutwardRowDTO {
     public void setRoll(String roll) { this.roll = roll; }
     public String getWeight() { return weight; }
     public void setWeight(String weight) { this.weight = weight; }
+    public String getReceivedWeight() { return receivedWeight; }
+    public void setReceivedWeight(String receivedWeight) { this.receivedWeight = receivedWeight; }
     public String getKnittingYarnRate() { return knittingYarnRate; }
     public void setKnittingYarnRate(String knittingYarnRate) { this.knittingYarnRate = knittingYarnRate; }
     public String getRate() { return rate; }

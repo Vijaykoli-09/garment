@@ -1,3 +1,2625 @@
+// "use client";
+
+// import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+// import Dashboard from "../Dashboard";
+// import Swal from "sweetalert2";
+// import api from "../../api/axiosInstance";
+
+// // ================= Types =================
+// type CuttingRow = {
+//   id: number; // UI-only
+//   cutLotNo: string;
+//   artNo: string;
+//   itemName: string;
+//   shade: string;
+//   pcs: string;
+//   rate: string;
+//   amount: string;
+//   artSerialNumber?: string;
+// };
+
+// type StockDetailRow = {
+//   id: number;
+//   finishingInwardRowId?: number | null;
+//   itemName: string;
+//   shade: string;
+//   unit: string;
+//   inhouseWeight: string;
+//   yarnRate: string;
+//   knittingRate: string;
+//   dyeingRate: string;
+//   finishingRate: string;
+//   consumption: string;
+//   kho: string;
+//   consRate: string;
+//   consAmount: string;
+// };
+
+// type SizeEntryRow = {
+//   id: number; // UI-only
+//   cuttingRowId: number; // link to CuttingRow.id
+//   size: string;
+//   box: string;
+//   pcs: string; // pcs per box
+// };
+
+// type CuttingSizeRowDTO = {
+//   id?: number | null;
+//   lotSno: number; // CuttingLotRowDTO.sno
+//   size: string;
+//   box: string;
+//   pcsPerBox: string;
+//   totalPcs: string;
+// };
+
+// type Employee = {
+//   code: string;
+//   employeeName: string;
+//   process?: { serialNo: string; processName: string };
+// };
+
+// type ArtListItem = {
+//   serialNumber: string;
+//   artGroup: string;
+//   artName: string;
+//   artNo: string;
+//   saleRate?: string;
+//   styleRate?: string;
+// };
+
+// type FinishingInwardRow = {
+//   id?: number;
+//   lotNo?: string;
+//   itemName?: string;
+//   shade?: string;
+//   rolls?: string;
+//   weight?: string;
+//   weightKg?: string;
+//   receivedWtBox?: string;
+//   rate?: string;
+//   rateFND?: string;
+//   yarnRate?: string;
+//   knittingRate?: string;
+//   dyeingRate?: string;
+//   yarn?: string;
+//   knitting?: string;
+//   dyeing?: string;
+//   yarnRatePerKg?: string;
+//   knittingRatePerKg?: string;
+//   dyeingRatePerKg?: string;
+//   kyrRate?: string;
+//   kyr?: string;
+//   processRates?: any;
+// };
+
+// type FinishingInwardDoc = {
+//   id: number;
+//   partyName?: string;
+//   dated?: string;
+//   challanNo?: string;
+//   rows?: FinishingInwardRow[];
+// };
+
+// type IssueTo = "Inside" | "Outside";
+
+// type CuttingEntryDTO = {
+//   serialNo: string;
+//   date: string; // YYYY-MM-DD
+//   employeeId?: string;
+//   employeeName?: string;
+
+//   totalPcs?: string;
+//   totalCuttingAmount?: string;
+//   totalConsumption?: string;
+//   totalKho?: string;
+//   totalConsAmount?: string;
+
+//   issueTo?: IssueTo;
+//   issueBranchId?: string | number;
+//   issueBranchName?: string;
+
+//   lotRows: {
+//     id?: number | null;
+//     sno?: number;
+//     cutLotNo: string;
+//     artNo: string;
+//     itemName: string;
+//     shade: string;
+//     pcs: string;
+//     rate: string;
+//     amount: string;
+//   }[];
+
+//   stockRows: {
+//     id?: number | null;
+//     sno?: number;
+//     finishingInwardRowId?: number | null;
+//     itemName: string;
+//     shade: string;
+//     unit: string;
+//     inhouseWeight?: string;
+//     yarnRate?: string;
+//     knittingRate?: string;
+//     dyeingRate?: string;
+//     finishingRate?: string;
+//     consumption: string;
+//     kho?: string;
+//     consRate: string;
+//     consAmount: string;
+//   }[];
+
+//   // ✅ backend integration
+//   sizeRows?: CuttingSizeRowDTO[];
+// };
+
+// type Shade = { shadeCode: string; shadeName: string };
+
+// type Location = {
+//   id: number | string;
+//   branchName: string;
+//   serialNumber?: string;
+//   branchCode?: string;
+// };
+
+// type ArtProcess = {
+//   processName?: string;
+//   rate?: string | number;
+//   rate1?: string | number;
+// };
+
+// type ArtDetail = {
+//   serialNumber: string;
+//   artName?: string;
+//   artNo?: string;
+//   processes?: ArtProcess[];
+
+//   // sizes may be available in your art API (if present)
+//   sizes?: any[];
+//   sizeRows?: any[];
+//   sizeDetails?: any[];
+//   artSizes?: any[];
+// };
+
+// // ================= Utils =================
+// const toNum = (v: any) =>
+//   v === null || v === undefined || v === "" || isNaN(Number(v)) ? 0 : Number(v);
+// const fmt = (v: number, d = 2) => v.toFixed(d);
+
+// const extractSizesFromArtDetail = (detail: any): string[] => {
+//   if (!detail) return [];
+//   const raw =
+//     detail?.sizes ||
+//     detail?.sizeRows ||
+//     detail?.sizeDetails ||
+//     detail?.artSizes ||
+//     [];
+
+//   if (!Array.isArray(raw)) return [];
+
+//   const asStr = raw
+//     .map((x: any) => {
+//       if (typeof x === "string") return x;
+//       if (typeof x === "number") return String(x);
+//       return (
+//         x?.sizeName ??
+//         x?.size ??
+//         x?.name ??
+//         x?.label ??
+//         x?.value ??
+//         x?.sizeCode ??
+//         ""
+//       );
+//     })
+//     .map((s: any) => String(s || "").trim())
+//     .filter(Boolean);
+
+//   return Array.from(new Set(asStr)).sort((a, b) =>
+//     a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" })
+//   );
+// };
+
+// const sizeRowTotalPcs = (sr: SizeEntryRow) => toNum(sr.box) * toNum(sr.pcs);
+
+// // ✅ text-input for numbers (no wheel increment/decrement)
+// type NumTextInputProps = Omit<
+//   React.InputHTMLAttributes<HTMLInputElement>,
+//   "type" | "value" | "onChange"
+// > & {
+//   value: string;
+//   onChangeValue: (v: string) => void;
+// };
+
+// const NumTextInput: React.FC<NumTextInputProps> = ({
+//   value,
+//   onChangeValue,
+//   className = "",
+//   ...rest
+// }) => (
+//   <input
+//     {...rest}
+//     type="text"
+//     inputMode="decimal"
+//     value={value}
+//     onChange={(e) => onChangeValue(e.target.value)}
+//     onWheel={(e) => (e.currentTarget as HTMLInputElement).blur()}
+//     className={className}
+//   />
+// );
+
+// // ================= API helpers =================
+// const getNextSerial = async (dateISO: string) =>
+//   (
+//     await api.get<string>("/cutting-entries/next-serial", {
+//       params: { date: dateISO },
+//     })
+//   ).data;
+
+// const listCuttings = async () =>
+//   (await api.get<CuttingEntryDTO[]>("/cutting-entries")).data;
+
+// const getCutting = async (serialNo: string) =>
+//   (await api.get<CuttingEntryDTO>(`/cutting-entries/${serialNo}`)).data;
+
+// const saveCutting = async (payload: CuttingEntryDTO) =>
+//   (await api.post<CuttingEntryDTO>("/cutting-entries", payload)).data;
+
+// const updateCutting = async (serialNo: string, payload: CuttingEntryDTO) =>
+//   (await api.put<CuttingEntryDTO>(`/cutting-entries/${serialNo}`, payload)).data;
+
+// const deleteCutting = async (serialNo: string) => {
+//   await api.delete(`/cutting-entries/${serialNo}`);
+// };
+
+// const listEmployees = async () => (await api.get<Employee[]>("/employees")).data;
+// const listArts = async () => (await api.get<ArtListItem[]>("/arts")).data;
+// const getArtDetail = async (serialNumber: string) =>
+//   (await api.get<ArtDetail>(`/arts/${serialNumber}`)).data;
+
+// const listFinishingRows = async (): Promise<FinishingInwardRow[]> => {
+//   const res = await api.get<FinishingInwardDoc[]>("/finishing-inwards");
+//   const docs = Array.isArray(res.data) ? res.data : [];
+//   const flat: FinishingInwardRow[] = [];
+//   for (const d of docs) {
+//     for (const r of d.rows || []) {
+//       const x: any = r || {};
+//       const n: FinishingInwardRow = {
+//         ...x,
+//         id: x.id,
+//         itemName: String(x.itemName ?? x.item ?? x.fabric ?? x.materialName ?? "").trim(),
+//         shade: String(x.shade ?? x.shadeName ?? "").trim(),
+//         weightKg: String(x.weightKg ?? x.weight ?? x.receivedWtBox ?? x.receivedWeight ?? x.wt ?? ""),
+//         rate: String(x.rate ?? x.finishingRate ?? "").trim(),
+//         rateFND: String(x.rateFND ?? x.rateFnd ?? x.kyrDyeingRate ?? x.kyrDyeing ?? x.yarnKnittingDyeingRate ?? "").trim(),
+//         yarnRate: String(x.yarnRate ?? x.yarn ?? x.yarnRatePerKg ?? "").trim(),
+//         knittingRate: String(x.knittingRate ?? x.knitting ?? x.knittingRatePerKg ?? "").trim(),
+//         dyeingRate: String(x.dyeingRate ?? x.dyeing ?? x.dyeingRatePerKg ?? "").trim(),
+//         kyrRate: String(x.kyrRate ?? x.kyr ?? "").trim(),
+//       };
+//       const pr: any = x.processRates;
+//       if (pr && typeof pr === "object" && !Array.isArray(pr)) {
+//         n.yarnRate = n.yarnRate || String(pr.yarn ?? pr.yarnRate ?? "");
+//         n.knittingRate = n.knittingRate || String(pr.knitting ?? pr.knittingRate ?? "");
+//         n.dyeingRate = n.dyeingRate || String(pr.dyeing ?? pr.dyeingRate ?? "");
+//       }
+//       if (n.itemName) flat.push(n);
+//     }
+//   }
+//   return flat;
+// };
+
+// const listShades = async (): Promise<Shade[]> => {
+//   const res = await api.get<any[]>("/shade/list");
+//   const data = Array.isArray(res.data) ? res.data : [];
+//   return data
+//     .map((x) => ({
+//       shadeCode: String(x.shadeCode || "").toUpperCase(),
+//       shadeName: String(x.shadeName || ""),
+//     }))
+//     .sort((a, b) => a.shadeName.localeCompare(b.shadeName));
+// };
+
+// const listLocations = async (): Promise<Location[]> =>
+//   (await api.get<Location[]>("/locations")).data;
+
+// // Extract Cutting rate by IssueTo
+// const extractCuttingRate = (
+//   detail: ArtDetail | undefined,
+//   issueTo: IssueTo
+// ): number => {
+//   const list = detail?.processes || [];
+//   if (!list || list.length === 0) return 0;
+
+//   const norm = (s?: string) => (s || "").trim().toLowerCase();
+//   const procs = list.map((p) => ({ ...p, _n: norm(p.processName) }));
+
+//   let chosen: ArtProcess | undefined;
+//   if (issueTo === "Inside") {
+//     chosen = procs.find((p) => p._n.includes("cut") && p._n.includes("inside"));
+//   } else {
+//     chosen = procs.find(
+//       (p) =>
+//         p._n.includes("cut") &&
+//         (p._n.includes("outside") || p._n.includes("out"))
+//     );
+//   }
+//   if (!chosen) chosen = procs.find((p) => p._n === "cutting");
+//   if (!chosen) chosen = procs.find((p) => p._n.includes("cut"));
+
+//   return toNum(chosen?.rate);
+// };
+
+// // ============ Cutting Lot Uniqueness Check ============
+// const checkDuplicateCutLots = async (
+//   payload: CuttingEntryDTO
+// ): Promise<string | null> => {
+//   const norm = (s: string) => s.trim().toUpperCase();
+
+//   const currentLots = (payload.lotRows || [])
+//     .map((r) => norm(r.cutLotNo || ""))
+//     .filter((v) => v);
+
+//   if (currentLots.length === 0) return null;
+
+//   // duplicate inside same entry
+//   const selfMap = new Map<string, number>();
+//   for (const lot of currentLots) selfMap.set(lot, (selfMap.get(lot) || 0) + 1);
+//   const selfDups = Array.from(selfMap.entries())
+//     .filter(([, c]) => c > 1)
+//     .map(([lot]) => lot);
+
+//   if (selfDups.length > 0) {
+//     return `Cutting Lot No(s) ${selfDups.join(", ")} duplicated within this entry.`;
+//   }
+
+//   // check other entries
+//   let allEntries: CuttingEntryDTO[];
+//   try {
+//     allEntries = await listCuttings();
+//   } catch (e) {
+//     console.error(e);
+//     return "Could not verify Cutting Lot No uniqueness. Please try again later.";
+//   }
+
+//   const others = (allEntries || []).filter((e) => e.serialNo !== payload.serialNo);
+
+//   const usedLots = new Set<string>();
+//   for (const e of others) {
+//     for (const r of e.lotRows || []) {
+//       const lot = norm(r.cutLotNo || "");
+//       if (lot) usedLots.add(lot);
+//     }
+//   }
+
+//   const conflicts = Array.from(new Set(currentLots.filter((lot) => usedLots.has(lot))));
+//   if (conflicts.length > 0) {
+//     return `Cutting Lot No(s) ${conflicts.join(", ")} already used in another cutting entry.`;
+//   }
+
+//   return null;
+// };
+
+// // ================= Shade Dropdown =================
+// type ShadeDropdownProps = {
+//   value?: string;
+//   onChange: (val: string) => void;
+//   options: Shade[];
+//   placeholder?: string;
+//   className?: string;
+//   disabled?: boolean;
+// };
+
+// const ShadeDropdown: React.FC<ShadeDropdownProps> = ({
+//   value = "",
+//   onChange,
+//   options,
+//   placeholder = "Select shade...",
+//   className = "",
+//   disabled = false,
+// }) => {
+//   const [open, setOpen] = useState(false);
+//   const [q, setQ] = useState("");
+//   const [active, setActive] = useState<number>(-1);
+//   const ref = useRef<HTMLDivElement | null>(null);
+//   const inputRef = useRef<HTMLInputElement | null>(null);
+
+//   const selected = useMemo(() => {
+//     const v = String(value || "").trim().toLowerCase();
+//     if (!v) return null;
+//     return options.find((s) => s.shadeName.trim().toLowerCase() === v) || null;
+//   }, [options, value]);
+
+//   const label = selected ? selected.shadeName : value || "";
+
+//   const filtered = useMemo(() => {
+//     const query = q.trim().toLowerCase();
+//     if (!query) return options;
+//     return options.filter(
+//       (s) =>
+//         s.shadeName.toLowerCase().includes(query) ||
+//         s.shadeCode.toLowerCase().includes(query)
+//     );
+//   }, [options, q]);
+
+//   useEffect(() => {
+//     const onDoc = (e: MouseEvent) => {
+//       if (!ref.current) return;
+//       if (!ref.current.contains(e.target as Node)) {
+//         setOpen(false);
+//         setActive(-1);
+//       }
+//     };
+//     document.addEventListener("mousedown", onDoc);
+//     return () => document.removeEventListener("mousedown", onDoc);
+//   }, []);
+
+//   const openBox = () => {
+//     if (disabled) return;
+//     setOpen(true);
+//     setActive(-1);
+//     setTimeout(() => (inputRef as any).current?.focus(), 0);
+//   };
+
+//   const onKeyDown = (e: React.KeyboardEvent) => {
+//     if (!open) {
+//       if (["ArrowDown", "Enter", " "].includes(e.key)) {
+//         e.preventDefault();
+//         openBox();
+//       }
+//       return;
+//     }
+//     if (e.key === "Escape") {
+//       e.preventDefault();
+//       setOpen(false);
+//       setActive(-1);
+//     } else if (e.key === "ArrowDown") {
+//       e.preventDefault();
+//       setActive((p) =>
+//         Math.min(p < 0 ? 0 : p + 1, Math.max(0, filtered.length - 1))
+//       );
+//     } else if (e.key === "ArrowUp") {
+//       e.preventDefault();
+//       setActive((p) => Math.max(p <= 0 ? 0 : p - 1, 0));
+//     } else if (e.key === "Enter") {
+//       e.preventDefault();
+//       const choice = filtered[active];
+//       if (choice) {
+//         onChange(choice.shadeName);
+//         setQ("");
+//         setOpen(false);
+//         setActive(-1);
+//       }
+//     }
+//   };
+
+//   return (
+//     <div ref={ref} className={`relative ${className}`} onKeyDown={onKeyDown}>
+//       <div
+//         onClick={openBox}
+//         className={`flex items-center justify-between border rounded px-2 py-1 bg-white cursor-pointer ${
+//           disabled ? "opacity-60 cursor-not-allowed" : "border-gray-300"
+//         }`}
+//         aria-haspopup="listbox"
+//         aria-expanded={open}
+//         title={label || placeholder}
+//       >
+//         <div className="truncate text-sm">
+//           {label ? label : <span className="text-gray-400">{placeholder}</span>}
+//         </div>
+//         <div className="flex items-center gap-1">
+//           {value && !disabled && (
+//             <button
+//               type="button"
+//               className="text-gray-400 hover:text-gray-600"
+//               onClick={(e) => {
+//                 e.stopPropagation();
+//                 onChange("");
+//               }}
+//               title="Clear"
+//             >
+//               ×
+//             </button>
+//           )}
+//           <span className="text-gray-500">▾</span>
+//         </div>
+//       </div>
+
+//       {open && (
+//         <div className="absolute z-[200] mt-1 w-full bg-white border border-gray-200 rounded shadow-lg">
+//           <div className="p-2 border-b">
+//             <input
+//               ref={inputRef as any}
+//               type="text"
+//               className="w-full border border-gray-300 rounded px-2 py-1 text-sm"
+//               placeholder="Search shade..."
+//               value={q}
+//               onChange={(e) => {
+//                 setQ(e.target.value);
+//                 setActive(0);
+//               }}
+//               disabled={disabled}
+//             />
+//           </div>
+//           <div className="max-h-60 overflow-auto">
+//             {filtered.length === 0 ? (
+//               <div className="p-3 text-sm text-gray-500">No shades found</div>
+//             ) : (
+//               filtered.map((s, idx) => {
+//                 const isActive = idx === active;
+//                 const isSel =
+//                   selected?.shadeName.toLowerCase() ===
+//                   s.shadeName.toLowerCase();
+//                 return (
+//                   <div
+//                     key={`${s.shadeCode}-${s.shadeName}`}
+//                     role="option"
+//                     aria-selected={isSel}
+//                     className={`px-3 py-2 text-sm cursor-pointer ${
+//                       isActive ? "bg-blue-50" : ""
+//                     } ${isSel ? "font-semibold" : ""}`}
+//                     onMouseEnter={() => setActive(idx)}
+//                     onMouseDown={(e) => e.preventDefault()}
+//                     onClick={() => {
+//                       onChange(s.shadeName);
+//                       setQ("");
+//                       setOpen(false);
+//                       setActive(-1);
+//                     }}
+//                     title={s.shadeName}
+//                   >
+//                     {s.shadeName}
+//                   </div>
+//                 );
+//               })
+//             )}
+//           </div>
+//         </div>
+//       )}
+//     </div>
+//   );
+// };
+
+// // ================= Component =================
+// const CuttingModule: React.FC = () => {
+//   // Header
+//   const [serialNo, setSerialNo] = useState("");
+//   const [date, setDate] = useState<string>(() =>
+//     new Date().toISOString().slice(0, 10)
+//   );
+//   const [employeeId, setEmployeeId] = useState<string>("");
+//   const [employeeName, setEmployeeName] = useState<string>("");
+
+//   const [isEditing, setIsEditing] = useState(false);
+
+//   // Cutting Lot Details
+//   const [rows, setRows] = useState<CuttingRow[]>([]);
+
+//   // Cutting Stock Details
+//   const [stockRows, setStockRows] = useState<StockDetailRow[]>([]);
+
+//   // ✅ Size entry state
+//   const [sizeRowsMap, setSizeRowsMap] = useState<Record<number, SizeEntryRow[]>>(
+//     {}
+//   );
+//   const [activeCuttingRowId, setActiveCuttingRowId] = useState<number | null>(
+//     null
+//   );
+
+//   // Masters
+//   const [employees, setEmployees] = useState<Employee[]>([]);
+//   const [arts, setArts] = useState<ArtListItem[]>([]);
+//   const [finishingRows, setFinishingRows] = useState<FinishingInwardRow[]>([]);
+//   const [shades, setShades] = useState<Shade[]>([]);
+//   const [locations, setLocations] = useState<Location[]>([]);
+
+//   const cuttingEmployees = useMemo(
+//     () =>
+//       employees.filter((emp) => {
+//         const pName = emp.process?.processName?.trim().toLowerCase() || "";
+//         const isCutting = pName === "cutting";
+//         const isSelected =
+//           employeeId && String(emp.code) === String(employeeId);
+//         return isCutting || isSelected;
+//       }),
+//     [employees, employeeId]
+//   );
+
+//   const [issueTo, setIssueTo] = useState<IssueTo>("Inside");
+//   const [issueBranchId, setIssueBranchId] = useState<string | number>("");
+//   const [issueBranchName, setIssueBranchName] = useState<string>("");
+
+//   const [rateCache, setRateCache] = useState<Record<string, number>>({});
+//   const fetchingRatesRef = useRef<Set<string>>(new Set());
+
+//   // Modals
+//   const [artModalOpen, setArtModalOpen] = useState(false);
+//   const [artSearch, setArtSearch] = useState("");
+//   const [artRowId, setArtRowId] = useState<number | null>(null);
+
+//   const [finishModalOpen, setFinishModalOpen] = useState(false);
+//   const [finishSearch, setFinishSearch] = useState("");
+//   const [finishRowId, setFinishRowId] = useState<number | null>(null);
+
+//   // List modal
+//   const [listOpen, setListOpen] = useState(false);
+//   const [listSearch, setListSearch] = useState("");
+//   const [entryList, setEntryList] = useState<CuttingEntryDTO[]>([]);
+
+//   // ---------- Helpers ----------
+//   const resolveEmployeeName = useCallback(
+//     (empCode?: string | null) => {
+//       if (!empCode) return "";
+//       const emp = employees.find((e) => String(e.code) === String(empCode));
+//       return (emp?.employeeName || "").trim();
+//     },
+//     [employees]
+//   );
+
+//   const resolveBranchName = useCallback(
+//     (idVal?: string | number) => {
+//       if (idVal === null || idVal === undefined || idVal === "") return "";
+//       const b = locations.find((x) => String(x.id) === String(idVal));
+//       return (b?.branchName || "").trim();
+//     },
+//     [locations]
+//   );
+
+//   const rateKey = (serial: string, it: IssueTo) => `${serial}|${it}`;
+
+//   // ---------- Add rows ----------
+//   const addCuttingRow = useCallback(() => {
+//     const newId = Date.now() + Math.floor(Math.random() * 1000);
+//     setRows((prev) => [
+//       ...prev,
+//       {
+//         id: newId,
+//         cutLotNo: "",
+//         artNo: "",
+//         itemName: "",
+//         shade: "",
+//         pcs: "",
+//         rate: "",
+//         amount: "",
+//         artSerialNumber: "",
+//       },
+//     ]);
+//     setActiveCuttingRowId(newId);
+//   }, []);
+
+//   const addStockRow = useCallback(() => {
+//     setStockRows((prev) => [
+//       ...prev,
+//       {
+//         id: Date.now() + Math.floor(Math.random() * 1000),
+//         finishingInwardRowId: null,
+//         itemName: "",
+//         shade: "",
+//         unit: "Kg",
+//         inhouseWeight: "",
+//         yarnRate: "",
+//         knittingRate: "",
+//         dyeingRate: "",
+//         finishingRate: "",
+//         consumption: "",
+//         kho: "",
+//         consRate: "",
+//         consAmount: "",
+//       },
+//     ]);
+//   }, []);
+
+//   // ---------- Reset ----------
+//   const resetForm = useCallback(
+//     async (keepDate = true) => {
+//       setIsEditing(false);
+
+//       const d = keepDate ? date : new Date().toISOString().slice(0, 10);
+//       const next = await getNextSerial(d);
+
+//       setSerialNo(next);
+//       if (!keepDate) setDate(d);
+
+//       setEmployeeId("");
+//       setEmployeeName("");
+
+//       setIssueTo("Inside");
+//       setIssueBranchId("");
+//       setIssueBranchName("");
+
+//       setRows([]);
+//       setStockRows([]);
+
+//       setSizeRowsMap({});
+//       setActiveCuttingRowId(null);
+
+//       setTimeout(() => {
+//         addCuttingRow();
+//         addStockRow();
+//       }, 0);
+//     },
+//     [date, addCuttingRow, addStockRow]
+//   );
+
+//   // ---------- Initial load ----------
+//   useEffect(() => {
+//     (async () => {
+//       try {
+//         setSerialNo(await getNextSerial(date));
+//       } catch {}
+
+//       if (rows.length === 0) addCuttingRow();
+//       if (stockRows.length === 0) addStockRow();
+
+//       try {
+//         setEmployees(await listEmployees());
+//       } catch {}
+//       try {
+//         setShades(await listShades());
+//       } catch {}
+//       try {
+//         setLocations(await listLocations());
+//       } catch {}
+//     })();
+//     // eslint-disable-next-line react-hooks/exhaustive-deps
+//   }, []);
+
+//   useEffect(() => {
+//     (async () => {
+//       if (isEditing) return;
+//       try {
+//         setSerialNo(await getNextSerial(date));
+//       } catch {}
+//     })();
+//   }, [date, isEditing]);
+
+//   const handleEmployeeChange = (val: string, labelText?: string) => {
+//     setEmployeeId(val);
+//     const nm = (labelText || "").trim() || resolveEmployeeName(val);
+//     setEmployeeName(nm);
+//   };
+
+//   // ---------- Art / Finishing modals ----------
+//   const openArtModal = async (rowId: number) => {
+//     setArtRowId(rowId);
+//     setArtSearch("");
+//     setArtModalOpen(true);
+//     if (arts.length === 0) {
+//       try {
+//         setArts(await listArts());
+//       } catch {}
+//     }
+//   };
+
+//   const openFinishModal = async (rowId: number) => {
+//     setFinishRowId(rowId);
+//     setFinishSearch("");
+//     setFinishModalOpen(true);
+//     try {
+//       setFinishingRows(await listFinishingRows());
+//     } catch {}
+//   };
+
+//   // ---------- Rate loading ----------
+//   const ensureRateLoaded = useCallback(
+//     async (a: ArtListItem, it: IssueTo) => {
+//       const key = rateKey(a.serialNumber, it);
+//       if (key in rateCache) return rateCache[key];
+//       if (fetchingRatesRef.current.has(key)) return undefined;
+
+//       fetchingRatesRef.current.add(key);
+//       try {
+//         const detail = await getArtDetail(a.serialNumber);
+//         const procRate =
+//           extractCuttingRate(detail, it) ||
+//           toNum(a.saleRate || a.styleRate || "");
+//         setRateCache((prev) => ({ ...prev, [key]: procRate }));
+//         return procRate;
+//       } catch {
+//         const fallback = toNum(a.saleRate || a.styleRate || "");
+//         setRateCache((prev) => ({ ...prev, [key]: fallback }));
+//         return fallback;
+//       } finally {
+//         fetchingRatesRef.current.delete(key);
+//       }
+//     },
+//     [rateCache]
+//   );
+
+//   const filteredArts = useMemo(() => {
+//     const q = artSearch.trim().toLowerCase();
+//     if (!q) return arts;
+//     return arts.filter((a) => {
+//       const key = rateKey(a.serialNumber, issueTo);
+//       const rateFromCache =
+//         key in rateCache
+//           ? rateCache[key]
+//           : toNum(a.saleRate || a.styleRate || "");
+//       return (
+//         (a.artNo || "").toLowerCase().includes(q) ||
+//         (a.artName || "").toLowerCase().includes(q) ||
+//         rateFromCache.toString().toLowerCase().includes(q)
+//       );
+//     });
+//   }, [artSearch, arts, rateCache, issueTo]);
+
+//   useEffect(() => {
+//     if (!artModalOpen) return;
+//     filteredArts.slice(0, 50).forEach((a) => {
+//       const key = rateKey(a.serialNumber, issueTo);
+//       if (!(key in rateCache)) ensureRateLoaded(a, issueTo);
+//     });
+//     // eslint-disable-next-line react-hooks/exhaustive-deps
+//   }, [artModalOpen, filteredArts, issueTo]);
+
+//   // ---------- Size rows init from ArtDetail ----------
+//   const initSizeRowsForCuttingRow = useCallback(
+//     async (cuttingRowId: number, artSerial: string) => {
+//       try {
+//         const detail = await getArtDetail(artSerial);
+//         const sizes = extractSizesFromArtDetail(detail);
+//         const baseSizes = sizes.length > 0 ? sizes : ["-"];
+
+//         const next: SizeEntryRow[] = baseSizes.map((sz, idx) => ({
+//           id: Date.now() + idx + Math.floor(Math.random() * 1000),
+//           cuttingRowId,
+//           size: String(sz),
+//           box: "",
+//           pcs: "",
+//         }));
+
+//         setSizeRowsMap((prev) => ({ ...prev, [cuttingRowId]: next }));
+//       } catch {
+//         setSizeRowsMap((prev) => ({
+//           ...prev,
+//           [cuttingRowId]: [
+//             {
+//               id: Date.now() + Math.floor(Math.random() * 1000),
+//               cuttingRowId,
+//               size: "-",
+//               box: "",
+//               pcs: "",
+//             },
+//           ],
+//         }));
+//       }
+//     },
+//     []
+//   );
+
+//   // ---------- Row handlers ----------
+//   const handleCuttingChange = (
+//     id: number,
+//     field: keyof CuttingRow,
+//     value: string
+//   ) => {
+//     setRows((prev) =>
+//       prev.map((r) => {
+//         if (r.id !== id) return r;
+//         const next = { ...r, [field]: value } as CuttingRow;
+//         const pcs = toNum(next.pcs);
+//         const rate = toNum(next.rate);
+//         next.amount = pcs && rate ? (pcs * rate).toFixed(2) : "";
+//         return next;
+//       })
+//     );
+
+//     // ✅ FIX: Cutting Lot PCS change -> size table auto change NOT DONE
+//   };
+
+//   const handleStockChange = (
+//     id: number,
+//     field: keyof StockDetailRow,
+//     value: string
+//   ) => {
+//     setStockRows((prev) =>
+//       prev.map((r) => {
+//         if (r.id !== id) return r;
+//         const next = { ...r, [field]: value } as StockDetailRow;
+//         const cons = toNum(next.consumption);
+//         const rate = toNum(next.consRate);
+//         next.consAmount = cons && rate ? (cons * rate).toFixed(2) : "";
+//         return next;
+//       })
+//     );
+//   };
+
+//   const handleSizeChange = (
+//     cuttingRowId: number,
+//     sizeRowId: number,
+//     field: keyof Pick<SizeEntryRow, "box" | "pcs">,
+//     value: string
+//   ) => {
+//     setSizeRowsMap((prev) => {
+//       const current = prev[cuttingRowId] || [];
+//       const updated = current.map((sr) =>
+//         sr.id === sizeRowId ? ({ ...sr, [field]: value } as SizeEntryRow) : sr
+//       );
+
+//       // ✅ Size total -> Cutting pcs update
+//       const totalSizePcs = updated.reduce((s, r) => s + sizeRowTotalPcs(r), 0);
+
+//       setRows((prevRows) =>
+//         prevRows.map((r) => {
+//           if (r.id !== cuttingRowId) return r;
+//           const rate = toNum(r.rate);
+//           const pcsStr = totalSizePcs > 0 ? String(totalSizePcs) : "";
+//           const amount =
+//             totalSizePcs && rate ? (totalSizePcs * rate).toFixed(2) : "";
+//           return { ...r, pcs: pcsStr, amount };
+//         })
+//       );
+
+//       return { ...prev, [cuttingRowId]: updated };
+//     });
+//   };
+
+//   // ---------- Finishing In-House helpers ----------
+//   // One Fabric = all matching In-House entries combined.
+//   // The UI shows only the final Fabric Rate. Internally we still keep all
+//   // possible rate fields so the total can be calculated without changing
+//   // Consumption or KHO logic.
+//   const getFinishingRateParts = (fr: FinishingInwardRow) => {
+//     const yarn = toNum(fr.yarnRate);
+//     const knitting = toNum(fr.knittingRate);
+//     const dyeing = toNum(fr.dyeingRate);
+//     const finishing = toNum(fr.rate);
+//     const aggregateYkd = toNum(fr.rateFND);
+
+//     // If separate Yarn/Knitting/Dyeing rates are available, use them.
+//     // Otherwise rateFND is the already-combined Yarn/Knitting/Dyeing rate.
+//     const ykdTotal = yarn + knitting + dyeing > 0
+//       ? yarn + knitting + dyeing
+//       : aggregateYkd;
+
+//     return {
+//       yarn,
+//       knitting,
+//       dyeing,
+//       finishing,
+//       total: ykdTotal + finishing,
+//     };
+//   };
+
+//   const getFinishingWeight = (fr: FinishingInwardRow) =>
+//     toNum(
+//       fr.weightKg ??
+//         fr.weight ??
+//         fr.receivedWtBox ??
+//         (fr as any).receivedWeight ??
+//         (fr as any).wt
+//     );
+
+//   // IMPORTANT: group only by Fabric Name.
+//   // If the same fabric exists in many In-House rows/lots/shades, it appears
+//   // only once in Cutting and its available weight is the sum of all rows.
+//   const getFinishingGroupKey = (fr: FinishingInwardRow) =>
+//     String(fr.itemName || "").trim().toLowerCase();
+
+//   const groupedFinishingRows = useMemo(() => {
+//     type Agg = FinishingInwardRow & {
+//       _weightSum?: number;
+//       _rateWeighted?: number;
+//     };
+
+//     const map = new Map<string, Agg>();
+
+//     for (const fr of finishingRows) {
+//       const itemName = String(fr.itemName || "").trim();
+//       if (!itemName) continue;
+
+//       const key = getFinishingGroupKey(fr);
+//       const weight = getFinishingWeight(fr);
+//       const rate = getFinishingRateParts(fr).total;
+//       const existing = map.get(key);
+
+//       if (!existing) {
+//         map.set(key, {
+//           ...fr,
+//           itemName,
+//           weightKg: String(weight),
+//           _weightSum: weight,
+//           _rateWeighted: weight * rate,
+//         });
+//       } else {
+//         const oldWeight = existing._weightSum || 0;
+//         const newWeight = oldWeight + weight;
+
+//         existing.weightKg = String(newWeight);
+//         existing._weightSum = newWeight;
+//         existing._rateWeighted = (existing._rateWeighted || 0) + weight * rate;
+
+//         // Keep a usable shade. If there are multiple shades for the same
+//         // fabric, show the first non-empty one instead of creating extra rows.
+//         if (!String(existing.shade || "").trim() && String(fr.shade || "").trim()) {
+//           existing.shade = String(fr.shade).trim();
+//         }
+
+//         // Keep the first source id because the backend currently stores one
+//         // finishingInwardRowId per Cutting stock row.
+//         if (existing.id == null && fr.id != null) existing.id = fr.id;
+//       }
+//     }
+
+//     return Array.from(map.values())
+//       .map((r) => {
+//         const weight = r._weightSum || getFinishingWeight(r);
+//         const weightedRate = weight > 0
+//           ? (r._rateWeighted || 0) / weight
+//           : getFinishingRateParts(r).total;
+
+//         // Store the final rate as rateFND + rate so the existing calculation
+//         // path remains compatible with both old and new backend data.
+//         r.rateFND = String(weightedRate);
+//         r.rate = "0";
+//         return r;
+//       })
+//       .sort((a, b) =>
+//         String(a.itemName || "").localeCompare(
+//           String(b.itemName || ""),
+//           undefined,
+//           { numeric: true, sensitivity: "base" }
+//         )
+//       );
+//   }, [finishingRows]);
+
+//   // ---------- Apply selections ----------
+//   const applyArtToRow = async (a: ArtListItem) => {
+//     if (artRowId == null) return;
+
+//     const key = rateKey(a.serialNumber, issueTo);
+
+//     let finalRate: number;
+//     if (key in rateCache) {
+//       finalRate = rateCache[key];
+//     } else {
+//       try {
+//         const detail = await getArtDetail(a.serialNumber);
+//         const pr =
+//           extractCuttingRate(detail, issueTo) ||
+//           toNum(a.saleRate || a.styleRate || "");
+//         setRateCache((prev) => ({ ...prev, [key]: pr }));
+//         finalRate = pr;
+//       } catch {
+//         finalRate = toNum(a.saleRate || a.styleRate || "");
+//         setRateCache((prev) => ({ ...prev, [key]: finalRate }));
+//       }
+//     }
+
+//     setRows((prev) =>
+//       prev.map((r) => {
+//         if (r.id !== artRowId) return r;
+//         const pcs = toNum(r.pcs);
+//         const amount = pcs && finalRate ? (pcs * finalRate).toFixed(2) : "";
+//         return {
+//           ...r,
+//           artNo: a.artNo || "",
+//           itemName: a.artName || "",
+//           rate: finalRate ? String(finalRate) : "",
+//           amount,
+//           artSerialNumber: a.serialNumber,
+//         };
+//       })
+//     );
+
+//     await initSizeRowsForCuttingRow(artRowId, a.serialNumber);
+//     setActiveCuttingRowId(artRowId);
+
+//     setArtModalOpen(false);
+//     setArtRowId(null);
+//   };
+
+//   const applyFinishingRow = (fr: FinishingInwardRow) => {
+//     if (finishRowId == null) return;
+//     setStockRows((prev) => prev.map((r) => {
+//       if (r.id !== finishRowId) return r;
+//       const cons = toNum(r.consumption);
+//       const parts = getFinishingRateParts(fr);
+//       const weight = getFinishingWeight(fr);
+//       return {
+//         ...r,
+//         finishingInwardRowId: fr.id ?? null,
+//         itemName: String(fr.itemName || "").trim(),
+//         shade: String(fr.shade || "").trim(),
+//         inhouseWeight: weight > 0 ? weight.toFixed(3) : "",
+//         // Internal rate parts are retained for backend compatibility, but
+//         // the Cutting table displays only the final Fabric Rate.
+//         yarnRate: parts.yarn > 0 ? parts.yarn.toFixed(2) : "",
+//         knittingRate: parts.knitting > 0 ? parts.knitting.toFixed(2) : "",
+//         dyeingRate: parts.dyeing > 0 ? parts.dyeing.toFixed(2) : "",
+//         finishingRate: parts.finishing > 0 ? parts.finishing.toFixed(2) : "",
+//         consRate: parts.total > 0 ? parts.total.toFixed(2) : "",
+//         consAmount: cons && parts.total ? (cons * parts.total).toFixed(2) : "",
+//       };
+//     }));
+//     setFinishModalOpen(false);
+//     setFinishRowId(null);
+//   };
+
+//   // ---------- Totals ----------
+//   const totalPcs = useMemo(
+//     () => rows.reduce((s, r) => s + toNum(r.pcs), 0),
+//     [rows]
+//   );
+//   const totalCuttingAmount = useMemo(
+//     () => rows.reduce((s, r) => s + toNum(r.amount), 0),
+//     [rows]
+//   );
+//   const totalConsumption = useMemo(
+//     () => stockRows.reduce((s, r) => s + toNum(r.consumption), 0),
+//     [stockRows]
+//   );
+//   const totalKho = useMemo(
+//     () => stockRows.reduce((s, r) => s + toNum(r.kho), 0),
+//     [stockRows]
+//   );
+//   const totalConsAmount = useMemo(
+//     () => stockRows.reduce((s, r) => s + toNum(r.consAmount), 0),
+//     [stockRows]
+//   );
+
+//   const overallAvgPerPcs = useMemo(() => {
+//     const pcs = totalPcs || 0;
+//     return pcs > 0
+//       ? ((totalConsumption + totalKho) / pcs).toFixed(4)
+//       : "0.0000";
+//   }, [totalPcs, totalConsumption, totalKho]);
+
+//   // ---------- Active size rows ----------
+//   const activeSizeRows = useMemo(() => {
+//     if (activeCuttingRowId == null) return [];
+//     return sizeRowsMap[activeCuttingRowId] || [];
+//   }, [sizeRowsMap, activeCuttingRowId]);
+
+//   const activeSizeTotalPcs = useMemo(
+//     () => activeSizeRows.reduce((s, r) => s + sizeRowTotalPcs(r), 0),
+//     [activeSizeRows]
+//   );
+
+//   // ---------- Validate + build payload (✅ includes sizeRows) ----------
+//   const buildValidatedPayload = (): {
+//     ok: boolean;
+//     payload?: CuttingEntryDTO;
+//     msg?: string;
+//   } => {
+//     if (!date) return { ok: false, msg: "Date is required" };
+//     if (!employeeId)
+//       return { ok: false, msg: "Please select Employee (Cutting)" };
+//     if (issueTo === "Outside" && !issueBranchId)
+//       return { ok: false, msg: "Please select Issue Branch (for Outside)" };
+
+//     const empNameResolved =
+//       (employeeName || "").trim() || resolveEmployeeName(employeeId) || "";
+
+//     // keep cuttingRowId for size mapping
+//     const lotRowsWithKey = rows
+//       .map((r) => ({
+//         cuttingRowId: r.id,
+//         cutLotNo: (r.cutLotNo || "").trim(),
+//         artNo: (r.artNo || "").trim(),
+//         itemName: (r.itemName || "").trim(),
+//         shade: (r.shade || "").trim(),
+//         pcs: (r.pcs || "").trim(),
+//         rate: (r.rate || "").trim(),
+//         amount: (r.amount || "").trim(),
+//       }))
+//       .filter((r) => (r.artNo || r.itemName) && toNum(r.pcs) > 0);
+
+//     if (lotRowsWithKey.length === 0)
+//       return {
+//         ok: false,
+//         msg: "Add at least one Lot row with Art/Item and PCs > 0",
+//       };
+
+//     const lotRows = lotRowsWithKey.map((r, idx) => ({
+//       sno: idx + 1,
+//       cutLotNo: r.cutLotNo,
+//       artNo: r.artNo,
+//       itemName: r.itemName,
+//       shade: r.shade,
+//       pcs: r.pcs,
+//       rate: r.rate,
+//       amount: r.amount,
+//     }));
+
+//     const stockRowsPruned = stockRows
+//       .map((r, idx) => ({
+//         sno: idx + 1,
+//         finishingInwardRowId: r.finishingInwardRowId ?? null,
+//         itemName: (r.itemName || "").trim(),
+//         shade: (r.shade || "").trim(),
+//         unit: (r.unit || "Kg").trim(),
+//         inhouseWeight: (r.inhouseWeight || "").trim(),
+//         yarnRate: (r.yarnRate || "").trim(),
+//         knittingRate: (r.knittingRate || "").trim(),
+//         dyeingRate: (r.dyeingRate || "").trim(),
+//         finishingRate: (r.finishingRate || "").trim(),
+//         consumption: (r.consumption || "").trim(),
+//         kho: (r.kho || "").trim(),
+//         consRate: (r.consRate || "").trim(),
+//         consAmount: (r.consAmount || "").trim(),
+//       }))
+//       .filter(
+//         (r) =>
+//           r.itemName &&
+//           toNum(r.consumption) + toNum(r.kho) > 0 &&
+//           toNum(r.consRate) > 0
+//       );
+
+//     if (stockRowsPruned.length === 0)
+//       return {
+//         ok: false,
+//         msg: "Add at least one Stock row with Item + (Consumption or KHO) + Rate > 0",
+//       };
+
+//     // ✅ Build sizeRows payload for backend
+//     const sizeRows: CuttingSizeRowDTO[] = [];
+//     for (let i = 0; i < lotRowsWithKey.length; i++) {
+//       const lot = lotRowsWithKey[i];
+//       const lotSno = i + 1;
+
+//       const list = sizeRowsMap[lot.cuttingRowId] || [];
+//       for (const sr of list) {
+//         const total = sizeRowTotalPcs(sr);
+
+//         if (!(sr.size || "").trim() && !sr.box && !sr.pcs) continue;
+
+//         sizeRows.push({
+//           lotSno,
+//           size: (sr.size || "").trim(),
+//           box: (sr.box || "").trim(),
+//           pcsPerBox: (sr.pcs || "").trim(),
+//           totalPcs: String(total),
+//         });
+//       }
+//     }
+
+//     const branchNameResolved =
+//       issueTo === "Outside"
+//         ? issueBranchName || resolveBranchName(issueBranchId)
+//         : "";
+
+//     const payload: CuttingEntryDTO = {
+//       serialNo,
+//       date,
+//       employeeId,
+//       employeeName: empNameResolved,
+
+//       issueTo,
+//       issueBranchId: issueTo === "Outside" ? issueBranchId : undefined,
+//       issueBranchName: issueTo === "Outside" ? branchNameResolved : undefined,
+
+//       totalPcs: String(lotRows.reduce((s, r) => s + toNum(r.pcs), 0)),
+//       totalCuttingAmount: fmt(
+//         lotRows.reduce((s, r) => s + toNum(r.amount), 0),
+//         2
+//       ),
+//       totalConsumption: stockRowsPruned
+//         .reduce((s, r) => s + toNum(r.consumption), 0)
+//         .toFixed(3),
+//       totalKho: stockRowsPruned
+//         .reduce((s, r) => s + toNum(r.kho), 0)
+//         .toFixed(3),
+//       totalConsAmount: fmt(
+//         stockRowsPruned.reduce((s, r) => s + toNum(r.consAmount), 0),
+//         2
+//       ),
+
+//       lotRows,
+//       stockRows: stockRowsPruned,
+
+//       sizeRows,
+//     };
+
+//     return { ok: true, payload };
+//   };
+
+//   const formInvalid = useMemo(() => {
+//     if (!date || !employeeId) return true;
+//     if (issueTo === "Outside" && !issueBranchId) return true;
+
+//     const lotOk = rows.some((r) => (r.artNo || r.itemName) && toNum(r.pcs) > 0);
+//     const stockOk = stockRows.some(
+//       (r) =>
+//         r.itemName &&
+//         toNum(r.consumption) + toNum(r.kho) > 0 &&
+//         toNum(r.consRate) > 0
+//     );
+//     return !(lotOk && stockOk);
+//   }, [date, employeeId, rows, stockRows, issueTo, issueBranchId]);
+
+//   const hasAnyData = useMemo(() => {
+//     const lotDirty = rows.some(
+//       (r) =>
+//         (r.cutLotNo || "").trim() ||
+//         (r.artNo || "").trim() ||
+//         (r.itemName || "").trim() ||
+//         toNum(r.pcs) > 0 ||
+//         toNum(r.rate) > 0
+//     );
+
+//     const stockDirty = stockRows.some(
+//       (r) =>
+//         (r.itemName || "").trim() ||
+//         (r.shade || "").trim() ||
+//         toNum(r.consumption) > 0 ||
+//         toNum(r.kho) > 0 ||
+//         toNum(r.consRate) > 0
+//     );
+
+//     const sizeDirty = Object.values(sizeRowsMap).some((list) =>
+//       (list || []).some(
+//         (x) => (x.size || "").trim() || toNum(x.box) > 0 || toNum(x.pcs) > 0
+//       )
+//     );
+
+//     const headerDirty =
+//       !!employeeId ||
+//       issueTo === "Outside" ||
+//       String(issueBranchId || "").trim() !== "";
+
+//     return lotDirty || stockDirty || sizeDirty || headerDirty;
+//   }, [rows, stockRows, sizeRowsMap, employeeId, issueTo, issueBranchId]);
+
+//   // ---------- Print (✅ includes SIZE) ----------
+//   const handlePrint = () => {
+//     const printWindow = window.open("", "_blank");
+//     if (!printWindow) return;
+
+//     const empDisplay =
+//       (employeeName || "").trim() || resolveEmployeeName(employeeId) || employeeId || "-";
+
+//     const branchDisplay =
+//       issueTo === "Outside"
+//         ? issueBranchName || resolveBranchName(issueBranchId) || "-"
+//         : "-";
+
+//     const pcsTotal = rows.reduce((s, x) => s + toNum(x.pcs), 0);
+
+//     const lotRowsHTML = rows
+//       .map(
+//         (r, i) => `
+//           <tr>
+//             <td>${i + 1}</td>
+//             <td>${r.cutLotNo || "-"}</td>
+//             <td>${r.artNo || "-"}</td>
+//             <td>${r.itemName || "-"}</td>
+//             <td>${r.shade || "-"}</td>
+//             <td style="text-align:right">${r.pcs || "-"}</td>
+//             <td style="text-align:right">${r.rate || "-"}</td>
+//             <td style="text-align:right">${r.amount || "-"}</td>
+//           </tr>
+//         `
+//       )
+//       .join("");
+
+//     const stockRowsHTML = stockRows
+//       .map((r, i) => {
+//         const cons = toNum(r.consumption);
+//         const kho = toNum(r.kho);
+//         const perPcs = pcsTotal > 0 ? ((cons + kho) / pcsTotal).toFixed(4) : "";
+//         const perPcsRate =
+//           toNum(perPcs) && toNum(r.consRate)
+//             ? (toNum(perPcs) * toNum(r.consRate)).toFixed(2)
+//             : "";
+//         return `
+//           <tr>
+//             <td>${i + 1}</td>
+//             <td>${r.itemName || "-"}</td>
+//             <td>${r.shade || "-"}</td>
+//             <td style="text-align:right">${r.inhouseWeight || "-"}</td>
+//             <td style="text-align:right">${r.consRate || "-"}</td>
+//             <td style="text-align:right">${r.consumption || "-"}</td>
+//             <td style="text-align:right">${r.kho || "-"}</td>
+//             <td>${r.unit || "-"}</td>
+//             <td style="text-align:right">${perPcs || "-"}</td>
+//             <td style="text-align:right">${perPcsRate || "-"}</td>
+//             <td style="text-align:right">${r.consAmount || "-"}</td>
+//           </tr>`;
+//       })
+//       .join("");
+
+//     // ✅ Size print: flattened (lot-wise)
+//     const sizePrintRows: string[] = [];
+//     let sizeGrandTotal = 0;
+
+//     rows.forEach((lotRow, idx) => {
+//       const lotSno = idx + 1;
+//       const sizeList = sizeRowsMap[lotRow.id] || [];
+//       if (!sizeList || sizeList.length === 0) return;
+
+//       sizeList.forEach((sr, sidx) => {
+//         const total = sizeRowTotalPcs(sr);
+//         sizeGrandTotal += total;
+//         sizePrintRows.push(`
+//           <tr>
+//             <td>${lotSno}</td>
+//             <td>${lotRow.cutLotNo || "-"}</td>
+//             <td>${lotRow.artNo || "-"}</td>
+//             <td>${lotRow.itemName || "-"}</td>
+//             <td>${sr.size || "-"}</td>
+//             <td style="text-align:right">${sr.box || "-"}</td>
+//             <td style="text-align:right">${sr.pcs || "-"}</td>
+//             <td style="text-align:right">${total ? total : "-"}</td>
+//           </tr>
+//         `);
+//       });
+//     });
+
+//     const sizeRowsHTML = sizePrintRows.join("");
+
+//     const totals = {
+//       pcs: pcsTotal,
+//       lotAmount: rows.reduce((s, r) => s + toNum(r.amount), 0),
+//       cons: stockRows.reduce((s, r) => s + toNum(r.consumption), 0),
+//       kho: stockRows.reduce((s, r) => s + toNum(r.kho), 0),
+//       consAmount: stockRows.reduce((s, r) => s + toNum(r.consAmount), 0),
+//       avgPerPcs:
+//         pcsTotal > 0
+//           ? (
+//               (stockRows.reduce((s, r) => s + toNum(r.consumption), 0) +
+//                 stockRows.reduce((s, r) => s + toNum(r.kho), 0)) /
+//               pcsTotal
+//             ).toFixed(4)
+//           : "0.0000",
+//     };
+
+//     const html = `
+//       <html>
+//         <head>
+//           <title>Cutting Entry - ${serialNo}</title>
+//           <style>
+//             body { font-family: Arial, sans-serif; margin: 20px; }
+//             h2 { text-align: center; margin: 8px 0 16px; }
+//             h3 { margin: 18px 0 8px; }
+//             table { width: 100%; border-collapse: collapse; font-size: 12px; }
+//             th, td { border: 1px solid #555; padding: 6px; text-align: center; }
+//             th { background: #f0f0f0; }
+//             .info p { margin: 2px 0; }
+//             .totals { margin-top: 10px; font-weight: bold; }
+//             .right { text-align: right; }
+//           </style>
+//         </head>
+//         <body>
+//           <h2>Cutting Entry</h2>
+
+//           <div class="info">
+//             <p><b>Serial:</b> ${serialNo || "-"}</p>
+//             <p><b>Date:</b> ${date || "-"}</p>
+//             <p><b>Employee:</b> ${empDisplay || "-"}</p>
+//             <p><b>Issue To:</b> ${issueTo || "-"}</p>
+//             <p><b>Branch:</b> ${issueTo === "Outside" ? branchDisplay : "-"}</p>
+//           </div>
+
+//           <h3>Lot Details</h3>
+//           <table>
+//             <thead>
+//               <tr>
+//                 <th>#</th>
+//                 <th>Cutting Lot No</th>
+//                 <th>Art No</th>
+//                 <th>Item Name</th>
+//                 <th>Shade</th>
+//                 <th>PCs</th>
+//                 <th>Rate</th>
+//                 <th>Amount</th>
+//               </tr>
+//             </thead>
+//             <tbody>${lotRowsHTML || `<tr><td colspan="8">No rows</td></tr>`}</tbody>
+//           </table>
+
+//           <div class="totals">
+//             <div>Total PCs: ${totals.pcs}</div>
+//             <div>Total Cutting Amount: ₹${totals.lotAmount.toFixed(2)}</div>
+//           </div>
+
+//           <h3>Stock Consumption</h3>
+//           <table>
+//             <thead>
+//               <tr>
+//                 <th>#</th>
+//                 <th>Fabric Name</th>
+//                 <th>Shade</th>
+//                 <th>In-House Weight</th>
+//                 <th>Fabric Rate</th>
+//                 <th>Consumption</th>
+//                 <th>KHO</th>
+//                 <th>Unit</th>
+//                 <th>Avg/Per Pcs</th>
+//                 <th>Per Pcs Rate</th>
+//                 <th>Amount</th>
+//               </tr>
+//             </thead>
+//             <tbody>${stockRowsHTML || `<tr><td colspan="11">No rows</td></tr>`}</tbody>
+//           </table>
+
+//           <div class="totals">
+//             <div>Total Consumption: ${totals.cons.toFixed(3)} ${stockRows[0]?.unit || "Kg"}</div>
+//             <div>Total KHO: ${totals.kho.toFixed(3)} ${stockRows[0]?.unit || "Kg"}</div>
+//             <div>Overall Avg/Per Pcs: ${totals.avgPerPcs}</div>
+//             <div>Total Cons. Amount: ₹${totals.consAmount.toFixed(2)}</div>
+//           </div>
+
+//           <h3>Size Entry Details</h3>
+//           <table>
+//             <thead>
+//               <tr>
+//                 <th>Lot SNo</th>
+//                 <th>Cut Lot No</th>
+//                 <th>Art No</th>
+//                 <th>Item</th>
+//                 <th>Size</th>
+//                 <th>Box</th>
+//                 <th>PCS/Box</th>
+//                 <th>Total PCS</th>
+//               </tr>
+//             </thead>
+//             <tbody>${sizeRowsHTML || `<tr><td colspan="8">No size rows</td></tr>`}</tbody>
+//           </table>
+//           <div class="totals">
+//             <div>Total Size PCS: ${sizeGrandTotal}</div>
+//           </div>
+
+//           <script>
+//             window.print();
+//             window.onafterprint = () => window.close();
+//           </script>
+//         </body>
+//       </html>
+//     `;
+
+//     printWindow.document.write(html);
+//     printWindow.document.close();
+//   };
+
+//   // ---------- Actions ----------
+//   const handleSave = async () => {
+//     const { ok, payload, msg } = buildValidatedPayload();
+//     if (!ok) return Swal.fire("Validation", msg!, "warning");
+
+//     try {
+//       const dupMsg = await checkDuplicateCutLots(payload!);
+//       if (dupMsg) return Swal.fire("Error", dupMsg, "error");
+//     } catch {
+//       return Swal.fire(
+//         "Error",
+//         "Failed to check Cutting Lot uniqueness.",
+//         "error"
+//       );
+//     }
+
+//     const saved = await saveCutting(payload!);
+//     await Swal.fire({
+//       icon: "success",
+//       title: "Saved",
+//       text: `Serial: ${saved.serialNo}`,
+//       timer: 1400,
+//       showConfirmButton: false,
+//     });
+
+//     setIsEditing(false);
+//     setSerialNo(await getNextSerial(date));
+//   };
+
+//   const handleUpdate = async () => {
+//     const { ok, payload, msg } = buildValidatedPayload();
+//     if (!ok) return Swal.fire("Validation", msg!, "warning");
+
+//     try {
+//       const dupMsg = await checkDuplicateCutLots(payload!);
+//       if (dupMsg) return Swal.fire("Error", dupMsg, "error");
+//     } catch {
+//       return Swal.fire(
+//         "Error",
+//         "Failed to check Cutting Lot uniqueness.",
+//         "error"
+//       );
+//     }
+
+//     await updateCutting(serialNo, payload!);
+//     await Swal.fire({
+//       icon: "success",
+//       title: "Updated",
+//       timer: 1200,
+//       showConfirmButton: false,
+//     });
+//     setIsEditing(true);
+//   };
+
+//   const handleDelete = async () => {
+//     const res = await Swal.fire({
+//       icon: "warning",
+//       title: `Delete entry ${serialNo}?`,
+//       showCancelButton: true,
+//       confirmButtonText: "Delete",
+//       confirmButtonColor: "#dc2626",
+//     });
+//     if (!res.isConfirmed) return;
+
+//     await deleteCutting(serialNo);
+//     await Swal.fire({
+//       icon: "success",
+//       title: "Deleted",
+//       timer: 1200,
+//       showConfirmButton: false,
+//     });
+
+//     await resetForm(true);
+//   };
+
+//   const handleNew = async () => {
+//     if (hasAnyData) {
+//       const res = await Swal.fire({
+//         icon: "question",
+//         title: "Start New Entry?",
+//         text: "Current unsaved changes will be cleared.",
+//         showCancelButton: true,
+//         confirmButtonText: "Yes, New",
+//         cancelButtonText: "Cancel",
+//       });
+//       if (!res.isConfirmed) return;
+//     }
+//     await resetForm(true);
+//   };
+
+//   // ---- View List ----
+//   const openList = async () => {
+//     const data = await listCuttings();
+//     const sorted = data
+//       .slice()
+//       .sort((a, b) =>
+//         String(a.serialNo || "").localeCompare(String(b.serialNo || ""), undefined, {
+//           numeric: true,
+//           sensitivity: "base",
+//         })
+//       );
+//     setEntryList(sorted);
+//     setListOpen(true);
+//   };
+
+//   const loadFromList = async (sn: string) => {
+//     const data = await getCutting(sn);
+
+//     setIsEditing(true);
+
+//     setSerialNo(data.serialNo);
+//     setDate(data.date);
+
+//     setEmployeeId(data.employeeId || "");
+//     setEmployeeName((data.employeeName || "").trim());
+
+//     setIssueTo((data.issueTo as IssueTo) || "Inside");
+//     setIssueBranchId((data.issueBranchId as any) || "");
+//     setIssueBranchName(data.issueBranchName || "");
+
+//     // Lot rows
+//     const lot: CuttingRow[] = (data.lotRows || []).map((r, i) => ({
+//       id: r.sno ?? i + 1, // sno stable for size mapping
+//       cutLotNo: r.cutLotNo || "",
+//       artNo: r.artNo || "",
+//       itemName: r.itemName || "",
+//       shade: r.shade || "",
+//       pcs: r.pcs || "",
+//       rate: r.rate || "",
+//       amount: r.amount || "",
+//       artSerialNumber: "",
+//     }));
+//     setRows(lot);
+//     setActiveCuttingRowId(lot[0]?.id ?? null);
+
+//     // Stock rows
+//     setStockRows(
+//       (data.stockRows || []).map((r, i) => ({
+//         id: r.sno ?? i + 1000,
+//         finishingInwardRowId: r.finishingInwardRowId ?? null,
+//         itemName: r.itemName || "",
+//         shade: r.shade || "",
+//         unit: r.unit || "Kg",
+//         inhouseWeight: r.inhouseWeight || "",
+//         yarnRate: r.yarnRate || "",
+//         knittingRate: r.knittingRate || "",
+//         dyeingRate: r.dyeingRate || "",
+//         finishingRate: r.finishingRate || "",
+//         consumption: r.consumption || "",
+//         kho: r.kho || "",
+//         consRate: r.consRate || "",
+//         consAmount: r.consAmount || "",
+//       }))
+//     );
+
+//     // ✅ Load sizeRows from backend
+//     const nextMap: Record<number, SizeEntryRow[]> = {};
+//     for (const sr of data.sizeRows || []) {
+//       const lotSno = sr.lotSno;
+//       if (!lotSno) continue;
+//       if (!nextMap[lotSno]) nextMap[lotSno] = [];
+//       nextMap[lotSno].push({
+//         id: Date.now() + Math.floor(Math.random() * 1000),
+//         cuttingRowId: lotSno,
+//         size: sr.size || "-",
+//         box: sr.box || "",
+//         pcs: sr.pcsPerBox || "",
+//       });
+//     }
+//     setSizeRowsMap(nextMap);
+
+//     setListOpen(false);
+//   };
+
+//   // ---------- Issue To ----------
+//   const handleIssueToButton = async () => {
+//     const res = await Swal.fire({
+//       icon: "question",
+//       title: "Issue To",
+//       text: "Select process to use for Cutting rates",
+//       showCancelButton: true,
+//       showDenyButton: true,
+//       confirmButtonText: "Inside",
+//       denyButtonText: "Outside",
+//       cancelButtonText: "Cancel",
+//       reverseButtons: true,
+//     });
+//     if (res.isDismissed) return;
+
+//     const newIt: IssueTo = res.isDenied ? "Outside" : "Inside";
+//     setIssueTo(newIt);
+
+//     if (newIt === "Outside") {
+//       try {
+//         if (locations.length === 0) setLocations(await listLocations());
+//         if (!issueBranchId) {
+//           const inputOptions: Record<string, string> = {};
+//           locations.forEach((b) => (inputOptions[String(b.id)] = b.branchName));
+//           const pick = await Swal.fire({
+//             title: "Select Issue Branch",
+//             input: "select",
+//             inputOptions,
+//             inputPlaceholder: "Select branch",
+//             showCancelButton: true,
+//             confirmButtonText: "OK",
+//           });
+//           if (pick.isConfirmed && pick.value) {
+//             setIssueBranchId(pick.value);
+//             setIssueBranchName(resolveBranchName(pick.value));
+//           }
+//         }
+//       } catch {}
+//     } else {
+//       setIssueBranchId("");
+//       setIssueBranchName("");
+//     }
+//   };
+
+//   // ================= JSX =================
+//   return (
+//     <Dashboard>
+//       {/* LIST MODAL */}
+//       {listOpen && (
+//         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[1000]">
+//           <div className="bg-white rounded-lg shadow-lg w-full max-w-5xl p-5">
+//             <div className="flex items-center justify-between mb-3">
+//               <h3 className="text-lg font-bold">Cutting Entries</h3>
+//               <button
+//                 type="button"
+//                 onClick={() => setListOpen(false)}
+//                 className="px-3 py-1 bg-gray-200 rounded"
+//               >
+//                 Close
+//               </button>
+//             </div>
+
+//             <input
+//               value={listSearch}
+//               onChange={(e) => setListSearch(e.target.value)}
+//               placeholder="Search serial / lot no / employee / date / issue to / branch"
+//               className="border p-2 rounded w-full mb-3"
+//             />
+
+//             <div className="overflow-auto max-h-[70vh] border">
+//               <table className="w-full text-sm">
+//                 <thead className="bg-gray-100">
+//                   <tr>
+//                     <th className="border p-2">S.No</th>
+//                     <th className="border p-2">Serial</th>
+//                     <th className="border p-2">Date</th>
+//                     <th className="border p-2">Cutting Lot No</th>
+//                     <th className="border p-2">Issue To</th>
+//                     <th className="border p-2">Branch</th>
+//                     <th className="border p-2">Employee</th>
+//                     <th className="border p-2 text-right">Total PCs</th>
+//                     <th className="border p-2 text-right">Consumption</th>
+//                     <th className="border p-2 text-right">KHO</th>
+//                     <th className="border p-2 text-right">Cons Amount</th>
+//                     <th className="border p-2 text-center">Action</th>
+//                   </tr>
+//                 </thead>
+//                 <tbody>
+//                   {entryList
+//                     .filter((e) => {
+//                       const q = listSearch.trim().toLowerCase();
+//                       if (!q) return true;
+//                       const lotNos = (e.lotRows || [])
+//                         .map((r) => r.cutLotNo || "")
+//                         .join(", ");
+//                       const emp = (e.employeeName || "").trim();
+//                       return (
+//                         (e.serialNo || "").toLowerCase().includes(q) ||
+//                         lotNos.toLowerCase().includes(q) ||
+//                         emp.toLowerCase().includes(q) ||
+//                         (e.date || "").toLowerCase().includes(q) ||
+//                         String(e.issueTo || "").toLowerCase().includes(q) ||
+//                         String(e.issueBranchName || "").toLowerCase().includes(q)
+//                       );
+//                     })
+//                     .map((e, i) => {
+//                       const lotNos = (e.lotRows || [])
+//                         .map((r) => r.cutLotNo)
+//                         .filter(Boolean)
+//                         .join(", ");
+//                       return (
+//                         <tr key={e.serialNo} className="hover:bg-gray-50">
+//                           <td className="border p-2 text-center">{i + 1}</td>
+//                           <td className="border p-2">{e.serialNo}</td>
+//                           <td className="border p-2">{e.date}</td>
+//                           <td className="border p-2">{lotNos || "-"}</td>
+//                           <td className="border p-2">{e.issueTo || "-"}</td>
+//                           <td className="border p-2">
+//                             {e.issueTo === "Outside"
+//                               ? e.issueBranchName || "-"
+//                               : "-"}
+//                           </td>
+//                           <td className="border p-2">{e.employeeName || "-"}</td>
+//                           <td className="border p-2 text-right">
+//                             {e.totalPcs || "0"}
+//                           </td>
+//                           <td className="border p-2 text-right">
+//                             {e.totalConsumption || "0.000"}
+//                           </td>
+//                           <td className="border p-2 text-right">
+//                             {e.totalKho || "0.000"}
+//                           </td>
+//                           <td className="border p-2 text-right">
+//                             ₹{e.totalConsAmount || "0.00"}
+//                           </td>
+//                           <td className="border p-2 text-center">
+//                             <button
+//                               type="button"
+//                               onClick={() => loadFromList(e.serialNo)}
+//                               className="px-3 py-1 bg-blue-600 text-white rounded"
+//                             >
+//                               Edit
+//                             </button>
+//                           </td>
+//                         </tr>
+//                       );
+//                     })}
+
+//                   {entryList.length === 0 && (
+//                     <tr>
+//                       <td
+//                         className="border p-3 text-center text-gray-500"
+//                         colSpan={12}
+//                       >
+//                         No entries found
+//                       </td>
+//                     </tr>
+//                   )}
+//                 </tbody>
+//               </table>
+//             </div>
+//           </div>
+//         </div>
+//       )}
+
+//       {/* PAGE */}
+//       <div className="p-4 bg-gray-100 min-h-screen">
+//         <div className="bg-white p-6 rounded-lg shadow-md">
+//           <h2 className="text-2xl font-bold text-center mb-4">Cutting Entry</h2>
+
+//           {/* Header */}
+//           <div className="grid grid-cols-4 gap-4 mb-4">
+//             <div>
+//               <label className="block text-sm font-semibold mb-1">
+//                 Serial No.
+//               </label>
+//               <input
+//                 value={serialNo}
+//                 readOnly
+//                 className="border p-2 rounded w-full bg-gray-100"
+//               />
+//             </div>
+
+//             <div>
+//               <label className="block text-sm font-semibold mb-1">Date</label>
+//               <input
+//                 type="date"
+//                 value={date}
+//                 onChange={(e) => setDate(e.target.value)}
+//                 className="border p-2 rounded w-full"
+//               />
+//             </div>
+
+//             <div className="col-span-2">
+//               <label className="block text-sm font-semibold mb-1">
+//                 Employee (Cutting)
+//               </label>
+//               <select
+//                 value={employeeId}
+//                 onChange={(e) => {
+//                   const val = e.target.value;
+//                   const labelText =
+//                     e.target.options[e.target.selectedIndex]?.text || "";
+//                   handleEmployeeChange(val, labelText);
+//                 }}
+//                 className="border p-2 rounded w-full bg-white"
+//               >
+//                 <option value="">Select Cutting employee</option>
+//                 {cuttingEmployees.map((emp) => (
+//                   <option key={emp.code} value={emp.code}>
+//                     {emp.employeeName}
+//                   </option>
+//                 ))}
+//               </select>
+//             </div>
+
+//             {issueTo === "Outside" && (
+//               <div className="col-span-2">
+//                 <label className="block text-sm font-semibold mb-1">
+//                   Issue Branch (Outside)
+//                 </label>
+//                 <select
+//                   value={issueBranchId}
+//                   onChange={(e) => {
+//                     const val = e.target.value;
+//                     setIssueBranchId(val);
+//                     setIssueBranchName(resolveBranchName(val));
+//                   }}
+//                   className="border p-2 rounded w-full bg-white"
+//                 >
+//                   <option value="">Select Branch</option>
+//                   {locations.map((b) => (
+//                     <option key={String(b.id)} value={String(b.id)}>
+//                       {b.branchName}
+//                       {b.branchCode ? ` (${b.branchCode})` : ""}
+//                     </option>
+//                   ))}
+//                 </select>
+//               </div>
+//             )}
+//           </div>
+
+//           {/* Cutting Lot */}
+//           <h3 className="text-lg font-semibold mb-2">Cutting Lot Details</h3>
+//           <div className="overflow-x-auto">
+//             <table className="w-full border text-sm">
+//               <thead className="bg-gray-100">
+//                 <tr>
+//                   <th className="border p-2 text-center">S.No</th>
+//                   <th className="border p-2">Cutting Lot No.</th>
+//                   <th className="border p-2">Art No.</th>
+//                   <th className="border p-2">Item Name</th>
+//                   <th className="border p-2">Colour/Shade</th>
+//                   <th className="border p-2 text-right">PCs</th>
+//                   <th className="border p-2 text-right">Rate</th>
+//                   <th className="border p-2 text-right">Amount</th>
+//                 </tr>
+//               </thead>
+
+//               <tbody>
+//                 {rows.map((r, i) => (
+//                   <tr
+//                     key={r.id}
+//                     onClick={() => setActiveCuttingRowId(r.id)}
+//                     className={`cursor-pointer ${
+//                       activeCuttingRowId === r.id ? "bg-blue-50" : ""
+//                     }`}
+//                     title="Click row to edit Size Entry"
+//                   >
+//                     <td className="border p-1 text-center">{i + 1}</td>
+
+//                     <td className="border p-1">
+//                       <input
+//                         value={r.cutLotNo}
+//                         onChange={(e) =>
+//                           handleCuttingChange(r.id, "cutLotNo", e.target.value)
+//                         }
+//                         className="border p-1 rounded w-full"
+//                         placeholder="Type cutting lot no."
+//                       />
+//                     </td>
+
+//                     <td className="border p-1">
+//                       <input
+//                         value={r.artNo}
+//                         readOnly
+//                         onClick={(e) => {
+//                           e.stopPropagation();
+//                           openArtModal(r.id);
+//                         }}
+//                         className="border p-1 rounded w-full bg-yellow-50 cursor-pointer"
+//                         placeholder="Click to select Art"
+//                       />
+//                     </td>
+
+//                     <td className="border p-1">
+//                       <input
+//                         value={r.itemName}
+//                         readOnly
+//                         className="border p-1 rounded w-full bg-gray-50"
+//                       />
+//                     </td>
+
+//                     <td className="border p-1">
+//                       <ShadeDropdown
+//                         value={r.shade}
+//                         onChange={(val) =>
+//                           handleCuttingChange(r.id, "shade", val)
+//                         }
+//                         options={shades}
+//                         className="w-full"
+//                         placeholder="Select shade"
+//                       />
+//                     </td>
+
+//                     <td className="border p-1">
+//                       <NumTextInput
+//                         value={r.pcs}
+//                         onChangeValue={(v) =>
+//                           handleCuttingChange(r.id, "pcs", v)
+//                         }
+//                         className="border p-1 rounded w-full text-right"
+//                         placeholder="0"
+//                       />
+//                     </td>
+
+//                     <td className="border p-1">
+//                       <input
+//                         value={r.rate}
+//                         readOnly
+//                         className="border p-1 rounded w-full text-right bg-gray-50"
+//                         placeholder={`Auto from Art (Cutting ${issueTo})`}
+//                       />
+//                     </td>
+
+//                     <td className="border p-1 text-right bg-gray-50">
+//                       {r.amount ? `₹${Number(r.amount).toFixed(2)}` : "-"}
+//                     </td>
+//                   </tr>
+//                 ))}
+//               </tbody>
+
+//               {rows.length > 0 && (
+//                 <tfoot>
+//                   <tr className="bg-gray-100 font-semibold">
+//                     <td className="border p-2 text-right" colSpan={5}>
+//                       Totals
+//                     </td>
+//                     <td className="border p-2 text-right">{totalPcs}</td>
+//                     <td className="border p-2 text-right">—</td>
+//                     <td className="border p-2 text-right">
+//                       ₹{fmt(totalCuttingAmount, 2)}
+//                     </td>
+//                   </tr>
+//                 </tfoot>
+//               )}
+//             </table>
+//           </div>
+
+//           {/* Cutting Stock */}
+//           <h3 className="text-lg font-semibold mt-6 mb-2">
+//             Cutting Stock Details
+//           </h3>
+//           <div className="overflow-x-auto">
+//             <table className="w-full border text-sm">
+//               <thead className="bg-gray-100">
+//                 <tr>
+//                   <th className="border p-2 text-center">S.No</th>
+//                   <th className="border p-2">Fabric Name (In-house)</th>
+//                   <th className="border p-2">Shade</th>
+//                   <th className="border p-2 text-right">In-House Weight</th>
+//                   <th className="border p-2 text-right">Fabric Rate</th>
+//                   <th className="border p-2 text-right">Consumption</th>
+//                   <th className="border p-2 text-right">KHO</th>
+//                   <th className="border p-2 text-center">Unit</th>
+//                   <th className="border p-2 text-right">Avg/Per Pcs</th>
+//                   <th className="border p-2 text-right">Per Pcs Rate</th>
+//                   <th className="border p-2 text-right">Amount</th>
+//                 </tr>
+//               </thead>
+
+//               <tbody>
+//                 {stockRows.map((r, i) => {
+//                   const pcs = totalPcs || 0;
+//                   const avg =
+//                     pcs > 0
+//                       ? ((toNum(r.consumption) + toNum(r.kho)) / pcs).toFixed(4)
+//                       : "";
+//                   const ppr =
+//                     toNum(avg) && toNum(r.consRate)
+//                       ? (toNum(avg) * toNum(r.consRate)).toFixed(2)
+//                       : "";
+
+//                   return (
+//                     <tr key={r.id}>
+//                       <td className="border p-1 text-center">{i + 1}</td>
+
+//                       <td className="border p-1">
+//                         <input
+//                           value={r.itemName}
+//                           readOnly
+//                           onClick={() => openFinishModal(r.id)}
+//                           className="border p-1 rounded w-full bg-yellow-50 cursor-pointer"
+//                           placeholder="Select In-House Fabric"
+//                         />
+//                       </td>
+
+//                       <td className="border p-1">
+//                         <input
+//                           value={r.shade}
+//                           readOnly
+//                           className="border p-1 rounded w-full bg-gray-50"
+//                         />
+//                       </td>
+
+//                       <td className="border p-1 text-right bg-blue-50 font-semibold">
+//                         {r.inhouseWeight || "-"}
+//                       </td>
+
+//                       <td className="border p-1">
+//                         <input
+//                           value={r.consRate}
+//                           readOnly
+//                           className="border p-1 rounded w-full text-right bg-gray-50 font-semibold"
+//                           placeholder="Auto"
+//                         />
+//                       </td>
+
+//                       {/* Consumption is intentionally unchanged. */}
+//                       <td className="border p-1">
+//                         <NumTextInput
+//                           value={r.consumption}
+//                           onChangeValue={(v) =>
+//                             handleStockChange(r.id, "consumption", v)
+//                           }
+//                           className="border p-1 rounded w-full text-right"
+//                           placeholder="0.000"
+//                         />
+//                       </td>
+
+//                       {/* KHO is intentionally unchanged. */}
+//                       <td className="border p-1">
+//                         <NumTextInput
+//                           value={r.kho}
+//                           onChangeValue={(v) =>
+//                             handleStockChange(r.id, "kho", v)
+//                           }
+//                           className="border p-1 rounded w-full text-right"
+//                           placeholder="0.000"
+//                           title="Manual KHO"
+//                         />
+//                       </td>
+
+//                       <td className="border p-1 text-center">
+//                         <select
+//                           value={r.unit}
+//                           onChange={(e) =>
+//                             handleStockChange(r.id, "unit", e.target.value)
+//                           }
+//                           className="border p-1 rounded w-full"
+//                         >
+//                           <option value="Kg">Kg</option>
+//                           <option value="Mtr">Mtr</option>
+//                         </select>
+//                       </td>
+
+//                       <td className="border p-1 text-right bg-gray-50">
+//                         {avg || "-"}
+//                       </td>
+
+//                       <td className="border p-1 text-right bg-gray-50">
+//                         {ppr || "-"}
+//                       </td>
+
+//                       <td className="border p-1 text-right bg-gray-50">
+//                         {r.consAmount ? `₹${Number(r.consAmount).toFixed(2)}` : "-"}
+//                       </td>
+//                     </tr>
+//                   );
+//                 })}
+//               </tbody>
+
+//               {stockRows.length > 0 && (
+//                 <tfoot>
+//                   <tr className="bg-gray-100 font-semibold">
+//                     <td className="border p-2 text-right" colSpan={5}>
+//                       Totals
+//                     </td>
+//                     <td className="border p-2 text-right">
+//                       {totalConsumption.toFixed(3)}
+//                     </td>
+//                     <td className="border p-2 text-right">
+//                       {totalKho.toFixed(3)}
+//                     </td>
+//                     <td className="border p-2 text-right">—</td>
+//                     <td className="border p-2 text-right">
+//                       {overallAvgPerPcs}
+//                     </td>
+//                     <td className="border p-2 text-right">—</td>
+//                     <td className="border p-2 text-right">
+//                       ₹{fmt(totalConsAmount, 2)}
+//                     </td>
+//                   </tr>
+//                 </tfoot>
+//               )}
+//             </table>
+//           </div>
+
+//           {/* ✅ Size Entry AFTER stock */}
+//           <div className="mt-6">
+//             <h3 className="text-lg font-semibold mb-2">Size Entry Details</h3>
+//             <div className="text-xs text-gray-600 mb-2">
+//               Cutting Lot table me kisi row par click karke size entry fill karein.
+//               Total PCS = Box × PCS (Per Box).
+//             </div>
+
+//             <div className="overflow-x-auto">
+//               <table className="w-full border text-sm">
+//                 <thead className="bg-gray-100">
+//                   <tr>
+//                     <th className="border p-2 text-center">S.No</th>
+//                     <th className="border p-2">Size</th>
+//                     <th className="border p-2 text-right">Box</th>
+//                     <th className="border p-2 text-right">PCS (Per Box)</th>
+//                     <th className="border p-2 text-right">Total PCS</th>
+//                   </tr>
+//                 </thead>
+
+//                 <tbody>
+//                   {!activeCuttingRowId ? (
+//                     <tr>
+//                       <td
+//                         className="border p-3 text-center text-gray-500"
+//                         colSpan={5}
+//                       >
+//                         Click any Cutting Lot row to view size entries
+//                       </td>
+//                     </tr>
+//                   ) : activeSizeRows.length === 0 ? (
+//                     <tr>
+//                       <td
+//                         className="border p-3 text-center text-gray-500"
+//                         colSpan={5}
+//                       >
+//                         No sizes loaded. Please select Art in Cutting Lot row.
+//                       </td>
+//                     </tr>
+//                   ) : (
+//                     activeSizeRows.map((sr, idx) => {
+//                       const rowTotal = sizeRowTotalPcs(sr);
+//                       return (
+//                         <tr key={sr.id}>
+//                           <td className="border p-1 text-center">{idx + 1}</td>
+//                           <td className="border p-1">{sr.size || "-"}</td>
+
+//                           <td className="border p-1">
+//                             <NumTextInput
+//                               value={sr.box}
+//                               onChangeValue={(v) =>
+//                                 handleSizeChange(
+//                                   sr.cuttingRowId,
+//                                   sr.id,
+//                                   "box",
+//                                   v
+//                                 )
+//                               }
+//                               className="border p-1 rounded w-full text-right"
+//                               placeholder="0"
+//                             />
+//                           </td>
+
+//                           <td className="border p-1">
+//                             <NumTextInput
+//                               value={sr.pcs}
+//                               onChangeValue={(v) =>
+//                                 handleSizeChange(
+//                                   sr.cuttingRowId,
+//                                   sr.id,
+//                                   "pcs",
+//                                   v
+//                                 )
+//                               }
+//                               className="border p-1 rounded w-full text-right"
+//                               placeholder="0"
+//                             />
+//                           </td>
+
+//                           <td className="border p-1 text-right bg-gray-50">
+//                             {rowTotal > 0 ? rowTotal : "-"}
+//                           </td>
+//                         </tr>
+//                       );
+//                     })
+//                   )}
+//                 </tbody>
+
+//                 {activeCuttingRowId && activeSizeRows.length > 0 && (
+//                   <tfoot>
+//                     <tr className="bg-gray-100 font-semibold">
+//                       <td className="border p-2 text-right" colSpan={4}>
+//                         Total
+//                       </td>
+//                       <td className="border p-2 text-right">
+//                         {activeSizeTotalPcs}
+//                       </td>
+//                     </tr>
+//                   </tfoot>
+//                 )}
+//               </table>
+//             </div>
+//           </div>
+
+//           {/* Buttons */}
+//           <div className="flex flex-wrap gap-3 mt-5">
+//             <button
+//               type="button"
+//               onClick={addCuttingRow}
+//               className="px-4 py-2 bg-blue-600 text-white rounded"
+//             >
+//               Add Cutting Row
+//             </button>
+
+//             <button
+//               type="button"
+//               onClick={addStockRow}
+//               className="px-4 py-2 bg-indigo-600 text-white rounded"
+//             >
+//               Add Stock Row
+//             </button>
+
+//             <button
+//               type="button"
+//               onClick={handlePrint}
+//               className="px-4 py-2 bg-gray-700 text-white rounded"
+//             >
+//               Print
+//             </button>
+
+//             <button
+//               type="button"
+//               onClick={handleIssueToButton}
+//               className="px-4 py-2 bg-purple-600 text-white rounded"
+//             >
+//               Issue To
+//             </button>
+
+//             <div className="grow" />
+
+//             <button
+//               type="button"
+//               onClick={handleNew}
+//               className="px-4 py-2 bg-slate-600 text-white rounded"
+//             >
+//               New
+//             </button>
+
+//             <button
+//               type="button"
+//               onClick={handleSave}
+//               disabled={formInvalid}
+//               className={`px-4 py-2 rounded text-white ${
+//                 formInvalid
+//                   ? "bg-emerald-300 cursor-not-allowed"
+//                   : "bg-emerald-600"
+//               }`}
+//             >
+//               Save
+//             </button>
+
+//             <button
+//               type="button"
+//               onClick={handleUpdate}
+//               disabled={formInvalid}
+//               className={`px-4 py-2 rounded text-white ${
+//                 formInvalid
+//                   ? "bg-amber-300 cursor-not-allowed"
+//                   : "bg-amber-600"
+//               }`}
+//             >
+//               Update
+//             </button>
+
+//             <button
+//               type="button"
+//               onClick={handleDelete}
+//               className="px-4 py-2 bg-red-600 text-white rounded"
+//             >
+//               Delete
+//             </button>
+
+//             <button
+//               type="button"
+//               onClick={openList}
+//               className="px-4 py-2 bg-gray-500 text-white rounded"
+//             >
+//               View List
+//             </button>
+//           </div>
+//         </div>
+//       </div>
+
+//       {/* ART SELECT MODAL */}
+//       {artModalOpen && (
+//         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[1000]">
+//           <div className="bg-white rounded-lg shadow-lg w-full max-w-4xl p-5">
+//             <div className="flex items-center justify-between mb-3">
+//               <h3 className="text-lg font-bold">Select Art</h3>
+//               <button
+//                 type="button"
+//                 onClick={() => setArtModalOpen(false)}
+//                 className="px-3 py-1 bg-gray-200 rounded"
+//               >
+//                 Close
+//               </button>
+//             </div>
+
+//             <input
+//               value={artSearch}
+//               onChange={(e) => setArtSearch(e.target.value)}
+//               placeholder={`Search art no/name/rate (Cutting ${issueTo})`}
+//               className="border p-2 rounded w-full mb-3"
+//             />
+
+//             <div className="overflow-auto max-h-96 border">
+//               <table className="w-full text-sm">
+//                 <thead className="bg-gray-100">
+//                   <tr>
+//                     <th className="border p-2 text-left">Art No</th>
+//                     <th className="border p-2 text-left">Art Name</th>
+//                     <th className="border p-2 text-right">
+//                       Proc. Rate ({issueTo})
+//                     </th>
+//                     <th className="border p-2 text-center">Action</th>
+//                   </tr>
+//                 </thead>
+//                 <tbody>
+//                   {filteredArts.map((a) => {
+//                     const key = rateKey(a.serialNumber, issueTo);
+//                     const cached = key in rateCache ? rateCache[key] : undefined;
+//                     if (cached === undefined) ensureRateLoaded(a, issueTo);
+//                     const showRate =
+//                       cached ?? toNum(a.saleRate || a.styleRate || "");
+//                     return (
+//                       <tr key={a.serialNumber} className="hover:bg-gray-50">
+//                         <td className="border p-2">{a.artNo}</td>
+//                         <td className="border p-2">{a.artName}</td>
+//                         <td className="border p-2 text-right">
+//                           {showRate ? showRate.toFixed(2) : "..."}
+//                         </td>
+//                         <td className="border p-2 text-center">
+//                           <button
+//                             type="button"
+//                             onClick={() => applyArtToRow(a)}
+//                             className="px-3 py-1 bg-blue-600 text-white rounded"
+//                           >
+//                             Select
+//                           </button>
+//                         </td>
+//                       </tr>
+//                     );
+//                   })}
+//                   {filteredArts.length === 0 && (
+//                     <tr>
+//                       <td
+//                         className="border p-3 text-center text-gray-500"
+//                         colSpan={4}
+//                       >
+//                         No arts found
+//                       </td>
+//                     </tr>
+//                   )}
+//                 </tbody>
+//               </table>
+//             </div>
+//           </div>
+//         </div>
+//       )}
+
+//       {/* FINISHING ROW SELECT MODAL */}
+//       {finishModalOpen && (
+//         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[1000]">
+//           <div className="bg-white rounded-lg shadow-lg w-full max-w-6xl p-5">
+//             <div className="flex items-center justify-between mb-3">
+//               <h3 className="text-lg font-bold">Select In-house Fabric</h3>
+//               <button
+//                 type="button"
+//                 onClick={() => setFinishModalOpen(false)}
+//                 className="px-3 py-1 bg-gray-200 rounded"
+//               >
+//                 Close
+//               </button>
+//             </div>
+
+//             <input
+//               value={finishSearch}
+//               onChange={(e) => setFinishSearch(e.target.value)}
+//               placeholder="Search fabric / shade / rate"
+//               className="border p-2 rounded w-full mb-3"
+//             />
+
+//             <div className="overflow-auto max-h-96 border">
+//               <table className="w-full text-sm">
+//                 <thead className="bg-gray-100">
+//                   <tr>
+//                     <th className="border p-2">Fabric Name</th>
+//                     <th className="border p-2">Shade</th>
+//                     <th className="border p-2 text-right">In-House Weight (Kg)</th>
+//                     <th className="border p-2 text-right">Fabric Rate</th>
+//                     <th className="border p-2 text-center">Action</th>
+//                   </tr>
+//                 </thead>
+//                 <tbody>
+//                   {groupedFinishingRows
+//                     .filter((f) => {
+//                       const q = finishSearch.trim().toLowerCase();
+//                       if (!q) return true;
+//                       const p = getFinishingRateParts(f);
+//                       return (
+//                         (f.itemName || "").toLowerCase().includes(q) ||
+//                         (f.shade || "").toLowerCase().includes(q) ||
+//                         String(getFinishingWeight(f)).includes(q) ||
+//                         String(p.total).includes(q)
+//                       );
+//                     })
+//                     .map((f, idx) => {
+//                       const p = getFinishingRateParts(f);
+//                       const w = getFinishingWeight(f);
+//                       return (
+//                         <tr
+//                           key={`${getFinishingGroupKey(f)}-${f.id ?? idx}`}
+//                           className="hover:bg-gray-50"
+//                         >
+//                           <td className="border p-2 font-medium">
+//                             {f.itemName || "-"}
+//                           </td>
+//                           <td className="border p-2">{f.shade || "-"}</td>
+//                           <td className="border p-2 text-right">
+//                             {w ? w.toFixed(3) : "-"}
+//                           </td>
+//                           <td className="border p-2 text-right font-bold">
+//                             {p.total ? p.total.toFixed(2) : "-"}
+//                           </td>
+//                           <td className="border p-2 text-center">
+//                             <button
+//                               type="button"
+//                               onClick={() => applyFinishingRow(f)}
+//                               className="px-3 py-1 bg-blue-600 text-white rounded"
+//                             >
+//                               Select
+//                             </button>
+//                           </td>
+//                         </tr>
+//                       );
+//                     })}
+
+//                   {groupedFinishingRows.length === 0 && (
+//                     <tr>
+//                       <td
+//                         className="border p-3 text-center text-gray-500"
+//                         colSpan={5}
+//                       >
+//                         No In-House fabric found
+//                       </td>
+//                     </tr>
+//                   )}
+//                 </tbody>
+//               </table>
+//             </div>
+//           </div>
+//         </div>
+//       )}
+//     </Dashboard>
+//   );
+// };
+
+// export default CuttingModule;
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -19,11 +2641,16 @@ type CuttingRow = {
 };
 
 type StockDetailRow = {
-  id: number; // UI-only
+  id: number;
   finishingInwardRowId?: number | null;
   itemName: string;
   shade: string;
   unit: string;
+  inhouseWeight: string;
+  yarnRate: string;
+  knittingRate: string;
+  dyeingRate: string;
+  finishingRate: string;
   consumption: string;
   kho: string;
   consRate: string;
@@ -69,16 +2696,24 @@ type FinishingInwardRow = {
   shade?: string;
   rolls?: string;
   weight?: string;
-  rate?: string; // finishing rate
-  rateFND?: string; // KYR + Dyeing sum
-};
-
-type FinishingInwardDoc = {
-  id: number;
-  partyName?: string;
-  dated?: string;
-  challanNo?: string;
-  rows?: FinishingInwardRow[];
+  weightKg?: string;
+  receivedWtBox?: string;
+  rate?: string;
+  rateFND?: string;
+  yarnRate?: string;
+  knittingRate?: string;
+  dyeingRate?: string;
+  yarn?: string;
+  knitting?: string;
+  dyeing?: string;
+  yarnRatePerKg?: string;
+  knittingRatePerKg?: string;
+  dyeingRatePerKg?: string;
+  kyrRate?: string;
+  kyr?: string;
+  processRates?: any;
+  sourceType?: "finishing" | "purchase";
+  sourceId?: string;
 };
 
 type IssueTo = "Inside" | "Outside";
@@ -118,6 +2753,11 @@ type CuttingEntryDTO = {
     itemName: string;
     shade: string;
     unit: string;
+    inhouseWeight?: string;
+    yarnRate?: string;
+    knittingRate?: string;
+    dyeingRate?: string;
+    finishingRate?: string;
     consumption: string;
     kho?: string;
     consRate: string;
@@ -159,6 +2799,41 @@ type ArtDetail = {
 // ================= Utils =================
 const toNum = (v: any) =>
   v === null || v === undefined || v === "" || isNaN(Number(v)) ? 0 : Number(v);
+
+// API me shade kabhi string aur kabhi object ke form me aa sakta hai.
+// Object ko directly render karne par [object Object] aata hai,
+// isliye common shade fields ko safely text me convert karte hain.
+const normalizeText = (value: any): string => {
+  if (value == null) return "";
+  if (typeof value === "string" || typeof value === "number") {
+    return String(value).trim();
+  }
+  if (Array.isArray(value)) {
+    return value.map(normalizeText).filter(Boolean).join(", ").trim();
+  }
+  if (typeof value === "object") {
+    const candidates = [
+      value.shadeName,
+      value.shade,
+      value.name,
+      value.colourName,
+      value.colorName,
+      value.colour,
+      value.color,
+      value.code,
+      value.shadeCode,
+      value.label,
+      value.value,
+    ];
+    for (const candidate of candidates) {
+      const text = normalizeText(candidate);
+      if (text) return text;
+    }
+  }
+  return "";
+};
+
+const normalizeShade = (value: any): string => normalizeText(value);
 const fmt = (v: number, d = 2) => v.toFixed(d);
 
 const extractSizesFromArtDetail = (detail: any): string[] => {
@@ -252,11 +2927,130 @@ const getArtDetail = async (serialNumber: string) =>
   (await api.get<ArtDetail>(`/arts/${serialNumber}`)).data;
 
 const listFinishingRows = async (): Promise<FinishingInwardRow[]> => {
-  const res = await api.get<FinishingInwardDoc[]>("/finishing-inwards");
-  const docs = Array.isArray(res.data) ? res.data : [];
-  const flat: FinishingInwardRow[] = [];
-  for (const d of docs) for (const r of d.rows || []) flat.push(r);
-  return flat;
+  // Cutting Stock must show EVERYTHING that is present in Finishing In-House:
+  // 1) Finishing Inward fabric/material
+  // 2) Purchase Entry material/fabric
+  // Both sources are merged below and later grouped by Fabric/Material name.
+  const [finRes, purchaseRes] = await Promise.all([
+    api.get<any[]>("/finishing-inwards"),
+    api.get<any[]>("/purchase-entry"),
+  ]);
+
+  const result: FinishingInwardRow[] = [];
+
+  const finDocs = Array.isArray(finRes.data) ? finRes.data : [];
+  for (const d of finDocs) {
+    const rows = Array.isArray(d?.rows) ? d.rows : [];
+    for (const r of rows) {
+      const x: any = r || {};
+      const itemName = normalizeText(
+        x.itemName ?? x.item ?? x.fabric ?? x.materialName ?? x.fabricationName
+      );
+      if (!itemName) continue;
+
+      const n: FinishingInwardRow = {
+        ...x,
+        id: x.id != null ? Number(x.id) : undefined,
+        itemName,
+        shade: normalizeShade(x.shade ?? x.shadeName ?? x.colour ?? x.color),
+        weightKg: String(
+          x.weightKg ??
+            x.weight ??
+            x.receivedWtBox ??
+            x.receivedWeight ??
+            x.wt ??
+            x.quantity ??
+            x.qty ??
+            ""
+        ),
+        rate: String(x.rate ?? x.finishingRate ?? x.rateF ?? "").trim(),
+        rateFND: String(
+          x.rateFND ??
+            x.rateFnd ??
+            x.kyrDyeingRate ??
+            x.kyrDyeing ??
+            x.yarnKnittingDyeingRate ??
+            ""
+        ).trim(),
+        yarnRate: String(x.yarnRate ?? x.yarn ?? x.yarnRatePerKg ?? "").trim(),
+        knittingRate: String(
+          x.knittingRate ?? x.knitting ?? x.knittingRatePerKg ?? ""
+        ).trim(),
+        dyeingRate: String(
+          x.dyeingRate ?? x.dyeing ?? x.dyeingRatePerKg ?? ""
+        ).trim(),
+        kyrRate: String(x.kyrRate ?? x.kyr ?? "").trim(),
+        sourceType: "finishing",
+        sourceId: String(x.id ?? `${d?.id ?? d?._id ?? "fin"}-${result.length}`),
+      };
+
+      const pr: any = x.processRates;
+      if (pr && typeof pr === "object" && !Array.isArray(pr)) {
+        n.yarnRate = n.yarnRate || String(pr.yarn ?? pr.yarnRate ?? "");
+        n.knittingRate = n.knittingRate || String(pr.knitting ?? pr.knittingRate ?? "");
+        n.dyeingRate = n.dyeingRate || String(pr.dyeing ?? pr.dyeingRate ?? "");
+      }
+
+      // Keep the row even when weight is 0. This makes every In-House
+      // fabric/material visible in Cutting; weight will show as 0 until stock
+      // data has a quantity.
+      result.push(n);
+    }
+  }
+
+  // Purchase Entry is also part of the existing Finishing In-House report.
+  // Bring every material/fabric item into the Cutting selector as well.
+  const purchaseDocs = Array.isArray(purchaseRes.data) ? purchaseRes.data : [];
+  for (const doc of purchaseDocs) {
+    const items = Array.isArray(doc?.items) ? doc.items : [];
+    for (let idx = 0; idx < items.length; idx++) {
+      const it: any = items[idx] || {};
+      const itemName = normalizeText(
+        it.material?.materialName ??
+          it.materialName ??
+          it.material?.name ??
+          it.fabricationName ??
+          it.fabric ??
+          it.itemName ??
+          it.item
+      );
+      if (!itemName) continue;
+
+      const weight =
+        toNum(it.wtPerBox) ||
+        toNum(it.weight) ||
+        toNum(it.quantity) ||
+        toNum(it.qty) ||
+        toNum(it.roll) ||
+        toNum(it.weightKg) ||
+        0;
+
+      const purchaseRate =
+        toNum(it.rate) ||
+        toNum(it.purchaseRate) ||
+        toNum(it.ratePerKg) ||
+        0;
+
+      result.push({
+        id: undefined,
+        itemName,
+        shade: normalizeShade(
+          it.shade ?? it.shadeName ?? it.colour ?? it.color
+        ),
+        weightKg: String(weight),
+        rate: "0",
+        rateFND: String(purchaseRate),
+        yarnRate: "",
+        knittingRate: "",
+        dyeingRate: "",
+        kyrRate: "",
+        sourceType: "purchase",
+        sourceId: String(doc?.id ?? `purchase-${idx}`),
+      });
+    }
+  }
+
+  return result;
 };
 
 const listShades = async (): Promise<Shade[]> => {
@@ -646,6 +3440,11 @@ const CuttingModule: React.FC = () => {
         itemName: "",
         shade: "",
         unit: "Kg",
+        inhouseWeight: "",
+        yarnRate: "",
+        knittingRate: "",
+        dyeingRate: "",
+        finishingRate: "",
         consumption: "",
         kho: "",
         consRate: "",
@@ -899,6 +3698,133 @@ const CuttingModule: React.FC = () => {
     });
   };
 
+  // ---------- Finishing In-House helpers ----------
+  // One Fabric = all matching In-House entries combined.
+  // The UI shows only the final Fabric Rate. Internally we still keep all
+  // possible rate fields so the total can be calculated without changing
+  // Consumption or KHO logic.
+  const getFinishingRateParts = (fr: FinishingInwardRow) => {
+    const yarn = toNum(fr.yarnRate);
+    const knitting = toNum(fr.knittingRate);
+    const dyeing = toNum(fr.dyeingRate);
+    const finishing = toNum(fr.rate);
+    const aggregateYkd = toNum(fr.rateFND);
+
+    // If separate Yarn/Knitting/Dyeing rates are available, use them.
+    // Otherwise rateFND is the already-combined Yarn/Knitting/Dyeing rate.
+    const ykdTotal = yarn + knitting + dyeing > 0
+      ? yarn + knitting + dyeing
+      : aggregateYkd;
+
+    return {
+      yarn,
+      knitting,
+      dyeing,
+      finishing,
+      total: ykdTotal + finishing,
+    };
+  };
+
+  const getFinishingWeight = (fr: FinishingInwardRow) =>
+    toNum(
+      fr.weightKg ??
+        fr.weight ??
+        fr.receivedWtBox ??
+        (fr as any).receivedWeight ??
+        (fr as any).wt
+    );
+
+  // IMPORTANT: group only by Fabric Name.
+  // If the same fabric exists in many In-House rows/lots/shades, it appears
+  // only once in Cutting and its available weight is the sum of all rows.
+  const getFinishingGroupKey = (fr: FinishingInwardRow) =>
+    String(fr.itemName || "").trim().toLowerCase();
+
+  const groupedFinishingRows = useMemo(() => {
+    type Agg = FinishingInwardRow & {
+      _weightSum?: number;
+      _rateWeighted?: number;
+      _rateFallback?: number;
+      _sourceCount?: number;
+    };
+
+    const map = new Map<string, Agg>();
+
+    for (const fr of finishingRows) {
+      const itemName = String(fr.itemName || "").trim();
+      if (!itemName) continue;
+
+      // IMPORTANT: one Fabric/Material = one Cutting row.
+      // Do NOT group by lot number. Purchase + Finishing Inward rows for the
+      // same fabric are also merged so every In-House material is available.
+      const key = itemName.toLowerCase();
+      const weight = getFinishingWeight(fr);
+      const rate = getFinishingRateParts(fr).total;
+      const existing = map.get(key);
+
+      if (!existing) {
+        map.set(key, {
+          ...fr,
+          itemName,
+          weightKg: String(weight),
+          _weightSum: weight,
+          _rateWeighted: weight * rate,
+          _rateFallback: rate,
+          _sourceCount: 1,
+        });
+      } else {
+        const oldWeight = existing._weightSum || 0;
+        const newWeight = oldWeight + weight;
+
+        existing.weightKg = String(newWeight);
+        existing._weightSum = newWeight;
+        existing._rateWeighted = (existing._rateWeighted || 0) + weight * rate;
+        existing._rateFallback = existing._rateFallback || rate;
+        existing._sourceCount = (existing._sourceCount || 1) + 1;
+
+        // If the first row had no shade, use a later available shade.
+        if (!normalizeShade(existing.shade) && normalizeShade(fr.shade)) {
+          existing.shade = normalizeShade(fr.shade);
+        }
+
+        // Prefer a real finishing row id when available. Purchase-only rows
+        // have no finishingInwardRowId and therefore remain null when saved.
+        if (existing.id == null && fr.id != null) existing.id = fr.id;
+
+        // If separate process rates are missing on the first row but are
+        // available on another finishing row, retain them for rate calculation.
+        if (!toNum(existing.yarnRate) && toNum(fr.yarnRate)) existing.yarnRate = fr.yarnRate;
+        if (!toNum(existing.knittingRate) && toNum(fr.knittingRate)) existing.knittingRate = fr.knittingRate;
+        if (!toNum(existing.dyeingRate) && toNum(fr.dyeingRate)) existing.dyeingRate = fr.dyeingRate;
+        if (!toNum(existing.rate) && toNum(fr.rate)) existing.rate = fr.rate;
+        if (!toNum(existing.rateFND) && toNum(fr.rateFND)) existing.rateFND = fr.rateFND;
+      }
+    }
+
+    return Array.from(map.values())
+      .map((r) => {
+        const weight = r._weightSum || getFinishingWeight(r);
+        const weightedRate =
+          weight > 0 && r._rateWeighted != null
+            ? r._rateWeighted / weight
+            : r._rateFallback || getFinishingRateParts(r).total;
+
+        // The UI only shows one Fabric Rate. Keep the calculated aggregate in
+        // rateFND and zero the finishing-only field so old calculation paths
+        // still produce exactly one final Fabric Rate.
+        r.rateFND = String(weightedRate);
+        r.rate = "0";
+        return r;
+      })
+      .sort((a, b) =>
+        String(a.itemName || "").localeCompare(
+          String(b.itemName || ""),
+          undefined,
+          { numeric: true, sensitivity: "base" }
+        )
+      );
+  }, [finishingRows]);
+
   // ---------- Apply selections ----------
   const applyArtToRow = async (a: ArtListItem) => {
     if (artRowId == null) return;
@@ -947,27 +3873,27 @@ const CuttingModule: React.FC = () => {
 
   const applyFinishingRow = (fr: FinishingInwardRow) => {
     if (finishRowId == null) return;
-    setStockRows((prev) =>
-      prev.map((r) => {
-        if (r.id !== finishRowId) return r;
-        const cons = toNum(r.consumption);
-
-        const kyrDyeingSum = toNum(fr.rateFND);
-        const finishingRate = toNum(fr.rate);
-        const totalFabricRate = kyrDyeingSum + finishingRate;
-
-        return {
-          ...r,
-          finishingInwardRowId: fr.id ?? null,
-          itemName: fr.itemName || "",
-          shade: fr.shade || "",
-          unit: r.unit || "Kg",
-          consRate: totalFabricRate ? String(totalFabricRate) : "",
-          consAmount:
-            cons && totalFabricRate ? (cons * totalFabricRate).toFixed(2) : "",
-        };
-      })
-    );
+    setStockRows((prev) => prev.map((r) => {
+      if (r.id !== finishRowId) return r;
+      const cons = toNum(r.consumption);
+      const parts = getFinishingRateParts(fr);
+      const weight = getFinishingWeight(fr);
+      return {
+        ...r,
+        finishingInwardRowId: fr.id ?? null,
+        itemName: String(fr.itemName || "").trim(),
+        shade: normalizeShade(fr.shade),
+        inhouseWeight: weight > 0 ? weight.toFixed(3) : "",
+        // Internal rate parts are retained for backend compatibility, but
+        // the Cutting table displays only the final Fabric Rate.
+        yarnRate: parts.yarn > 0 ? parts.yarn.toFixed(2) : "",
+        knittingRate: parts.knitting > 0 ? parts.knitting.toFixed(2) : "",
+        dyeingRate: parts.dyeing > 0 ? parts.dyeing.toFixed(2) : "",
+        finishingRate: parts.finishing > 0 ? parts.finishing.toFixed(2) : "",
+        consRate: parts.total > 0 ? parts.total.toFixed(2) : "",
+        consAmount: cons && parts.total ? (cons * parts.total).toFixed(2) : "",
+      };
+    }));
     setFinishModalOpen(false);
     setFinishRowId(null);
   };
@@ -1065,6 +3991,11 @@ const CuttingModule: React.FC = () => {
         itemName: (r.itemName || "").trim(),
         shade: (r.shade || "").trim(),
         unit: (r.unit || "Kg").trim(),
+        inhouseWeight: (r.inhouseWeight || "").trim(),
+        yarnRate: (r.yarnRate || "").trim(),
+        knittingRate: (r.knittingRate || "").trim(),
+        dyeingRate: (r.dyeingRate || "").trim(),
+        finishingRate: (r.finishingRate || "").trim(),
         consumption: (r.consumption || "").trim(),
         kho: (r.kho || "").trim(),
         consRate: (r.consRate || "").trim(),
@@ -1238,11 +4169,12 @@ const CuttingModule: React.FC = () => {
             <td>${i + 1}</td>
             <td>${r.itemName || "-"}</td>
             <td>${r.shade || "-"}</td>
+            <td style="text-align:right">${r.inhouseWeight || "-"}</td>
+            <td style="text-align:right">${r.consRate || "-"}</td>
             <td style="text-align:right">${r.consumption || "-"}</td>
             <td style="text-align:right">${r.kho || "-"}</td>
             <td>${r.unit || "-"}</td>
             <td style="text-align:right">${perPcs || "-"}</td>
-            <td style="text-align:right">${r.consRate || "-"}</td>
             <td style="text-align:right">${perPcsRate || "-"}</td>
             <td style="text-align:right">${r.consAmount || "-"}</td>
           </tr>`;
@@ -1350,16 +4282,17 @@ const CuttingModule: React.FC = () => {
                 <th>#</th>
                 <th>Fabric Name</th>
                 <th>Shade</th>
+                <th>In-House Weight</th>
+                <th>Fabric Rate</th>
                 <th>Consumption</th>
                 <th>KHO</th>
                 <th>Unit</th>
                 <th>Avg/Per Pcs</th>
-                <th>Fabric Rate</th>
                 <th>Per Pcs Rate</th>
                 <th>Amount</th>
               </tr>
             </thead>
-            <tbody>${stockRowsHTML || `<tr><td colspan="10">No rows</td></tr>`}</tbody>
+            <tbody>${stockRowsHTML || `<tr><td colspan="11">No rows</td></tr>`}</tbody>
           </table>
 
           <div class="totals">
@@ -1544,6 +4477,11 @@ const CuttingModule: React.FC = () => {
         itemName: r.itemName || "",
         shade: r.shade || "",
         unit: r.unit || "Kg",
+        inhouseWeight: r.inhouseWeight || "",
+        yarnRate: r.yarnRate || "",
+        knittingRate: r.knittingRate || "",
+        dyeingRate: r.dyeingRate || "",
+        finishingRate: r.finishingRate || "",
         consumption: r.consumption || "",
         kho: r.kho || "",
         consRate: r.consRate || "",
@@ -1940,11 +4878,12 @@ const CuttingModule: React.FC = () => {
                   <th className="border p-2 text-center">S.No</th>
                   <th className="border p-2">Fabric Name (In-house)</th>
                   <th className="border p-2">Shade</th>
+                  <th className="border p-2 text-right">In-House Weight</th>
+                  <th className="border p-2 text-right">Fabric Rate</th>
                   <th className="border p-2 text-right">Consumption</th>
                   <th className="border p-2 text-right">KHO</th>
                   <th className="border p-2 text-center">Unit</th>
                   <th className="border p-2 text-right">Avg/Per Pcs</th>
-                  <th className="border p-2 text-right">Fabric Rate</th>
                   <th className="border p-2 text-right">Per Pcs Rate</th>
                   <th className="border p-2 text-right">Amount</th>
                 </tr>
@@ -1972,22 +4911,32 @@ const CuttingModule: React.FC = () => {
                           readOnly
                           onClick={() => openFinishModal(r.id)}
                           className="border p-1 rounded w-full bg-yellow-50 cursor-pointer"
-                          placeholder="Click to select Fabric"
+                          placeholder="Select In-House Fabric"
                         />
                       </td>
 
                       <td className="border p-1">
-                        <ShadeDropdown
+                        <input
                           value={r.shade}
-                          onChange={(val) =>
-                            handleStockChange(r.id, "shade", val)
-                          }
-                          options={shades}
-                          className="w-full"
-                          placeholder="Select shade"
+                          readOnly
+                          className="border p-1 rounded w-full bg-gray-50"
                         />
                       </td>
 
+                      <td className="border p-1 text-right bg-blue-50 font-semibold">
+                        {r.inhouseWeight || "-"}
+                      </td>
+
+                      <td className="border p-1">
+                        <input
+                          value={r.consRate}
+                          readOnly
+                          className="border p-1 rounded w-full text-right bg-gray-50 font-semibold"
+                          placeholder="Auto"
+                        />
+                      </td>
+
+                      {/* Consumption is intentionally unchanged. */}
                       <td className="border p-1">
                         <NumTextInput
                           value={r.consumption}
@@ -1999,6 +4948,7 @@ const CuttingModule: React.FC = () => {
                         />
                       </td>
 
+                      {/* KHO is intentionally unchanged. */}
                       <td className="border p-1">
                         <NumTextInput
                           value={r.kho}
@@ -2028,22 +4978,12 @@ const CuttingModule: React.FC = () => {
                         {avg || "-"}
                       </td>
 
-                      <td className="border p-1">
-                        <input
-                          value={r.consRate}
-                          readOnly
-                          className="border p-1 rounded w-full text-right bg-gray-50"
-                        />
-                      </td>
-
                       <td className="border p-1 text-right bg-gray-50">
                         {ppr || "-"}
                       </td>
 
                       <td className="border p-1 text-right bg-gray-50">
-                        {r.consAmount
-                          ? `₹${Number(r.consAmount).toFixed(2)}`
-                          : "-"}
+                        {r.consAmount ? `₹${Number(r.consAmount).toFixed(2)}` : "-"}
                       </td>
                     </tr>
                   );
@@ -2053,7 +4993,7 @@ const CuttingModule: React.FC = () => {
               {stockRows.length > 0 && (
                 <tfoot>
                   <tr className="bg-gray-100 font-semibold">
-                    <td className="border p-2 text-right" colSpan={3}>
+                    <td className="border p-2 text-right" colSpan={5}>
                       Totals
                     </td>
                     <td className="border p-2 text-right">
@@ -2066,7 +5006,6 @@ const CuttingModule: React.FC = () => {
                     <td className="border p-2 text-right">
                       {overallAvgPerPcs}
                     </td>
-                    <td className="border p-2 text-right">—</td>
                     <td className="border p-2 text-right">—</td>
                     <td className="border p-2 text-right">
                       ₹{fmt(totalConsAmount, 2)}
@@ -2365,7 +5304,7 @@ const CuttingModule: React.FC = () => {
             <input
               value={finishSearch}
               onChange={(e) => setFinishSearch(e.target.value)}
-              placeholder="Search lot/item/shade/rate"
+              placeholder="Search fabric / shade / rate"
               className="border p-2 rounded w-full mb-3"
             />
 
@@ -2373,49 +5312,43 @@ const CuttingModule: React.FC = () => {
               <table className="w-full text-sm">
                 <thead className="bg-gray-100">
                   <tr>
-                    <th className="border p-2">Lot No</th>
-                    <th className="border p-2">Item Name</th>
+                    <th className="border p-2">Fabric Name</th>
                     <th className="border p-2">Shade</th>
-                    <th className="border p-2 text-right">KYR+Dyeing Rate</th>
-                    <th className="border p-2 text-right">Finishing Rate</th>
-                    <th className="border p-2 text-right">Total Rate</th>
+                    <th className="border p-2 text-right">In-House Weight (Kg)</th>
+                    <th className="border p-2 text-right">Fabric Rate</th>
                     <th className="border p-2 text-center">Action</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {finishingRows
+                  {groupedFinishingRows
                     .filter((f) => {
                       const q = finishSearch.trim().toLowerCase();
                       if (!q) return true;
+                      const p = getFinishingRateParts(f);
                       return (
-                        (f.lotNo || "").toLowerCase().includes(q) ||
                         (f.itemName || "").toLowerCase().includes(q) ||
-                        (f.shade || "").toLowerCase().includes(q) ||
-                        String(f.rate || "").includes(q) ||
-                        String(f.rateFND || "").includes(q)
+                        normalizeShade(f.shade).toLowerCase().includes(q) ||
+                        String(getFinishingWeight(f)).includes(q) ||
+                        String(p.total).includes(q)
                       );
                     })
                     .map((f, idx) => {
-                      const kyrDyeingSum = toNum(f.rateFND);
-                      const finishingRate = toNum(f.rate);
-                      const totalFabricRate = kyrDyeingSum + finishingRate;
-
+                      const p = getFinishingRateParts(f);
+                      const w = getFinishingWeight(f);
                       return (
                         <tr
-                          key={f.id ?? `row-${idx}`}
+                          key={`${getFinishingGroupKey(f)}-${f.id ?? idx}`}
                           className="hover:bg-gray-50"
                         >
-                          <td className="border p-2">{f.lotNo || "-"}</td>
-                          <td className="border p-2">{f.itemName || "-"}</td>
-                          <td className="border p-2">{f.shade || "-"}</td>
-                          <td className="border p-2 text-right">
-                            {kyrDyeingSum ? kyrDyeingSum.toFixed(2) : "-"}
+                          <td className="border p-2 font-medium">
+                            {f.itemName || "-"}
                           </td>
+                          <td className="border p-2">{normalizeShade(f.shade) || "-"}</td>
                           <td className="border p-2 text-right">
-                            {finishingRate ? finishingRate.toFixed(2) : "-"}
+                            {w ? w.toFixed(3) : "-"}
                           </td>
                           <td className="border p-2 text-right font-bold">
-                            {totalFabricRate ? totalFabricRate.toFixed(2) : "-"}
+                            {p.total ? p.total.toFixed(2) : "-"}
                           </td>
                           <td className="border p-2 text-center">
                             <button
@@ -2430,13 +5363,13 @@ const CuttingModule: React.FC = () => {
                       );
                     })}
 
-                  {finishingRows.length === 0 && (
+                  {groupedFinishingRows.length === 0 && (
                     <tr>
                       <td
                         className="border p-3 text-center text-gray-500"
-                        colSpan={7}
+                        colSpan={5}
                       >
-                        No rows found
+                        No In-House fabric found
                       </td>
                     </tr>
                   )}

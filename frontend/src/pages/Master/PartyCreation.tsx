@@ -27,6 +27,7 @@ type ColumnId =
   | "mobileNo"
   | "stateName"
   | "station"
+  | "grade"
   | "category"
   | "openingBalance"
   | "openingTaxBalance"
@@ -45,6 +46,7 @@ const columnLabels: Record<ColumnId, string> = {
   mobileNo: "Mobile No",
   stateName: "State Name",
   station: "Station",
+  grade: "Grade",
   category: "Category",
   openingBalance: "Opening Balance",
   openingTaxBalance: "Opening Tax Balance",
@@ -130,6 +132,7 @@ const PartyCreation: React.FC<{ prefill?: PartyPrefill | null }> = ({ prefill: p
     mobileNo: true,
     stateName: true,
     station: true,
+    grade: true,
     category: true,
     openingBalance: true,
     openingTaxBalance: true,
@@ -314,8 +317,25 @@ const PartyCreation: React.FC<{ prefill?: PartyPrefill | null }> = ({ prefill: p
   const handleSave = async () => {
     try {
       // ✅ make payload: customerType "" => null (so Spring enum parsing won't fail)
+      // Grade dropdown stores gradeName for display, but backend Party expects
+      // a CustomerGrade relation in the `grade` field, linked by serialNo.
+      const selectedGrade = customerGrades.find(
+        (g: any) => g.gradeName === formData.customerGrade
+      );
+
       const payload = {
         ...formData,
+        // Do not send the frontend-only customerGrade field.
+        customerGrade: undefined,
+
+        // Send the actual backend relation.
+        grade: selectedGrade
+          ? {
+              serialNo: selectedGrade.serialNo,
+              gradeName: selectedGrade.gradeName,
+            }
+          : null,
+
         openingBalanceType: formData.openingBalanceType || "CR",
         customerType: formData.customerType ? formData.customerType : null,
         mobileNos: (formData.mobileNos || [])
@@ -454,6 +474,7 @@ const PartyCreation: React.FC<{ prefill?: PartyPrefill | null }> = ({ prefill: p
           ...(Array.isArray(p.mobileNos) ? p.mobileNos : (p.mobileNo ? [p.mobileNo] : [])),
           p.stateName,
           p.station,
+          p.customerGrade,
           p.category?.categoryName,
           p.agent?.agentName,
           p.transport?.transportName,
@@ -571,6 +592,8 @@ const PartyCreation: React.FC<{ prefill?: PartyPrefill | null }> = ({ prefill: p
         return p.stateName || "";
       case "station":
         return p.station || "";
+      case "grade":
+        return p.customerGrade || p.gradeName || p.grade?.gradeName || "";
       case "category":
         return p.category?.categoryName || "";
       case "openingBalance":
@@ -664,7 +687,7 @@ const PartyCreation: React.FC<{ prefill?: PartyPrefill | null }> = ({ prefill: p
     w.print();
   };
 
-  // ------------ Export PDF (ALL columns) ------------
+  // ------------ Export PDF (selected columns) ------------
   const handleExportPDF = async () => {
     if (!filteredParties.length) {
       Swal.fire("No data", "No parties to export. Check filters.", "info");
@@ -676,87 +699,94 @@ const PartyCreation: React.FC<{ prefill?: PartyPrefill | null }> = ({ prefill: p
         (a.partyName || "").localeCompare(b.partyName || "")
       );
 
+      const cols = getPrintColumns();
+
+      const escapeHtml = (value: any) =>
+        String(value ?? "")
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/"/g, "&quot;")
+          .replace(/'/g, "&#039;");
+
+      const headerHtml = cols
+        .map((colId) => `<th>${escapeHtml(columnLabels[colId])}</th>`)
+        .join("");
+
+      const bodyHtml = partiesForPdf
+        .map(
+          (p, idx) =>
+            `<tr>${cols
+              .map(
+                (colId) =>
+                  `<td>${escapeHtml(getColumnValueForPrint(colId, p, idx))}</td>`
+              )
+              .join("")}</tr>`
+        )
+        .join("");
+
       const tempDiv = document.createElement("div");
       tempDiv.style.position = "fixed";
       tempDiv.style.left = "-9999px";
       tempDiv.style.top = "0";
       tempDiv.style.background = "#fff";
       tempDiv.style.padding = "10px";
+      tempDiv.style.width = "1400px";
 
       tempDiv.innerHTML = `
+        <div style="font-family: Arial, sans-serif; background:#fff;">
+          <h2 style="text-align:center; margin:0 0 8px;">Party Master List</h2>
+          <div style="text-align:center; margin-bottom:10px; font-size:12px;">
+            As On: ${escapeHtml(new Date().toLocaleDateString("en-IN"))}
+          </div>
+          <table style="width:100%; border-collapse:collapse; margin-top:10px;">
+            <thead>
+              <tr>${headerHtml}</tr>
+            </thead>
+            <tbody>${bodyHtml}</tbody>
+          </table>
+        </div>
+
         <style>
-          table { width:100%; border-collapse:collapse; margin-top:10px; }
-          th,td { border:1px solid #333; padding:4px; font-size:10px; text-align:center; }
-          thead th { background:#eee; }
+          table { width:100%; border-collapse:collapse; }
+          th, td {
+            border:1px solid #333;
+            padding:5px;
+            font-size:10px;
+            text-align:center;
+            vertical-align:middle;
+          }
+          thead th { background:#eee; font-weight:700; }
         </style>
-        <table>
-          <thead>
-            <tr>
-              <th>Sr No</th>
-              <th>Serial No</th>
-              <th>Party Name</th>
-              <th>Customer Type</th>
-              <th>GST No</th>
-              <th>Mobile No</th>
-              <th>State Name</th>
-              <th>Station</th>
-              <th>Category</th>
-              <th>Opening Balance</th>
-              <th>Opening Tax Balance</th>
-              <th>Date</th>
-              <th>Agent</th>
-              <th>Transporter</th>
-              <th>Credit Days</th>
-              <th>Credit Amount</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${partiesForPdf
-              .map(
-                (p, idx) => `
-              <tr>
-                <td>${idx + 1}</td>
-                <td>${p.serialNumber || ""}</td>
-                <td>${(p.partyName || "").toString().replace(/</g, "&lt;").replace(/>/g, "&gt;")}</td>
-                <td>${formatCustomerType(p.customerType) || ""}</td>
-                <td>${p.gstNo || ""}</td>
-                <td>${Array.isArray(p.mobileNos) ? p.mobileNos.filter(Boolean).join(", ") : (p.mobileNo || "")}</td>
-                <td>${p.stateName || ""}</td>
-                <td>${p.station || ""}</td>
-                <td>${p.category?.categoryName || ""}</td>
-                <td>${formatOpeningBalance(p) || ""}</td>
-                <td>${p.openingTaxBalance === null || p.openingTaxBalance === undefined ? "" : String(p.openingTaxBalance)}</td>
-                <td>${p.date || ""}</td>
-                <td>${p.agent?.agentName || ""}</td>
-                <td>${p.transport?.transportName || ""}</td>
-                <td>${p.creditDays === null || p.creditDays === undefined ? "" : String(p.creditDays)}</td>
-                <td>${p.creditAmount === null || p.creditAmount === undefined ? "" : String(p.creditAmount)}</td>
-              </tr>
-            `
-              )
-              .join("")}
-          </tbody>
-        </table>
       `;
 
       document.body.appendChild(tempDiv);
 
-      const canvas = await html2canvas(tempDiv, { scale: 2 });
+      const canvas = await html2canvas(tempDiv, {
+        scale: 2,
+        backgroundColor: "#ffffff",
+      });
+
       const imgData = canvas.toDataURL("image/png");
 
       const pdf = new jsPDF("l", "mm", "a4");
       const pdfWidth = pdf.internal.pageSize.getWidth();
       const pdfHeight = pdf.internal.pageSize.getHeight();
 
-      const imgWidthPx = canvas.width;
-      const imgHeightPx = canvas.height;
+      const margin = 8;
+      const availableWidth = pdfWidth - margin * 2;
+      const availableHeight = pdfHeight - margin * 2;
 
-      const ratio = Math.min(pdfWidth / imgWidthPx, pdfHeight / imgHeightPx);
-      const imgWidth = imgWidthPx * ratio * 0.92;
-      const imgHeight = imgHeightPx * ratio * 0.92;
+      const ratio = Math.min(
+        availableWidth / canvas.width,
+        availableHeight / canvas.height
+      );
+
+      const imgWidth = canvas.width * ratio;
+      const imgHeight = canvas.height * ratio;
 
       const x = (pdfWidth - imgWidth) / 2;
-      const y = 10;
+      const y = margin;
 
       pdf.addImage(imgData, "PNG", x, y, imgWidth, imgHeight);
       pdf.save(`party-list-${Date.now()}.pdf`);
@@ -1446,7 +1476,7 @@ const PartyCreation: React.FC<{ prefill?: PartyPrefill | null }> = ({ prefill: p
                   </select>
                 </div>
 
-                {/* Column filters */}
+                {/* Column filters - Grade is included automatically via columnLabels/columnVisibility */}
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 8, fontSize: 12 }}>
                   <span style={{ fontWeight: 600 }}>Columns:</span>
                   {(Object.keys(columnLabels) as ColumnId[]).map((id) => (
@@ -1462,7 +1492,7 @@ const PartyCreation: React.FC<{ prefill?: PartyPrefill | null }> = ({ prefill: p
                 </div>
 
                 <div style={tableWrapperStyle}>
-                  <table style={{ width: "100%", minWidth: "1600px", borderCollapse: "collapse", fontSize: 13 }}>
+                  <table style={{ width: "100%", minWidth: "1700px", borderCollapse: "collapse", fontSize: 13 }}>
                     <thead>
                       <tr>
                         {columnVisibility.srNo && <th style={{ border: "1px solid #ddd", padding: 8 }}>Sr No</th>}
@@ -1473,6 +1503,7 @@ const PartyCreation: React.FC<{ prefill?: PartyPrefill | null }> = ({ prefill: p
                         {columnVisibility.mobileNo && <th style={{ border: "1px solid #ddd", padding: 8 }}>Mobile No</th>}
                         {columnVisibility.stateName && <th style={{ border: "1px solid #ddd", padding: 8 }}>State Name</th>}
                         {columnVisibility.station && <th style={{ border: "1px solid #ddd", padding: 8 }}>Station</th>}
+                        {columnVisibility.grade && <th style={{ border: "1px solid #ddd", padding: 8 }}>Grade</th>}
                         {columnVisibility.category && <th style={{ border: "1px solid #ddd", padding: 8 }}>Category</th>}
                         {columnVisibility.openingBalance && <th style={{ border: "1px solid #ddd", padding: 8 }}>Opening Balance</th>}
                         {columnVisibility.openingTaxBalance && <th style={{ border: "1px solid #ddd", padding: 8 }}>Opening Tax Balance</th>}
@@ -1496,6 +1527,7 @@ const PartyCreation: React.FC<{ prefill?: PartyPrefill | null }> = ({ prefill: p
                           {columnVisibility.mobileNo && <td style={{ border: "1px solid #eee", padding: 8 }}>{Array.isArray(p.mobileNos) ? p.mobileNos.filter(Boolean).join(", ") : p.mobileNo}</td>}
                           {columnVisibility.stateName && <td style={{ border: "1px solid #eee", padding: 8 }}>{p.stateName}</td>}
                           {columnVisibility.station && <td style={{ border: "1px solid #eee", padding: 8 }}>{p.station}</td>}
+                          {columnVisibility.grade && <td style={{ border: "1px solid #eee", padding: 8 }}>{p.customerGrade || p.gradeName || p.grade?.gradeName || ""}</td>}
                           {columnVisibility.category && <td style={{ border: "1px solid #eee", padding: 8 }}>{p.category?.categoryName}</td>}
                           {columnVisibility.openingBalance && <td style={{ border: "1px solid #eee", padding: 8 }}>{formatOpeningBalance(p)}</td>}
                           {columnVisibility.openingTaxBalance && <td style={{ border: "1px solid #eee", padding: 8 }}>{p.openingTaxBalance}</td>}
@@ -1520,6 +1552,13 @@ const PartyCreation: React.FC<{ prefill?: PartyPrefill | null }> = ({ prefill: p
                                   ...p,
                                   openingBalanceType: p.openingBalanceType || "CR",
                                   customerType: p.customerType || "", // ✅ null => ""
+                                  // Backend returns the Grade relation as `grade`.
+                                  // Keep customerGrade as a UI-only display value.
+                                  customerGrade:
+                                    p.grade?.gradeName ||
+                                    p.gradeName ||
+                                    p.customerGrade ||
+                                    "Standard",
                                   mobileNos: Array.isArray(p.mobileNos)
                                     ? (p.mobileNos.length ? p.mobileNos : [""])
                                     : (p.mobileNo ? [p.mobileNo] : [""]),

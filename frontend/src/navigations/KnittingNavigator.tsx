@@ -141,9 +141,9 @@ const KnittingNavigator: React.FC<KnittingNavigatorProps> = ({
             "Outward Challan",
             "Inward Challan",
             "Material Return",
-            "Item Wise Outstanding",
+            "Lot Wise Outstanding",
             "Dyeing Amount Statement",
-            "Stock Statement",
+            "Batch Creation",
           ].map((sub, i) => {
             const path =
               sub === "Material Return"

@@ -77,6 +77,7 @@ public class FinishingInwardService {
                 row.setRateFND(rowDTO.getRateFND());
                 row.setRolls(rowDTO.getRolls());
                 row.setWeight(rowDTO.getWeight());
+                row.setReceivedWeight(rowDTO.getReceivedWeight());
 
 
                 row.setPercentage(rowDTO.getPercentage());
@@ -104,6 +105,7 @@ public class FinishingInwardService {
                         row.getRateFND(),
                         row.getRolls(),
                         row.getWeight(),
+                        row.getReceivedWeight(),
 
                         row.getPercentage(),
                         row.getRate(),

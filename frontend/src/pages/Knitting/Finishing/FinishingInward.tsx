@@ -21,6 +21,7 @@ interface RowData {
   processing: string;
   rolls: string;
   weight: string;
+  receivedWeight: string;
   wastage: string;
   extraWt: string;
 
@@ -141,6 +142,7 @@ const FinishingInward: React.FC = () => {
       processing: "",
       rolls: "",
       weight: "",
+      receivedWeight: "",
       wastage: "",
       extraWt: "",
       percentage: "", // ✅ NEW
@@ -178,18 +180,59 @@ const FinishingInward: React.FC = () => {
     else setSelectedRowIds(rows.map((r) => r.id));
   };
 
-  // Handle row input changes; recalc amount when rate/weight changes
+  // Handle row changes
+  // Finishing formula:
+  //   Wastage = Weight × Percentage / 100
+  //   Percentage = Wastage × 100 / Weight
+  // Both fields remain editable. Weight changes recalculate whichever
+  // percentage/wastage value is already present.
   const handleChange = (id: number, field: keyof RowData, value: string) => {
     setRows((prevRows) =>
       prevRows.map((r) => {
-        if (r.id === id) {
-          const u: RowData = { ...r, [field]: value };
-          if (field === "rate" || field === "weight") {
-            u.amount = calculateAmount(u.rate, u.weight);
-          }
-          return u;
+        if (r.id !== id) return r;
+
+        const u: RowData = { ...r, [field]: value };
+
+        // Amount = Weight × Finishing Rate
+        if (field === "rate" || field === "weight") {
+          u.amount = calculateAmount(u.rate, u.weight);
         }
-        return r;
+
+        const weightNum = parseFloat(u.weight) || 0;
+
+        if (field === "receivedWeight") {
+          const receivedNum = parseFloat(value) || 0;
+          if (weightNum > 0) {
+            const wastageNum = Math.max(0, weightNum - receivedNum);
+            u.wastage = String(Number(wastageNum.toFixed(3)));
+            u.percentage = String(Number(((wastageNum * 100) / weightNum).toFixed(4)));
+          }
+        }
+
+        if (field === "wastage") {
+          const wastageNum = Math.max(0, parseFloat(value) || 0);
+          if (weightNum > 0) {
+            const receivedNum = Math.max(0, weightNum - wastageNum);
+            u.receivedWeight = String(Number(receivedNum.toFixed(3)));
+            u.percentage = String(Number(((wastageNum * 100) / weightNum).toFixed(4)));
+          }
+        }
+
+        if (field === "weight" && weightNum > 0) {
+          const receivedNum = parseFloat(u.receivedWeight);
+          const wastageNum = parseFloat(u.wastage);
+          if (u.receivedWeight !== "" && !isNaN(receivedNum)) {
+            const w = Math.max(0, weightNum - receivedNum);
+            u.wastage = String(Number(w.toFixed(3)));
+            u.percentage = String(Number(((w * 100) / weightNum).toFixed(4)));
+          } else if (u.wastage !== "" && !isNaN(wastageNum)) {
+            const rw = Math.max(0, weightNum - wastageNum);
+            u.receivedWeight = String(Number(rw.toFixed(3)));
+            u.percentage = String(Number(((wastageNum * 100) / weightNum).toFixed(4)));
+          }
+        }
+
+        return u;
       })
     );
   };
@@ -247,6 +290,7 @@ const FinishingInward: React.FC = () => {
           processing: "",
           rolls: String(r.rolls ?? ""),
           weight: weightStr,
+          receivedWeight: String(r.receivedWeight ?? ""),
 
           // ✅✅ AUTO-FILL FIX HERE
           wastage: String(r.wastage ?? r.shortage ?? ""),
@@ -291,6 +335,7 @@ const FinishingInward: React.FC = () => {
             shade: r.shade || "",
             rolls: r.rolls || 0,
             weight: r.weight || 0,
+            receivedWeight: r.receivedWeight ?? "",
             rateFND:
               r.rateFND ||
               sumRatesToString(r.knittingYarnRate, r.dyeingRate) ||
@@ -329,6 +374,7 @@ const FinishingInward: React.FC = () => {
         processing: "",
         rolls: String(l.rolls ?? ""),
         weight: weightStr,
+        receivedWeight: String(l.receivedWeight ?? ""),
 
         // ✅✅ AUTO-FILL FIX HERE
         wastage: String(l.wastage ?? ""),
@@ -366,6 +412,7 @@ const FinishingInward: React.FC = () => {
       processing: r.processing,
       rolls: r.rolls,
       weight: r.weight,
+      receivedWeight: r.receivedWeight,
       wastage: r.wastage,
       extraWt: r.extraWt,
 
@@ -674,6 +721,7 @@ const FinishingInward: React.FC = () => {
                 <th>KYR + Dyeing (Sum)</th>
                 <th>Rolls</th>
                 <th>Weight</th>
+                <th>Received Weight</th>
                 <th>Wastage</th>
                 <th>Extra Wt</th>
                 <th>%</th>
@@ -694,6 +742,7 @@ const FinishingInward: React.FC = () => {
                   <td>${r.rateFND}</td>
                   <td>${r.rolls}</td>
                   <td>${r.weight}</td>
+                  <td>${r.receivedWeight}</td>
                   <td>${r.wastage}</td>
                   <td>${r.extraWt}</td>
                   <td>${r.percentage}</td>
@@ -959,6 +1008,7 @@ const FinishingInward: React.FC = () => {
                   <th className="border p-2 w-[10%]">KYR + Dyeing (Sum)</th>
                   <th className="border p-2 w-[7%]">Rolls</th>
                   <th className="border p-2 w-[7%]">Weight</th>
+                  <th className="border p-2 w-[9%]">Received Weight</th>
                   <th className="border p-2 w-[7%]">Wastage</th>
                   <th className="border p-2 w-[7%]">Extra Wt</th>
                   <th className="border p-2 w-[7%]">%</th>
@@ -1054,6 +1104,11 @@ const FinishingInward: React.FC = () => {
                           }
                           className="w-full p-1 text-xs border rounded text-right"
                         />
+                      </td>
+                      <td className="border p-1">
+                        <input type="number" min="0" value={row.receivedWeight}
+                          onChange={(e) => handleChange(row.id, "receivedWeight", e.target.value)}
+                          className="w-full p-1 text-xs border rounded text-right" placeholder="Received" />
                       </td>
 
                       <td className="border p-1">

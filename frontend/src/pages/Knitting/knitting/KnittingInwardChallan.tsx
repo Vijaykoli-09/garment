@@ -186,40 +186,105 @@ const KnittingInwardChallan: React.FC = () => {
     if (rows.length > 0) recalcTotals(rows);
   }, [rows]);
 
-  // Add new row (always recompute next from existing rows)
+  // Add new row
+  // IMPORTANT:
+  // New row copies the MOST RECENT (last) row data.
+  // Example:
+  // SR-01, SR-02, PH-01 -> Add Row => PH-02
+  // Existing SR rows are never changed.
   const addRow = useCallback(() => {
     setRows((prev) => {
       const nextId = prev.reduce((max, r) => Math.max(max, r.id), 0) + 1;
-      const nextNum = getNextNumberFromRows(prev);
+
+      // Copy from the most recently added row, NOT the first row
+      const recentRow = prev.length > 0 ? prev[prev.length - 1] : undefined;
+
+      // Prefix comes from the recent row
       const prefix =
-        (currentPrefix && currentPrefix.trim()) || DEFAULT_LOT_PREFIX;
+        recentRow?.fabricLotNo && String(recentRow.fabricLotNo).trim()
+          ? getPrefixFromLot(recentRow.fabricLotNo)
+          : (currentPrefix && currentPrefix.trim()) || DEFAULT_LOT_PREFIX;
+
+      // Find next number ONLY for the current/recent prefix
+      // SR-01, SR-02, PH-01 => PH-02
+      let maxNumberForPrefix = 0;
+
+      prev.forEach((row) => {
+        const lot = String(row.fabricLotNo || "").trim().toUpperCase();
+        if (!lot) return;
+
+        const rowPrefix = getPrefixFromLot(lot);
+        if (rowPrefix !== prefix) return;
+
+        const number = parseLot(lot);
+        if (number !== null && number > maxNumberForPrefix) {
+          maxNumberForPrefix = number;
+        }
+      });
+
+      const nextNum = maxNumberForPrefix + 1;
       const newLot = formatLot(nextNum, prefix);
+
+      // Copy ALL data from the most recent row.
+      // Only ID and Lot Number are changed.
+      const newRow: RowData = recentRow
+        ? {
+            ...recentRow,
+            id: nextId,
+            fabricLotNo: newLot,
+            selected: false,
+          }
+        : {
+            id: nextId,
+            fabricLotNo: newLot,
+            item: "",
+            fabricationName: "",
+            shortage: "",
+            percentage: "",
+            rolls: "",
+            weight: "",
+            knittingRate: "",
+            yarnRate: "",
+            unit: "Kg",
+            selected: false,
+          };
+
+      // Remember the current prefix for future operations
+      setCurrentPrefix(prefix);
       nextLotRef.current = nextNum + 1;
 
-      return [
-        ...prev,
-        {
-          id: nextId,
-          fabricLotNo: newLot,
-          item: "",
-          fabricationName: "",
-          shortage: "",
-          percentage: "",
-          rolls: "",
-          weight: "",
-          knittingRate: "",
-          yarnRate: "",
-          unit: "Kg",
-          selected: false,
-        },
-      ];
+      return [...prev, newRow];
     });
   }, [currentPrefix]);
 
   // Row change handler
+  // Both calculations work automatically:
+  // 1. Percentage entered -> Shortage = Weight × Percentage / 100
+  // 2. Shortage entered -> Percentage = Shortage × 100 / Weight
   const handleRowChange = (id: number, field: keyof RowData, val: string) => {
     setRows((prev) =>
-      prev.map((r) => (r.id === id ? { ...r, [field]: val } : r))
+      prev.map((r) => {
+        if (r.id !== id) return r;
+
+        const updated = { ...r, [field]: val };
+        const weight = Number(field === "weight" ? val : r.weight) || 0;
+
+        if (field === "percentage" || (field === "weight" && r.percentage !== "")) {
+          const percentage = Number(field === "percentage" ? val : r.percentage) || 0;
+          if (weight > 0 && percentage >= 0) {
+            updated.shortage = String(Number(((weight * percentage) / 100).toFixed(3)));
+          }
+        }
+
+        if (field === "shortage") {
+          const shortage = Number(val) || 0;
+          if (weight > 0) {
+            updated.percentage = String(Number(((shortage * 100) / weight).toFixed(4)));
+          }
+        }
+
+        return updated;
+      })
     );
   };
 
@@ -239,50 +304,31 @@ const KnittingInwardChallan: React.FC = () => {
     );
   };
 
-  // On blur: normalize, update prefix+next number, and update other rows with old prefix
+  // On blur: normalize ONLY the edited row.
+  // IMPORTANT: Existing lot numbers are never changed.
   const normalizeFabricLotOnBlur = (id: number) => {
-    const oldPrefix = currentPrefix;
-
     setRows((prev) => {
-      // 1) normalize this row
-      const temp = prev.map((r) =>
+      const updated = prev.map((r) =>
         r.id === id
           ? {
               ...r,
-              fabricLotNo: String(r.fabricLotNo || "").trim().toUpperCase(),
+              fabricLotNo: String(r.fabricLotNo || "")
+                .trim()
+                .toUpperCase(),
             }
           : r
       );
 
-      const changedRow = temp.find((r) => r.id === id);
-      if (!changedRow || !changedRow.fabricLotNo) {
-        nextLotRef.current = getNextNumberFromRows(temp);
-        return temp;
+      const changedRow = updated.find((r) => r.id === id);
+
+      if (changedRow?.fabricLotNo) {
+        // This is only the default prefix for future NEW rows.
+        // It does not modify any old row.
+        setCurrentPrefix(getPrefixFromLot(changedRow.fabricLotNo));
       }
 
-      const newPrefix =
-        getPrefixFromLot(changedRow.fabricLotNo) || DEFAULT_LOT_PREFIX;
-
-      // global prefix update
-      setCurrentPrefix(newPrefix);
-
-      // 2) update all other rows whose prefix == oldPrefix
-      const finalRows = temp.map((row) => {
-        if (row.id === id) return row;
-        if (!row.fabricLotNo) return row;
-
-        const n = parseLot(row.fabricLotNo);
-        if (!n) return row;
-
-        const rowPrefix = getPrefixFromLot(row.fabricLotNo);
-        if (rowPrefix === oldPrefix) {
-          return { ...row, fabricLotNo: formatLot(n, newPrefix) };
-        }
-        return row;
-      });
-
-      nextLotRef.current = getNextNumberFromRows(finalRows);
-      return finalRows;
+      nextLotRef.current = getNextNumberFromRows(updated);
+      return updated;
     });
   };
 
@@ -912,10 +958,10 @@ const handleIssueTo = async () => {
   }
 
   //const partyObj = partyList.find((p) => String(p.id) === String(accountHead));
+  // Issue To Dyeing Outward: only Date + Row Data will be transferred.
+  // Party will NOT be transferred.
   const payloadForDyeingOutward = {
-    // partyId: accountHead ? Number(accountHead) : null,
-    // partyName: partyObj?.partyName || "",
-    // dated: dated || "",
+    dated: dated || "",
     rows: issueRows,
   };
 
@@ -1055,20 +1101,20 @@ const handleIssueTo = async () => {
                       {/* Shortage */}
                       <td className="border p-1">
                         <input
-                          type="number"
+                          type="text"
                           value={r.shortage}
                           onChange={(e) =>
                             handleRowChange(r.id, "shortage", e.target.value)
                           }
                           className="border p-1 rounded w-full text-right"
-                          placeholder="0"
+                          placeholder="Shortage"
                         />
                       </td>
 
                       {/* Percentage */}
                       <td className="border p-1">
                         <input
-                          type="number"
+                          type="text"
                           value={r.percentage}
                           onChange={(e) =>
                             handleRowChange(r.id, "percentage", e.target.value)
@@ -1080,7 +1126,7 @@ const handleIssueTo = async () => {
 
                       <td className="border p-1">
                         <input
-                          type="number"
+                          type="text"
                           value={r.rolls}
                           onChange={(e) =>
                             handleRowChange(r.id, "rolls", e.target.value)
@@ -1091,7 +1137,7 @@ const handleIssueTo = async () => {
 
                       <td className="border p-1">
                         <input
-                          type="number"
+                          type="text"
                           value={r.weight}
                           onChange={(e) =>
                             handleRowChange(r.id, "weight", e.target.value)
@@ -1104,7 +1150,7 @@ const handleIssueTo = async () => {
 
                       <td className="border p-1">
                         <input
-                          type="number"
+                          type="text"
                           value={r.knittingRate}
                           onChange={(e) =>
                             handleRowChange(

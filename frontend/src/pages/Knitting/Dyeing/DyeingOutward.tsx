@@ -40,6 +40,7 @@ interface DyeingRow {
 
   roll: string;
   weight: string;
+  receivedWeight: string;
   knittingYarnRate: string;
 
   selected: boolean;
@@ -137,6 +138,7 @@ const DyeingOutward: React.FC = () => {
 
           roll: String(r.rolls ?? ""),
           weight: String(r.weight ?? ""),
+          receivedWeight: "",
           knittingYarnRate: String((knit + yarn).toFixed(2)),
 
           selected: true,
@@ -292,6 +294,7 @@ const DyeingOutward: React.FC = () => {
         percentage: "",
         roll: "",
         weight: "",
+        receivedWeight: "",
         knittingYarnRate: "",
         selected: true,
       },
@@ -302,8 +305,48 @@ const DyeingOutward: React.FC = () => {
     if (rows.length === 0) addRow();
   }, [addRow, rows.length]);
 
+  // Received Weight / Shortage / Percentage calculation:
+  // Received Weight -> Shortage = Weight - Received Weight
+  // Received Weight -> Percentage = Shortage * 100 / Weight
+  // Shortage -> Received Weight = Weight - Shortage
+  // Shortage -> Percentage = Shortage * 100 / Weight
   const handleChange = (id: number, field: keyof DyeingRow, value: string | boolean) => {
-    setRows((prev) => prev.map((r) => (r.id === id ? { ...r, [field]: value } : r)));
+    setRows((prev) =>
+      prev.map((r) => {
+        if (r.id !== id) return r;
+
+        const updated: DyeingRow = { ...r, [field]: value as any };
+        const weight = Number.parseFloat(updated.weight) || 0;
+
+        if (field === "receivedWeight") {
+          const received = Number.parseFloat(String(value));
+          if (Number.isFinite(received) && weight > 0) {
+            const safeReceived = Math.max(0, Math.min(weight, received));
+            const shortage = weight - safeReceived;
+            updated.receivedWeight = String(Number(safeReceived.toFixed(3)));
+            updated.shortage = String(Number(shortage.toFixed(3)));
+            updated.percentage = String(Number(((shortage * 100) / weight).toFixed(4)));
+          } else if (String(value).trim() === "") {
+            updated.shortage = "";
+            updated.percentage = "";
+          }
+        }
+
+        if (field === "shortage") {
+          const shortage = Number.parseFloat(String(value));
+          if (Number.isFinite(shortage) && weight > 0) {
+            const safeShortage = Math.max(0, Math.min(weight, shortage));
+            updated.receivedWeight = String(Number((weight - safeShortage).toFixed(3)));
+            updated.percentage = String(Number(((safeShortage * 100) / weight).toFixed(4)));
+          } else if (String(value).trim() === "") {
+            updated.receivedWeight = "";
+            updated.percentage = "";
+          }
+        }
+
+        return updated;
+      })
+    );
   };
 
   const toggleSelectAll = () => {
@@ -377,6 +420,7 @@ const DyeingOutward: React.FC = () => {
 
         roll: String(lot.rolls),
         weight: String(lot.weight),
+        receivedWeight: "",
         knittingYarnRate: String((knittingRate + yarnRate).toFixed(2)),
         selected: true,
       };
@@ -417,6 +461,7 @@ const DyeingOutward: React.FC = () => {
         percentage: r.percentage,
         roll: r.roll,
         weight: r.weight,
+        receivedWeight: r.receivedWeight,
         knittingYarnRate: r.knittingYarnRate,
         sourceKey: r.sourceKey || null,
       })),
@@ -490,6 +535,7 @@ const DyeingOutward: React.FC = () => {
 
         roll: r.roll || "",
         weight: r.weight || "",
+        receivedWeight: String(r.receivedWeight ?? ""),
         knittingYarnRate: r.knittingYarnRate || "",
         selected: true,
       }));
@@ -630,6 +676,7 @@ const DyeingOutward: React.FC = () => {
         fabricName: r.fabricName,
         roll: r.roll,
         weight: r.weight,
+        receivedWeight: r.receivedWeight,
         knittingYarnRate: r.knittingYarnRate,
 
         // IMPORTANT
@@ -755,6 +802,7 @@ const DyeingOutward: React.FC = () => {
                   <th className="border p-2">Percentage</th>
                   <th className="border p-2">Roll</th>
                   <th className="border p-2">Weight</th>
+                   <th className="border p-2">Received Weight</th>
                   <th className="border p-2">Knitting+Yarn Rate</th>
                 </tr>
               </thead>
@@ -789,7 +837,7 @@ const DyeingOutward: React.FC = () => {
 
                     <td className="border p-1">
                       <input
-                        type="number"
+                        type="text"
                         value={row.shortage}
                         onChange={(e) => handleChange(row.id, "shortage", e.target.value)}
                         className="border p-1 rounded w-full text-right"
@@ -798,10 +846,10 @@ const DyeingOutward: React.FC = () => {
 
                     <td className="border p-1">
                       <input
-                        type="number"
+                        type="text"
                         value={row.percentage}
-                        onChange={(e) => handleChange(row.id, "percentage", e.target.value)}
-                        className="border p-1 rounded w-full text-right"
+                        readOnly
+                        className="border p-1 rounded w-full text-right bg-gray-50"
                       />
                     </td>
 
@@ -812,6 +860,16 @@ const DyeingOutward: React.FC = () => {
                     <td className="border p-1">
                       <input type="text" value={row.weight} readOnly className="border p-1 rounded w-full bg-gray-50 text-right" />
                     </td>
+
+                     <td className="border p-1">
+                       <input
+                         type="text"
+                         value={row.receivedWeight}
+                         onChange={(e) => handleChange(row.id, "receivedWeight", e.target.value)}
+                         className="border p-1 rounded w-full text-right"
+                         placeholder="Received Weight"
+                       />
+                     </td>
 
                     <td className="border p-1">
                       <input

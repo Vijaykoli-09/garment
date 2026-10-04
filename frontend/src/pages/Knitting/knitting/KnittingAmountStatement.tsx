@@ -8,8 +8,8 @@ import Swal from "sweetalert2";
 
 /**
  KnittingAmountStatement
- - Debit source: /knitting/list  (knitting inward)
- - Credit source: /payment       (payments where paymentTo === "Party" and party matches)
+ - Credit source: /knitting/list  (knitting inward)
+ - Debit source: /payment       (payments where paymentTo === "Party" and party matches)
  - Party list: /party/category/Knitting
  - Shows Opening Balance from Party master (openingBalance + openingBalanceType "CR"/"DR")
    combined with transactions prior to `fromDate`.
@@ -133,6 +133,7 @@ const KnittingAmountStatement: React.FC = () => {
         ? paymentRes.data
         : [];
 
+
       // identify party matching strategy:
       const partyIdStr = String(partyId || "")
         .trim()
@@ -171,6 +172,8 @@ const KnittingAmountStatement: React.FC = () => {
         return false;
       };
 
+
+
       // Build debit records from knittingDocs (use totalAmount if present, otherwise sum rows)
       type Tx = {
         dt: number;
@@ -203,7 +206,7 @@ const KnittingAmountStatement: React.FC = () => {
         })
         .filter((t) => isFinite(t.dt) && t.dt > 0);
 
-      // Build credit records from payments
+      // Payment = DEBIT (money paid to party)
       const paymentTxs: Tx[] = payments
         .filter((p) => paymentBelongsToParty(p))
         .map((p) => {
@@ -229,10 +232,10 @@ const KnittingAmountStatement: React.FC = () => {
       const toTs = toIso ? dateStamp(toIso) : Number.POSITIVE_INFINITY;
 
       // compute opening balances from transactions before fromTs
-      const openingDebitFromTx = allTxs
+      const openingCreditFromTx = allTxs
         .filter((x) => x.dt < fromTs && x.type === "INWARD")
         .reduce((s, x) => s + x.amount, 0);
-      const openingCreditFromTx = allTxs
+      const openingDebitFromTx = allTxs
         .filter((x) => x.dt < fromTs && x.type === "PAYMENT")
         .reduce((s, x) => s + x.amount, 0);
 
@@ -265,8 +268,8 @@ const KnittingAmountStatement: React.FC = () => {
       const openingDebit = openingDebitFromTx + openingDebitFromParty;
       const openingCredit = openingCreditFromTx + openingCreditFromParty;
 
-      // running balance := debits - credits (consistent with earlier implementation)
-      let running = openingDebit - openingCredit;
+      // running balance := credits - debits
+      let running = openingCredit - openingDebit;
 
       // transactions inside range sorted by date then type(Inward first)
       const inRange = allTxs
@@ -297,25 +300,26 @@ const KnittingAmountStatement: React.FC = () => {
 
       for (const t of inRange) {
         if (t.type === "INWARD") {
+          // Inward = CREDIT
           running += t.amount;
           statement.push({
             id: idCounter++,
             date: t.dateISO || "",
             narration: `Knitting Inward - Challan ${t.challan || "-"}`,
-            debit: t.amount,
-            credit: 0,
+            debit: 0,
+            credit: t.amount,
             balance: running,
             type: "INWARD",
           });
         } else {
-          // PAYMENT
+          // Payment = DEBIT
           running -= t.amount;
           statement.push({
             id: idCounter++,
             date: t.dateISO || "",
             narration: `Payment - Ref ${t.challan || "-"}`,
-            debit: 0,
-            credit: t.amount,
+            debit: t.amount,
+            credit: 0,
             balance: running,
             type: "PAYMENT",
           });

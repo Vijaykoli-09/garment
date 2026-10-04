@@ -66,7 +66,7 @@ import KnittingOutwardChallan from "./pages/Knitting/knitting/KnittingOutwardCha
 
 import DyeingOutward from "./pages/Knitting/Dyeing/DyeingOutward";
 import DyeingInward from "./pages/Knitting/Dyeing/DyeingInward";
-import DyeingStockStatement from "./pages/Knitting/Dyeing/DyeingStockStatement";
+import BatchCreation from "./pages/Knitting/Dyeing/BatchCreation";
 import DyeingMaterialReturn from "./pages/Knitting/Dyeing/DyeingMaterialReturn";
 import DyeingItemWiseOutstanding from "./pages/Knitting/Dyeing/DyeingItemWiseOutstanding"
 
@@ -108,6 +108,7 @@ import ViewSales from "./pages/app/ViewSales";
 import CustomerRequests from "./pages/app/CustomerRequests";
 import NotificationsPage from "./pages/Notifications";
 import DispatchReturn from "./pages/Sales/DispatchReturn";
+
 // Wrapper so we can use useNavigate inside Router context
 function CustomerRequestsPage() {
   const navigate = useNavigate();
@@ -285,8 +286,8 @@ function App() {
         <Route path="/knitting/dyeing/outward-challan" element={<DyeingOutward />} />
         <Route path="/knitting/dyeing/outwar-challan" element={<DyeingOutward />} />
         <Route path="/knitting/dyeing/material-return" element={<DyeingMaterialReturn />} />
-        <Route path="/knitting/dyeing/stock-statement" element={<DyeingStockStatement />} />
-        <Route path="/knitting/dyeing/item-wise-outstanding" element={<DyeingItemWiseOutstanding />} />
+        <Route path="/knitting/dyeing/batch-creation" element={<BatchCreation />} />
+        <Route path="/knitting/dyeing/lot-wise-outstanding" element={<DyeingItemWiseOutstanding />} />
         <Route path="/knitting/dyeing/dyeing-amount-statement" element={<DyeingAmountStatement />} />
 
         {/* Knitting – finishing */}

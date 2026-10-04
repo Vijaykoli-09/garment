@@ -7,9 +7,18 @@ import java.util.List;
 
 @Data
 public class KnittingMaterialReturnDTO {
-    private Long id; // optional for update
+
+    private Long id;
+
     private LocalDate date;
+
+    // Required Material Party
     private Long partyId;
+
+    // Optional Received Return Party
+    private Long receivedPartyId;
+
     private String challanNo;
+
     private List<KnittingMaterialReturnRowDTO> items;
 }

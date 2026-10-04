@@ -18,6 +18,7 @@ public class FinishingOutwardRowDTO {
 
     private String rolls;
     private String weight;
+    private String receivedWeight;
     private String rateFND;
 
     private String clothWt;

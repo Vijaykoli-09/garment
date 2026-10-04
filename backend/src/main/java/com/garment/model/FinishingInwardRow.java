@@ -42,6 +42,9 @@ public class FinishingInwardRow {
     @Column(name = "weight")
     private String weight;
 
+    @Column(name = "received_weight")
+    private String receivedWeight;
+
 
     @Column(name = "percentage")
     private String percentage;

@@ -13,6 +13,7 @@ interface ReceiptRow {
   fabric: string;
   rolls: string;
   weight: string;
+  receivedWeight: string;
 
   shortage: string;
   percentage: string;
@@ -81,12 +82,14 @@ const DyeingInward: React.FC = () => {
 
         data.forEach((dyeing: any) => {
           if (Array.isArray(dyeing.rows)) {
-            dyeing.rows.forEach((row: any) => {
+            dyeing.rows.forEach((row: any, idx: number) => {
               lots.push({
+                selectionKey: `${dyeing.id}-${row.id ?? idx}-${row.lotNo || ""}`,
                 fabricLotNo: row.lotNo || "",
                 fabricName: row.fabricName || "",
                 rolls: row.roll || 0,
                 weight: row.weight || 0,
+                receivedWeight: row.receivedWeight ?? "",
                 knittingYarnRate: row.knittingYarnRate || 0,
                 partyName: dyeing.partyName || "",
                 shortage: row.shortage ?? "",
@@ -134,6 +137,7 @@ const DyeingInward: React.FC = () => {
           fabric: row.fabricName || "",
           rolls: String(row.roll ?? ""),
           weight: String(row.weight ?? ""),
+          receivedWeight: String(row.receivedWeight ?? ""),
           shortage: String(row.shortage ?? ""),
           percentage: String(row.percentage ?? ""),
           knittingYarnRate: String(row.knittingYarnRate ?? ""),
@@ -160,6 +164,7 @@ const DyeingInward: React.FC = () => {
         fabric: "",
         rolls: "",
         weight: "",
+        receivedWeight: "",
         shortage: "",
         percentage: "",
         knittingYarnRate: "",
@@ -174,6 +179,9 @@ const DyeingInward: React.FC = () => {
     if (rows.length === 0) addRow();
   }, [addRow, rows.length]);
 
+  // Shortage / Percentage formula:
+  // Percentage -> Shortage = Weight * Percentage / 100
+  // Shortage   -> Percentage = Shortage * 100 / Weight
   const handleChange = (
     id: number,
     field: keyof ReceiptRow,
@@ -187,13 +195,77 @@ const DyeingInward: React.FC = () => {
       if (field === "dyeingRate" || field === "weight") {
         const weight =
           Number.parseFloat(
-            field === "weight" ? (value as string) : updatedRow.weight
+            field === "weight" ? String(value) : updatedRow.weight
           ) || 0;
         const rate =
           Number.parseFloat(
-            field === "dyeingRate" ? (value as string) : updatedRow.dyeingRate
+            field === "dyeingRate" ? String(value) : updatedRow.dyeingRate
           ) || 0;
         updatedRow.amount = (weight * rate).toFixed(2);
+      }
+
+      const weight = Number.parseFloat(updatedRow.weight) || 0;
+
+      // Received Weight <-> Shortage <-> Percentage
+      // Weight 100, Received 97 -> Shortage 3, Percentage 3%
+      // Weight 100, Shortage 3 -> Received 97, Percentage 3%
+      // Weight 100, Percentage 3 -> Shortage 3, Received 97
+      if (field === "receivedWeight") {
+        const receivedWeight = Number.parseFloat(String(value));
+
+        if (weight > 0 && Number.isFinite(receivedWeight)) {
+          const shortage = weight - receivedWeight;
+          updatedRow.shortage = String(Number(shortage.toFixed(3)));
+          updatedRow.percentage = String(
+            Number(((shortage * 100) / weight).toFixed(4))
+          );
+        } else {
+          updatedRow.shortage = "";
+          updatedRow.percentage = "";
+        }
+      }
+
+      if (field === "percentage") {
+        const percentage = Number.parseFloat(String(value));
+
+        if (weight > 0 && Number.isFinite(percentage)) {
+          const shortage = (weight * percentage) / 100;
+          updatedRow.shortage = String(Number(shortage.toFixed(3)));
+          updatedRow.receivedWeight = String(
+            Number((weight - shortage).toFixed(3))
+          );
+        } else {
+          updatedRow.shortage = "";
+          updatedRow.receivedWeight = "";
+        }
+      }
+
+      if (field === "shortage") {
+        const shortage = Number.parseFloat(String(value));
+
+        if (weight > 0 && Number.isFinite(shortage)) {
+          updatedRow.receivedWeight = String(
+            Number((weight - shortage).toFixed(3))
+          );
+          updatedRow.percentage = String(
+            Number(((shortage * 100) / weight).toFixed(4))
+          );
+        } else {
+          updatedRow.receivedWeight = "";
+          updatedRow.percentage = "";
+        }
+      }
+
+      if (field === "weight" && updatedRow.receivedWeight !== "") {
+        const receivedWeight = Number.parseFloat(updatedRow.receivedWeight);
+
+        if (weight > 0 && Number.isFinite(receivedWeight)) {
+          const shortage = weight - receivedWeight;
+          updatedRow.shortage = String(Number(shortage.toFixed(3)));
+          updatedRow.percentage = String(
+            Number(((shortage * 100) / weight).toFixed(4))
+          );
+        }
       }
 
       return updatedRow;
@@ -224,10 +296,10 @@ const DyeingInward: React.FC = () => {
     setLotSearchText("");
   };
 
-  const toggleLotSelection = (lotNo: string) => {
+  const toggleLotSelection = (selectionKey: string) => {
     const newSelected = new Set(selectedLots);
-    if (newSelected.has(lotNo)) newSelected.delete(lotNo);
-    else newSelected.add(lotNo);
+    if (newSelected.has(selectionKey)) newSelected.delete(selectionKey);
+    else newSelected.add(selectionKey);
     setSelectedLots(newSelected);
   };
 
@@ -238,7 +310,7 @@ const DyeingInward: React.FC = () => {
     }
 
     const lotsToAdd = filteredDyeingOutwardList.filter((lot) =>
-      selectedLots.has(lot.fabricLotNo)
+      selectedLots.has(lot.selectionKey)
     );
 
     const newRows: ReceiptRow[] = lotsToAdd.map((lot) => ({
@@ -247,6 +319,7 @@ const DyeingInward: React.FC = () => {
       fabric: lot.fabricName,
       rolls: String(lot.rolls),
       weight: String(lot.weight),
+      receivedWeight: String(lot.receivedWeight ?? ""),
       shortage: String(lot.shortage ?? ""),
       percentage: String(lot.percentage ?? ""),
       knittingYarnRate: String(lot.knittingYarnRate),
@@ -300,6 +373,7 @@ const DyeingInward: React.FC = () => {
         fabric: r.fabric,
         rolls: r.rolls,
         weight: r.weight,
+        receivedWeight: r.receivedWeight,
         shortage: r.shortage,
         percentage: r.percentage,
         knittingYarnRate: r.knittingYarnRate,
@@ -387,6 +461,7 @@ const DyeingInward: React.FC = () => {
           fabric: r.fabric || "",
           rolls: r.rolls || "",
           weight: r.weight || "",
+          receivedWeight: String(r.receivedWeight ?? ""),
           shortage: String(r.shortage ?? ""),
           percentage: String(r.percentage ?? ""),
           knittingYarnRate: r.knittingYarnRate || "",
@@ -476,6 +551,7 @@ const DyeingInward: React.FC = () => {
                 <th>Fabric</th>
                 <th>Rolls</th>
                 <th>Weight</th>
+                <th>Received Weight</th>
                 <th>Shortage</th>
                 <th>%</th>
                 <th>Knitting+Yarn Rate</th>
@@ -493,6 +569,7 @@ const DyeingInward: React.FC = () => {
                   <td>${r.fabric}</td>
                   <td>${r.rolls}</td>
                   <td>${r.weight}</td>
+                  <td>${r.receivedWeight}</td>
                   <td>${r.shortage}</td>
                   <td>${r.percentage}</td>
                   <td>${r.knittingYarnRate}</td>
@@ -693,6 +770,7 @@ const DyeingInward: React.FC = () => {
                   <th className="border p-2">Fabric</th>
                   <th className="border p-2">Rolls</th>
                   <th className="border p-2">Weight</th>
+                  <th className="border p-2">Received Weight</th>
                   <th className="border p-2">Shortage</th>
                   <th className="border p-2">%</th>
                   <th className="border p-2">Knitting+Yarn Rate</th>
@@ -754,6 +832,18 @@ const DyeingInward: React.FC = () => {
                         value={row.weight}
                         readOnly
                         className="border p-1 rounded w-full bg-gray-50"
+                      />
+                    </td>
+
+                    <td className="border p-1">
+                      <input
+                        type="text"
+                        value={row.receivedWeight}
+                        onChange={(e) =>
+                          handleChange(row.id, "receivedWeight", e.target.value)
+                        }
+                        className="border p-1 rounded w-full"
+                        placeholder="Received Weight"
                       />
                     </td>
 
@@ -963,7 +1053,7 @@ const DyeingInward: React.FC = () => {
                         onChange={(e) => {
                           if (e.target.checked) {
                             setSelectedLots(
-                              new Set(filteredLots.map((l) => l.fabricLotNo))
+                              new Set(filteredLots.map((l) => l.selectionKey))
                             );
                           } else {
                             setSelectedLots(new Set());
@@ -975,6 +1065,7 @@ const DyeingInward: React.FC = () => {
                     <th className="border p-2">Fabric Name</th>
                     <th className="border p-2">Rolls</th>
                     <th className="border p-2">Weight</th>
+                    <th className="border p-2">Received Weight</th>
                     <th className="border p-2">Shortage</th>
                     <th className="border p-2">%</th>
                     <th className="border p-2">Knitting+Yarn Rate</th>
@@ -985,7 +1076,7 @@ const DyeingInward: React.FC = () => {
                   {filteredLots.length === 0 ? (
                     <tr>
                       <td
-                        colSpan={8}
+                        colSpan={9}
                         className="border p-4 text-center text-gray-500"
                       >
                         {dyeingOutwardList.length === 0
@@ -999,8 +1090,8 @@ const DyeingInward: React.FC = () => {
                         <td className="border p-2 text-center">
                           <input
                             type="checkbox"
-                            checked={selectedLots.has(lot.fabricLotNo)}
-                            onChange={() => toggleLotSelection(lot.fabricLotNo)}
+                            checked={selectedLots.has(lot.selectionKey)}
+                            onChange={() => toggleLotSelection(lot.selectionKey)}
                           />
                         </td>
                         <td className="border p-2">{lot.fabricLotNo}</td>
@@ -1008,6 +1099,9 @@ const DyeingInward: React.FC = () => {
                         <td className="border p-2 text-right">{lot.rolls}</td>
                         <td className="border p-2 text-right">
                           {Number.parseFloat(lot.weight || 0).toFixed(3)}
+                        </td>
+                        <td className="border p-2 text-right">
+                          {String(lot.receivedWeight ?? "")}
                         </td>
                         <td className="border p-2 text-right">
                           {String(lot.shortage ?? "")}
@@ -1072,6 +1166,7 @@ const DyeingInward: React.FC = () => {
                     <th className="border p-2">Challan No</th>
                     <th className="border p-2">Rolls</th>
                     <th className="border p-2">Weight</th>
+                    <th className="border p-2">Received Weight</th>
                     <th className="border p-2">Amount</th>
                     <th className="border p-2">Actions</th>
                   </tr>
@@ -1081,7 +1176,7 @@ const DyeingInward: React.FC = () => {
                   {filteredList.length === 0 ? (
                     <tr>
                       <td
-                        colSpan={8}
+                        colSpan={9}
                         className="border p-4 text-center text-gray-500"
                       >
                         No records found
@@ -1097,6 +1192,11 @@ const DyeingInward: React.FC = () => {
                       const totalWeight2 = (d.rows || []).reduce(
                         (sum: number, r: any) =>
                           sum + (Number.parseFloat(r.weight) || 0),
+                        0
+                      );
+                      const totalReceivedWeight2 = (d.rows || []).reduce(
+                        (sum: number, r: any) =>
+                          sum + (Number.parseFloat(r.receivedWeight) || 0),
                         0
                       );
                       const totalAmount2 = (d.rows || []).reduce(
@@ -1120,6 +1220,9 @@ const DyeingInward: React.FC = () => {
                           </td>
                           <td className="border p-2 text-right">
                             {totalWeight2.toFixed(3)}
+                          </td>
+                          <td className="border p-2 text-right">
+                            {totalReceivedWeight2.toFixed(3)}
                           </td>
                           <td className="border p-2 text-right">
                             ₹{totalAmount2.toFixed(2)}
@@ -1172,6 +1275,7 @@ const DyeingInward: React.FC = () => {
                   <th className="border p-2">Challan No</th>
                   <th className="border p-2">Rolls</th>
                   <th className="border p-2">Weight</th>
+                  <th className="border p-2">Received Weight</th>
                   <th className="border p-2">Amount</th>
                 </tr>
               </thead>
@@ -1185,6 +1289,11 @@ const DyeingInward: React.FC = () => {
                   const totalWeight2 = (record.rows || []).reduce(
                     (sum: number, r: any) =>
                       sum + (Number.parseFloat(r.weight) || 0),
+                    0
+                  );
+                  const totalReceivedWeight2 = (record.rows || []).reduce(
+                    (sum: number, r: any) =>
+                      sum + (Number.parseFloat(r.receivedWeight) || 0),
                     0
                   );
                   const totalAmount2 = (record.rows || []).reduce(
@@ -1206,6 +1315,9 @@ const DyeingInward: React.FC = () => {
                       <td className="border p-2 text-right">{totalRolls2}</td>
                       <td className="border p-2 text-right">
                         {totalWeight2.toFixed(3)}
+                      </td>
+                      <td className="border p-2 text-right">
+                        {totalReceivedWeight2.toFixed(3)}
                       </td>
                       <td className="border p-2 text-right">
                         ₹{totalAmount2.toFixed(2)}

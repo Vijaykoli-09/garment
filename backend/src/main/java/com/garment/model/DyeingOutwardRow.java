@@ -27,6 +27,9 @@ public class DyeingOutwardRow {
 
     private String roll;
     private String weight;
+
+    @Column(name = "received_weight")
+    private String receivedWeight;
     private String knittingYarnRate;
 
     private String rate;

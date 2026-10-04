@@ -34,6 +34,9 @@ public class FinishingOutwardRow {
     @Column(name = "weight")
     private String weight;
 
+    @Column(name = "received_weight")
+    private String receivedWeight;
+
     @Column(name = "rate_fnd")
     private String rateFND;
 

@@ -2,6 +2,8 @@ package com.garment.DTO;
 
 import java.util.List;
 
+import com.garment.DTO.DyeingOutwardRowDTO;
+
 public class DyeingOutwardDTO {
     private String challanNo;
     private String dated;
@@ -9,7 +11,7 @@ public class DyeingOutwardDTO {
     private String narration;
     private String vehicleNo;
     private String through;
-    private List<DyeingOutwardDTO> rows;
+    private List<DyeingOutwardRowDTO> rows;
 
     // getters and setters
     public String getChallanNo() { return challanNo; }
@@ -24,6 +26,6 @@ public class DyeingOutwardDTO {
     public void setVehicleNo(String vehicleNo) { this.vehicleNo = vehicleNo; }
     public String getThrough() { return through; }
     public void setThrough(String through) { this.through = through; }
-    public List<DyeingOutwardDTO> getRows() { return rows; }
-    public void setRows(List<DyeingOutwardDTO> rows) { this.rows = rows; }
+    public List<DyeingOutwardRowDTO> getRows() { return rows; }
+    public void setRows(List<DyeingOutwardRowDTO> rows) { this.rows = rows; }
 }

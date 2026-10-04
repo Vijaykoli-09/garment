@@ -164,10 +164,11 @@ const DyeingAmountStatement: React.FC = () => {
         });
 
       // Opening balance from transactions before from
-      const openingDebitFromTx = inwardRecs
+      // Inward = CR, Payment = DR
+      const openingCreditFromTx = inwardRecs
         .filter((r) => r.dt < fromTs)
         .reduce((s, r) => s + r.amount, 0);
-      const openingCreditFromTx = paymentRecs
+      const openingDebitFromTx = paymentRecs
         .filter((r) => r.dt < fromTs)
         .reduce((s, r) => s + r.amount, 0);
 
@@ -221,8 +222,8 @@ const DyeingAmountStatement: React.FC = () => {
           txs.push({
             dt: r.dt,
             dateISO: r.dateISO,
-            debit: r.amount,
-            credit: 0,
+            debit: 0,
+            credit: r.amount,
             narration: `Dyeing Inward - Challan ${r.challan}`,
             sortKey: `IN-${r.challan}-${idx}`,
           })
@@ -234,8 +235,8 @@ const DyeingAmountStatement: React.FC = () => {
           txs.push({
             dt: r.dt,
             dateISO: r.dateISO,
-            debit: 0,
-            credit: r.amount,
+            debit: r.amount,
+            credit: 0,
             narration: `Payment - Ref ${r.ref}${
               r.paymentThrough ? ` (${r.paymentThrough})` : ""
             }`,
