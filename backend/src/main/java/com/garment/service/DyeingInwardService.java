@@ -38,6 +38,7 @@ public class DyeingInwardService {
                 row.setFabric(rowDTO.getFabric());
                 row.setRolls(rowDTO.getRolls());
                 row.setWeight(rowDTO.getWeight());
+                row.setReceivedWeight(rowDTO.getReceivedWeight());
                 row.setShortage(rowDTO.getShortage());
                 row.setPercentage(rowDTO.getPercentage());
                 row.setKnittingYarnRate(rowDTO.getKnittingYarnRate());
@@ -137,6 +138,7 @@ public class DyeingInwardService {
         dto.setFabric(row.getFabric());
         dto.setRolls(row.getRolls());
         dto.setWeight(row.getWeight());
+        dto.setReceivedWeight(row.getReceivedWeight());
         dto.setShortage(row.getShortage());
         dto.setPercentage(row.getPercentage());
         dto.setKnittingYarnRate(row.getKnittingYarnRate());

@@ -29,6 +29,9 @@ public class DyeingInwardRow {
     @Column(name = "weight")
     private String weight;
 
+    @Column(name = "received_weight")
+    private String receivedWeight;
+
     // renamed from wastage -> shortage
     @Column(name = "shortage")
     private String shortage;

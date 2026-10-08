@@ -51,6 +51,7 @@ public class FinishingOutwardService {
         rowEntity.setShade(dto.getShade());
         rowEntity.setRolls(dto.getRolls());
         rowEntity.setWeight(dto.getWeight());
+        rowEntity.setReceivedWeight(dto.getReceivedWeight());
         rowEntity.setRateFND(dto.getRateFND());
         rowEntity.setClothWt(dto.getClothWt());
         rowEntity.setRibWt(dto.getRibWt());
@@ -89,6 +90,7 @@ public class FinishingOutwardService {
                 rowEntity.getShade(),
                 rowEntity.getRolls(),
                 rowEntity.getWeight(),
+                rowEntity.getReceivedWeight(),
                 rowEntity.getRateFND(),
                 rowEntity.getClothWt(),
                 rowEntity.getRibWt(),

@@ -387,6 +387,7 @@ const PurchaseEntry: React.FC = () => {
       const itemsForPrefill = selectedRows.map((r) => ({
         materialId: Number(r.materialId),
         materialName: r.materialName,
+        yarnName: r.yarnName || "",
         shadeCode: r.shadeCode || "",
         shadeName: r.shadeName || "",
         roll: parseFloat(r.receivedRolls) || 0,

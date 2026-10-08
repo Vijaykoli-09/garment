@@ -16,6 +16,7 @@ public class FinishingInwardRowDTO {
     private String rateFND;
     private String rolls;
     private String weight;
+    private String receivedWeight;
 
 
     private String percentage;

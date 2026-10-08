@@ -8,6 +8,7 @@ import api from "../../api/axiosInstance";
 import { computeLedgerFifo, type BaseLedgerEvent, type TxType } from "../../api/ledgerFifo";
 
 // ================= Config =================
+// Used only for overdue row highlighting; the 60-day popup has been removed.
 const OVERDUE_DAYS = 60;
 
 // ================= Types =================
@@ -126,6 +127,14 @@ interface JobInwardChallanDoc {
   amount: number;
 }
 
+interface KnittingInwardChallanDoc {
+  id: string | number;
+  challanNo: string;
+  date: string;
+  partyName: string;
+  amount: number;
+}
+
 interface BrokerInfo {
   name: string;
   parties: string[];
@@ -146,6 +155,10 @@ type BaseTransaction = {
   discount: number; // receipt discount only
   type: TxType;
 
+  // Display-only category for documents that reuse an existing ledger direction.
+  // Knitting Outward behaves like a payable/purchase bill (Credit side).
+  ledgerType?: "KnittingInward" | "DyeingInward" | "FinishingInward";
+
   // ✅ stable docKey for FIFO + manual paid + purple highlight
   docKey?: string;
 };
@@ -165,15 +178,6 @@ type DisplayRowFinal = DisplayRowWithDays & {
   isPartialSettlement: boolean;
 };
 
-type OverdueAlertRow = {
-  partyName: string;
-  brokerName: string;
-  docNo: string;
-  txType: string;
-  date: string;
-  days: number;
-  pending: number;
-};
 
 type LedgerBillStatusDTO = {
   docKey: string;
@@ -252,6 +256,10 @@ const typeLabel = (t: TxType): string => {
       return "Job Outward Challan";
     case "JobInward":
       return "Job Inward Challan";
+    case "DyeingInward":
+      return "Dyeing Inward Challan";
+    case "FinishingInward":
+      return "Finishing Inward Challan";
     case "Payment":
       return "Payment";
     case "Receipt":
@@ -262,6 +270,16 @@ const typeLabel = (t: TxType): string => {
     default:
       return "Dispatch";
   }
+};
+
+const displayTypeLabel = (row: {
+  type: TxType;
+  ledgerType?: "KnittingInward" | "DyeingInward" | "FinishingInward";
+}) => {
+  if (row.ledgerType === "KnittingInward") return "Knitting Inward Challan";
+  if (row.ledgerType === "DyeingInward") return "Dyeing Inward Challan";
+  if (row.ledgerType === "FinishingInward") return "Finishing Inward Challan";
+  return typeLabel(row.type);
 };
 
 const hashToInt = (s: string) => {
@@ -290,6 +308,10 @@ const txSortRank = (t: TxType) => {
       return 30;
     case "JobInward":
       return 31;
+    case "DyeingInward":
+      return 34;
+    case "FinishingInward":
+      return 35;
     case "Payment":
       return 90;
     case "Receipt":
@@ -331,6 +353,9 @@ const AccountStatement: React.FC = () => {
   const [purchaseReturns, setPurchaseReturns] = useState<PurchaseReturnDoc[]>([]);
   const [jobOutwards, setJobOutwards] = useState<JobOutwardChallanDoc[]>([]);
   const [jobInwards, setJobInwards] = useState<JobInwardChallanDoc[]>([]);
+  const [knittingInwards, setKnittingInwards] = useState<KnittingInwardChallanDoc[]>([]);
+  const [dyeingInwards, setDyeingInwards] = useState<any[]>([]);
+  const [finishingInwards, setFinishingInwards] = useState<any[]>([]);
   const [payments, setPayments] = useState<PaymentDoc[]>([]);
   const [receipts, setReceipts] = useState<ReceiptDoc[]>([]);
 
@@ -368,7 +393,7 @@ const AccountStatement: React.FC = () => {
 
   const [pendingOnly, setPendingOnly] = useState(false);
 
-  type TxFilter = "all" | TxType;
+  type TxFilter = "all" | TxType | "KnittingInward" | "DyeingInward" | "FinishingInward";
   const [transactions, setTransactions] = useState<BaseTransaction[]>([]);
   const [transactionFilter, setTransactionFilter] = useState<TxFilter>("all");
 
@@ -376,8 +401,6 @@ const AccountStatement: React.FC = () => {
   const [fullScreen, setFullScreen] = useState(false);
 
 
-
-  const overdueAlertKeyRef = useRef<string>("");
 
   // ✅ FIFO events for selection (full history)
   const [fifoEventsAll, setFifoEventsAll] = useState<BaseLedgerEvent[]>([]);
@@ -438,7 +461,7 @@ const AccountStatement: React.FC = () => {
       setLoading(true);
       setError(null);
       try {
-        const [partyRaw, agentRaw, dcRaw, drcRaw, odcRaw, poRaw, peRaw, prRaw, payRaw, jobOutRaw, jobInRaw] =
+        const [partyRaw, agentRaw, dcRaw, drcRaw, odcRaw, poRaw, peRaw, prRaw, payRaw, jobOutRaw, jobInRaw, knittingInRaw, dyeingInRaw, finishingInRaw] =
           await Promise.all([
             safeGet<Party[]>("/party/all"),
             safeGet<Agent[]>("/agent/list"),
@@ -451,6 +474,9 @@ const AccountStatement: React.FC = () => {
             safeGet<any[]>("/payment"),
             safeGet<any[]>("/job-outward-challan"),
             safeGet<any[]>("/job-inward-challan"),
+            safeGet<any[]>("/knitting/list"),
+            safeGet<any[]>("/dyeing-inward"),
+            safeGet<any[]>("/finishing-inwards"),
           ]);
 
         const recRaw = await safeGetReceipts();
@@ -570,6 +596,42 @@ const AccountStatement: React.FC = () => {
             })
             .filter((x) => x.partyName && x.date && x.challanNo),
         );
+
+        // Knitting Inward / Knitting Receipt
+        // Exact backend entity fields:
+        // id, challanNo, dated, party, totalRolls, totalWeight, totalAmount, rows
+        setKnittingInwards(
+          (Array.isArray(knittingInRaw) ? knittingInRaw : [])
+            .map((d: any) => {
+              const rows: any[] = Array.isArray(d.rows) ? d.rows : [];
+
+              // Prefer the exact entity totalAmount.
+              // Fallback calculation is only for old records where totalAmount is null/0.
+              const calculatedAmount = rows.reduce((sum, r) => {
+                const amount =
+                  toNum(r.weight) * toNum(r.knittingRate);
+                return sum + amount;
+              }, 0);
+
+              const backendAmount = toNum(d.totalAmount);
+              const amount =
+                backendAmount !== 0 || rows.length === 0
+                  ? backendAmount
+                  : calculatedAmount;
+
+              return {
+                id: d.id,
+                challanNo: String(d.challanNo || ""),
+                date: String(d.dated || ""),
+                partyName: String(d.party?.partyName || "").trim(),
+                amount,
+              } as KnittingInwardChallanDoc;
+            })
+            .filter((x) => x.id != null && x.challanNo && x.date && x.partyName),
+        );
+
+        setDyeingInwards(Array.isArray(dyeingInRaw) ? dyeingInRaw : []);
+        setFinishingInwards(Array.isArray(finishingInRaw) ? finishingInRaw : []);
 
         setPayments(
           (Array.isArray(payRaw) ? payRaw : [])
@@ -696,6 +758,8 @@ const AccountStatement: React.FC = () => {
     if (source === "PurchaseReturn") return { debit: amt, credit: 0, discount: 0 };
 
     if (source === "JobInward") return { debit: 0, credit: amt, discount: 0 };
+    if (source === "DyeingInward") return { debit: 0, credit: amt, discount: 0 };
+    if (source === "FinishingInward") return { debit: 0, credit: amt, discount: 0 };
 
     if (source === "JobOutward") return { debit: 0, credit: 0, discount: 0 };
 
@@ -722,6 +786,7 @@ const AccountStatement: React.FC = () => {
     purchaseReturns.forEach((d) => add(getBrokerFromPartyName(d.partyName), d.partyName));
     jobOutwards.forEach((d) => add(getBrokerFromPartyName(d.partyName), d.partyName));
     jobInwards.forEach((d) => add(getBrokerFromPartyName(d.partyName), d.partyName));
+    knittingInwards.forEach((d) => add(getBrokerFromPartyName(d.partyName), d.partyName));
 
     payments.forEach((d) => {
       const b = d.brokerName || (d.partyName ? getBrokerFromPartyName(d.partyName) : "");
@@ -749,6 +814,7 @@ const AccountStatement: React.FC = () => {
     purchaseReturns,
     jobOutwards,
     jobInwards,
+    knittingInwards,
     payments,
     receipts,
     getBrokerFromPartyName,
@@ -887,6 +953,8 @@ const AccountStatement: React.FC = () => {
 
       type Doc = {
         source: TxType;
+        // Knitting Outward reuses PurchaseEntry accounting direction internally.
+        ledgerType?: "KnittingInward" | "DyeingInward" | "FinishingInward";
         id: number;
         date: string;
         number: string;
@@ -1060,6 +1128,49 @@ const AccountStatement: React.FC = () => {
           brokerName: bName,
           amount: toNum(j.amount),
           docKey: makeDocKey("JobInward", String(j.id)),
+        });
+      });
+
+      // Dyeing Inward Challan / Receipt - payable to Dyeing Party (CREDIT bill).
+      dyeingInwards.forEach((d: any) => {
+        const partyName = String(d.partyName ?? d.party?.partyName ?? "").trim();
+        const bName = getBrokerFromPartyName(partyName);
+        if (!brokerOk(bName) || !partyOk(partyName)) return;
+        const rows: any[] = Array.isArray(d.rows) ? d.rows : [];
+        const amount = toNum(d.totalAmount) || rows.reduce((sum, r) => sum + toNum(r.amount), 0);
+        if (amount <= 0) return;
+        docs.push({ source: "DyeingInward", ledgerType: "DyeingInward", id: typeof d.id === "number" ? d.id : hashToInt(String(d.id ?? d.challanNo ?? "dyeing")), date: String(d.dated ?? d.date ?? fromDate), number: String(d.challanNo ?? ""), partyName, brokerName: bName, amount, docKey: `DyeingInward:${String(d.id ?? d.challanNo ?? "")}` });
+      });
+
+      // Finishing Inward Challan / Receipt - payable to Finishing Party (CREDIT bill).
+      finishingInwards.forEach((d: any) => {
+        const partyName = String(d.partyName ?? d.party?.partyName ?? "").trim();
+        const bName = getBrokerFromPartyName(partyName);
+        if (!brokerOk(bName) || !partyOk(partyName)) return;
+        const rows: any[] = Array.isArray(d.rows) ? d.rows : [];
+        const amount = toNum(d.totalAmount) || rows.reduce((sum, r) => { const saved = toNum(r.amount); return sum + (saved || toNum(r.rate) * toNum(r.weight)); }, 0);
+        if (amount <= 0) return;
+        docs.push({ source: "FinishingInward", ledgerType: "FinishingInward", id: typeof d.id === "number" ? d.id : hashToInt(String(d.id ?? d.challanNo ?? "finishing")), date: String(d.dated ?? d.date ?? fromDate), number: String(d.challanNo ?? ""), partyName, brokerName: bName, amount, docKey: `FinishingInward:${String(d.id ?? d.challanNo ?? "")}` });
+      });
+
+      // Knitting Inward Challan / Knitting Receipt
+      // Keep this as a separate Account Report transaction type so it can be filtered.
+      // Accounting direction follows the existing inward/job-inward payable (Credit) convention.
+      knittingInwards.forEach((k) => {
+        const bName = getBrokerFromPartyName(k.partyName);
+        if (!brokerOk(bName)) return;
+        if (!partyOk(k.partyName)) return;
+
+        docs.push({
+          source: "JobInward",
+          ledgerType: "KnittingInward",
+          id: typeof k.id === "number" ? k.id : hashToInt(String(k.id)),
+          date: k.date || fromDate,
+          number: k.challanNo,
+          partyName: k.partyName,
+          brokerName: bName,
+          amount: toNum(k.amount),
+          docKey: `KnittingInward:${String(k.id)}`,
         });
       });
 
@@ -1260,6 +1371,7 @@ const AccountStatement: React.FC = () => {
             credit: 0,
             discount: docDisc,        // discount
             type: d.source,
+            ledgerType: d.ledgerType,
             docKey: d.docKey,
           });
           continue;
@@ -1279,6 +1391,7 @@ const AccountStatement: React.FC = () => {
           credit: toNum(credit),
           discount: d.source === "Receipt" ? docDisc : toNum(discount),
           type: d.source,
+          ledgerType: d.ledgerType,
           docKey: d.docKey,
         });
       }
@@ -1708,8 +1821,12 @@ const AccountStatement: React.FC = () => {
   const filteredRows: DisplayRowFinal[] = useMemo(() => {
     let rows = rowsFinal;
 
-    // Apply Tx filter first (existing behavior)
-    if (transactionFilter !== "all") rows = rows.filter((r) => r.type === transactionFilter);
+    // Process inward rows use JobInward for FIFO direction but keep their own UI filter.
+    if (transactionFilter === "KnittingInward" || transactionFilter === "DyeingInward" || transactionFilter === "FinishingInward") {
+      rows = rows.filter((r) => r.ledgerType === transactionFilter);
+    } else if (transactionFilter !== "all") {
+      rows = rows.filter((r) => r.type === transactionFilter);
+    }
 
     // Pending Only (existing behavior)
     if (pendingOnly) {
@@ -1726,7 +1843,8 @@ const AccountStatement: React.FC = () => {
 
         if ((b as any)?.manualPaidEffective) continue;
 
-        // Respect current Tx filter if user selected a specific type
+        // Custom process-inward rows use JobInward inside FIFO, so isolate them by ledgerType.
+        if (transactionFilter === "KnittingInward" || transactionFilter === "DyeingInward" || transactionFilter === "FinishingInward") continue;
         if (transactionFilter !== "all" && (b as any)?.type !== transactionFilter) continue;
 
         const dt = toTime(String((b as any)?.date || ""));
@@ -1836,78 +1954,24 @@ const AccountStatement: React.FC = () => {
   // ✅ FIX (1): Broker Pending Summary must equal SUM of FIFO pending of ALL parties under broker
   // This does NOT use running/closing/net; it is derived from FIFO remaining pending.
   const brokerPendingSummaryTotal = useMemo(() => {
-    // Must NOT be calculated separately; it must always match the one common FIFO pending number.
     if (!selectedBroker || selectedParty) return 0;
     return toNum(pendingTotals.totalPending);
   }, [selectedBroker, selectedParty, pendingTotals.totalPending]);
 
+  // Direct broker payments have no party bill to allocate against, so show them separately in broker summary.
+  const brokerDirectPaymentTotal = useMemo(() => {
+    if (!selectedBroker || selectedParty) return 0;
+    const fromT = toTime(fromDate);
+    const toT = endOfDayTime(toDate);
+    return payments
+      .filter((p) => norm(p.brokerName || "") === norm(selectedBroker))
+      .filter((p) => !String(p.partyName || "").trim())
+      .filter((p) => { const t = toTime(p.paymentDate || p.date || ""); return t >= fromT && t <= toT; })
+      .reduce((sum, p) => sum + toNum(p.amount), 0);
+  }, [payments, selectedBroker, selectedParty, fromDate, toDate]);
+
   // ---------- Pending Report (challan-wise) ----------
 
-
-  // ---------- Overdue popup (FIFO) ----------
-  const overdueRowsAll: OverdueAlertRow[] = useMemo(() => {
-    const list = fifoResult.bills
-      .filter((b) => b.pending > 0 && b.days >= OVERDUE_DAYS && !b.manualPaidEffective)
-      .map((b) => ({
-        partyName: b.partyName || "-",
-        brokerName: b.brokerName || "-",
-        docNo: b.docNo || "-",
-        txType: typeLabel(b.type),
-        date: b.date,
-        days: b.days,
-        pending: b.pending,
-      }))
-      .sort((a, b) => b.days - a.days);
-
-    return list;
-  }, [fifoResult.bills]);
-
-  useEffect(() => {
-    if (!showModal) return;
-    if (!overdueRowsAll.length) return;
-
-    const key = `${selectedBroker}|${selectedParty}|${fromDate}|${toDate}|${transactions.length}|${totalPendingFifo}`;
-    if (overdueAlertKeyRef.current === key) return;
-    overdueAlertKeyRef.current = key;
-
-    const html = `
-      <div style="text-align:left; font-size: 13px;">
-        <div style="margin-bottom:8px;"><b>Overdue Pending Entries (FIFO) (≥ ${OVERDUE_DAYS} Days)</b></div>
-        <table style="width:100%; border-collapse: collapse;" border="1" cellpadding="6">
-          <thead>
-            <tr style="background:#fee2e2;">
-              <th>Party</th>
-              <th>Broker</th>
-              <th>Doc No</th>
-              <th>Type</th>
-              <th>Date</th>
-              <th>Days</th>
-              <th>Pending</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${overdueRowsAll
-        .slice(0, 20)
-        .map(
-          (x) => `
-                <tr>
-                  <td>${x.partyName}</td>
-                  <td>${x.brokerName}</td>
-                  <td>${x.docNo}</td>
-                  <td>${x.txType}</td>
-                  <td>${fmtDateHeader(x.date)}</td>
-                  <td style="text-align:right; font-weight:700; color:#b91c1c;">${x.days}</td>
-                  <td style="text-align:right; font-weight:700;">${fmtNumber(x.pending)}</td>
-                </tr>
-              `,
-        )
-        .join("")}
-          </tbody>
-        </table>
-      </div>
-    `;
-    Swal.fire({ icon: "warning", title: `${OVERDUE_DAYS} Days Alert`, html, confirmButtonText: "OK" });
-  }, [showModal, overdueRowsAll, selectedBroker, selectedParty, fromDate, toDate, transactions.length, totalPendingFifo]);
 
   // ---------- Print Summary ----------
   const handlePrintSummary = () => {
@@ -2005,7 +2069,7 @@ const AccountStatement: React.FC = () => {
             <td>${r.orderNo || ""}</td>
             <td style="text-align:right;">${fmtNumber(amountToShow)}</td>
             <td style="text-align:right;">${fmtNumber(r.pending)}</td>
-            <td>${typeLabel(r.type)}</td>
+            <td>${displayTypeLabel(r)}</td>
             <td style="text-align:right;">${r.days || 0}</td>
           </tr>
         `;
@@ -2103,7 +2167,7 @@ const AccountStatement: React.FC = () => {
             <td style="text-align:right;">${fmtNumber(r.discount)}</td>
             <td style="text-align:right;">${fmtNumber(r.balance)}</td>
             <td style="text-align:right;">${fmtNumber(r.pending)}</td>
-            <td>${typeLabel(r.type)}</td>
+            <td>${displayTypeLabel(r)}</td>
             <td style="text-align:right;">${r.days}</td>
             <td style="text-align:center;">${r.paidAuto ? "Yes" : ""}</td>
             <td style="text-align:center;">${r.manualPaidEffective ? "Yes" : ""}</td>
@@ -2203,7 +2267,6 @@ const AccountStatement: React.FC = () => {
     setTransactionFilter("all");
     setFifoEventsAll([]);
     setManualPaidUserMap(new Map());
-    overdueAlertKeyRef.current = "";
   }
 
   // ================= UI =================
@@ -2392,6 +2455,9 @@ const AccountStatement: React.FC = () => {
                       <option value="PurchaseReturn">Purchase Return</option>
                       <option value="JobOutward">Job Outward Challan</option>
                       <option value="JobInward">Job Inward Challan</option>
+                      <option value="KnittingInward">Knitting Inward Challan</option>
+                      <option value="DyeingInward">Dyeing Inward Challan</option>
+                      <option value="FinishingInward">Finishing Inward Challan</option>
                       <option value="Payment">Payment</option>
                       <option value="Receipt">Receipt</option>
                       <option value="Opening">Opening</option>
@@ -2510,7 +2576,7 @@ const AccountStatement: React.FC = () => {
                               <td className="px-2 py-1 border">{modeText}</td>
                               <td className="px-2 py-1 border text-right">{fmtNumber(r.debit)}</td>
                               <td className="px-2 py-1 border text-right">{fmtNumber(r.pending)}</td>
-                              <td className="px-2 py-1 border">{typeLabel(r.type)}</td>
+                              <td className="px-2 py-1 border">{displayTypeLabel(r)}</td>
                               <td className={`px-2 py-1 border text-right ${overdue ? "text-red-700 font-bold" : ""}`}>{r.days}</td>
                             </tr>
                           );
@@ -2532,7 +2598,7 @@ const AccountStatement: React.FC = () => {
                             <td className="px-2 py-1 border text-right">{fmtNumber(r.balance)}</td>
                             <td className="px-2 py-1 border text-right">{fmtNumber(r.pending)}</td>
 
-                            <td className="px-2 py-1 border">{typeLabel(r.type)}</td>
+                            <td className="px-2 py-1 border">{displayTypeLabel(r)}</td>
                             <td className={`px-2 py-1 border text-right ${overdue ? "text-red-700 font-bold" : ""}`}>{r.days}</td>
 
                             <td className="px-2 py-1 border text-center">
@@ -2603,10 +2669,16 @@ const AccountStatement: React.FC = () => {
                                     <div className="text-sm font-semibold">Broker / Party Summary (FIFO)</div>
                                     <div className="mt-2 text-xs">
                                       {selectedBroker && !selectedParty ? (
-                                        <div className="flex items-center justify-between gap-2">
-                                          <span className="truncate max-w-[160px] font-semibold">Broker Total</span>
-                                          <span className="font-semibold">{fmtNumber(brokerPendingSummaryTotal)}</span>
-                                        </div>
+                                        <>
+                                          <div className="flex items-center justify-between gap-2">
+                                            <span className="truncate max-w-[160px] font-semibold">Broker Pending</span>
+                                            <span className="font-semibold">{fmtNumber(brokerPendingSummaryTotal)}</span>
+                                          </div>
+                                          <div className="flex items-center justify-between gap-2 mt-1">
+                                            <span className="truncate max-w-[160px]">Direct Broker Payment</span>
+                                            <span className="font-semibold">{fmtNumber(brokerDirectPaymentTotal)}</span>
+                                          </div>
+                                        </>
                                       ) : null}
 
                                       {(selectedBroker && !selectedParty ? partyPendingSummary.slice(0, 5) : partyPendingSummary.slice(0, 6)).map((x) => (

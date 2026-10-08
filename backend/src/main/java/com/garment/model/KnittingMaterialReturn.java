@@ -24,13 +24,32 @@ public class KnittingMaterialReturn {
 
     private LocalDate date;
 
+    // Material Party
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "party_id")
+    @JsonIgnoreProperties({
+            "hibernateLazyInitializer",
+            "handler"
+    })
     private Party party;
 
-    private String challanNo; // return challan or reference
+    // Received Return Party - OPTIONAL
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "received_party_id")
+    @JsonIgnoreProperties({
+            "hibernateLazyInitializer",
+            "handler"
+    })
+    private Party receivedParty;
 
-    @OneToMany(mappedBy = "materialReturn", cascade = CascadeType.ALL, orphanRemoval = true)
+    private String challanNo;
+
+    @OneToMany(
+            mappedBy = "materialReturn",
+            cascade = CascadeType.ALL,
+            orphanRemoval = true
+    )
     @JsonManagedReference
-    private List<KnittingMaterialReturnRow> items = new ArrayList<>();
+    private List<KnittingMaterialReturnRow> items =
+            new ArrayList<>();
 }

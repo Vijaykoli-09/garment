@@ -14,6 +14,8 @@ public class DyeingInwardRowDTO {
     private String rolls;
     private String weight;
 
+    private String receivedWeight;
+
     private String shortage;     // renamed from wastage
     private String percentage;   // NEW
 

@@ -195,7 +195,7 @@ const AmountStatement: React.FC = () => {
       );
       const pLower = (selectedParty?.partyName || "").trim().toLowerCase();
 
-      // Finishing Inward (Debit) per document
+      // Finishing Inward (Credit) per document
       type InwRec = {
         dt: number;
         dateISO: string;
@@ -225,7 +225,7 @@ const AmountStatement: React.FC = () => {
         };
       });
 
-      // Payments (Credit) to this party
+      // Payments (Debit) to this party
       type PayRec = {
         dt: number;
         dateISO: string;
@@ -263,11 +263,13 @@ const AmountStatement: React.FC = () => {
       const toTs = toIso ? dateStamp(toIso) : Number.POSITIVE_INFINITY;
 
       // Opening (before from): transaction sums
-      const openingDebitTx = inwRecs
+      // Finishing Inward = CREDIT
+      const openingCreditTx = inwRecs
         .filter((r) => r.dt < fromTs)
         .reduce((s, r) => s + r.debit, 0);
 
-      const openingCreditTx = payRecs
+      // Payment = DEBIT
+      const openingDebitTx = payRecs
         .filter((r) => r.dt < fromTs)
         .reduce((s, r) => s + r.credit, 0);
 
@@ -330,18 +332,20 @@ const AmountStatement: React.FC = () => {
       // Movement Rows
       merged.forEach((r) => {
         if (r.kind === "DIN") {
-          running += r.debit;
+          // Finishing Inward = CREDIT
+          running -= r.debit;
           result.push({
             id: idCounter++,
             date: displayDate(r.dateISO),
             narration: `Finishing Inward - Challan ${r.challanNo || "-"}`,
-            debit: fmt2(r.debit),
-            credit: "0.00",
+            debit: "0.00",
+            credit: fmt2(r.debit),
             balance: fmt2(running),
             type: "DIN",
           });
         } else {
-          running -= r.credit;
+          // Payment = DEBIT
+          running += r.credit;
           const parts: string[] = ["Payment"];
           if (r.paymentThrough) parts.push(`via ${r.paymentThrough}`);
           if (r.entryType) parts.push(`(${r.entryType})`);
@@ -352,8 +356,8 @@ const AmountStatement: React.FC = () => {
             id: idCounter++,
             date: displayDate(r.dateISO),
             narration,
-            debit: "0.00",
-            credit: fmt2(r.credit),
+            debit: fmt2(r.credit),
+            credit: "0.00",
             balance: fmt2(running),
             type: "PAY",
           });

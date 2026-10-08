@@ -35,7 +35,7 @@ public class KnittingOutwardChallanServiceImpl implements KnittingOutwardChallan
     private final ShadeRepository shadeRepo;
     private final MaterialStockService materialStockService; // ✅ ADDED
 
- // ✅ Save new challan
+    // ✅ Save new challan
     @Override
     @Transactional
     public KnittingOutwardChallan saveEntry(KnittingOutwardChallanDTO dto) {
@@ -51,12 +51,12 @@ public class KnittingOutwardChallanServiceImpl implements KnittingOutwardChallan
 
             Material material = rowDto.getMaterialId() != null
                     ? materialRepo.findById(rowDto.getMaterialId())
-                        .orElseThrow(() -> new RuntimeException("Material not found: " + rowDto.getMaterialId()))
+                    .orElseThrow(() -> new RuntimeException("Material not found: " + rowDto.getMaterialId()))
                     : null;
 
             Shade shade = rowDto.getShadeCode() != null && !rowDto.getShadeCode().isBlank()
                     ? shadeRepo.findById(rowDto.getShadeCode())
-                        .orElseThrow(() -> new RuntimeException("Shade not found: " + rowDto.getShadeCode()))
+                    .orElseThrow(() -> new RuntimeException("Shade not found: " + rowDto.getShadeCode()))
                     : null;
 
             KnittingOutwardChallanRow row = new KnittingOutwardChallanRow();
@@ -69,7 +69,10 @@ public class KnittingOutwardChallanServiceImpl implements KnittingOutwardChallan
             row.setRate(rowDto.getRate());
             row.setAmount(rowDto.getAmount());
             row.setOrderNo(rowDto.getOrderNo());
-            row.setUnit(material != null ? material.getMaterialUnit() : null);
+            row.setYarnName(rowDto.getYarnName());
+            row.setUnit(rowDto.getUnit() != null && !rowDto.getUnit().isBlank()
+                    ? rowDto.getUnit()
+                    : (material != null ? material.getMaterialUnit() : null));
 
             return row;
         }).collect(Collectors.toList());
@@ -115,7 +118,7 @@ public class KnittingOutwardChallanServiceImpl implements KnittingOutwardChallan
         existing.setParty(party);
         existing.setChallanNo(dto.getChallanNo());
 
-        // ✅ Remove old child records properly 
+        // ✅ Remove old child records properly
         List<KnittingOutwardChallanRow> oldRows = new ArrayList<>(existing.getItems());
         for (KnittingOutwardChallanRow row : oldRows) {
             existing.getItems().remove(row);
@@ -143,7 +146,10 @@ public class KnittingOutwardChallanServiceImpl implements KnittingOutwardChallan
             newRow.setRate(rowDto.getRate());
             newRow.setAmount(rowDto.getAmount());
             newRow.setOrderNo(rowDto.getOrderNo());
-            newRow.setUnit(material.getMaterialUnit());
+            newRow.setYarnName(rowDto.getYarnName());
+            newRow.setUnit(rowDto.getUnit() != null && !rowDto.getUnit().isBlank()
+                    ? rowDto.getUnit()
+                    : material.getMaterialUnit());
 
             existing.getItems().add(newRow);
         }

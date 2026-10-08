@@ -13,6 +13,7 @@ interface StockRow {
   receiptPcs: string;
   receiptKgs: string;
   receiptWastage: string;
+  receiptShortage: string;
   receiptRate: string; // Finishing Rate
   receiptAmount: string; // Weight * Finishing Rate
   balancePcs: string;
@@ -260,6 +261,7 @@ const StockStatement: React.FC = () => {
       rolls: number; // Pcs
       weight: number; // Kgs
       wastage: number;
+      shortage: number;
       finishingRate: number; // Finishing rate (from Inward)
       amount: number; // Weight * Finishing Rate
     };
@@ -294,6 +296,7 @@ const StockStatement: React.FC = () => {
           rolls: toNum(r.rolls),
           weight: toNum(r.weight),
           wastage: 0,
+          shortage: 0,
           finishingRate: 0, // not applicable on issue
           amount: 0,
         });
@@ -330,6 +333,7 @@ const StockStatement: React.FC = () => {
           rolls: toNum(r.rolls),
           weight,
           wastage: toNum(r.wastage),
+          shortage: toNum(r.shortage),
           finishingRate,
           amount,
         });
@@ -378,6 +382,7 @@ const StockStatement: React.FC = () => {
       receiptPcs: "",
       receiptKgs: "",
       receiptWastage: "",
+      receiptShortage: "",
       receiptRate: "",
       receiptAmount: "",
       balancePcs: fmt0(runPcs),
@@ -393,7 +398,7 @@ const StockStatement: React.FC = () => {
         runKgs -= m.weight;
       } else {
         runPcs += m.rolls;
-        runKgs += m.weight;
+        runKgs += m.weight - m.shortage;
       }
 
       result.push({
@@ -405,6 +410,7 @@ const StockStatement: React.FC = () => {
         receiptPcs: m.type === "receipt" ? fmt0(m.rolls) : "",
         receiptKgs: m.type === "receipt" ? fmt3(m.weight) : "",
         receiptWastage: m.type === "receipt" ? fmt3(m.wastage) : "",
+        receiptShortage: m.type === "receipt" ? fmt3(m.shortage) : "",
         // Show only Finishing Rate
         receiptRate: m.type === "receipt" ? fmt2(m.finishingRate) : "",
         // Amount = Weight * Finishing Rate
@@ -427,6 +433,7 @@ const StockStatement: React.FC = () => {
       receiptPcs = 0,
       receiptKgs = 0,
       receiptWastage = 0,
+      receiptShortage = 0,
       receiptAmount = 0,
       rateWeightedNumerator = 0;
 
@@ -436,6 +443,7 @@ const StockStatement: React.FC = () => {
       const rPcs = toNum(r.receiptPcs);
       const rKgs = toNum(r.receiptKgs);
       const rW = toNum(r.receiptWastage);
+      const rS = toNum(r.receiptShortage);
       const amt = toNum(r.receiptAmount);
       const rate = toNum(r.receiptRate); // Finishing Rate
 
@@ -444,6 +452,7 @@ const StockStatement: React.FC = () => {
       receiptPcs += rPcs;
       receiptKgs += rKgs;
       receiptWastage += rW;
+      receiptShortage += rS;
       receiptAmount += amt;
       rateWeightedNumerator += rate * rKgs; // Finishing rate weighted by receipt kgs
     });
@@ -460,6 +469,7 @@ const StockStatement: React.FC = () => {
       receiptPcs,
       receiptKgs,
       receiptWastage,
+      receiptShortage,
       receiptAmount,
       avgRate,
       closingPcs,
@@ -608,7 +618,7 @@ const StockStatement: React.FC = () => {
                             Issue
                           </th>
 
-                          <th colSpan={5} className="border p-2 text-center">
+                          <th colSpan={6} className="border p-2 text-center">
                             Receipt
                           </th>
 
@@ -633,6 +643,9 @@ const StockStatement: React.FC = () => {
                           <th className="border p-2 text-right w-20">
                             Wastage
                           </th>
+                          <th className="border p-2 text-right w-20">
+                            Shortage
+                          </th>
                           <th className="border p-2 text-right w-36">
                             Finishing Rate
                           </th>
@@ -647,7 +660,7 @@ const StockStatement: React.FC = () => {
                         {rows.length === 0 ? (
                           <tr>
                             <td
-                              colSpan={15}
+                              colSpan={16}
                               className="p-4 text-center text-gray-500"
                             >
                               No data for the selected filters.
@@ -687,6 +700,9 @@ const StockStatement: React.FC = () => {
                                 </td>
                                 <td className="border p-2 text-right">
                                   {r.receiptWastage}
+                                </td>
+                                <td className="border p-2 text-right">
+                                  {r.receiptShortage}
                                 </td>
                                 <td className="border p-2 text-right">
                                   {r.receiptRate}
@@ -736,6 +752,9 @@ const StockStatement: React.FC = () => {
                               </td>
                               <td className="border p-2 text-right">
                                 {fmt3(totals.receiptWastage)}
+                              </td>
+                              <td className="border p-2 text-right">
+                                {fmt3(totals.receiptShortage)}
                               </td>
                               <td className="border p-2 text-right">
                                 {fmt2(totals.avgRate)}

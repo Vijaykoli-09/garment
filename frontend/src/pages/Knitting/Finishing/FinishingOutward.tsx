@@ -31,6 +31,7 @@ interface RowData {
 
   rolls: string;
   weight: string;
+  receivedWeight: string;
   clothWeight: string;
   ribWeight: string;
 
@@ -47,6 +48,7 @@ interface LotFromDyeingInward {
   shade: string;
   rolls: string | number;
   weight: string | number;
+  receivedWeight?: string | number;
   knittingYarnRate?: string | number;
   dyeingRate?: string | number;
 
@@ -158,6 +160,7 @@ const FinishingOutward: React.FC = () => {
       rate: "",
       rolls: "",
       weight: "",
+      receivedWeight: "",
       clothWeight: "",
       ribWeight: "",
       shortage: "",
@@ -202,6 +205,7 @@ const FinishingOutward: React.FC = () => {
         shade: String(r.shade || ""),
         rolls: String(r.rolls ?? ""),
         weight: String(r.weight ?? ""),
+        receivedWeight: String(r.receivedWeight ?? ""),
 
         // ✅ carry
         shortage: String(r.shortage ?? ""),
@@ -235,30 +239,70 @@ const FinishingOutward: React.FC = () => {
     else setSelectedRowIds(rows.map((r) => r.id));
   };
 
-  // Handle change
+  // Handle row changes
+  // Finishing formula:
+  //   Shortage = Weight × Percentage / 100
+  //   Percentage = Shortage × 100 / Weight
+  // Both fields remain editable. Weight changes recalculate whichever
+  // percentage/shortage value is already present.
   const handleChange = (id: number, field: keyof RowData, value: string) => {
     setRows((prevRows) =>
       prevRows.map((r) => {
-        if (r.id === id) {
-          const updatedRow: RowData = { ...r, [field]: value } as RowData;
+        if (r.id !== id) return r;
 
-          if (field === "rate" || field === "weight") {
-            updatedRow.amount = computeAmountByWeight(
-              updatedRow.rate,
-              updatedRow.weight
-            );
-          }
+        const updatedRow: RowData = { ...r, [field]: value } as RowData;
 
-          if (field === "knittingYarnRate" || field === "dyeingRate") {
-            updatedRow.rateFND = sumRatesToString(
-              updatedRow.knittingYarnRate,
-              updatedRow.dyeingRate
-            );
-          }
-
-          return updatedRow;
+        // Amount = Weight × finishing rate
+        if (field === "rate" || field === "weight") {
+          updatedRow.amount = computeAmountByWeight(
+            updatedRow.rate,
+            updatedRow.weight
+          );
         }
-        return r;
+
+        // KYR + Dyeing = combined read-only rate
+        if (field === "knittingYarnRate" || field === "dyeingRate") {
+          updatedRow.rateFND = sumRatesToString(
+            updatedRow.knittingYarnRate,
+            updatedRow.dyeingRate
+          );
+        }
+
+        const weightNum = parseFloat(updatedRow.weight) || 0;
+
+        if (field === "receivedWeight") {
+          const receivedNum = parseFloat(value) || 0;
+          if (weightNum > 0) {
+            const shortageNum = Math.max(0, weightNum - receivedNum);
+            updatedRow.shortage = String(Number(shortageNum.toFixed(3)));
+            updatedRow.percentage = String(Number(((shortageNum * 100) / weightNum).toFixed(4)));
+          }
+        }
+
+        if (field === "shortage") {
+          const shortageNum = Math.max(0, parseFloat(value) || 0);
+          if (weightNum > 0) {
+            const receivedNum = Math.max(0, weightNum - shortageNum);
+            updatedRow.receivedWeight = String(Number(receivedNum.toFixed(3)));
+            updatedRow.percentage = String(Number(((shortageNum * 100) / weightNum).toFixed(4)));
+          }
+        }
+
+        if (field === "weight" && weightNum > 0) {
+          const receivedNum = parseFloat(updatedRow.receivedWeight);
+          const shortageNum = parseFloat(updatedRow.shortage);
+          if (updatedRow.receivedWeight !== "" && !isNaN(receivedNum)) {
+            const sh = Math.max(0, weightNum - receivedNum);
+            updatedRow.shortage = String(Number(sh.toFixed(3)));
+            updatedRow.percentage = String(Number(((sh * 100) / weightNum).toFixed(4)));
+          } else if (updatedRow.shortage !== "" && !isNaN(shortageNum)) {
+            const rw = Math.max(0, weightNum - shortageNum);
+            updatedRow.receivedWeight = String(Number(rw.toFixed(3)));
+            updatedRow.percentage = String(Number(((shortageNum * 100) / weightNum).toFixed(4)));
+          }
+        }
+
+        return updatedRow;
       })
     );
   };
@@ -287,6 +331,7 @@ const FinishingOutward: React.FC = () => {
                 shade: row.shade || "",
                 rolls: row.rolls || row.roll || 0,
                 weight: row.weight || 0,
+                receivedWeight: row.receivedWeight ?? "",
                 knittingYarnRate: row.knittingYarnRate || "",
                 dyeingRate: row.dyeingRate || "",
                 shortage: row.shortage ?? "",
@@ -365,6 +410,7 @@ const FinishingOutward: React.FC = () => {
           shade: String(lot.shade || ""),
           rolls: String(lot.rolls ?? ""),
           weight: String(lot.weight ?? ""),
+          receivedWeight: String(lot.receivedWeight ?? ""),
           knittingYarnRate: String(lot.knittingYarnRate ?? ""),
           dyeingRate: String(lot.dyeingRate ?? ""),
           rateFND: rateFNDsum,
@@ -515,6 +561,7 @@ const FinishingOutward: React.FC = () => {
 
       rolls: r.rolls,
       weight: r.weight,
+      receivedWeight: r.receivedWeight,
 
       clothWt: r.clothWeight,
       ribWt: r.ribWeight,
@@ -727,6 +774,7 @@ const FinishingOutward: React.FC = () => {
           rate: String(r.rate || ""),
           rolls: String(r.rolls || ""),
           weight: String(r.weight || ""),
+          receivedWeight: String(r.receivedWeight ?? ""),
 
           clothWeight: String(r.clothWeight || r.clothWt || ""),
           ribWeight: String(r.ribWeight || r.ribWt || ""),
@@ -818,6 +866,7 @@ const FinishingOutward: React.FC = () => {
                 <th>Fabric</th>
                 <th>Shade</th>
                 <th>Weight</th>
+                <th>Received Weight</th>
                 <th>KYR+Dyeing Sum</th>
                 <th>Rolls</th>
                 <th>Cloth Wt</th>
@@ -837,6 +886,7 @@ const FinishingOutward: React.FC = () => {
                   <td>${r.itemName}</td>
                   <td>${r.shade}</td>
                   <td>${r.weight}</td>
+                  <td>${r.receivedWeight}</td>
                   <td>${r.rateFND}</td>
                   <td>${r.rolls}</td>
                   <td>${r.clothWeight}</td>
@@ -1051,6 +1101,7 @@ const FinishingOutward: React.FC = () => {
                   <th className="border p-2 w-36">Fabrication Name</th>
                   <th className="border p-2 w-24">Shade</th>
                   <th className="border p-2 w-20">Weight</th>
+                  <th className="border p-2 w-28">Received Weight</th>
                   <th className="border p-2 w-28">KYR + Dyeing (Sum)</th>
                   <th className="border p-2 w-20">Rolls</th>
                   <th className="border p-2 w-24">Cloth Wt.</th>
@@ -1123,6 +1174,11 @@ const FinishingOutward: React.FC = () => {
                           }
                           className="w-full p-1 text-xs text-right rounded border-none"
                         />
+                      </td>
+                      <td className="border p-1">
+                        <input type="number" min="0" value={row.receivedWeight}
+                          onChange={(e) => handleChange(row.id, "receivedWeight", e.target.value)}
+                          className="w-full p-1 text-xs border rounded text-right" placeholder="Received" />
                       </td>
 
                       <td className="border p-1 text-right">
