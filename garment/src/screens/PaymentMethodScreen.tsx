@@ -5,7 +5,7 @@ import {
 } from 'react-native';
 import RazorpayCheckout from 'react-native-razorpay';
 import { AppContext } from '../context/AppContext';
-import { orderApi, saleOrderApi, OrderItemPayload } from '../api/api';
+import { orderApi, OrderItemPayload } from '../api/api';
 
 export default function PaymentMethodScreen({ navigation }: any) {
   const {
@@ -45,20 +45,6 @@ export default function PaymentMethodScreen({ navigation }: any) {
       error?.description === 'Payment Cancelled by user'
     ) return 'CANCELLED';
     return error?.description ?? error?.message ?? fallback;
-  };
-
-  // ── Create sale order in admin panel (fire-and-forget) ────────────
-  // Called after EVERY successful payment — Razorpay, Credit, Advance+Credit.
-  // Failure here is silent — payment is already confirmed, admin can
-  // manually create the sale order in the rare case this fails.
-  const createSaleOrder = async () => {
-    if (!user) return;
-    try {
-      await saleOrderApi.createFromAppCart(cart, user);
-    } catch (err) {
-      // Silent fail — do not alert customer
-      console.warn('[SaleOrder] Failed to create sale order after payment:', err);
-    }
   };
 
   // ════════════════════════════════════════════════════════════════
@@ -107,8 +93,6 @@ export default function PaymentMethodScreen({ navigation }: any) {
         razorpaySignature: paymentData.razorpay_signature,
       });
 
-      // ── Payment verified → create sale order in admin panel ──────
-      await createSaleOrder();
 
       clearCart();
       Alert.alert(
@@ -166,8 +150,6 @@ export default function PaymentMethodScreen({ navigation }: any) {
                 deliveryAddress: user?.deliveryAddress ?? '',
               });
 
-              // ── Credit order confirmed → create sale order ────────
-              await createSaleOrder();
 
               clearCart();
               Alert.alert(
@@ -254,8 +236,6 @@ export default function PaymentMethodScreen({ navigation }: any) {
                 razorpaySignature: paymentData.razorpay_signature,
               });
 
-              // ── Advance payment verified → create sale order ──────
-              await createSaleOrder();
 
               clearCart();
               Alert.alert(

@@ -135,8 +135,13 @@ const c = StyleSheet.create({
 });
 
 // helper exports other screens may want
+// Uses the device's LOCAL date. toISOString() converts to UTC first, which
+// shifts the date back by one day in India between 12:00 AM and 5:30 AM IST.
 export function toISODate(d: Date) {
-  return d.toISOString().slice(0, 10);
+  const y  = d.getFullYear();
+  const m  = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${dd}`;
 }
 export function formatDisplay(d: Date) {
   return d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });

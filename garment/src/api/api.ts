@@ -1,9 +1,8 @@
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { CartItem, AppUser } from '../context/AppContext';
 
-// export const BASE_URL = 'https://garment-1-1v21.onrender.com/api';
-export const BASE_URL = 'http://192.168.1.24:8080/api';
+export const BASE_URL = 'https://garment-1-1v21.onrender.com/api';
+// export const BASE_URL = 'http://192.168.1.21:8080/api';
 
 // ════════════════════════════════════════════════════════════════════
 // AXIOS INSTANCE
@@ -32,15 +31,44 @@ api.interceptors.request.use(
   error => Promise.reject(error)
 );
 
-// ── Handle 401 globally ──────────────────────────────────────────────
+// ── Handle expired / invalid CUSTOMER session globally ──────────────
+// AppContext registers a handler here so the UI can log the customer out
+// (clearing React state), not just wipe AsyncStorage.
+//
+// 401 = unauthorized. 403 is included because the backend currently
+// answers 403 (not 401) when the JWT is expired/invalid. We only act when
+// the failed request carried the CUSTOMER token, so a wrong password at
+// login and broker-token (withBrokerAuth) calls never trigger this.
+let onUnauthorized: (() => void) | null = null;
+let handlingUnauthorized = false;
+
+export const setUnauthorizedHandler = (fn: (() => void) | null) => {
+  onUnauthorized = fn;
+};
+
 api.interceptors.response.use(
   response => response,
   async error => {
-    if (error.response?.status === 401) {
-      await Promise.all([
-        AsyncStorage.removeItem('auth_token'),
-        AsyncStorage.removeItem('auth_user'),
-      ]);
+    const status = error.response?.status;
+
+    if ((status === 401 || status === 403) && !handlingUnauthorized) {
+      const sent          = (error.config?.headers as any)?.Authorization;
+      const customerToken = await AsyncStorage.getItem('auth_token');
+      const isCustomerCall = Boolean(sent) && Boolean(customerToken)
+                             && sent === `Bearer ${customerToken}`;
+
+      if (isCustomerCall) {
+        handlingUnauthorized = true;          // several requests may fail at once
+        try {
+          await Promise.all([
+            AsyncStorage.removeItem('auth_token'),
+            AsyncStorage.removeItem('auth_user'),
+          ]);
+          onUnauthorized?.();
+        } finally {
+          setTimeout(() => { handlingUnauthorized = false; }, 1500);
+        }
+      }
     }
     return Promise.reject(error);
   }
@@ -375,45 +403,6 @@ export const orderApi = {
   verifyCreditPayment: (data: VerifyCreditPaymentPayload) =>
     api.post<VerifyCreditPaymentResponse>('/orders/verify-credit-payment', data),
 };
-
-// ════════════════════════════════════════════════════════════════════
-// SALE ORDER API
-// ════════════════════════════════════════════════════════════════════
-function buildSaleOrderPayload(cart: CartItem[], user: AppUser) {
-  const today = new Date();
-  const yyyy  = today.getFullYear();
-  const mm    = String(today.getMonth() + 1).padStart(2, '0');
-  const dd    = String(today.getDate()).padStart(2, '0');
-  const dated = `${yyyy}-${mm}-${dd}`;
-
-  const rows = cart.map(item => ({
-    artSerial:   item.artSerialNumber ?? '',
-    artNo:       item.artNo           ?? '',
-    shade:       item.shade           ?? '',
-    description: item.artName         ?? '',
-    peti:        String(item.boxes),
-    remarks:     '',
-    sizes:       {},
-    sizesQty:  { [item.selectedSize]: String(item.pcsPerBox) },
-    sizesRate: { [item.selectedSize]: String(item.pricePerPc.toFixed(4)) },
-  }));
-
-  return {
-    orderNo:      '',
-    dated,
-    deliveryDate: null,
-    partyId:      null,
-    partyName:    user.name,
-    remarks:      `App Order | ${user.phone}`,
-    rows,
-  };
-}
-
-export const saleOrderApi = {
-  createFromAppCart: (cart: CartItem[], user: AppUser) =>
-    api.post('/sale-orders', buildSaleOrderPayload(cart, user)),
-};
-
 
 // ════════════════════════════════════════════════════════════════════
 // ADD THIS TO api.ts

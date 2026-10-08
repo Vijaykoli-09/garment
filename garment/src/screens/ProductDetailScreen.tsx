@@ -9,13 +9,13 @@ import { ShadeInfo } from './ProductListScreen';
 const { width } = Dimensions.get('window');
 const GST = 0.18;
 
-function getMyPrice(pricing: any, type?: string): number {
+function getMyPrice(pricing: any, type?: string | null): number {
   if (type === 'Wholesaler')      return pricing?.wholeSeller     ?? 0;
   if (type === 'Semi_Wholesaler') return pricing?.semiWholeSeller ?? 0;
   return pricing?.retailer ?? 0;
 }
 
-function getVisiblePrices(pricing: any, type?: string) {
+function getVisiblePrices(pricing: any, type?: string | null) {
   const tiers = [];
   if (type === 'Wholesaler') {
     tiers.push({ label: 'Wholesaler',      price: pricing?.wholeSeller     ?? 0 });
@@ -30,7 +30,7 @@ function getVisiblePrices(pricing: any, type?: string) {
   return tiers;
 }
 
-function getMyMinBox(minBox: any, type?: string): number {
+function getMyMinBox(minBox: any, type?: string | null): number {
   if (type === 'Wholesaler')      return minBox?.wholeSeller     ?? 10;
   if (type === 'Semi_Wholesaler') return minBox?.semiWholeSeller ?? 8;
   return minBox?.retailer ?? 5;
@@ -57,7 +57,9 @@ function getSwatchColor(name: string): string {
 
 export default function ProductDetailScreen({ route, navigation }: any) {
   const { product } = route.params;
-  const { addToCart, remainingCredit, creditApproved, user } = useContext(AppContext);
+  const { addToCart, remainingCredit, creditApproved, user, cartTotalWithGst } = useContext(AppContext);
+  // Credit left after the items already sitting in the cart
+  const creditAfterCart = Math.max(0, remainingCredit - cartTotalWithGst);
 
   const pricePerBox = getMyPrice(product.pricing, user?.type);
   const minBoxes    = getMyMinBox(product.minBox, user?.type);
@@ -79,7 +81,7 @@ export default function ProductDetailScreen({ route, navigation }: any) {
   const total      = subtotal + gstAmt;
   const pricePerPc = pcsPerBox > 0 ? (pricePerBox / pcsPerBox) : 0;
 
-  const canAfford  = !creditApproved || total <= remainingCredit;
+  const canAfford  = !creditApproved || total <= creditAfterCart;
   const typeLabel  = user?.type?.replace('_', ' ') ?? 'Retailer';
 
   // Validate: size must be selected + shade must be selected (if shades exist)
@@ -101,7 +103,7 @@ export default function ProductDetailScreen({ route, navigation }: any) {
     if (!canAfford) {
       Alert.alert(
         '⚠️ Insufficient Credit',
-        `Order total ₹${total.toFixed(0)} exceeds your available credit ₹${remainingCredit.toFixed(0)}.`
+        `This item (₹${total.toFixed(0)}) exceeds your available credit ₹${creditAfterCart.toFixed(0)} (after items already in your cart).`
       );
       return;
     }
@@ -334,7 +336,7 @@ export default function ProductDetailScreen({ route, navigation }: any) {
               <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
                 <Text style={[s.creditLbl, !canAfford && { color: '#DC2626' }]}>Available Credit</Text>
                 <Text style={[s.creditAmt, !canAfford && { color: '#DC2626' }]}>
-                  ₹{remainingCredit.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
+                  ₹{creditAfterCart.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
                 </Text>
               </View>
               {!canAfford && (

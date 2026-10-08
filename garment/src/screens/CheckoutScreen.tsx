@@ -89,7 +89,7 @@ export default function CheckoutScreen({ navigation }: any) {
       {group.sizes.map(item => {
         const rowTotal = item.pricePerBox * item.boxes;
         return (
-          <View key={item.selectedSize} style={s.sizeRow}>
+          <View key={`${item.selectedSize}-${item.shadeCode}`} style={s.sizeRow}>
             <View style={s.sizeChip}>
               <Text style={s.sizeChipTxt}>{item.selectedSize}</Text>
             </View>

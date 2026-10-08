@@ -40,7 +40,7 @@ const METHOD_LABEL: Record<string, string> = {
 
 // ════════════════════════════════════════════════════════════════════
 export default function CreditOrdersScreen({ navigation }: any) {
-  const { user } = useContext(AppContext);
+  const { user, refreshCredit } = useContext(AppContext);
 
   const [orders, setOrders]     = useState<any[]>([]);
   const [loading, setLoading]   = useState(true);
@@ -54,9 +54,10 @@ export default function CreditOrdersScreen({ navigation }: any) {
 
       // Only credit orders that haven't been fully paid yet
       const credit = all
+        .filter(o => o.orderStatus !== 'CANCELLED')
         .filter(o =>
-          (o.paymentMethod === 'CREDIT_ORDER' || o.paymentMethod === 'ADVANCE_CREDIT')
-          && o.paymentStatus !== 'PAID'
+          (o.paymentMethod === 'CREDIT_ORDER'   && o.paymentStatus === 'PENDING') ||
+          (o.paymentMethod === 'ADVANCE_CREDIT' && o.paymentStatus === 'PARTIALLY_PAID')
         )
         .sort((a, b) =>
           new Date(a.createdAt ?? 0).getTime() - new Date(b.createdAt ?? 0).getTime()
@@ -113,6 +114,7 @@ export default function CreditOrdersScreen({ navigation }: any) {
 
       // Success — remove from this list and show confirmation
       setOrders(prev => prev.filter(o => o.id !== order.id));
+      refreshCredit();   // free up the credit on Dashboard / Profile right away
 
       Alert.alert(
         '✅ Payment Successful!',

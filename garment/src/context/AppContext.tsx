@@ -1,9 +1,10 @@
 import React, { createContext, useState, useEffect, useCallback, ReactNode } from 'react';
+import { Alert } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { SessionStorage, authApi, orderApi } from '../api/api';
+import { SessionStorage, authApi, orderApi, setUnauthorizedHandler } from '../api/api';
 
 const CART_STORAGE_KEY = 'app_cart';
-const USED_CREDIT_KEY  = 'app_used_credit';
+const USED_CREDIT_KEY  = 'used_credit_v2';
 
 // ════════════════════════════════════════════════════════════════════
 // TYPES
@@ -106,6 +107,53 @@ async function clearCartFromStorage() {
 }
 
 // ════════════════════════════════════════════════════════════════════
+// SERVER STATE HELPERS
+// ════════════════════════════════════════════════════════════════════
+// Used credit = credit part of orders that are not yet fully paid.
+// It comes ONLY from real orders. The cart is never added to it —
+// screens compare the cart total against availableCredit directly.
+function computeUsedCredit(orders: any[]): number {
+  return orders
+    .filter(o => o.orderStatus !== 'CANCELLED')
+    .filter(o =>
+      // CREDIT_ORDER: the whole amount is credit until it is paid
+      (o.paymentMethod === 'CREDIT_ORDER'   && o.paymentStatus === 'PENDING') ||
+      // ADVANCE_CREDIT: the 70% credit part is due once the advance is paid
+      (o.paymentMethod === 'ADVANCE_CREDIT' && o.paymentStatus === 'PARTIALLY_PAID')
+    )
+    .reduce((sum: number, o: any) => sum + Number(o.creditAmount ?? 0), 0);
+}
+
+// Fetches fresh profile + orders. Never throws; returns whatever succeeded.
+async function fetchServerState(base: AppUser): Promise<{ user?: AppUser; usedCredit?: number }> {
+  const out: { user?: AppUser; usedCredit?: number } = {};
+  try {
+    const [profileRes, ordersRes] = await Promise.allSettled([
+      authApi.getProfile(),
+      orderApi.getMyOrders(),
+    ]);
+
+    if (profileRes.status === 'fulfilled') {
+      const fresh = profileRes.value.data;
+      out.user = {
+        ...base,
+        name:            fresh.name          ?? fresh.fullName     ?? base.name,
+        type:            fresh.type          ?? fresh.customerType ?? base.type ?? null,
+        creditEnabled:   Boolean(fresh.creditEnabled),
+        creditLimit:     Number(fresh.creditLimit ?? 0),
+        advanceOption:   Boolean(fresh.advanceOption),
+        partyId:         fresh.partyId        ?? base.partyId,
+        deliveryAddress: fresh.deliveryAddress ?? base.deliveryAddress,
+      };
+    }
+    if (ordersRes.status === 'fulfilled') {
+      out.usedCredit = computeUsedCredit(ordersRes.value.data ?? []);
+    }
+  } catch { /* server unreachable */ }
+  return out;
+}
+
+// ════════════════════════════════════════════════════════════════════
 // CONTEXT
 // ════════════════════════════════════════════════════════════════════
 export const AppContext = createContext<AppContextType>({} as AppContextType);
@@ -140,47 +188,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
           setUser(migratedUser);
           SessionStorage.saveUser(migratedUser);
 
-          if (savedCart.cart.length > 0) {
-            setCart(savedCart.cart);
-            setUsedCredit(savedCart.usedCredit);
+          if (savedCart.cart.length > 0) setCart(savedCart.cart);
+          setUsedCredit(savedCart.usedCredit);   // cached real value until refresh
+
+          // Background refresh (profile + real used credit)
+          const fresh = await fetchServerState(migratedUser);
+          if (fresh.user) {
+            setUser(fresh.user);
+            SessionStorage.saveUser(fresh.user);
           }
-
-          // Background refresh
-          try {
-            const [profileRes, ordersRes] = await Promise.allSettled([
-              authApi.getProfile(),
-              orderApi.getMyOrders(),
-            ]);
-
-            if (profileRes.status === 'fulfilled') {
-              const fresh = profileRes.value.data;
-              const refreshed: AppUser = {
-                ...migratedUser,
-                name:           fresh.name          ?? fresh.fullName     ?? migratedUser.name,
-                type:           fresh.type          ?? fresh.customerType ?? migratedUser.type ?? null,
-                creditEnabled:  Boolean(fresh.creditEnabled),
-                creditLimit:    Number(fresh.creditLimit ?? 0),
-                advanceOption:  Boolean(fresh.advanceOption),
-                partyId:        fresh.partyId        ?? migratedUser.partyId,
-                deliveryAddress: fresh.deliveryAddress ?? migratedUser.deliveryAddress,
-              };
-              setUser(refreshed);
-              SessionStorage.saveUser(refreshed);
-            }
-
-            if (ordersRes.status === 'fulfilled') {
-              const orders: any[] = ordersRes.value.data ?? [];
-              const realUsedCredit = orders
-                .filter((o: any) =>
-                  o.paymentMethod === 'CREDIT_ORDER' || o.paymentMethod === 'ADVANCE_CREDIT'
-                )
-                .filter((o: any) =>
-                  o.orderStatus !== 'CANCELLED' && o.paymentStatus !== 'FAILED'
-                )
-                .reduce((sum: number, o: any) => sum + Number(o.creditAmount ?? 0), 0);
-              setUsedCredit(realUsedCredit);
-            }
-          } catch { /* server unreachable — keep cached */ }
+          if (fresh.usedCredit !== undefined) setUsedCredit(fresh.usedCredit);
         }
       } catch { /* fresh start */ }
       finally  { setIsLoading(false); }
@@ -203,27 +220,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setCart(saved.cart);
     setUsedCredit(saved.usedCredit);
 
-    // The login API response may not carry every field (e.g. partyId) —
-    // fetch the full profile right away so screens like Dashboard that
-    // gate content on user.partyId don't have to wait for a manual
-    // pull-to-refresh to see it. Mirrors the background refresh done
-    // on session restore above.
-    try {
-      const profileRes = await authApi.getProfile();
-      const fresh = profileRes.data;
-      const refreshed: AppUser = {
-        ...userData,
-        name:            fresh.name           ?? fresh.fullName     ?? userData.name,
-        type:            fresh.type           ?? fresh.customerType ?? userData.type,
-        creditEnabled:   Boolean(fresh.creditEnabled),
-        creditLimit:     Number(fresh.creditLimit ?? 0),
-        advanceOption:   Boolean(fresh.advanceOption),
-        partyId:         fresh.partyId         ?? userData.partyId,
-        deliveryAddress: fresh.deliveryAddress  ?? userData.deliveryAddress,
-      };
-      setUser(refreshed);
-      SessionStorage.saveUser(refreshed);
-    } catch { /* login API data still stands, background refresh skipped */ }
+    // The login response has no partyId / deliveryAddress / fresh credit.
+    // Load them right away (in the background) so checkout works at once.
+    fetchServerState(userData).then(fresh => {
+      if (fresh.user) {
+        setUser(fresh.user);
+        SessionStorage.saveUser(fresh.user);
+      }
+      if (fresh.usedCredit !== undefined) setUsedCredit(fresh.usedCredit);
+    });
   }, []);
 
   const logout = useCallback(async () => {
@@ -233,43 +238,23 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setUsedCredit(0);
   }, []);
 
+  // ── Session expired → api.ts interceptor calls this ───────────────
+  useEffect(() => {
+    setUnauthorizedHandler(() => {
+      logout();
+      Alert.alert('Session expired', 'Please log in again.');
+    });
+    return () => setUnauthorizedHandler(null);
+  }, [logout]);
+
   const refreshCredit = useCallback(async () => {
     if (!user) return;
-    try {
-      const [profileRes, ordersRes] = await Promise.allSettled([
-        authApi.getProfile(),
-        orderApi.getMyOrders(),
-      ]);
-
-      if (profileRes.status === 'fulfilled') {
-        const fresh = profileRes.value.data;
-        const refreshed: AppUser = {
-          ...user,
-          name:           fresh.name          ?? fresh.fullName     ?? user.name,
-          type:           fresh.type          ?? fresh.customerType ?? user.type,
-          creditEnabled:  Boolean(fresh.creditEnabled),
-          creditLimit:    Number(fresh.creditLimit   ?? 0),
-          advanceOption:  Boolean(fresh.advanceOption),
-          partyId:        fresh.partyId        ?? user.partyId,
-          deliveryAddress: fresh.deliveryAddress ?? user.deliveryAddress,
-        };
-        setUser(refreshed);
-        SessionStorage.saveUser(refreshed);
-      }
-
-      if (ordersRes.status === 'fulfilled') {
-        const orders: any[] = ordersRes.value.data ?? [];
-        const realUsedCredit = orders
-          .filter((o: any) =>
-            o.paymentMethod === 'CREDIT_ORDER' || o.paymentMethod === 'ADVANCE_CREDIT'
-          )
-          .filter((o: any) =>
-            o.orderStatus !== 'CANCELLED' && o.paymentStatus !== 'FAILED'
-          )
-          .reduce((sum: number, o: any) => sum + Number(o.creditAmount ?? 0), 0);
-        setUsedCredit(realUsedCredit);
-      }
-    } catch { /* server unreachable */ }
+    const fresh = await fetchServerState(user);
+    if (fresh.user) {
+      setUser(fresh.user);
+      SessionStorage.saveUser(fresh.user);
+    }
+    if (fresh.usedCredit !== undefined) setUsedCredit(fresh.usedCredit);
   }, [user]);
 
   // ── Add to cart ───────────────────────────────────────────────────
@@ -319,7 +304,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }];
     });
 
-    setUsedCredit(prev => prev + pricePerBox * boxes * 1.18);
   }, []);
 
   // ── Update cart item — now needs shadeCode to uniquely identify row ──
@@ -349,31 +333,24 @@ export function AppProvider({ children }: { children: ReactNode }) {
     size:      string,
     shadeCode: string,
   ) => {
-    setCart(prev => {
-      const item = prev.find(
-        i =>
-          i.productId    === productId &&
-          i.selectedSize === size &&
-          i.shadeCode    === shadeCode
-      );
-      if (item) {
-        setUsedCredit(u => Math.max(0, u - item.pricePerBox * item.boxes * 1.18));
-      }
-      return prev.filter(
+    setCart(prev =>
+      prev.filter(
         i => !(
           i.productId    === productId &&
           i.selectedSize === size &&
           i.shadeCode    === shadeCode
         )
-      );
-    });
+      )
+    );
   }, []);
 
+  // Called after an order is placed (and by "Clear All"). Re-sync credit
+  // from the server so a new credit order is reflected immediately.
   const clearCart = useCallback(() => {
     setCart([]);
-    setUsedCredit(0);
     clearCartFromStorage();
-  }, []);
+    refreshCredit();
+  }, [refreshCredit]);
 
   // ── Derived values ────────────────────────────────────────────────
   const cartTotal        = cart.reduce((s, i) => s + i.pricePerBox * i.boxes, 0);
