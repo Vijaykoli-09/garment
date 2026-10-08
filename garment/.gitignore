@@ -34,6 +34,8 @@ local.properties
 *.keystore
 !debug.keystore
 .kotlin/
+hs_err_pid*.log
+replay_pid*.log
 
 # node.js
 #
