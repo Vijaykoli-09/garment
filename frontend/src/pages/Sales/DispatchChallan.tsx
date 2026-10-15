@@ -21,6 +21,8 @@ const routes = {
   delete: (id: number) => `/dispatch-challan/${id}`,
   parties: "/party/all",
   packingChallans: "/packing-challans",
+  dispatchReturns: "/dispatch-return-challan",
+  artStockAdjustments: "/art-stock-adjustments",
   arts: "/arts",
   artDetail: (serial: string | number) => `/arts/${serial}`,
   nextNumbers: "/dispatch-challan/next",
@@ -1364,16 +1366,29 @@ const DispatchChallan: React.FC = () => {
    */
   const loadProducts = useCallback(async () => {
     try {
-      const [artsRes, packingRes, dispatchRes] = await Promise.all([
-        api.get<ArtListView[]>(routes.arts),
-        api.get<any[]>(routes.packingChallans),
-        api.get<any[]>(routes.list),
-      ]);
+      const today = new Date();
+      const asOnDate = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+      const [artsRes, packingRes, dispatchRes, returnRes, adjustmentRes] =
+        await Promise.all([
+          api.get<ArtListView[]>(routes.arts),
+          api.get<any[]>(routes.packingChallans),
+          api.get<any[]>(routes.list),
+          api.get<any[]>(routes.dispatchReturns),
+          api.get<any[]>(routes.artStockAdjustments, {
+            params: { toDate: asOnDate, limit: 10000 },
+          }),
+        ]);
 
       const arts: ArtListView[] = Array.isArray(artsRes.data) ? artsRes.data : [];
       const challans: any[] = Array.isArray(packingRes.data) ? packingRes.data : [];
       const dispatchChallans: any[] = Array.isArray(dispatchRes.data)
         ? dispatchRes.data
+        : [];
+      const returnChallans: any[] = Array.isArray(returnRes.data)
+        ? returnRes.data
+        : [];
+      const stockAdjustments: any[] = Array.isArray(adjustmentRes.data)
+        ? adjustmentRes.data
         : [];
 
       interface AggregatedItem {
@@ -1383,16 +1398,20 @@ const DispatchChallan: React.FC = () => {
         shade: string;
         box: number;
         pcs: number;
+        perBox: number;
         rate: number; // LAST packing rate
       }
 
       const aggregateMap = new Map<string, AggregatedItem>();
+      // Match ArtStockReport identity: Art No + Shade + Size.
+      // Description is display metadata and must not split one stock balance.
       const makeKey = (
         artNo: string,
         size: string,
         shade: string,
-        description: string
-      ) => `${artNo}||${size}||${shade}||${description}`;
+        _description: string
+      ) =>
+        `${artNo.trim().toUpperCase()}||${size.trim().toUpperCase()}||${shade.trim().toUpperCase()}`;
 
       const addToAggregate = (params: {
         artNo: string;
@@ -1401,9 +1420,10 @@ const DispatchChallan: React.FC = () => {
         shade: string;
         box: number;
         pcs: number;
+        perBox?: number;
         rate: number;
       }) => {
-        const { artNo, description, size, shade, box, pcs, rate } = params;
+        const { artNo, description, size, shade, box, pcs, perBox, rate } = params;
         if (!artNo || !size) return;
 
         const key = makeKey(artNo, size, shade, description);
@@ -1415,6 +1435,9 @@ const DispatchChallan: React.FC = () => {
         if (existing) {
           existing.box += cleanBox;
           existing.pcs += cleanPcs;
+          if (perBox != null && Number.isFinite(perBox) && perBox > 0) {
+            existing.perBox = perBox;
+          }
           if (cleanRate > 0) existing.rate = cleanRate; // last packing rate wins
         } else {
           aggregateMap.set(key, {
@@ -1424,6 +1447,7 @@ const DispatchChallan: React.FC = () => {
             shade,
             box: cleanBox,
             pcs: cleanPcs,
+            perBox: perBox != null && Number.isFinite(perBox) && perBox > 0 ? perBox : 0,
             rate: cleanRate > 0 ? cleanRate : 0,
           });
         }
@@ -1476,6 +1500,7 @@ const DispatchChallan: React.FC = () => {
                 shade,
                 box,
                 pcs,
+                perBox,
                 rate: 0,
               });
             });
@@ -1519,6 +1544,7 @@ const DispatchChallan: React.FC = () => {
                 shade,
                 box,
                 pcs,
+                perBox,
                 rate,
               });
             });
@@ -1543,6 +1569,7 @@ const DispatchChallan: React.FC = () => {
               shade,
               box,
               pcs,
+              perBox,
               rate,
             });
           }
@@ -1577,35 +1604,66 @@ const DispatchChallan: React.FC = () => {
             shade,
             box: -Math.abs(box),
             pcs: -Math.abs(pcs),
+            perBox,
             rate: 0,
           });
         });
       });
 
-      // 4) Final NET STOCK list (✅ only show positive pcs)
+      // 4) Dispatch returns increase available stock (same sign as ArtStockReport).
+      returnChallans.forEach((ch: any) => {
+        const returnDate = String(ch?.date || ch?.dated || "").slice(0, 10);
+        if (returnDate && returnDate > asOnDate) return;
+
+        const rows: any[] = Array.isArray(ch.rows) ? ch.rows : [];
+        rows.forEach((r: any) => {
+          const artNo = String(r.artNo || "").trim();
+          const size = String(r.sizeName || r.size || "").trim();
+          if (!artNo || !size) return;
+          const shade = String(r.shadeName || r.shade || "").trim();
+          const box = Number(r.box ?? 0) || 0;
+          const perBox = Number(r.pcsPerBox ?? r.perBox ?? 0) || 0;
+          const pcs = r.pcs != null ? Number(r.pcs) || 0 : box * perBox;
+          addToAggregate({
+            artNo, description: String(r.description || "").trim(), size, shade,
+            box: Math.abs(box), pcs: Math.abs(pcs), perBox, rate: 0,
+          });
+        });
+      });
+
+      // 5) Manual stock adjustments: positive pcsDelta adds stock, negative removes it.
+      stockAdjustments.forEach((a: any) => {
+        const artNo = String(a.artNo ?? a.art_no ?? "").trim();
+        const size = String(a.sizeName ?? a.size_name ?? "").trim();
+        if (!artNo || !size) return;
+        const shade = String(a.shadeName ?? a.shade_name ?? "").trim();
+        const pcsDelta = Number(a.pcsDelta ?? a.pcs_delta ?? 0) || 0;
+        const perBox = Number(a.perBox ?? a.per_box ?? 0) || 0;
+        const rate = Number(a.rate ?? 0) || 0;
+        const art = arts.find(
+          (x) => String(x.artNo || "").trim().toUpperCase() === artNo.toUpperCase()
+        );
+        addToAggregate({
+          artNo,
+          description: String(a.artName ?? a.art_name ?? art?.artName ?? "").trim(),
+          size, shade, box: perBox > 0 ? pcsDelta / perBox : 0,
+          pcs: pcsDelta, perBox, rate,
+        });
+      });
+
+      // 6) Final NET STOCK list. Derive boxes from net pieces and per-box count,
+      // matching ArtStockReport's displayed calculation.
       const items: PackingSourceItem[] = [];
       aggregateMap.forEach((agg, key) => {
-        if (agg.pcs <= 0) return; // ✅ don't show zero/negative stock
-
-        const perBox = agg.box > 0 ? agg.pcs / agg.box : 0;
+        if (agg.pcs <= 0) return;
+        const perBox = agg.perBox > 0 ? agg.perBox : 0;
+        const displayBox = perBox > 0 ? agg.pcs / perBox : agg.box;
         const rate = agg.rate > 0 ? agg.rate : 0;
-        const amount = agg.pcs * rate;
-
         items.push({
-          id: key,
-          packingSerial: "",
-          challanDate: "",
-          partyName: "",
-          cuttingLotNo: "",
-          artNo: agg.artNo,
-          description: agg.description,
-          size: agg.size,
-          shade: agg.shade,
-          box: agg.box,
-          perBox,
-          pcs: agg.pcs,
-          rate,
-          amount,
+          id: key, packingSerial: "", challanDate: "", partyName: "",
+          cuttingLotNo: "", artNo: agg.artNo, description: agg.description,
+          size: agg.size, shade: agg.shade, box: displayBox, perBox,
+          pcs: agg.pcs, rate, amount: agg.pcs * rate,
         });
       });
 
