@@ -31,6 +31,8 @@ const ReportsNavigator: React.FC<ReportsNavigatorProps> = ({ onNavigate }) => {
 
   const reportList = [
     { key: "art-report", label: "Art Stock Report", path: "/reports/art-report" },
+    {key: "art-cutting-packing-sale-report", label: "Art Cutting Packing Sale Report", path: "/reports/art-cutting-packing-sale-report"},
+    { key: "fabric-stock-report", label: "Fabric Stock Report", path: "/reports/fabric-stock-report" },
     { key: "salary-report", label: "Salary Report", path: "/reports/salary-report" },
     { key: "dispatch-report", label: "Dispatch Report", path: "/reports/dispatch-report" },
     { key: "job-work-report", label: "Job Work Report", path: "/reports/job-work-report" },

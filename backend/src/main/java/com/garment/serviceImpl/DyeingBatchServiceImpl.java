@@ -98,6 +98,8 @@ public class DyeingBatchServiceImpl
                 batchName
         );
 
+        batch.setBatchDate(dto.getBatchDate());
+
         batch.setCreatedAt(
                 LocalDateTime.now()
         );
@@ -188,6 +190,8 @@ public class DyeingBatchServiceImpl
         existing.setBatchName(
                 batchName
         );
+
+        existing.setBatchDate(dto.getBatchDate());
 
         /*
          * Delete old lots and save new lots.
@@ -304,6 +308,8 @@ public class DyeingBatchServiceImpl
         dto.setCreatedAt(
                 entity.getCreatedAt()
         );
+
+        dto.setBatchDate(entity.getBatchDate());
 
         List<DyeingBatchLotDTO> lotDTOs =
                 new ArrayList<>();

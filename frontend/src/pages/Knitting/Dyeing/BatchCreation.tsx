@@ -79,6 +79,7 @@ interface BatchRecord {
   batchName: string;
   partyName: string;
   createdAt: string;
+  batchDate?: string;
   lots: BatchLot[];
 }
 
@@ -216,6 +217,10 @@ const DyeingBatchCreation: React.FC =
 
     const [batchName, setBatchName] =
       useState("");
+
+    const [batchDate, setBatchDate] = useState(() => new Date().toISOString().slice(0, 10));
+    const [batchDateFrom, setBatchDateFrom] = useState("");
+    const [batchDateTo, setBatchDateTo] = useState("");
 
     const [
       editingBatchId,
@@ -967,6 +972,11 @@ const DyeingBatchCreation: React.FC =
           return;
         }
 
+        if (!batchDate) {
+          Swal.fire("Date Required", "Please select batch date.", "warning");
+          return;
+        }
+
         if (
           !batchName.trim()
         ) {
@@ -1006,6 +1016,8 @@ const DyeingBatchCreation: React.FC =
 
             batchName:
               batchName.trim(),
+
+            batchDate,
 
             partyName:
               partyName.trim(),
@@ -1196,6 +1208,7 @@ const DyeingBatchCreation: React.FC =
         setBatchName(
           batch.batchName
         );
+        setBatchDate((batch.batchDate || batch.createdAt || new Date().toISOString()).slice(0, 10));
 
         const mappedLots =
           (
@@ -1342,6 +1355,7 @@ const DyeingBatchCreation: React.FC =
       () => {
         setPartyName("");
         setBatchName("");
+        setBatchDate(new Date().toISOString().slice(0, 10));
         setSelectedLots([]);
         setAvailableLots([]);
         setLotSearch("");
@@ -1356,44 +1370,24 @@ const DyeingBatchCreation: React.FC =
 
     const filteredBatches =
       useMemo(() => {
-        const search =
-          batchSearch
-            .trim()
-            .toLowerCase();
+        const search = batchSearch.trim().toLowerCase();
 
-        if (!search) {
-          return batches;
-        }
+        return batches.filter((batch) => {
+          const text = [
+            batch.batchName,
+            batch.partyName,
+            ...(batch.lots || []).flatMap((lot) => [
+              lot.lotNo, lot.fabric, lot.challanNo,
+            ]),
+          ].join(" ").toLowerCase();
 
-        return batches.filter(
-          (batch) => {
-            const text =
-              [
-                batch.batchName,
-                batch.partyName,
-
-                ...(batch.lots ||
-                  []
-                ).flatMap(
-                  (lot) => [
-                    lot.lotNo,
-                    lot.fabric,
-                    lot.challanNo,
-                  ]
-                ),
-              ]
-                .join(" ")
-                .toLowerCase();
-
-            return text.includes(
-              search
-            );
-          }
-        );
-      }, [
-        batches,
-        batchSearch,
-      ]);
+          const dateValue = String(batch.batchDate || batch.createdAt || "").slice(0, 10);
+          const matchesSearch = !search || text.includes(search);
+          const matchesFrom = !batchDateFrom || dateValue >= batchDateFrom;
+          const matchesTo = !batchDateTo || dateValue <= batchDateTo;
+          return matchesSearch && matchesFrom && matchesTo;
+        });
+      }, [batches, batchSearch, batchDateFrom, batchDateTo]);
 
     // =======================================================
     // TOTAL SAVED LOTS
@@ -1658,6 +1652,11 @@ const DyeingBatchCreation: React.FC =
                 ${escapeHtml(
                   batch.partyName
                 )}
+              </div>
+
+              <div>
+                <strong>Batch Date:</strong>
+                ${formatDate(batch.batchDate || batch.createdAt || "")}
               </div>
 
               <div>
@@ -1972,13 +1971,13 @@ const DyeingBatchCreation: React.FC =
                         </span>
 
                         <span>
-                          <strong>
-                            Created:
-                          </strong>
+                          <strong>Batch Date:</strong>
+                          ${formatDate(batch.batchDate || batch.createdAt || "")}
+                        </span>
 
-                          ${formatDateTime(
-                            batch.createdAt
-                          )}
+                        <span>
+                          <strong>Created:</strong>
+                          ${formatDateTime(batch.createdAt)}
                         </span>
 
                         <span>
@@ -2553,6 +2552,23 @@ const DyeingBatchCreation: React.FC =
 
                 </div>
 
+                {/* BATCH DATE */}
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-1">
+                    Batch Date <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="date"
+                    value={batchDate}
+                    onChange={(e) => setBatchDate(e.target.value)}
+                    required
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2.5 focus:ring-2 focus:ring-blue-500 outline-none"
+                  />
+                  <p className="text-xs text-gray-500 mt-1">
+                    Date format: DD/MM/YY ({batchDate ? `${batchDate.slice(8, 10)}/${batchDate.slice(5, 7)}/${batchDate.slice(2, 4)}` : "DD/MM/YY"})
+                  </p>
+                </div>
+
               </div>
 
               {/* LOT BUTTON */}
@@ -2952,7 +2968,16 @@ const DyeingBatchCreation: React.FC =
                 </div>
 
                 <div className="flex flex-col sm:flex-row gap-3">
-
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-600 mb-1">From Date (DD/MM/YY)</label>
+                    <input type="date" value={batchDateFrom} onChange={(e) => setBatchDateFrom(e.target.value)}
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2.5 outline-none focus:ring-2 focus:ring-blue-500" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-600 mb-1">To Date (DD/MM/YY)</label>
+                    <input type="date" value={batchDateTo} onChange={(e) => setBatchDateTo(e.target.value)}
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2.5 outline-none focus:ring-2 focus:ring-blue-500" />
+                  </div>
                   <input
                     type="text"
                     value={
@@ -3107,11 +3132,12 @@ const DyeingBatchCreation: React.FC =
                                   </span>
 
                                   <b>
-                                    Created:
+                                    Batch Date:
                                   </b>{" "}
-                                  {formatDateTime(
-                                    batch.createdAt
-                                  )}
+                                  {batch.batchDate ? formatDate(batch.batchDate) : formatDate(batch.createdAt || "")}
+                                  <span className="mx-3">|</span>
+                                  <b>Created:</b>{" "}
+                                  {formatDateTime(batch.createdAt)}
 
                                 </div>
 

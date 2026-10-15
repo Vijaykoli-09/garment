@@ -14,6 +14,8 @@ public class DyeingBatchDTO {
 
     private LocalDateTime createdAt;
 
+    private String batchDate;
+
     private List<DyeingBatchLotDTO> lots = new ArrayList<>();
 
     public DyeingBatchDTO() {
@@ -50,6 +52,10 @@ public class DyeingBatchDTO {
     public void setCreatedAt(LocalDateTime createdAt) {
         this.createdAt = createdAt;
     }
+
+    public String getBatchDate() { return batchDate; }
+
+    public void setBatchDate(String batchDate) { this.batchDate = batchDate; }
 
     public List<DyeingBatchLotDTO> getLots() {
         return lots;
