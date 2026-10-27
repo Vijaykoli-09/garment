@@ -39,6 +39,9 @@ interface FabricStockRow {
   rolls: number;
   inwardWeight: number;
   receivedWeight: number;
+  consumption: number;
+  kho: number;
+  remainingStock: number;
   wastage: number;
   extraWeight: number;
   amount: number;
@@ -77,6 +80,7 @@ const normalizeFabricName = (value: unknown): string =>
 
 const FabricStockReport: React.FC = () => {
   const [documents, setDocuments] = useState<InwardDocument[]>([]);
+  const [cuttings, setCuttings] = useState<any[]>([]);
   const [fabrications, setFabrications] = useState<Fabrication[]>([]);
   const [asOn, setAsOn] = useState(today());
   const [fabricSearch, setFabricSearch] = useState("");
@@ -101,8 +105,11 @@ const FabricStockReport: React.FC = () => {
   const loadInwards = async () => {
     try {
       setLoading(true);
-      const response = await api.get("/finishing-inwards");
+      const [response, cuttingResponse] = await Promise.all([
+        api.get("/finishing-inwards"), api.get("/cutting-entries")
+      ]);
       setDocuments(Array.isArray(response.data) ? response.data : []);
+      setCuttings(Array.isArray(cuttingResponse.data) ? cuttingResponse.data : []);
       setShowingResults(true);
     } catch (error) {
       console.error("Fabric stock load error:", error);
@@ -185,6 +192,9 @@ const FabricStockReport: React.FC = () => {
             rolls: 0,
             inwardWeight: 0,
             receivedWeight: 0,
+            consumption: 0,
+            kho: 0,
+            remainingStock: 0,
             wastage: 0,
             extraWeight: 0,
             amount: 0,
@@ -205,11 +215,24 @@ const FabricStockReport: React.FC = () => {
         if (docDate && (!current.lastDate || docDate > current.lastDate)) current.lastDate = docDate;
       });
     });
+    cuttings.filter((entry) => !asOn || inputDate(entry.date) <= asOn).forEach((entry) => {
+      (entry.stockRows || []).forEach((row: any) => {
+        const fabricName = availableFabrics.find((name) => normalizeFabricName(name) === normalizeFabricName(row.itemName));
+        if (!fabricName) return;
+        const key = `${fabricName.toLocaleLowerCase()}|||${String(row.shade || "").trim().toLocaleLowerCase()}`;
+        const current = map.get(key);
+        if (current) {
+          current.consumption += toNum(row.consumption);
+          current.kho += toNum(row.kho);
+        }
+      });
+    });
+    map.forEach((row) => { row.remainingStock = row.receivedWeight - row.consumption - row.kho; });
     return Array.from(map.values()).sort((a, b) =>
       a.fabricName.localeCompare(b.fabricName, undefined, { sensitivity: "base" }) ||
       a.shade.localeCompare(b.shade, undefined, { sensitivity: "base" })
     );
-  }, [normalizedDocs, availableFabrics, selectedFabrics, selectedShades]);
+  }, [normalizedDocs, availableFabrics, selectedFabrics, selectedShades, cuttings, asOn]);
 
   const totals = useMemo(
     () =>
@@ -218,12 +241,15 @@ const FabricStockReport: React.FC = () => {
           rolls: acc.rolls + row.rolls,
           inwardWeight: acc.inwardWeight + row.inwardWeight,
           receivedWeight: acc.receivedWeight + row.receivedWeight,
+          consumption: acc.consumption + row.consumption,
+          kho: acc.kho + row.kho,
+          remainingStock: acc.remainingStock + row.remainingStock,
           wastage: acc.wastage + row.wastage,
           extraWeight: acc.extraWeight + row.extraWeight,
           amount: acc.amount + row.amount,
           entries: acc.entries + row.entries,
         }),
-        { rolls: 0, inwardWeight: 0, receivedWeight: 0, wastage: 0, extraWeight: 0, amount: 0, entries: 0 }
+        { rolls: 0, inwardWeight: 0, receivedWeight: 0, consumption: 0, kho: 0, remainingStock: 0, wastage: 0, extraWeight: 0, amount: 0, entries: 0 }
       ),
     [stockRows]
   );
@@ -253,12 +279,12 @@ const FabricStockReport: React.FC = () => {
       return;
     }
     const rows = [
-      ["S.No.", "Fabric Name", "Shade", "Rolls", "Inward Weight", "Received Weight (Stock)", "Wastage", "Extra Weight", "Amount", "Last Inward Date", "Entries"],
+      ["S.No.", "Fabric Name", "Shade", "Inward Weight", "Received Weight (Stock)", "Consumption", "KHO", "Remaining Stock", "Wastage", "Extra Weight", "Amount", "Entries"],
       ...stockRows.map((row, index) => [
-        index + 1, row.fabricName, row.shade, row.rolls, row.inwardWeight, row.receivedWeight,
-        row.wastage, row.extraWeight, row.amount, row.lastDate, row.entries,
+        index + 1, row.fabricName, row.shade, row.inwardWeight, row.receivedWeight, row.consumption, row.kho, row.remainingStock,
+        row.wastage, row.extraWeight, row.amount, row.entries,
       ]),
-      ["", "TOTAL", "", totals.rolls, totals.inwardWeight, totals.receivedWeight, totals.wastage, totals.extraWeight, totals.amount, "", totals.entries],
+      ["", "TOTAL", "", totals.inwardWeight, totals.receivedWeight, totals.consumption, totals.kho, totals.remainingStock, totals.wastage, totals.extraWeight, totals.amount, totals.entries],
     ];
     const csv = rows.map((row) => row.map((cell) => `"${String(cell ?? "").replace(/"/g, '""')}"`).join(",")).join("\r\n");
     const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
@@ -287,22 +313,20 @@ const FabricStockReport: React.FC = () => {
     }[char] || char));
     const bodyRows = stockRows.map((row, index) => `
       <tr><td>${index + 1}</td><td>${esc(row.fabricName)}</td><td>${esc(row.shade || "-")}</td>
-      <td class="num">${fmt(row.rolls)}</td><td class="num">${fmt(row.inwardWeight)}</td>
-      <td class="num">${fmt(row.receivedWeight)}</td><td class="num">${fmt(row.wastage)}</td>
-      <td class="num">${fmt(row.extraWeight)}</td><td class="num">${fmt(row.amount)}</td>
-      <td>${esc(row.lastDate || "-")}</td></tr>`).join("");
+      <td class="num">${fmt(row.inwardWeight)}</td>
+      <td class="num">${fmt(row.receivedWeight)}</td><td class="num">${fmt(row.consumption)}</td><td class="num">${fmt(row.kho)}</td><td class="num">${fmt(row.remainingStock)}</td><td class="num">${fmt(row.wastage)}</td>
+      <td class="num">${fmt(row.extraWeight)}</td><td class="num">${fmt(row.amount)}</td></tr>`).join("");
     popup.document.write(`<!doctype html><html><head><title>Fabric Stock Report</title>
       <style>body{font-family:Arial,sans-serif;margin:18px;color:#111}h2{text-align:center;margin:0 0 6px}
       p{text-align:center;margin:0 0 16px;font-size:12px}table{width:100%;border-collapse:collapse;font-size:11px}
       th,td{border:1px solid #555;padding:6px}th{background:#eee}.num{text-align:right}tfoot{font-weight:bold;background:#eee}
       @page{size:landscape;margin:10mm}</style></head><body><h2>Fabric Stock Report</h2>
       <p>Stock as on: ${esc(asOn || "All Dates")} | Grouped by Fabric Name + Shade (Lot No. and Size are not used)</p>
-      <table><thead><tr><th>S.No.</th><th>Fabric Name</th><th>Shade</th><th>Rolls</th><th>Inward Weight</th>
-      <th>Received Weight (Stock)</th><th>Wastage</th><th>Extra Weight</th><th>Amount</th><th>Last Inward Date</th></tr></thead>
-      <tbody>${bodyRows}</tbody><tfoot><tr><td></td><td>TOTAL</td><td></td><td class="num">${fmt(totals.rolls)}</td>
-      <td class="num">${fmt(totals.inwardWeight)}</td><td class="num">${fmt(totals.receivedWeight)}</td>
+      <table><thead><tr><th>S.No.</th><th>Fabric Name</th><th>Shade</th><th>Inward Weight</th>
+      <th>Received Weight (Stock)</th><th>Consumption</th><th>KHO</th><th>Remaining Stock</th><th>Wastage</th><th>Extra Weight</th><th>Amount</th></tr></thead>
+      <tbody>${bodyRows}</tbody><tfoot><tr><td></td><td>TOTAL</td><td></td><td class="num">${fmt(totals.inwardWeight)}</td><td class="num">${fmt(totals.receivedWeight)}</td><td class="num">${fmt(totals.consumption)}</td><td class="num">${fmt(totals.kho)}</td><td class="num">${fmt(totals.remainingStock)}</td>
       <td class="num">${fmt(totals.wastage)}</td><td class="num">${fmt(totals.extraWeight)}</td>
-      <td class="num">${fmt(totals.amount)}</td><td></td></tr></tfoot></table>
+      <td class="num">${fmt(totals.amount)}</td></tr></tfoot></table>
       <script>window.onload=function(){window.print();};</script></body></html>`);
     popup.document.close();
   };
@@ -403,7 +427,7 @@ const FabricStockReport: React.FC = () => {
                 <table className="min-w-full border-collapse text-sm">
                   <thead className="sticky top-0 bg-gray-100">
                     <tr>
-                      {["S.No.", "Fabric Name", "Shade", "Rolls", "Inward Weight", "Received Weight (Stock)", "Wastage", "Extra Weight", "Amount", "Last Inward Date"].map((heading) => (
+                      {["S.No.", "Fabric Name", "Shade", "Inward Weight", "Received Weight (Stock)", "Consumption", "KHO", "Remaining Stock", "Wastage", "Extra Weight", "Amount"].map((heading) => (
                         <th key={heading} className="whitespace-nowrap border px-3 py-2 text-center font-semibold">{heading}</th>
                       ))}
                     </tr>
@@ -414,30 +438,32 @@ const FabricStockReport: React.FC = () => {
                         <td className="border px-3 py-2 text-center">{index + 1}</td>
                         <td className="border px-3 py-2">{row.fabricName}</td>
                         <td className="border px-3 py-2">{row.shade || "-"}</td>
-                        <td className="border px-3 py-2 text-right">{fmt(row.rolls)}</td>
                         <td className="border px-3 py-2 text-right">{fmt(row.inwardWeight)}</td>
                         <td className="border px-3 py-2 text-right font-semibold">{fmt(row.receivedWeight)}</td>
+                        <td className="border px-3 py-2 text-right">{fmt(row.consumption)}</td>
+                        <td className="border px-3 py-2 text-right">{fmt(row.kho)}</td>
+                        <td className="border px-3 py-2 text-right font-bold">{fmt(row.remainingStock)}</td>
                         <td className="border px-3 py-2 text-right">{fmt(row.wastage)}</td>
                         <td className="border px-3 py-2 text-right">{fmt(row.extraWeight)}</td>
                         <td className="border px-3 py-2 text-right">{fmt(row.amount)}</td>
-                        <td className="border px-3 py-2 text-center">{row.lastDate || "-"}</td>
                       </tr>
                     ))}
                     {!stockRows.length && (
-                      <tr><td colSpan={10} className="border px-3 py-8 text-center text-gray-500">No Fabric Inward stock found for the selected filters/date.</td></tr>
+                      <tr><td colSpan={11} className="border px-3 py-8 text-center text-gray-500">No Fabric Inward stock found for the selected filters/date.</td></tr>
                     )}
                     {stockRows.length > 0 && (
                       <tr className="bg-green-100 font-bold">
                         <td className="border px-3 py-2" />
                         <td className="border px-3 py-2">TOTAL</td>
                         <td className="border px-3 py-2" />
-                        <td className="border px-3 py-2 text-right">{fmt(totals.rolls)}</td>
                         <td className="border px-3 py-2 text-right">{fmt(totals.inwardWeight)}</td>
                         <td className="border px-3 py-2 text-right">{fmt(totals.receivedWeight)}</td>
+                        <td className="border px-3 py-2 text-right">{fmt(totals.consumption)}</td>
+                        <td className="border px-3 py-2 text-right">{fmt(totals.kho)}</td>
+                        <td className="border px-3 py-2 text-right">{fmt(totals.remainingStock)}</td>
                         <td className="border px-3 py-2 text-right">{fmt(totals.wastage)}</td>
                         <td className="border px-3 py-2 text-right">{fmt(totals.extraWeight)}</td>
                         <td className="border px-3 py-2 text-right">{fmt(totals.amount)}</td>
-                        <td className="border px-3 py-2" />
                       </tr>
                     )}
                   </tbody>

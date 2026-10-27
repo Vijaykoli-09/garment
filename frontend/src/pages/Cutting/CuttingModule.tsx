@@ -988,80 +988,11 @@
 //         (fr as any).wt
 //     );
 
-//   // IMPORTANT: group only by Fabric Name.
-//   // If the same fabric exists in many In-House rows/lots/shades, it appears
-//   // only once in Cutting and its available weight is the sum of all rows.
 //   const getFinishingGroupKey = (fr: FinishingInwardRow) =>
-//     String(fr.itemName || "").trim().toLowerCase();
+//     `${String(fr.itemName || "").toLowerCase()}|||${String(fr.shade || "").toLowerCase()}`;
+//   const groupedFinishingRows = useMemo(() => finishingRows, [finishingRows]);
 
-//   const groupedFinishingRows = useMemo(() => {
-//     type Agg = FinishingInwardRow & {
-//       _weightSum?: number;
-//       _rateWeighted?: number;
-//     };
-
-//     const map = new Map<string, Agg>();
-
-//     for (const fr of finishingRows) {
-//       const itemName = String(fr.itemName || "").trim();
-//       if (!itemName) continue;
-
-//       const key = getFinishingGroupKey(fr);
-//       const weight = getFinishingWeight(fr);
-//       const rate = getFinishingRateParts(fr).total;
-//       const existing = map.get(key);
-
-//       if (!existing) {
-//         map.set(key, {
-//           ...fr,
-//           itemName,
-//           weightKg: String(weight),
-//           _weightSum: weight,
-//           _rateWeighted: weight * rate,
-//         });
-//       } else {
-//         const oldWeight = existing._weightSum || 0;
-//         const newWeight = oldWeight + weight;
-
-//         existing.weightKg = String(newWeight);
-//         existing._weightSum = newWeight;
-//         existing._rateWeighted = (existing._rateWeighted || 0) + weight * rate;
-
-//         // Keep a usable shade. If there are multiple shades for the same
-//         // fabric, show the first non-empty one instead of creating extra rows.
-//         if (!String(existing.shade || "").trim() && String(fr.shade || "").trim()) {
-//           existing.shade = String(fr.shade).trim();
-//         }
-
-//         // Keep the first source id because the backend currently stores one
-//         // finishingInwardRowId per Cutting stock row.
-//         if (existing.id == null && fr.id != null) existing.id = fr.id;
-//       }
-//     }
-
-//     return Array.from(map.values())
-//       .map((r) => {
-//         const weight = r._weightSum || getFinishingWeight(r);
-//         const weightedRate = weight > 0
-//           ? (r._rateWeighted || 0) / weight
-//           : getFinishingRateParts(r).total;
-
-//         // Store the final rate as rateFND + rate so the existing calculation
-//         // path remains compatible with both old and new backend data.
-//         r.rateFND = String(weightedRate);
-//         r.rate = "0";
-//         return r;
-//       })
-//       .sort((a, b) =>
-//         String(a.itemName || "").localeCompare(
-//           String(b.itemName || ""),
-//           undefined,
-//           { numeric: true, sensitivity: "base" }
-//         )
-//       );
-//   }, [finishingRows]);
-
-//   // ---------- Apply selections ----------
+  // ---------- Apply selections ----------
 //   const applyArtToRow = async (a: ArtListItem) => {
 //     if (artRowId == null) return;
 
@@ -2927,130 +2858,41 @@ const getArtDetail = async (serialNumber: string) =>
   (await api.get<ArtDetail>(`/arts/${serialNumber}`)).data;
 
 const listFinishingRows = async (): Promise<FinishingInwardRow[]> => {
-  // Cutting Stock must show EVERYTHING that is present in Finishing In-House:
-  // 1) Finishing Inward fabric/material
-  // 2) Purchase Entry material/fabric
-  // Both sources are merged below and later grouped by Fabric/Material name.
-  const [finRes, purchaseRes] = await Promise.all([
+  const [fin, fabrication, cuttings] = await Promise.all([
     api.get<any[]>("/finishing-inwards"),
-    api.get<any[]>("/purchase-entry"),
+    api.get<any[]>("/fabrication"),
+    api.get<any[]>("/cutting-entries"),
   ]);
-
-  const result: FinishingInwardRow[] = [];
-
-  const finDocs = Array.isArray(finRes.data) ? finRes.data : [];
-  for (const d of finDocs) {
-    const rows = Array.isArray(d?.rows) ? d.rows : [];
-    for (const r of rows) {
-      const x: any = r || {};
-      const itemName = normalizeText(
-        x.itemName ?? x.item ?? x.fabric ?? x.materialName ?? x.fabricationName
-      );
-      if (!itemName) continue;
-
-      const n: FinishingInwardRow = {
-        ...x,
-        id: x.id != null ? Number(x.id) : undefined,
-        itemName,
-        shade: normalizeShade(x.shade ?? x.shadeName ?? x.colour ?? x.color),
-        weightKg: String(
-          x.weightKg ??
-            x.weight ??
-            x.receivedWtBox ??
-            x.receivedWeight ??
-            x.wt ??
-            x.quantity ??
-            x.qty ??
-            ""
-        ),
-        rate: String(x.rate ?? x.finishingRate ?? x.rateF ?? "").trim(),
-        rateFND: String(
-          x.rateFND ??
-            x.rateFnd ??
-            x.kyrDyeingRate ??
-            x.kyrDyeing ??
-            x.yarnKnittingDyeingRate ??
-            ""
-        ).trim(),
-        yarnRate: String(x.yarnRate ?? x.yarn ?? x.yarnRatePerKg ?? "").trim(),
-        knittingRate: String(
-          x.knittingRate ?? x.knitting ?? x.knittingRatePerKg ?? ""
-        ).trim(),
-        dyeingRate: String(
-          x.dyeingRate ?? x.dyeing ?? x.dyeingRatePerKg ?? ""
-        ).trim(),
-        kyrRate: String(x.kyrRate ?? x.kyr ?? "").trim(),
-        sourceType: "finishing",
-        sourceId: String(x.id ?? `${d?.id ?? d?._id ?? "fin"}-${result.length}`),
-      };
-
-      const pr: any = x.processRates;
-      if (pr && typeof pr === "object" && !Array.isArray(pr)) {
-        n.yarnRate = n.yarnRate || String(pr.yarn ?? pr.yarnRate ?? "");
-        n.knittingRate = n.knittingRate || String(pr.knitting ?? pr.knittingRate ?? "");
-        n.dyeingRate = n.dyeingRate || String(pr.dyeing ?? pr.dyeingRate ?? "");
+  const names = (Array.isArray(fabrication.data) ? fabrication.data : [])
+    .map((x: any) => String(x.fabricName || "").trim()).filter(Boolean);
+  const norm = (v: any) => String(v || "").trim().replace(/^[A-Za-z0-9_-]+\s*\/\s*/, "").replace(/\s+/g, " ").toLowerCase();
+  const used = new Map<string, number>();
+  for (const entry of Array.isArray(cuttings.data) ? cuttings.data : []) {
+    for (const row of entry.stockRows || []) {
+      const key = `${norm(row.itemName)}|||${norm(row.shade)}`;
+      used.set(key, (used.get(key) || 0) + toNum(row.consumption));
+    }
+  }
+  const grouped = new Map<string, FinishingInwardRow>();
+  for (const doc of Array.isArray(fin.data) ? fin.data : []) {
+    for (const row of doc.rows || []) {
+      const canonical = names.find((n: string) => norm(n) === norm(row.itemName || row.fabricName || row.fabric));
+      if (!canonical) continue;
+      const shade = String(row.shade || "").trim();
+      const key = `${norm(canonical)}|||${norm(shade)}`;
+      const weight = toNum(row.receivedWeight ?? row.weight);
+      const old = grouped.get(key);
+      if (old) {
+        old.weightKg = String(toNum(old.weightKg) + weight);
+      } else {
+        grouped.set(key, { ...row, itemName: canonical, shade, weightKg: String(weight),
+          rate: String(row.rate ?? ""), rateFND: String(row.rateFND ?? "") });
       }
-
-      // Keep the row even when weight is 0. This makes every In-House
-      // fabric/material visible in Cutting; weight will show as 0 until stock
-      // data has a quantity.
-      result.push(n);
     }
   }
-
-  // Purchase Entry is also part of the existing Finishing In-House report.
-  // Bring every material/fabric item into the Cutting selector as well.
-  const purchaseDocs = Array.isArray(purchaseRes.data) ? purchaseRes.data : [];
-  for (const doc of purchaseDocs) {
-    const items = Array.isArray(doc?.items) ? doc.items : [];
-    for (let idx = 0; idx < items.length; idx++) {
-      const it: any = items[idx] || {};
-      const itemName = normalizeText(
-        it.material?.materialName ??
-          it.materialName ??
-          it.material?.name ??
-          it.fabricationName ??
-          it.fabric ??
-          it.itemName ??
-          it.item
-      );
-      if (!itemName) continue;
-
-      const weight =
-        toNum(it.wtPerBox) ||
-        toNum(it.weight) ||
-        toNum(it.quantity) ||
-        toNum(it.qty) ||
-        toNum(it.roll) ||
-        toNum(it.weightKg) ||
-        0;
-
-      const purchaseRate =
-        toNum(it.rate) ||
-        toNum(it.purchaseRate) ||
-        toNum(it.ratePerKg) ||
-        0;
-
-      result.push({
-        id: undefined,
-        itemName,
-        shade: normalizeShade(
-          it.shade ?? it.shadeName ?? it.colour ?? it.color
-        ),
-        weightKg: String(weight),
-        rate: "0",
-        rateFND: String(purchaseRate),
-        yarnRate: "",
-        knittingRate: "",
-        dyeingRate: "",
-        kyrRate: "",
-        sourceType: "purchase",
-        sourceId: String(doc?.id ?? `purchase-${idx}`),
-      });
-    }
-  }
-
-  return result;
+  return Array.from(grouped.entries()).map(([key, row]) => ({
+    ...row, weightKg: String(Math.max(0, toNum(row.weightKg) - (used.get(key) || 0))),
+  })).filter(row => toNum(row.weightKg) > 0);
 };
 
 const listShades = async (): Promise<Shade[]> => {
@@ -3880,7 +3722,7 @@ const CuttingModule: React.FC = () => {
       const weight = getFinishingWeight(fr);
       return {
         ...r,
-        finishingInwardRowId: fr.id ?? null,
+        finishingInwardRowId: null,
         itemName: String(fr.itemName || "").trim(),
         shade: normalizeShade(fr.shade),
         inhouseWeight: weight > 0 ? weight.toFixed(3) : "",

@@ -1,7 +1,7 @@
 "use client";
 
 import type React from "react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import Dashboard from "../../Dashboard";
 import Swal from "sweetalert2";
@@ -25,6 +25,11 @@ interface ReceiptRow {
   selected: boolean;
 }
 
+// Lot numbers can repeat across different fabrics; treat the lot+fabric pair
+// as the identity for duplicate checks and availability.
+const makeLotFabricKey = (lotNo: unknown, fabricName: unknown) =>
+  `${String(lotNo ?? "").trim().toUpperCase()}::${String(fabricName ?? "").trim().replace(/\\s+/g, " ").toUpperCase()}`;
+
 const DyeingInward: React.FC = () => {
   const navigate = useNavigate();
 
@@ -35,6 +40,7 @@ const DyeingInward: React.FC = () => {
   const [partyName, setPartyName] = useState<string>("");
   const [showPartyModal, setShowPartyModal] = useState(false);
   const [partySearchText, setPartySearchText] = useState("");
+  const partySearchInputRef = useRef<HTMLInputElement>(null);
 
   const [dyeingOutwardList, setDyeingOutwardList] = useState<any[]>([]);
   const [filteredDyeingOutwardList, setFilteredDyeingOutwardList] = useState<
@@ -42,8 +48,10 @@ const DyeingInward: React.FC = () => {
   >([]);
   const [showLotModal, setShowLotModal] = useState(false);
   const [lotSearchText, setLotSearchText] = useState("");
+  const lotSearchInputRef = useRef<HTMLInputElement>(null);
   const [, setCurrentRowId] = useState<number | null>(null);
   const [selectedLots, setSelectedLots] = useState<Set<string>>(new Set());
+  const [removedLotKeys, setRemovedLotKeys] = useState<Set<string>>(new Set());
 
   const [dated, setDated] = useState("");
   const [challanNo, setChallanNo] = useState("");
@@ -54,10 +62,25 @@ const DyeingInward: React.FC = () => {
   const [showList, setShowList] = useState(false);
   const [dyeingInwardList, setDyeingInwardList] = useState<any[]>([]);
   const [searchText, setSearchText] = useState("");
+  const listSearchInputRef = useRef<HTMLInputElement>(null);
   const [editingId, setEditingId] = useState<number | null>(null);
 
   const [savedRecords, setSavedRecords] = useState<any[]>([]);
+  const savingRef = useRef(false);
+  const [isSaving, setIsSaving] = useState(false);
 
+
+  useEffect(() => {
+    if (showPartyModal) partySearchInputRef.current?.focus();
+  }, [showPartyModal]);
+
+  useEffect(() => {
+    if (showLotModal) lotSearchInputRef.current?.focus();
+  }, [showLotModal]);
+
+  useEffect(() => {
+    if (showList) listSearchInputRef.current?.focus();
+  }, [showList]);
   useEffect(() => {
     loadParties();
   }, []);
@@ -69,43 +92,62 @@ const DyeingInward: React.FC = () => {
       .catch(() => Swal.fire("Error", "Failed to load parties", "error"));
   };
 
-  useEffect(() => {
-    loadDyeingOutwardLots();
-  }, []);
+  const loadDyeingOutwardLots = useCallback(async () => {
+    try {
+      const [outwardResponse, inwardResponse] = await Promise.all([
+        api.get("/dyeing-outward"),
+        api.get("/dyeing-inward"),
+      ]);
 
-  const loadDyeingOutwardLots = () => {
-    api
-      .get("/dyeing-outward")
-      .then((r) => {
-        const data = Array.isArray(r.data) ? r.data : [];
-        const lots: any[] = [];
+      const outwardRecords = Array.isArray(outwardResponse.data) ? outwardResponse.data : [];
+      const inwardRecords = Array.isArray(inwardResponse.data) ? inwardResponse.data : [];
 
-        data.forEach((dyeing: any) => {
-          if (Array.isArray(dyeing.rows)) {
-            dyeing.rows.forEach((row: any, idx: number) => {
-              lots.push({
-                selectionKey: `${dyeing.id}-${row.id ?? idx}-${row.lotNo || ""}`,
-                fabricLotNo: row.lotNo || "",
-                fabricName: row.fabricName || "",
-                rolls: row.roll || 0,
-                weight: row.weight || 0,
-                receivedWeight: row.receivedWeight ?? "",
-                knittingYarnRate: row.knittingYarnRate || 0,
-                partyName: dyeing.partyName || "",
-                shortage: row.shortage ?? "",
-                percentage: row.percentage ?? "",
-              });
-            });
+      // A lot is unavailable for selection once it has been saved in Dyeing Inward.
+      const savedInwardLotFabricKeys = new Set<string>();
+      inwardRecords.forEach((record: any) => {
+        (Array.isArray(record.rows) ? record.rows : []).forEach((row: any) => {
+          const lotNo = row.fabricLotNo || row.lotNo || "";
+          const fabricName = row.fabric || row.fabricName || "";
+          if (String(lotNo).trim()) {
+            savedInwardLotFabricKeys.add(makeLotFabricKey(lotNo, fabricName));
           }
         });
-
-        setDyeingOutwardList(lots);
-      })
-      .catch((err) => {
-        console.error("Error loading dyeing outward:", err);
-        Swal.fire("Error", "Failed to load lot numbers", "error");
       });
-  };
+
+      const lots: any[] = [];
+      outwardRecords.forEach((dyeing: any) => {
+        if (!Array.isArray(dyeing.rows)) return;
+
+        dyeing.rows.forEach((row: any, idx: number) => {
+          const lotNo = String(row.lotNo || row.fabricLotNo || "").trim();
+          const fabricName = row.fabricName || row.fabric || "";
+          if (!lotNo || savedInwardLotFabricKeys.has(makeLotFabricKey(lotNo, fabricName))) return;
+
+          lots.push({
+            selectionKey: `${dyeing.id}-${row.id ?? idx}-${makeLotFabricKey(lotNo, fabricName)}-${idx}`,
+            fabricLotNo: lotNo,
+            fabricName,
+            rolls: row.roll ?? row.rolls ?? 0,
+            weight: row.weight || 0,
+            receivedWeight: row.receivedWeight ?? "",
+            knittingYarnRate: row.knittingYarnRate || 0,
+            partyName: dyeing.partyName || "",
+            shortage: row.shortage ?? "",
+            percentage: row.percentage ?? "",
+          });
+        });
+      });
+
+      setDyeingOutwardList(lots);
+    } catch (err) {
+      console.error("Error loading Dyeing Outward/Inward lots:", err);
+      Swal.fire("Error", "Failed to load lot numbers", "error");
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadDyeingOutwardLots();
+  }, [loadDyeingOutwardLots]);
 
   useEffect(() => {
     if (partyName) {
@@ -344,21 +386,47 @@ const DyeingInward: React.FC = () => {
       .includes(partySearchText.toLowerCase())
   );
 
-  const filteredLots = filteredDyeingOutwardList.filter((l) =>
-    (l.fabricLotNo || "").toLowerCase().includes(lotSearchText.toLowerCase())
-  );
+  const filteredLots = filteredDyeingOutwardList.filter((lot) => {
+    const lotNo = String(lot.fabricLotNo || "").trim();
+    const lotFabricKey = makeLotFabricKey(lotNo, lot.fabricName);
+    const alreadyInCurrentForm = rows.some(
+      (row) => makeLotFabricKey(row.fabricLotNo, row.fabric) === lotFabricKey
+    );
+    return (
+      lotNo &&
+      !removedLotKeys.has(lot.selectionKey) &&
+      !alreadyInCurrentForm &&
+      lotNo.toLowerCase().includes(lotSearchText.toLowerCase())
+    );
+  });
 
   const handleSave = async () => {
-    const selectedRows = rows.filter((r) => r.selected);
+    if (savingRef.current) return;
 
+    const selectedRows = rows.filter((r) => r.selected);
     if (!partyName || !dated || selectedRows.length === 0) {
-      Swal.fire(
+      await Swal.fire(
         "Error",
         "Please fill all required fields and select at least one row!",
         "error"
       );
       return;
     }
+
+    const lotFabricKeys = selectedRows
+      .filter((r) => String(r.fabricLotNo || "").trim())
+      .map((r) => makeLotFabricKey(r.fabricLotNo, r.fabric));
+    if (new Set(lotFabricKeys).size !== lotFabricKeys.length) {
+      await Swal.fire(
+        "Duplicate Lot + Fabric",
+        "The same lot number and fabric combination is selected more than once. Different fabrics may use the same lot number.",
+        "warning"
+      );
+      return;
+    }
+
+    savingRef.current = true;
+    setIsSaving(true);
 
     const payload = {
       dated,
@@ -368,7 +436,9 @@ const DyeingInward: React.FC = () => {
       vehicleNo,
       through,
       narration,
-      rows: selectedRows.map((r) => ({
+      rows: selectedRows
+        .filter((r) => String(r.fabricLotNo || "").trim() !== "")
+        .map((r) => ({
         fabricLotNo: r.fabricLotNo,
         fabric: r.fabric,
         rolls: r.rolls,
@@ -385,22 +455,25 @@ const DyeingInward: React.FC = () => {
     try {
       if (editingId) {
         await api.put(`/dyeing-inward/${editingId}`, payload);
-        Swal.fire("Success", "Dyeing inward updated!", "success");
-        setEditingId(null);
+        await Swal.fire("Success", "Dyeing inward updated!", "success");
       } else {
         await api.post("/dyeing-inward", payload);
-        Swal.fire("Success", "Dyeing inward saved!", "success");
+        await Swal.fire("Success", "Dyeing inward saved!", "success");
       }
 
       setEditingId(null);
-      loadSavedRecords();
+      await loadSavedRecords();
+      await loadDyeingOutwardLots();
     } catch (err: any) {
       console.error("Save Error:", err);
-      Swal.fire(
+      await Swal.fire(
         "Error",
         err.response?.data?.message || "Failed to save record",
         "error"
       );
+    } finally {
+      savingRef.current = false;
+      setIsSaving(false);
     }
   };
 
@@ -408,6 +481,12 @@ const DyeingInward: React.FC = () => {
     try {
       const res = await api.get("/dyeing-inward");
       const data = Array.isArray(res.data) ? res.data : [];
+      data.sort((a: any, b: any) => {
+        const timeA = new Date(a.createdAt || a.updatedAt || 0).getTime() || 0;
+        const timeB = new Date(b.createdAt || b.updatedAt || 0).getTime() || 0;
+        if (timeA !== timeB) return timeB - timeA;
+        return (Number(b.id) || 0) - (Number(a.id) || 0);
+      });
       setSavedRecords(data);
     } catch (err) {
       console.error("Error loading saved records:", err);
@@ -432,6 +511,12 @@ const DyeingInward: React.FC = () => {
     try {
       const res = await api.get("/dyeing-inward");
       const data = Array.isArray(res.data) ? res.data : [];
+      data.sort((a: any, b: any) => {
+        const timeA = new Date(a.createdAt || a.updatedAt || 0).getTime() || 0;
+        const timeB = new Date(b.createdAt || b.updatedAt || 0).getTime() || 0;
+        if (timeA !== timeB) return timeB - timeA;
+        return (Number(b.id) || 0) - (Number(a.id) || 0);
+      });
       setDyeingInwardList(data);
       setShowList(true);
     } catch (err) {
@@ -614,16 +699,68 @@ const DyeingInward: React.FC = () => {
       return;
     }
 
-    const result = await Swal.fire({
-      title: "Issue To",
-      text: "Go to Finishing Outward with selected rows?",
-      icon: "question",
-      showCancelButton: true,
-      confirmButtonText: "Finishing Outward",
-      cancelButtonText: "Cancel",
-    });
+    const normalizedLots = Array.from(new Set(
+      selectedRowsToSend
+        .map((r) => String(r.fabricLotNo || "").trim().toUpperCase())
+        .filter(Boolean)
+    ));
+
+    const historyKey = "dyeingInwardIssuedToFinishingOutwardLotHistory";
+    let issueHistory: string[] = [];
+    try {
+      const parsed = JSON.parse(localStorage.getItem(historyKey) || "[]");
+      if (Array.isArray(parsed)) {
+        issueHistory = parsed.map((x) => String(x || "").trim().toUpperCase()).filter(Boolean);
+      }
+    } catch {
+      issueHistory = [];
+    }
+
+    // Also check records already saved in Finishing Outward, so the warning
+    // still works after refresh or if the first Issue To was saved there.
+    let savedFinishingLots = new Set<string>();
+    try {
+      const finishingResponse = await api.get("/finishing-outwards");
+      const finishingRecords = Array.isArray(finishingResponse.data) ? finishingResponse.data : [];
+      finishingRecords.forEach((record: any) => {
+        (Array.isArray(record.rows) ? record.rows : []).forEach((row: any) => {
+          const lot = String(row.lotNo || row.fabricLotNo || "").trim().toUpperCase();
+          if (lot) savedFinishingLots.add(lot);
+        });
+      });
+    } catch (error) {
+      console.error("Could not check saved Finishing Outward lots:", error);
+    }
+
+    const alreadyIssued = normalizedLots.filter(
+      (lot) => issueHistory.includes(lot) || savedFinishingLots.has(lot)
+    );
+
+    const result = alreadyIssued.length
+      ? await Swal.fire({
+          title: "Lot Already Issued",
+          html: `These lot number(s) were issued to Finishing Outward before:<br><b>${alreadyIssued.join(", ")}</b><br><br>Do you want to issue them again?`,
+          icon: "warning",
+          showCancelButton: true,
+          confirmButtonText: "Yes, Issue Again",
+          cancelButtonText: "Cancel",
+          confirmButtonColor: "#d97706",
+        })
+      : await Swal.fire({
+          title: "Issue To",
+          text: "Go to Finishing Outward with selected rows?",
+          icon: "question",
+          showCancelButton: true,
+          confirmButtonText: "Finishing Outward",
+          cancelButtonText: "Cancel",
+        });
 
     if (!result.isConfirmed) return;
+
+    localStorage.setItem(
+      historyKey,
+      JSON.stringify(Array.from(new Set([...issueHistory, ...normalizedLots])))
+    );
 
     // fallback store
     sessionStorage.setItem(
@@ -915,9 +1052,10 @@ const DyeingInward: React.FC = () => {
 
               <button
                 onClick={handleSave}
-                className="px-4 py-2 bg-green-500 text-white rounded mr-2 hover:bg-green-600"
+                disabled={isSaving}
+                className={`px-4 py-2 text-white rounded mr-2 ${isSaving ? "bg-gray-400 cursor-not-allowed" : "bg-green-500 hover:bg-green-600"}`}
               >
-                {editingId ? "Update" : "Save"}
+                {isSaving ? "Saving..." : editingId ? "Update" : "Save"}
               </button>
 
               <button
@@ -969,7 +1107,7 @@ const DyeingInward: React.FC = () => {
               Select Party
             </h3>
 
-            <input
+            <input ref={partySearchInputRef}
               type="text"
               placeholder="Search party name..."
               value={partySearchText}
@@ -984,7 +1122,6 @@ const DyeingInward: React.FC = () => {
                     <th className="border p-2">Serial No</th>
                     <th className="border p-2">Party Name</th>
                     <th className="border p-2">GST No</th>
-                    <th className="border p-2">Action</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1027,7 +1164,7 @@ const DyeingInward: React.FC = () => {
               Select Fabric Lot Numbers (Multiple Selection)
             </h3>
 
-            <input
+            <input ref={lotSearchInputRef}
               type="text"
               placeholder="Search lot number..."
               value={lotSearchText}
@@ -1076,7 +1213,7 @@ const DyeingInward: React.FC = () => {
                   {filteredLots.length === 0 ? (
                     <tr>
                       <td
-                        colSpan={9}
+                        colSpan={10}
                         className="border p-4 text-center text-gray-500"
                       >
                         {dyeingOutwardList.length === 0
@@ -1112,6 +1249,7 @@ const DyeingInward: React.FC = () => {
                         <td className="border p-2 text-right font-semibold">
                           {lot.knittingYarnRate}
                         </td>
+                        <td className="border p-2 text-center"><button type="button" onClick={() => { setRemovedLotKeys(prev => new Set(prev).add(lot.selectionKey)); setSelectedLots(prev => { const n = new Set(prev); n.delete(lot.selectionKey); return n; }); }} className="px-2 py-1 bg-red-600 text-white rounded">Remove</button></td>
                       </tr>
                     ))
                   )}
@@ -1149,7 +1287,7 @@ const DyeingInward: React.FC = () => {
               Dyeing Inward List
             </h3>
 
-            <input
+            <input ref={listSearchInputRef}
               placeholder="Search by Challan or Party"
               className="border p-2 rounded w-full mb-3"
               value={searchText}
@@ -1176,7 +1314,7 @@ const DyeingInward: React.FC = () => {
                   {filteredList.length === 0 ? (
                     <tr>
                       <td
-                        colSpan={9}
+                        colSpan={10}
                         className="border p-4 text-center text-gray-500"
                       >
                         No records found

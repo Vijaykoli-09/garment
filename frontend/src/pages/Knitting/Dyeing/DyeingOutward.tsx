@@ -1,7 +1,7 @@
 "use client";
 
 import type React from "react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Dashboard from "../../Dashboard";
 import Swal from "sweetalert2";
 import api from "../../../api/axiosInstance";
@@ -18,6 +18,7 @@ type IssuedFromKnittingRow = {
   percentage?: number;
   knittingInwardId?: number | null;
   knittingRowId?: number | null;
+  issueRowKey?: string;
 };
 
 type KnittingIssueToDyeingOutwardData = {
@@ -75,13 +76,17 @@ const DyeingOutward: React.FC = () => {
   const [selectedPartyId, setSelectedPartyId] = useState<number | null>(null);
   const [showPartyModal, setShowPartyModal] = useState(false);
   const [partySearchText, setPartySearchText] = useState("");
+  const partySearchInputRef = useRef<HTMLInputElement>(null);
 
   const [knittingLotList, setKnittingLotList] = useState<KnittingLot[]>([]);
+  const [issuedSourceKeys, setIssuedSourceKeys] = useState<Set<string>>(new Set());
   const [filteredKnittingLots, setFilteredKnittingLots] = useState<KnittingLot[]>([]);
   const [showLotModal, setShowLotModal] = useState(false);
   const [lotSearchText, setLotSearchText] = useState("");
+  const lotSearchInputRef = useRef<HTMLInputElement>(null);
 
   const [selectedLotKeys, setSelectedLotKeys] = useState<Set<string>>(new Set());
+  const [removedLotKeys, setRemovedLotKeys] = useState<Set<string>>(new Set());
 
   const [challanNo, setChallanNo] = useState("");
   const [dated, setDated] = useState("");
@@ -92,11 +97,27 @@ const DyeingOutward: React.FC = () => {
   const [showList, setShowList] = useState(false);
   const [dyeingList, setDyeingList] = useState<any[]>([]);
   const [searchText, setSearchText] = useState("");
+  const listSearchInputRef = useRef<HTMLInputElement>(null);
   const [editingId, setEditingId] = useState<number | null>(null);
+  const savingRef = useRef(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const issueToRef = useRef(false);
 
   const [yarnList, setYarnList] = useState<any[]>([]);
   const [fabricationList, setFabricationList] = useState<any[]>([]);
 
+
+  useEffect(() => {
+    if (showPartyModal) partySearchInputRef.current?.focus();
+  }, [showPartyModal]);
+
+  useEffect(() => {
+    if (showLotModal) lotSearchInputRef.current?.focus();
+  }, [showLotModal]);
+
+  useEffect(() => {
+    if (showList) listSearchInputRef.current?.focus();
+  }, [showList]);
   useEffect(() => {
     loadParties();
     loadYarnList();
@@ -106,6 +127,7 @@ const DyeingOutward: React.FC = () => {
 
   // ---------- AUTO FETCH FROM KNITTING ISSUE TO ----------
   useEffect(() => {
+    void (async () => {
     const raw = sessionStorage.getItem("knittingIssueToDyeingOutwardData");
     if (!raw) return;
 
@@ -118,10 +140,55 @@ const DyeingOutward: React.FC = () => {
 
       const issuedRows = Array.isArray(data?.rows) ? data.rows : [];
 
+      // Confirmation belongs to the Issue To action from Knitting Receipt,
+      // not to the normal Save button in Dyeing Outward.
+      if (issuedRows.length > 0) {
+        try {
+          const outwardResponse = await api.get("/dyeing-outward");
+          const existingRecords = Array.isArray(outwardResponse.data) ? outwardResponse.data : [];
+          const incomingLots = new Set(
+            issuedRows.map((r) => String(r.fabricLotNo || "").trim().toUpperCase()).filter(Boolean)
+          );
+          const alreadyIssued = new Set<string>();
+          existingRecords.forEach((record: any) => {
+            (Array.isArray(record.rows) ? record.rows : []).forEach((recordRow: any) => {
+              const lot = String(recordRow.lotNo || recordRow.fabricLotNo || "").trim().toUpperCase();
+              if (lot && incomingLots.has(lot)) alreadyIssued.add(lot);
+            });
+          });
+          if (alreadyIssued.size > 0) {
+            const confirmation = await Swal.fire({
+              title: "Lot Already Issued",
+              html: `These lot number(s) were issued before:<br><b>${Array.from(alreadyIssued).join(", ")}</b><br><br>Do you want to issue them again?`,
+              icon: "warning",
+              showCancelButton: true,
+              confirmButtonText: "Yes, Issue Again",
+              cancelButtonText: "Cancel",
+              confirmButtonColor: "#d97706",
+            });
+            if (!confirmation.isConfirmed) {
+              // Do not load previously issued lots into the form if user cancels.
+              sessionStorage.removeItem("knittingIssueToDyeingOutwardData");
+              return;
+            }
+          }
+        } catch (checkError) {
+          console.error("Could not verify previously issued lots:", checkError);
+        }
+      }
+
       const newRows: DyeingRow[] = issuedRows.map((r, idx) => {
-        const inwardId = r.knittingInwardId ?? "X";
-        const rowId = r.knittingRowId ?? `TEMP${idx}${Date.now()}`;
-        const sourceKey = `${inwardId}-${rowId}`;
+        // Prefer the persisted knitting challan/row identity. When the Issue To
+        // action comes from an unsaved/local row, use its stable issueRowKey.
+        const inwardId = r.knittingInwardId;
+        const rowId = r.knittingRowId;
+        const fallbackKey = String((r as any).issueRowKey || "").trim();
+        const sourceKey =
+          inwardId != null && rowId != null
+            ? `${inwardId}-${rowId}`
+            : fallbackKey
+              ? `knitting-${fallbackKey}`
+              : `lot-${String(r.fabricLotNo || "").trim().toUpperCase()}-${String(r.fabricationSerialNo || r.fabricationName || "").trim().toUpperCase()}`;
 
         const knit = Number(r.knittingRate) || 0;
         const yarn = Number(r.yarnRate) || 0;
@@ -146,14 +213,41 @@ const DyeingOutward: React.FC = () => {
       });
 
       setRows((prev) => {
-        const nonEmpty = prev.filter((x) => String(x.lotNo || "").trim() !== "");
-        return [...newRows, ...nonEmpty];
+        // Merge by source identity instead of blindly prepending every transfer.
+        // This prevents duplicate table rows when Issue To is triggered twice,
+        // while still allowing distinct source rows that share the same lot number.
+        const merged = [...prev];
+        const seenIncoming = new Set<string>();
+
+        newRows.forEach((incoming) => {
+          const identity = String(incoming.sourceKey || "").trim() ||
+            `${String(incoming.lotNo || "").trim().toUpperCase()}::${String(incoming.fabricName || "").trim().toUpperCase()}`;
+
+          if (seenIncoming.has(identity)) return;
+          seenIncoming.add(identity);
+
+          const existingIndex = merged.findIndex((current) => {
+            const currentIdentity = String(current.sourceKey || "").trim() ||
+              `${String(current.lotNo || "").trim().toUpperCase()}::${String(current.fabricName || "").trim().toUpperCase()}`;
+            return currentIdentity === identity;
+          });
+
+          if (existingIndex >= 0) {
+            // Re-issue updates the existing row rather than creating a duplicate.
+            merged[existingIndex] = { ...merged[existingIndex], ...incoming, id: merged[existingIndex].id };
+          } else {
+            merged.unshift(incoming);
+          }
+        });
+
+        return merged;
       });
     } catch (e) {
       console.error("Failed to read knitting issue data:", e);
     } finally {
       sessionStorage.removeItem("knittingIssueToDyeingOutwardData");
     }
+    })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -197,12 +291,27 @@ const DyeingOutward: React.FC = () => {
     return Number(totalRate.toFixed(2));
   };
 
-  const loadKnittingLots = () => {
-    api
-      .get("/knitting/list")
-      .then((r) => {
-        const data = Array.isArray(r.data) ? r.data : [];
-        const lots: KnittingLot[] = [];
+  const loadKnittingLots = async () => {
+    try {
+      // Load both the source knitting lots and already-issued Dyeing Outward records.
+      const [knittingResponse, outwardResponse] = await Promise.all([
+        api.get("/knitting/list"),
+        api.get("/dyeing-outward"),
+      ]);
+      const data = Array.isArray(knittingResponse.data) ? knittingResponse.data : [];
+      const outwardRecords = Array.isArray(outwardResponse.data) ? outwardResponse.data : [];
+      const usedSources = new Set<string>();
+
+      outwardRecords.forEach((record: any) => {
+        // When editing a challan, allow its own lots to remain available in the picker.
+        if (editingId != null && Number(record.id) === Number(editingId)) return;
+        (Array.isArray(record.rows) ? record.rows : []).forEach((row: any) => {
+          const sourceKey = String(row.sourceKey || "").trim();
+          if (sourceKey) usedSources.add(sourceKey);
+        });
+      });
+      setIssuedSourceKeys(usedSources);
+      const lots: KnittingLot[] = [];
 
         data.forEach((knitting: any) => {
           const knittingInwardId = knitting.id;
@@ -210,7 +319,10 @@ const DyeingOutward: React.FC = () => {
           if (Array.isArray(knitting.rows)) {
             knitting.rows.forEach((row: any) => {
               const knittingRowId = row.id;
-              const key = `${knittingInwardId}-${knittingRowId ?? row.fabricLotNo + "-" + Math.random()}`;
+              const key =
+                knittingRowId != null
+                  ? `${knittingInwardId}-${knittingRowId}`
+                  : `lot-${String(row.fabricLotNo || "").trim().toUpperCase()}-${String(row.fabrication?.serialNo || row.item || row.fabricationName || "").trim().toUpperCase()}`;
 
               const fabricationSerialNo = row.fabrication?.serialNo || row.item || "";
               const calculatedYarnRate = calculateYarnRate(String(fabricationSerialNo));
@@ -236,12 +348,11 @@ const DyeingOutward: React.FC = () => {
           }
         });
 
-        setKnittingLotList(lots);
-      })
-      .catch((error) => {
-        console.error("Error loading knitting lots:", error);
-        Swal.fire("Error", "Failed to load lot numbers", "error");
-      });
+      setKnittingLotList(lots);
+    } catch (error) {
+      console.error("Error loading knitting lots / issued lots:", error);
+      Swal.fire("Error", "Failed to load lot numbers or issued-lot status", "error");
+    }
   };
 
   useEffect(() => {
@@ -382,10 +493,15 @@ const DyeingOutward: React.FC = () => {
 
   const filteredLots = useMemo(() => {
     const q = lotSearchText.toLowerCase();
+    // Source rows already saved in Dyeing Outward are hidden from the normal picker.
+    // A previously issued lot can be reintroduced only through Issue To from Knitting Receipt,
+    // where the explicit duplicate confirmation is shown.
     return filteredKnittingLots
+      .filter((l) => !removedLotKeys.has(l.key))
       .filter((l) => !usedKeys.has(l.key))
+      .filter((l) => !issuedSourceKeys.has(l.key))
       .filter((l) => !q || (l.fabricLotNo || "").toLowerCase().includes(q));
-  }, [filteredKnittingLots, lotSearchText, usedKeys]);
+  }, [filteredKnittingLots, lotSearchText, usedKeys, issuedSourceKeys, removedLotKeys]);
 
   const toggleLotSelection = (lotKey: string) => {
     setSelectedLotKeys((prev) => {
@@ -440,47 +556,55 @@ const DyeingOutward: React.FC = () => {
   );
 
   const handleSave = async () => {
-    const selectedRows = rows.filter((r) => r.selected);
-
-    if (!partyName || !dated || selectedRows.length === 0) {
-      Swal.fire("Error", "Please fill all required fields and select at least one row!", "error");
-      return;
-    }
-
-    const payload = {
-      challanNo,
-      dated,
-      partyName,
-      narration,
-      vehicleNo,
-      through,
-      rows: selectedRows.map((r) => ({
-        lotNo: r.lotNo,
-        fabricName: r.fabricName,
-        shortage: r.shortage,
-        percentage: r.percentage,
-        roll: r.roll,
-        weight: r.weight,
-        receivedWeight: r.receivedWeight,
-        knittingYarnRate: r.knittingYarnRate,
-        sourceKey: r.sourceKey || null,
-      })),
-    };
+    if (savingRef.current) return;
+    savingRef.current = true;
+    setIsSaving(true);
 
     try {
-      if (editingId) {
-        await api.put(`/dyeing-outward/${editingId}`, payload);
-        Swal.fire("Success", "Dyeing outward updated!", "success");
-      } else {
-        await api.post("/dyeing-outward", payload);
-        Swal.fire("Success", "Dyeing outward saved!", "success");
+      const selectedRows = rows.filter((r) => r.selected);
+
+      if (!partyName || !dated || selectedRows.length === 0) {
+        await Swal.fire("Error", "Please fill all required fields and select at least one row!", "error");
+        return;
       }
 
-      await generateChallanNo();
+      const payload = {
+        challanNo,
+        dated,
+        partyName,
+        narration,
+        vehicleNo,
+        through,
+        rows: selectedRows.map((r) => ({
+          lotNo: r.lotNo,
+          fabricName: r.fabricName,
+          shortage: r.shortage,
+          percentage: r.percentage,
+          roll: r.roll,
+          weight: r.weight,
+          receivedWeight: r.receivedWeight,
+          knittingYarnRate: r.knittingYarnRate,
+          sourceKey: r.sourceKey || null,
+        })),
+      };
+
+      if (editingId) {
+        await api.put(`/dyeing-outward/${editingId}`, payload);
+        await Swal.fire("Success", "Dyeing outward updated!", "success");
+      } else {
+        await api.post("/dyeing-outward", payload);
+        await Swal.fire("Success", "Dyeing outward saved!", "success");
+      }
+
       setEditingId(null);
+      await generateChallanNo();
+      await loadKnittingLots();
     } catch (err: any) {
       console.error("Save Error:", err);
-      Swal.fire("Error", err.response?.data?.message || "Failed to save record", "error");
+      await Swal.fire("Error", err.response?.data?.message || "Failed to save record", "error");
+    } finally {
+      savingRef.current = false;
+      setIsSaving(false);
     }
   };
 
@@ -502,6 +626,13 @@ const DyeingOutward: React.FC = () => {
     try {
       const res = await api.get("/dyeing-outward");
       const data = Array.isArray(res.data) ? res.data : [];
+      // Newest challan first; use date first, then numeric id as a stable fallback.
+      data.sort((a: any, b: any) => {
+        const dateA = new Date(a.dated || a.createdAt || 0).getTime() || 0;
+        const dateB = new Date(b.dated || b.createdAt || 0).getTime() || 0;
+        if (dateA !== dateB) return dateB - dateA;
+        return (Number(b.id) || 0) - (Number(a.id) || 0);
+      });
       setDyeingList(data);
       setShowList(true);
     } catch (err) {
@@ -648,29 +779,81 @@ const DyeingOutward: React.FC = () => {
 
   // ✅✅ FIXED: Issue To now passes shortage & percentage to inward via sessionStorage
   const handleIssueTo = async () => {
+    if (issueToRef.current) return;
+
     const selectedRows = rows.filter((r) => r.selected);
 
     if (!challanNo) {
-      Swal.fire("Error", "Challan No not found", "error");
+      await Swal.fire("Error", "Challan No not found", "error");
       return;
     }
-
     if (selectedRows.length === 0) {
-      Swal.fire("Error", "Please select at least one row to issue", "error");
+      await Swal.fire("Error", "Please select at least one row to issue", "error");
       return;
     }
 
-    const result = await Swal.fire({
-      title: "Issue To",
-      text: "Proceed to issue selected fabric to Dyeing Inward?",
-      icon: "question",
-      showCancelButton: true,
-      confirmButtonText: "Yes, Proceed",
-    });
-
-    if (!result.isConfirmed) return;
-
+    issueToRef.current = true;
     try {
+      const normalizedLots = Array.from(new Set(selectedRows
+        .map((r) => String(r.lotNo || "").trim().toUpperCase())
+        .filter(Boolean)));
+
+      // Keep a browser-side transfer history too: Issue To is a navigation action,
+      // so the first transfer may not yet exist in the saved Dyeing Inward API.
+      const historyKey = "dyeingOutwardIssuedToInwardLotHistory";
+      let history: string[] = [];
+      try {
+        const saved = JSON.parse(localStorage.getItem(historyKey) || "[]");
+        if (Array.isArray(saved)) history = saved.map((x) => String(x).trim().toUpperCase());
+      } catch {
+        history = [];
+      }
+
+      // Also check saved Dyeing Inward records, if a previous inward was saved.
+      const inwardResponse = await api.get("/dyeing-inward");
+      const inwardRecords = Array.isArray(inwardResponse.data) ? inwardResponse.data : [];
+      const savedInwardLots = new Set<string>();
+      inwardRecords.forEach((record: any) => {
+        (Array.isArray(record.rows) ? record.rows : []).forEach((row: any) => {
+          const lot = String(row.fabricLotNo || row.lotNo || "").trim().toUpperCase();
+          if (lot) savedInwardLots.add(lot);
+        });
+      });
+
+      const alreadyIssued = Array.from(new Set(normalizedLots.filter(
+        (lot) => history.includes(lot) || savedInwardLots.has(lot)
+      )));
+
+      if (alreadyIssued.length > 0) {
+        const confirmation = await Swal.fire({
+          title: "Lot Already Issued",
+          html: `These lot number(s) were issued to Dyeing Inward before:<br><b>${alreadyIssued.join(", ")}</b><br><br>Do you want to issue them again?`,
+          icon: "warning",
+          showCancelButton: true,
+          confirmButtonText: "Yes, Issue Again",
+          cancelButtonText: "Cancel",
+          confirmButtonColor: "#d97706",
+        });
+        if (!confirmation.isConfirmed) return;
+      } else {
+        const confirmation = await Swal.fire({
+          title: "Issue To",
+          text: "Proceed to issue selected fabric to Dyeing Inward?",
+          icon: "question",
+          showCancelButton: true,
+          confirmButtonText: "Yes, Proceed",
+          cancelButtonText: "Cancel",
+        });
+        if (!confirmation.isConfirmed) return;
+      }
+
+      // Record this Issue To attempt only after the user confirms it.
+      const updatedHistory = history.slice();
+      normalizedLots.forEach((lot) => {
+        if (updatedHistory.indexOf(lot) === -1) updatedHistory.push(lot);
+      });
+      localStorage.setItem(historyKey, JSON.stringify(updatedHistory));
+
       const dyeingRows = selectedRows.map((r) => ({
         lotNo: r.lotNo,
         fabricName: r.fabricName,
@@ -678,8 +861,6 @@ const DyeingOutward: React.FC = () => {
         weight: r.weight,
         receivedWeight: r.receivedWeight,
         knittingYarnRate: r.knittingYarnRate,
-
-        // IMPORTANT
         shortage: r.shortage ?? "",
         percentage: r.percentage ?? "",
       }));
@@ -690,16 +871,13 @@ const DyeingOutward: React.FC = () => {
         dyeingRows,
         dyeingDate: dated,
       };
-
       sessionStorage.setItem("dyeingOutwardData", JSON.stringify(outwardData));
-
-      Swal.fire("Success", "Navigating to Dyeing Inward form...", "success");
-      setTimeout(() => {
-        window.location.href = "/knitting/dyeing/inward-challan";
-      }, 800);
+      window.location.href = "/knitting/dyeing/inward-challan";
     } catch (error) {
-      console.error("Error:", error);
-      Swal.fire("Error", "Failed to proceed", "error");
+      console.error("Error issuing to Dyeing Inward:", error);
+      await Swal.fire("Error", "Could not verify the lot status or proceed to Dyeing Inward.", "error");
+    } finally {
+      issueToRef.current = false;
     }
   };
 
@@ -891,7 +1069,7 @@ const DyeingOutward: React.FC = () => {
                 Add
               </button>
 
-              <button onClick={handleSave} className="px-4 py-2 bg-green-500 text-white rounded mr-2 hover:bg-green-600">
+              <button onClick={handleSave} disabled={isSaving} className={`px-4 py-2 text-white rounded mr-2 ${isSaving ? "bg-gray-400 cursor-not-allowed" : "bg-green-500 hover:bg-green-600"}`}>
                 {editingId ? "Update" : "Save"}
               </button>
 
@@ -926,7 +1104,7 @@ const DyeingOutward: React.FC = () => {
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg shadow-lg w-full max-w-2xl p-5">
             <h3 className="text-xl font-bold text-center mb-4">Select Party</h3>
-            <input
+            <input ref={partySearchInputRef}
               type="text"
               placeholder="Search party name..."
               value={partySearchText}
@@ -977,7 +1155,7 @@ const DyeingOutward: React.FC = () => {
           <div className="bg-white rounded-lg shadow-lg w-full max-w-4xl p-5">
             <h3 className="text-xl font-bold text-center mb-4">Select Lot Numbers (Multiple Selection)</h3>
 
-            <input
+            <input ref={lotSearchInputRef}
               type="text"
               placeholder="Search lot number..."
               value={lotSearchText}
@@ -1010,13 +1188,14 @@ const DyeingOutward: React.FC = () => {
                     <th className="border p-2">Weight</th>
                     <th className="border p-2">Knitting Rate</th>
                     <th className="border p-2">Yarn Rate</th>
+                    <th className="border p-2">Action</th>
                   </tr>
                 </thead>
 
                 <tbody>
                   {filteredLots.length === 0 ? (
                     <tr>
-                      <td colSpan={9} className="border p-4 text-center text-gray-500">
+                      <td colSpan={10} className="border p-4 text-center text-gray-500">
                         No lot numbers found (or all lots already added)
                       </td>
                     </tr>
@@ -1038,6 +1217,7 @@ const DyeingOutward: React.FC = () => {
                         <td className="border p-2 text-right">{Number(lot.weight || 0).toFixed(3)}</td>
                         <td className="border p-2 text-right">{lot.knittingRate}</td>
                         <td className="border p-2 text-right">{lot.yarnRate}</td>
+                        <td className="border p-2 text-center"><button type="button" onClick={() => { setRemovedLotKeys(prev => new Set(prev).add(lot.key)); setSelectedLotKeys(prev => { const n = new Set(prev); n.delete(lot.key); return n; }); }} className="px-2 py-1 bg-red-600 text-white rounded">Remove</button></td>
                       </tr>
                     ))
                   )}
@@ -1069,7 +1249,7 @@ const DyeingOutward: React.FC = () => {
           <div className="bg-white rounded-lg shadow-lg w-full max-w-5xl p-5 flex flex-col max-h-[90vh]">
             <h3 className="text-xl font-bold text-center mb-4">Dyeing Outward List</h3>
 
-            <input
+            <input ref={listSearchInputRef}
               placeholder="Search by Challan or Party"
               className="border p-2 rounded w-full mb-3"
               value={searchText}

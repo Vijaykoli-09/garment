@@ -113,6 +113,7 @@ import FinishingBatchCreation from "./pages/Knitting/Finishing/FinishingBatchCre
 import FinishingItemWiseOutstanding from "./pages/Knitting/Finishing/FinishingItemWiseOutstanding";
 import FabricStockReport from "./pages/Reports/FabricStockReport";
 import ArtCuttingPackingSaleReport from "./pages/Reports/ArtCuttingPackingSaleReport";
+import SelfTransfer from "./pages/Payment/SelfTransfer";
 
 // Wrapper so we can use useNavigate inside Router context
 function CustomerRequestsPage() {
@@ -337,6 +338,7 @@ function App() {
         <Route path="/payment/payment" element={<PaymentMethod />} />
         <Route path="/payment/recipt" element={<PaymentRecipt />} />
         <Route path="/payment/payment-mode" element={<PaymentMode />} />
+        <Route path="/payment/self-transfer" element={<SelfTransfer />} />
 
         {/* Reports (nested) */}
         <Route path="reports">

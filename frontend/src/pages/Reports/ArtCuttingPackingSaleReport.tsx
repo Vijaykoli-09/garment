@@ -18,7 +18,7 @@ type ReportRow = {
   artCreationOpening: number;
   stockAdjustment: number;
   cutting: number;
-  packing: number;
+  saleOrderPending: number;
   sale: number;
   balance: number;
   pcsPerBox: number;
@@ -105,12 +105,14 @@ const ArtCuttingPackingSaleReport: React.FC = () => {
       artList.forEach(a => { if (a.artNo) artMap.set(up(a.artNo), a); });
       const artDetails = await Promise.all(artList.map(a => api.get<any>(`/arts/${encodeURIComponent(a.serialNumber)}`).then(r => r.data).catch(() => null)));
       const agg = new Map<string, ReportRow>();
+      // Only display sizes explicitly configured for each Art No + Shade in Art Creation.
+      const artDefinedSizeKeys = new Set<string>();
       const getRow = (artNo: string, shade: string, size: string, extra?: any) => {
         const a = artMap.get(up(artNo));
         const key = `${up(artNo)}|${up(shade)}|${up(size)}`;
         let row = agg.get(key);
         if (!row) {
-          row = { key, artGroup: str(extra?.artGroup ?? extra?.artGroupName ?? a?.artGroup), artNo: str(artNo), artName: str(extra?.artName ?? extra?.itemName ?? a?.artName), shade: str(shade), size: str(size), opening: 0, artCreationOpening: 0, stockAdjustment: 0, cutting: 0, packing: 0, sale: 0, balance: 0,
+          row = { key, artGroup: str(extra?.artGroup ?? extra?.artGroupName ?? a?.artGroup), artNo: str(artNo), artName: str(extra?.artName ?? extra?.itemName ?? a?.artName), shade: str(shade), size: str(size), opening: 0, artCreationOpening: 0, stockAdjustment: 0, cutting: 0, saleOrderPending: 0, sale: 0, balance: 0,
             pcsPerBox: n(extra?.pcsPerBox ?? extra?.perBox ?? extra?.pcs), rate: n(extra?.rate ?? extra?.saleRate ?? extra?.styleRate) };
           agg.set(key, row);
         }
@@ -134,7 +136,9 @@ const ArtCuttingPackingSaleReport: React.FC = () => {
           const pcs = box * pcsPerBox;
           const rate = n(sz.rate ?? sz.saleRate ?? sz.styleRate ?? detail.saleRate ?? detail.styleRate);
           for (const sh of shadeList) {
-            const row = getRow(artNo, str(sh.shadeName ?? sh.name), size, detail);
+            const shadeName = str(sh.shadeName ?? sh.name);
+            const row = getRow(artNo, shadeName, size, detail);
+            artDefinedSizeKeys.add(`${up(artNo)}|${up(shadeName)}|${up(size)}`);
             row.opening += pcs;
             row.artCreationOpening += pcs;
             if (pcsPerBox > 0) row.pcsPerBox = pcsPerBox;
@@ -143,8 +147,16 @@ const ArtCuttingPackingSaleReport: React.FC = () => {
         }
       }
 
-      const [cutRes, packRes, dispatchRes, returnRes, adjustmentRes] = await Promise.all([
-        api.get<any[]>("/cutting-entries"), api.get<any[]>("/packing-challans"),
+      const [cutRes, orderRes, dispatchRes, returnRes, adjustmentRes] = await Promise.all([
+        api.get<any[]>("/cutting-entries"),
+        // Use the same authoritative pending calculation as Sale Order Pendency.
+        // Fetch from an early date through the selected As On date.
+        api.get<any[]>("/sale-orders/pendency", {
+          params: { fromDate: "2000-01-01", toDate: asOn },
+        }).catch((error) => {
+          console.error("Sale order pendency API error:", error?.response?.data || error?.message);
+          return { data: [] as any[] };
+        }),
         api.get<any[]>("/dispatch-challan"),
         api.get<any[]>("/dispatch-return-challan").catch(() => ({ data: [] as any[] })),
         api.get<any[]>("/art-stock-adjustments", { params: { toDate: asOn, limit: 100000 } }).catch(() => ({ data: [] as any[] }))
@@ -172,22 +184,24 @@ const ArtCuttingPackingSaleReport: React.FC = () => {
         }
       }
 
-      const packDocs = Array.isArray(packRes.data) ? packRes.data : [];
-      for (const doc of packDocs) {
-        if (!inDate(doc)) continue;
-        for (const r of (Array.isArray(doc.rows) ? doc.rows : [])) {
-          const artNo = str(r.artNo); if (!artNo) continue;
-          const details = Array.isArray(r.sizeDetails) ? r.sizeDetails : [];
-          if (details.length) {
-            for (const sd of details) {
-              const size = str(sd.sizeName ?? sd.size); if (!size) continue;
-              getRow(artNo, str(r.shadeName ?? r.shade ?? r.shadeCode), size, { artGroup: r.artGroupName ?? r.artGroup, artName: r.workOnArt ?? r.itemName }).packing += n(sd.pcs) || n(sd.boxCount ?? sd.box) * n(sd.perBox);
-            }
-          } else {
-            const size = str(r.sizeName ?? r.size) || "All Sizes";
-            getRow(artNo, str(r.shadeName ?? r.shade ?? r.shadeCode), size, { artGroup: r.artGroupName ?? r.artGroup, artName: r.workOnArt ?? r.itemName }).packing += n(r.pcs) || n(r.box) * n(r.perBox);
-          }
-        }
+      // Take pending directly from /sale-orders/pendency, the same API used by
+      // the Sale Order Pendency screen. Do not recalculate it from raw order rows:
+      // receipt/dispatch/opening rules are already applied by that endpoint.
+      const pendingRows: any[] = Array.isArray(orderRes.data) ? orderRes.data : [];
+      for (const pendingRow of pendingRows) {
+        const artNo = str(pendingRow.artNo ?? pendingRow.artNumber);
+        const shade = str(pendingRow.shade ?? pendingRow.shadeName);
+        const size = str(pendingRow.size ?? pendingRow.sizeName);
+        if (!artNo || !size || size === "All Sizes") continue;
+        const pendingPcs = n(pendingRow.pending);
+        if (!pendingPcs) continue;
+        const row = getRow(artNo, shade, size, {
+          artName: pendingRow.artName ?? pendingRow.itemName,
+          artGroup: pendingRow.artGroupName ?? pendingRow.artGroup,
+          pcsPerBox: pendingRow.pcsPerBox ?? pendingRow.perBox,
+          rate: pendingRow.rate ?? pendingRow.saleRate,
+        });
+        row.saleOrderPending += pendingPcs;
       }
 
       // Dispatch challan is sale/dispatch out; returns are added back to available balance.
@@ -208,8 +222,7 @@ const ArtCuttingPackingSaleReport: React.FC = () => {
         }
       }
 
-      // Art Stock's current stock is: Art Creation opening + Packing - Dispatch + Returns + Adjustments.
-      // Keep the same net quantity in the "Art" type so this section matches Art Stock Report.
+      // Apply stock adjustments to the Art quantity.
       const adjustmentList: any[] = Array.isArray(adjustmentRes.data) ? adjustmentRes.data : [];
       for (const adj of adjustmentList) {
         const artNo = str(adj.art_no ?? adj.artNo);
@@ -231,12 +244,11 @@ const ArtCuttingPackingSaleReport: React.FC = () => {
         if (rate > 0) row.rate = rate;
       }
 
-      // Mirror ArtStockReport's net stock formula in the Art type, rather than showing
-      // only the original Art Creation quantities. Keep Cutting/Packing/Sale rows separate.
+      // Art quantity represents current Art stock, including dispatches, returns and adjustments.
       // Use an Array to avoid ES5/downlevel iteration issues with MapIterator in TS builds.
       const aggRows = Array.from(agg.values());
       for (const row of aggRows) {
-        row.opening = row.artCreationOpening + row.packing - row.sale + row.stockAdjustment;
+        row.opening = row.artCreationOpening - row.sale + row.stockAdjustment;
       }
 
       const shadeNameToCode = new Map(shades.map(s => [up(s.shadeName), s.shadeCode]));
@@ -247,15 +259,15 @@ const ArtCuttingPackingSaleReport: React.FC = () => {
         if (selectedArtNoKeys.size && !selectedArtNoKeys.has(up(r.artNo))) return false;
         if (selectedShades.size && !selectedShades.has(shadeNameToCode.get(up(r.shade)) ?? "")) return false;
         if (selectedSizes.size && !selectedSizes.has(sizeNameToSerial.get(up(r.size)) ?? "")) return false;
-        r.balance = r.artCreationOpening + r.cutting - r.packing - r.sale + r.stockAdjustment;
+        r.balance = r.saleOrderPending - r.cutting - r.opening;
         return true;
-      }).filter(r => r.size && r.size !== "All Sizes")
+      }).filter(r => r.size && r.size !== "All Sizes" && artDefinedSizeKeys.has(`${up(r.artNo)}|${up(r.shade)}|${up(r.size)}`))
         .sort((a,b) => a.artNo.localeCompare(b.artNo, undefined, {numeric:true}) || a.shade.localeCompare(b.shade) || sizeSort(a.size,b.size));
       setRows(result);
       setShown(true);
-      if (!result.length) Swal.fire("No Records", "No matching ART + CUTTING + PACKING + SALE data found for these filters.", "info");
+      if (!result.length) Swal.fire("No Records", "No matching Sale Order Pending + Cutting + Art data found for these filters.", "info");
     } catch (e: any) {
-      console.error("ART+CUTTING+PACKING+SALE report error", e);
+      console.error("Sale Order Pending + Cutting + Art report error", e);
       Swal.fire("Report Failed", e?.response?.data?.message || "Unable to generate report. Check API endpoints and try again.", "error");
     } finally { setLoading(false); }
   };
@@ -279,10 +291,9 @@ const ArtCuttingPackingSaleReport: React.FC = () => {
   }, [rows, selectedSizes, sizes]);
 
   const activityKinds = [
-    { key: "opening", label: "Art" },
-    { key: "cutting", label: "Cutting" },
-    { key: "packing", label: "Packing" },
-    { key: "sale", label: "Sale" },
+    { key: "saleOrderPending", label: "Sale Order Pending" },
+    { key: "cutting", label: "Cutting (-)" },
+    { key: "opening", label: "Art (-)" },
     { key: "balance", label: "Balance" },
   ];
   const metricKinds = [
@@ -303,7 +314,7 @@ const ArtCuttingPackingSaleReport: React.FC = () => {
     const row = g.bySize[up(size)];
     if (!row) return null;
     const [activity, metric] = key.split(":");
-    const pcs = n(row[activity as "opening" | "cutting" | "packing" | "sale" | "balance"]);
+    const pcs = n(row[activity as "opening" | "cutting" | "saleOrderPending" | "balance"]);
     if (metric === "pcs") return pcs;
     if (metric === "box") return row.pcsPerBox > 0 ? pcs / row.pcsPerBox : 0;
     if (metric === "rate") return row.rate;
@@ -341,7 +352,7 @@ const ArtCuttingPackingSaleReport: React.FC = () => {
     const selectedArtsText = selectedArtNos.size ? artNoOptions.filter(a => selectedArtNos.has(a.artNo)).map(a => `${a.artNo}${a.artName ? ` - ${a.artName}` : ""}`).join(", ") : "All Arts";
     const selectedShadesText = selectedShades.size ? shadeOptions.filter(s => selectedShades.has(s.shadeCode || s.shadeName)).map(s => s.shadeName).join(", ") : "All Shades";
     const selectedSizesText = selectedSizes.size ? sizeOptions.filter(s => selectedSizes.has(s.serialNo)).map(s => s.sizeName).join(", ") : "All Sizes";
-    w.document.write(`<html><head><title>ART + CUTTING + PACKING + SALE Report</title><style>@page{size:landscape;margin:8mm}body{font:11px Arial}table{border-collapse:collapse;width:100%}th,td{border:1px solid #555;padding:5px;text-align:center}th{background:#eee}.total{font-weight:bold;background:#dff2fc}h2{margin-bottom:4px}.filters{padding:7px;border:1px solid #888;background:#f4f7fb;margin:8px 0}</style></head><body><h2>ART + CUTTING + PACKING + SALE Report</h2><p>As On: ${esc(asOn)}</p><div class="filters"><b>Selected Filters:</b> Art No: ${esc(selectedArtsText)} &nbsp; | &nbsp; Shade: ${esc(selectedShadesText)} &nbsp; | &nbsp; Size: ${esc(selectedSizesText)}</div><table><thead><tr>${headers.map(h=>`<th>${esc(h)}</th>`).join("")}</tr></thead><tbody>${body}${totalsByKind}</tbody></table></body></html>`);
+    w.document.write(`<html><head><title>SALE ORDER PENDING + CUTTING + ART Report</title><style>@page{size:landscape;margin:8mm}body{font:11px Arial}table{border-collapse:collapse;width:100%}th,td{border:1px solid #555;padding:5px;text-align:center}th{background:#eee}.total{font-weight:bold;background:#dff2fc}h2{margin-bottom:4px}.filters{padding:7px;border:1px solid #888;background:#f4f7fb;margin:8px 0}</style></head><body><h2>SALE ORDER PENDING + CUTTING + ART Report</h2><p>As On: ${esc(asOn)}</p><div class="filters"><b>Selected Filters:</b> Art No: ${esc(selectedArtsText)} &nbsp; | &nbsp; Shade: ${esc(selectedShadesText)} &nbsp; | &nbsp; Size: ${esc(selectedSizesText)}</div><table><thead><tr>${headers.map(h=>`<th>${esc(h)}</th>`).join("")}</tr></thead><tbody>${body}${totalsByKind}</tbody></table></body></html>`);
     w.document.close(); w.focus(); w.print();
   };
 
@@ -351,7 +362,7 @@ const ArtCuttingPackingSaleReport: React.FC = () => {
     const selectedShadesText = selectedShades.size ? shadeOptions.filter(s => selectedShades.has(s.shadeCode || s.shadeName)).map(s => s.shadeName).join(", ") : "All Shades";
     const selectedSizesText = selectedSizes.size ? sizeOptions.filter(s => selectedSizes.has(s.serialNo)).map(s => s.sizeName).join(", ") : "All Sizes";
     const matrix: any[][] = [
-      ["ART + CUTTING + PACKING + SALE Report", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""],
+      ["SALE ORDER PENDING + CUTTING + ART Report", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""],
       ["As On", asOn],
       ["Selected Art No", selectedArtsText],
       ["Selected Shade", selectedShadesText],
@@ -371,7 +382,7 @@ const ArtCuttingPackingSaleReport: React.FC = () => {
     }));
     const csv = matrix.map(row => row.map(v => `"${String(v ?? "").replace(/"/g,'""')}"`).join(",")).join("\r\n");
     const blob = new Blob(["\ufeff",csv], {type:"text/csv;charset=utf-8"});
-    const url = URL.createObjectURL(blob); const a = document.createElement("a"); a.href=url; a.download=`art-cutting-packing-sale-${asOn}.csv`; a.click(); URL.revokeObjectURL(url);
+    const url = URL.createObjectURL(blob); const a = document.createElement("a"); a.href=url; a.download=`sale-order-pending-cutting-art-${asOn}.csv`; a.click(); URL.revokeObjectURL(url);
   };
 
   const filterCard = (title: string, key: keyof typeof search, options: { label: string; value: string; hint?: string }[], selected: Set<string>, setter: React.Dispatch<React.SetStateAction<Set<string>>>) => (
@@ -379,7 +390,7 @@ const ArtCuttingPackingSaleReport: React.FC = () => {
       <SectionHeader title={title} right={<label className="flex cursor-pointer items-center gap-1 text-xs"><input type="checkbox" checked={options.length > 0 && options.every(o => selected.has(o.value))} onChange={e => toggleAll(setter, options.map(o=>o.value), e.target.checked)} />All</label>} />
       <SearchBox value={search[key]} onChange={v => setSearch(s=>({...s,[key]:v}))} placeholder={`Search ${title.replace("Select ","").toLowerCase()}...`} />
       <div className="h-60 overflow-auto px-2 pb-2">
-        {options.map(o => <label key={o.value} title={o.hint ?? o.label} className="flex cursor-pointer items-center gap-2 py-1 text-sm"><input type="checkbox" checked={selected.has(o.value)} onChange={()=>toggle(setter,selected,o.value)} /><span className="truncate">{o.label}</span></label>)}
+        {Array.from(new Map(options.map(o => [o.value, o])).values()).map((o, index) => <label key={`${title}-${o.value}-${index}`} title={o.hint ?? o.label} className="flex cursor-pointer items-center gap-2 py-1 text-sm"><input type="checkbox" checked={selected.has(o.value)} onChange={()=>toggle(setter,selected,o.value)} /><span className="truncate">{o.label}</span></label>)}
         {!options.length && <div className="py-2 text-xs text-gray-500">No records found.</div>}
       </div>
     </div>
@@ -388,7 +399,7 @@ const ArtCuttingPackingSaleReport: React.FC = () => {
   return <Dashboard>
     <div className="min-h-full bg-gray-100 p-4">
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-lg bg-white p-4 shadow">
-        <h2 className="text-xl font-bold text-gray-800">ART + CUTTING + PACKING + SALE Report</h2>
+        <h2 className="text-xl font-bold text-gray-800">SALE ORDER PENDING + CUTTING + ART Report</h2>
         <div className="flex flex-wrap items-center gap-2"><label className="text-sm font-medium">As On:</label><input type="date" value={asOn} onChange={e=>setAsOn(e.target.value)} className="rounded border px-2 py-1 text-sm" /><button onClick={reload} disabled={loading} className="rounded border bg-gray-100 px-3 py-2 text-sm hover:bg-gray-200">Reload</button></div>
       </div>
       {!shown ? <>
@@ -410,7 +421,7 @@ const ArtCuttingPackingSaleReport: React.FC = () => {
         </div>
         <div className="overflow-auto rounded-lg bg-white shadow" style={{ maxHeight: "calc(100vh - 230px)" }}>
           <div className="sticky top-0 z-30 border-b bg-white p-3">
-            <h3 className="font-bold">ART + CUTTING + PACKING + SALE Report (Size Wise)</h3>
+            <h3 className="font-bold">SALE ORDER PENDING + CUTTING + ART Report (Size Wise)</h3>
             <p className="text-sm text-gray-600">As On: {asOn}</p>
             <div className="mt-2 rounded border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-gray-800">
               <span className="font-semibold">Selected:</span>{" "}
