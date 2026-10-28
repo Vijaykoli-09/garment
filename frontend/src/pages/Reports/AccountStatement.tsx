@@ -1414,10 +1414,17 @@ const AccountStatement: React.FC = () => {
       .reduce((s, e) => s + toNum(e.debit) - toNum(e.credit), 0);
   }, [fifoEventsAll, toDate]);
 
-  const pendingSide: "DEBIT" | "CREDIT" = useMemo(
-    () => (closingSignedAsOn >= 0 ? "DEBIT" : "CREDIT"),
-    [closingSignedAsOn],
-  );
+  const pendingSide: "DEBIT" | "CREDIT" = useMemo(() => {
+    // Dispatch invoices are settled by Receipts. A small credit/advance balance
+    // (for example ₹10 excess receipt) must not reverse the FIFO direction and
+    // turn the receipts themselves into pending bills.
+    const hasDispatchBills = fifoEventsAll.some((e) =>
+      ["Dispatch", "OtherDispatch", "JobOutward", "KnittingOutward"].includes(String(e.type)) && toNum(e.debit) > 0
+    );
+    const hasReceiptSettlements = fifoEventsAll.some((e) => String(e.type) === "Receipt" && toNum(e.credit) > 0);
+    if (hasDispatchBills && hasReceiptSettlements) return "DEBIT";
+    return closingSignedAsOn >= 0 ? "DEBIT" : "CREDIT";
+  }, [closingSignedAsOn, fifoEventsAll]);
   const pendingAsOfDateIso = useMemo(() => {
     // Pending must consider settlements done AFTER the selected To Date (future payment issue).
     // We compute pending "as of" max(To Date, Today).
@@ -1617,7 +1624,16 @@ const AccountStatement: React.FC = () => {
         })
         .reduce((s, e) => s + toNum(e.debit) - toNum(e.credit), 0);
 
-      const fifoEventsPartyForCalcAll = closingSignedPartyAsOfToDate >= 0
+      const partyHasDispatchBills = eventsWithOpening.some((e) =>
+        ["Dispatch", "OtherDispatch", "JobOutward", "KnittingOutward"].includes(String(e.type)) && toNum(e.debit) > 0
+      );
+      const partyHasReceiptSettlements = eventsWithOpening.some((e) => String(e.type) === "Receipt" && toNum(e.credit) > 0);
+      const partyPendingSide: "DEBIT" | "CREDIT" =
+        partyHasDispatchBills && partyHasReceiptSettlements
+          ? "DEBIT"
+          : closingSignedPartyAsOfToDate >= 0 ? "DEBIT" : "CREDIT";
+
+      const fifoEventsPartyForCalcAll = partyPendingSide === "DEBIT"
         ? eventsWithOpening
         : eventsWithOpening.map((e) => ({
           ...e,

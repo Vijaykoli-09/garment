@@ -31,6 +31,44 @@ const today = () => {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 };
 
+/** Convert a non-negative rupee amount to Indian-numbering words. */
+const amountToWords = (value: string | number): string => {
+  const amountValue = Number(value);
+  if (!Number.isFinite(amountValue) || amountValue < 0) return "";
+  const roundedPaise = Math.round((amountValue + Number.EPSILON) * 100);
+  const rupees = Math.floor(roundedPaise / 100);
+  const paise = roundedPaise % 100;
+
+  const ones = ["", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine",
+    "Ten", "Eleven", "Twelve", "Thirteen", "Fourteen", "Fifteen", "Sixteen", "Seventeen", "Eighteen", "Nineteen"];
+  const tens = ["", "", "Twenty", "Thirty", "Forty", "Fifty", "Sixty", "Seventy", "Eighty", "Ninety"];
+
+  const underThousand = (n: number): string => {
+    const parts: string[] = [];
+    if (n >= 100) parts.push(`${ones[Math.floor(n / 100)]} Hundred`);
+    n %= 100;
+    if (n >= 20) parts.push(tens[Math.floor(n / 10)] + (n % 10 ? ` ${ones[n % 10]}` : ""));
+    else if (n > 0) parts.push(ones[n]);
+    return parts.join(" ");
+  };
+
+  const integerToIndianWords = (n: number): string => {
+    if (n === 0) return "Zero";
+    const parts: string[] = [];
+    const crore = Math.floor(n / 10000000); n %= 10000000;
+    const lakh = Math.floor(n / 100000); n %= 100000;
+    const thousand = Math.floor(n / 1000); n %= 1000;
+    if (crore) parts.push(`${underThousand(crore)} Crore`);
+    if (lakh) parts.push(`${underThousand(lakh)} Lakh`);
+    if (thousand) parts.push(`${underThousand(thousand)} Thousand`);
+    if (n) parts.push(underThousand(n));
+    return parts.join(" ");
+  };
+
+  const rupeeWords = `${integerToIndianWords(rupees)} Rupees`;
+  return paise ? `${rupeeWords} and ${integerToIndianWords(paise)} Paise Only` : `${rupeeWords} Only`;
+};
+
 const SelfTransfer: React.FC = () => {
   const [modes, setModes] = useState<PaymentMode[]>([]);
   const [rows, setRows] = useState<Transfer[]>([]);
@@ -146,6 +184,7 @@ const SelfTransfer: React.FC = () => {
         <td>${escapeHtml(r.fromAccountName || modeLabel(r.fromPaymentModeId))}</td>
         <td>${escapeHtml(r.toAccountName || modeLabel(r.toPaymentModeId))}</td>
         <td class="amount">${escapeHtml(Number(r.amount || 0).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 }))}</td>
+        <td>${escapeHtml(amountToWords(r.amount))}</td>
         <td>${escapeHtml(r.referenceNo || "—")}</td>
         <td>${escapeHtml(r.narration || "—")}</td>
       </tr>`).join("");
@@ -170,8 +209,8 @@ const SelfTransfer: React.FC = () => {
       </style></head><body>
       <h1>Self Transfer Report</h1>
       <p>Printed on: ${escapeHtml(new Date().toLocaleString("en-IN"))} | Total records: ${rows.length}</p>
-      <table><thead><tr><th>S.No.</th><th>Date</th><th>From Account</th><th>To Account</th><th>Amount (₹)</th><th>Reference / UTR</th><th>Narration</th></tr></thead>
-      <tbody>${printRows || '<tr><td colspan="7" style="text-align:center">No transfers recorded.</td></tr>'}</tbody></table>
+      <table><thead><tr><th>S.No.</th><th>Date</th><th>From Account</th><th>To Account</th><th>Amount (₹)</th><th>Amount in Words</th><th>Reference / UTR</th><th>Narration</th></tr></thead>
+      <tbody>${printRows || '<tr><td colspan="8" style="text-align:center">No transfers recorded.</td></tr>'}</tbody></table>
       <script>window.onload = function(){ window.focus(); window.print(); };</script>
       </body></html>`);
     printWindow.document.close();
@@ -210,7 +249,9 @@ const SelfTransfer: React.FC = () => {
         <label style={labelStyle}>Transfer Date<input required type="date" value={date} onChange={e => setDate(e.target.value)} className="st-input" style={inputStyle} /></label>
         <label style={labelStyle}>From Account<select required value={from} onChange={e => setFrom(e.target.value)} className="st-input" style={inputStyle}><option value="">Select source account</option><option value={CASH_VALUE}>Cash</option>{modes.map(m => <option key={m.id} value={String(m.id)}>{m.bankNameOrUpiId} — {m.accountNo}</option>)}</select></label>
         <label style={labelStyle}>To Account<select required value={to} onChange={e => setTo(e.target.value)} className="st-input" style={inputStyle}><option value="">Select destination account</option><option value={CASH_VALUE} disabled={from === CASH_VALUE}>Cash</option>{modes.map(m => <option key={m.id} value={String(m.id)} disabled={String(m.id) === from}>{m.bankNameOrUpiId} — {m.accountNo}</option>)}</select></label>
-        <label style={labelStyle}>Amount (₹)<input required inputMode="decimal" type="text" value={amount} onChange={e => { const value = e.target.value; if (/^\d*\.?\d{0,2}$/.test(value)) setAmount(value); }} placeholder="Enter amount" className="st-input" style={inputStyle} /></label>
+        <label style={labelStyle}>Amount (₹)<input required inputMode="decimal" type="text" value={amount} onChange={e => { const value = e.target.value; if (/^\d*\.?\d{0,2}$/.test(value)) setAmount(value); }} placeholder="Enter amount" className="st-input" style={inputStyle} />
+          {amount.trim() !== "" && Number.isFinite(Number(amount)) && Number(amount) >= 0 && <span style={amountWordsStyle}>In Words: {amountToWords(amount)}</span>}
+        </label>
         <label style={labelStyle}>Reference / UTR No.<input value={referenceNo} onChange={e => setReferenceNo(e.target.value)} placeholder="Optional" className="st-input" style={inputStyle} /></label>
         <label style={labelStyle}>Narration<input value={narration} onChange={e => setNarration(e.target.value)} placeholder="Optional notes" className="st-input" style={inputStyle} /></label>
         <div className="st-actions" style={{ display: "flex", gap: 10, alignItems: "end" }}><button className="st-primary" type="submit" disabled={loading} style={buttonStyle}>{loading ? "Please wait..." : editingId != null ? "Update Transfer" : "Save Transfer"}</button>{editingId != null && <button type="button" onClick={resetForm} style={secondaryButtonStyle}>Cancel Edit</button>}</div>
@@ -219,8 +260,8 @@ const SelfTransfer: React.FC = () => {
       <div style={historyPanelStyle}>
       <div style={historyHeaderStyle}><div><h3 style={sectionTitleStyle}>Transfer History</h3><p style={panelSubtitleStyle}>Review, edit, print, or remove previous transfers.</p></div><div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}><span style={countStyle}>{rows.length} record{rows.length === 1 ? "" : "s"}</span><button type="button" onClick={handlePrint} style={printButtonStyle}>Print Report</button></div></div>
       <div style={tableWrapStyle}><table style={tableStyle}><thead><tr>{["Date", "From Account", "To Account", "Amount", "Reference", "Narration", "Actions"].map(h => <th key={h} style={thStyle}>{h}</th>)}</tr></thead>
-        <tbody>{rows.map(r => <tr className="st-row" key={r.id}><td style={tdStyle}>{r.transferDate ? String(r.transferDate).slice(0, 10) : "—"}</td><td style={tdStyle}>{r.fromAccountName || modeLabel(r.fromPaymentModeId)}</td><td style={tdStyle}>{r.toAccountName || modeLabel(r.toPaymentModeId)}</td><td style={{ ...tdStyle, textAlign: "right", whiteSpace: "nowrap", fontWeight: 600 }}>{Number(r.amount || 0).toLocaleString("en-IN", { style: "currency", currency: "INR" })}</td><td style={tdStyle}>{r.referenceNo || "—"}</td><td style={tdStyle}>{r.narration || "—"}</td><td style={{ ...tdStyle, whiteSpace: "nowrap" }}><button type="button" style={editButtonStyle} onClick={() => edit(r)}>Edit</button> <button type="button" style={deleteButtonStyle} onClick={() => void remove(r)}>Delete</button></td></tr>)}
-          {rows.length === 0 && <tr><td style={emptyStyle} colSpan={7}>No transfers recorded yet.</td></tr>}</tbody></table></div>
+        <tbody>{rows.map(r => <tr className="st-row" key={r.id}><td style={tdStyle}>{r.transferDate ? String(r.transferDate).slice(0, 10) : "—"}</td><td style={tdStyle}>{r.fromAccountName || modeLabel(r.fromPaymentModeId)}</td><td style={tdStyle}>{r.toAccountName || modeLabel(r.toPaymentModeId)}</td><td style={{ ...tdStyle, textAlign: "right", whiteSpace: "nowrap", fontWeight: 600 }}>{Number(r.amount || 0).toLocaleString("en-IN", { style: "currency", currency: "INR" })}</td><td style={tdStyle}>{amountToWords(r.amount)}</td><td style={tdStyle}>{r.referenceNo || "—"}</td><td style={tdStyle}>{r.narration || "—"}</td><td style={{ ...tdStyle, whiteSpace: "nowrap" }}><button type="button" style={editButtonStyle} onClick={() => edit(r)}>Edit</button> <button type="button" style={deleteButtonStyle} onClick={() => void remove(r)}>Delete</button></td></tr>)}
+          {rows.length === 0 && <tr><td style={emptyStyle} colSpan={8}>No transfers recorded yet.</td></tr>}</tbody></table></div>
       </div>
     </div>
   </Dashboard>;
@@ -238,6 +279,7 @@ const panelSubtitleStyle: React.CSSProperties = { margin: "4px 0 0", color: "#7b
 const formGridStyle: React.CSSProperties = { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "20px 18px", alignItems: "end", marginBottom: 0 };
 const labelStyle: React.CSSProperties = { display: "flex", flexDirection: "column", gap: 8, color: "#39445a", fontSize: 13, fontWeight: 650 };
 const inputStyle: React.CSSProperties = { width: "100%", minWidth: 0, boxSizing: "border-box", padding: "11px 12px", border: "1px solid #d7deea", borderRadius: 9, background: "#fff", color: "#182235", fontSize: 14, height: 43, transition: "border-color .15s, box-shadow .15s" };
+const amountWordsStyle: React.CSSProperties = { color: "#166534", fontSize: 12, fontWeight: 600, lineHeight: 1.5, overflowWrap: "anywhere" };
 const buttonStyle: React.CSSProperties = { minHeight: 43, padding: "11px 22px", background: "#2563eb", color: "#fff", border: 0, borderRadius: 9, fontSize: 14, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap", boxShadow: "0 4px 10px rgba(37,99,235,.18)", transition: "all .15s" };
 const secondaryButtonStyle: React.CSSProperties = { ...buttonStyle, background: "#eef2f7", color: "#374151", boxShadow: "none" };
 const printButtonStyle: React.CSSProperties = { padding: "9px 14px", border: "1px solid #bfdbfe", borderRadius: 8, color: "#1d4ed8", background: "#eff6ff", cursor: "pointer", fontSize: 12, fontWeight: 750 };
@@ -248,7 +290,7 @@ const historyHeaderStyle: React.CSSProperties = { display: "flex", alignItems: "
 const sectionTitleStyle: React.CSSProperties = { margin: 0, fontSize: 18, fontWeight: 750, color: "#182235" };
 const countStyle: React.CSSProperties = { color: "#1d4ed8", background: "#eff6ff", border: "1px solid #dbeafe", padding: "7px 11px", borderRadius: 999, fontSize: 12, fontWeight: 750, whiteSpace: "nowrap" };
 const tableWrapStyle: React.CSSProperties = { width: "100%", overflowX: "auto", border: "1px solid #e6ebf3", borderRadius: 10 };
-const tableStyle: React.CSSProperties = { width: "100%", borderCollapse: "collapse", fontSize: 13, minWidth: 980 };
+const tableStyle: React.CSSProperties = { width: "100%", borderCollapse: "collapse", fontSize: 13, minWidth: 1120 };
 const thStyle: React.CSSProperties = { textAlign: "left", padding: "13px 14px", borderBottom: "1px solid #e1e7f0", background: "#f7f9fc", color: "#566176", fontWeight: 750, whiteSpace: "nowrap", fontSize: 11, textTransform: "uppercase", letterSpacing: ".5px" };
 const tdStyle: React.CSSProperties = { padding: "13px 14px", borderBottom: "1px solid #edf0f5", color: "#344054", verticalAlign: "middle" };
 const emptyStyle: React.CSSProperties = { ...tdStyle, textAlign: "center", padding: 32, color: "#7b8495" };

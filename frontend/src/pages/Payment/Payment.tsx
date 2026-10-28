@@ -85,6 +85,16 @@ type JobInwardDoc = {
   amount: number;
 };
 
+// Knitting Inward challans are separate source records from generic Job Inward.
+// Keep the same normalized shape so they can participate in the Payment FIFO modal.
+type KnittingInwardDoc = {
+  id: string | number;
+  challanNo: string;
+  date: string;
+  partyName: string;
+  amount: number;
+};
+
 type ReceiptDoc = {
   id: number;
   receiptDate?: string;
@@ -272,6 +282,8 @@ const txLabel = (t: any): string => {
       return "Job Outward";
     case "JobInward":
       return "Job Inward";
+    case "KnittingInward":
+      return "Knitting Inward Challan";
     case "Payment":
       return "Payment";
     case "Receipt":
@@ -399,6 +411,7 @@ type TxType =
   | "PurchaseEntry"
   | "PurchaseReturn"
   | "JobInward"
+  | "KnittingInward"
   | "Payment"
   | "Receipt";
 
@@ -413,7 +426,7 @@ const getDrCr = (source: TxType, amount: number) => {
 
   if (source === "OtherDispatch") return { debit: 0, credit: amt };
   if (source === "PurchaseReturn") return { debit: amt, credit: 0 };
-  if (source === "JobInward") return { debit: 0, credit: amt };
+  if (source === "JobInward" || source === "KnittingInward") return { debit: 0, credit: amt };
 
   return { debit: amt, credit: 0 };
 };
@@ -504,6 +517,7 @@ const processSearchRef = useRef<HTMLInputElement>(null);
   const [purchaseEntries, setPurchaseEntries] = useState<PurchaseEntryDoc[]>([]);
   const [purchaseReturns, setPurchaseReturns] = useState<PurchaseReturnDoc[]>([]);
   const [jobInwards, setJobInwards] = useState<JobInwardDoc[]>([]);
+  const [knittingInwards, setKnittingInwards] = useState<KnittingInwardDoc[]>([]);
   const [receipts, setReceipts] = useState<ReceiptDoc[]>([]);
   const [balanceInfoLoading, setBalanceInfoLoading] = useState(false);
 
@@ -586,6 +600,7 @@ const processSearchRef = useRef<HTMLInputElement>(null);
         purchaseEntries.forEach((x) => norm(x.partyName) === selectedPartyKey && pushTime(x.date || ""));
         purchaseReturns.forEach((x) => norm(x.partyName) === selectedPartyKey && pushTime(x.date || ""));
         jobInwards.forEach((x) => norm(x.partyName) === selectedPartyKey && pushTime(x.date || ""));
+        knittingInwards.forEach((x) => norm(x.partyName) === selectedPartyKey && pushTime(x.date || ""));
 
         // ✅ existing payments (Receipt.tsx behavior: if paymentTo missing, treat as Party)
         (savedRecords || []).forEach((p) => {
@@ -734,6 +749,26 @@ const processSearchRef = useRef<HTMLInputElement>(null);
       });
     });
 
+    // Knitting Inward Challans are payable to the knitting party (CREDIT).
+    // These are loaded from the same /knitting/list source used by Account Statement.
+    knittingInwards.forEach((k) => {
+      if (norm(k.partyName) !== selectedPartyKey) return;
+      const amount = toNum(k.amount);
+      if (amount <= 0) return;
+      addEvent({
+        id: typeof k.id === "number" ? k.id : hashToInt(String(k.id)),
+        date: String(k.date || "").slice(0, 10),
+        partyName: k.partyName,
+        brokerName: "",
+        orderNo: String(k.challanNo || ""),
+        mode: "",
+        debit: 0,
+        credit: amount,
+        type: "KnittingInward" as LedgerTxType,
+        docKey: `KnittingInward:${String(k.id)}`,
+      });
+    });
+
     // ✅ Existing Payments (settlement includes CASH + DISCOUNT) — Receipt.tsx party-payment inclusion logic
     (savedRecords || []).forEach((p) => {
       const paymentTo = String((p as any)?.paymentTo ?? "").trim();
@@ -795,6 +830,7 @@ const processSearchRef = useRef<HTMLInputElement>(null);
     purchaseEntries,
     purchaseReturns,
     jobInwards,
+    knittingInwards,
     receipts,
     savedRecords,
   ]);
@@ -880,6 +916,15 @@ const processSearchRef = useRef<HTMLInputElement>(null);
     return fifoResult.bills
       .filter((b) => b.pending > 0.00001)
       .filter((b) => !b.manualPaidEffective)
+      // Payment is for paying the party's CREDIT-side bills. Keep only genuine
+      // credit/payable bill types after FIFO orientation; never show prior
+      // Payment/Receipt transactions themselves as bills to settle again.
+      .filter((b) => {
+        if (pendingSideMemo === "CREDIT") {
+          return ["Opening", "OtherDispatch", "PurchaseOrder", "PurchaseEntry", "JobInward", "KnittingInward"].includes(String(b.type));
+        }
+        return ["Opening", "Dispatch", "PurchaseReturn"].includes(String(b.type));
+      })
       .map((b) => ({
         rowKey: b.docKey,
         docKey: b.docKey,
@@ -889,7 +934,7 @@ const processSearchRef = useRef<HTMLInputElement>(null);
         chargeAmount: +toNum(b.original).toFixed(2),
         pendingAmount: +toNum(b.pending).toFixed(2),
       }));
-  }, [fifoResult.bills, selectedPartyName]);
+  }, [fifoResult.bills, selectedPartyName, pendingSideMemo]);
 
   const pendingTotal = useMemo(
     () => pendingBillsFifo.reduce((s, r) => s + (Number(r.pendingAmount) || 0), 0),
@@ -1326,7 +1371,7 @@ const loadPartySources = async () => {
   try {
     setBalanceInfoLoading(true);
 
-    const [partyRaw, dcRaw, odcRaw, poRaw, peRaw, prRaw, jobInRaw] = await Promise.all([
+    const [partyRaw, dcRaw, odcRaw, poRaw, peRaw, prRaw, jobInRaw, knittingInRaw] = await Promise.all([
       safeGet<any[]>(routes.parties),
       safeGet<any[]>(routes.dispatch),
       safeGet<any[]>(routes.otherDispatch),
@@ -1334,6 +1379,7 @@ const loadPartySources = async () => {
       safeGet<any[]>(routes.purchaseEntry),
       safeGet<any[]>(routes.purchaseReturns),
       safeGet<any[]>(routes.jobInward),
+      safeGet<any[]>("/knitting/list"),
     ]);
 
     const recRaw = await safeGetReceipts();
@@ -1433,6 +1479,30 @@ const loadPartySources = async () => {
           } as JobInwardDoc;
         })
         .filter((x) => x.partyName && x.date),
+    );
+
+    // Knitting Inward Challan / Knitting Receipt. Match Account Statement amount logic.
+    setKnittingInwards(
+      (Array.isArray(knittingInRaw) ? knittingInRaw : [])
+        .map((d: any) => {
+          const rows: any[] = Array.isArray(d.rows) ? d.rows : [];
+          const calculatedAmount = rows.reduce(
+            (sum, r) => sum + toNum(r.weight) * toNum(r.knittingRate),
+            0,
+          );
+          const backendAmount = toNum(d.totalAmount);
+          const amount = backendAmount !== 0 || rows.length === 0 ? backendAmount : calculatedAmount;
+          return {
+            id: d.id,
+            challanNo: String(d.challanNo || ""),
+            date: String(d.dated || d.date || ""),
+            partyName: String(d.party?.partyName || d.partyName || "").trim()
+              || partyIdToName.get(String(d.partyId ?? ""))
+              || "",
+            amount,
+          } as KnittingInwardDoc;
+        })
+        .filter((x) => x.id != null && x.challanNo && x.date && x.partyName),
     );
 
     // ✅ Receipts must include discount + remarks (FIFO credit = cash + discount)
