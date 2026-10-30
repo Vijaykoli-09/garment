@@ -2,14 +2,19 @@
 package com.garment.serviceImpl;
 
 import com.garment.DTO.PaymentReciptDTO;
+import com.garment.DTO.PaymentReciptListDTO;
+import com.garment.repository.PaymentReciptRepository.PaymentReciptListProjection;
 import com.garment.model.PaymentRecipt;
 import com.garment.repository.PaymentReciptRepository;
 import com.garment.service.PaymentReciptService;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Collections;
 import java.util.List;
+import java.util.Locale;
 import java.util.stream.Collectors;
 
 @Service
@@ -37,6 +42,16 @@ public class PaymentReciptServiceImpl implements PaymentReciptService {
                 .stream()
                 .map(this::toDto)
                 .collect(Collectors.toList());
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Page<PaymentReciptListDTO> getAllPaged(int page, int size, String search) {
+        int safePage = Math.max(0, page);
+        int safeSize = Math.max(1, Math.min(size, 100));
+        String query = "%" + (search == null ? "" : search.trim().toLowerCase(Locale.ROOT)) + "%";
+        return repository.searchPaged(query, PageRequest.of(safePage, safeSize))
+                .map(this::toListDto);
     }
 
     @Override
@@ -93,6 +108,13 @@ public class PaymentReciptServiceImpl implements PaymentReciptService {
         dto.setRemarks(e.getRemarks());
         dto.setAgentName(e.getAgentName());
         return dto;
+    }
+
+    private PaymentReciptListDTO toListDto(PaymentReciptListProjection row) {
+        return new PaymentReciptListDTO(
+                row.getId(), row.getEntryType(), row.getReceiptTo(), row.getReceiptDate(),
+                row.getDate(), row.getProcessName(), row.getPartyName(), row.getEmployeeName(),
+                row.getAgentName(), row.getAmount(), row.getDiscountAmount(), row.getBalance());
     }
 
     private void updateEntityFromDto(PaymentReciptDTO dto, PaymentRecipt e) {

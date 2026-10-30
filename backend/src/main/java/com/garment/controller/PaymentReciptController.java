@@ -2,10 +2,13 @@
 package com.garment.controller;
 
 import com.garment.DTO.PaymentReciptDTO;
+import com.garment.DTO.PaymentReciptListDTO;
+import com.garment.DTO.PagedResponse;
 import com.garment.service.PaymentReciptService;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.data.domain.Page;
 
 import java.util.List;
 
@@ -29,6 +32,15 @@ public class PaymentReciptController {
     @GetMapping
     public List<PaymentReciptDTO> getAll() {
         return service.getAll();
+    }
+
+    @GetMapping("/paged")
+    public PagedResponse<PaymentReciptListDTO> getAllPaged(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size,
+            @RequestParam(required = false) String search) {
+        Page<PaymentReciptListDTO> result = service.getAllPaged(page, size, search);
+        return PagedResponse.of(result);
     }
 
     @GetMapping("/{id}")

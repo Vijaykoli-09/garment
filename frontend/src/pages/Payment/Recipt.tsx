@@ -262,6 +262,21 @@ interface ReceiptRecord {
   agentName?: string;
 }
 
+type ReceiptListItem = {
+  id: number;
+  entryType: string | null;
+  receiptTo: ReceiptToType | null;
+  receiptDate: string | null;
+  date: string | null;
+  processName: string | null;
+  partyName: string | null;
+  employeeName: string | null;
+  agentName: string | null;
+  amount: number | null;
+  discountAmount: number | null;
+  balance: number | null;
+};
+
 interface DispatchChallan {
   id: number;
   challanNo: string;
@@ -461,11 +476,55 @@ const agentSearchRef = useRef<HTMLInputElement>(null);
   const [agentModalTarget, setAgentModalTarget] = useState<AgentModalTarget>("agentName");
 
   const [showList, setShowList] = useState(false);
-  const [receiptList, setReceiptList] = useState<any[]>([]);
+  const [receiptList, setReceiptList] = useState<ReceiptListItem[]>([]);
   const [searchText, setSearchText] = useState("");
+  const [listPage, setListPage] = useState(0);
+  const [listTotalPages, setListTotalPages] = useState(0);
+  const [listLoading, setListLoading] = useState(false);
+  const [listError, setListError] = useState("");
+  const [listRefresh, setListRefresh] = useState(0);
 
   const [savedRecords, setSavedRecords] = useState<ReceiptRecord[]>([]);
   const [paymentModes, setPaymentModes] = useState<PaymentMode[]>([]);
+
+  useEffect(() => {
+    if (!showList) return;
+    let active = true;
+    const timeout = window.setTimeout(async () => {
+      setListLoading(true);
+      setListError("");
+      setReceiptList([]);
+      try {
+        const response = await api.get<{
+          content: ReceiptListItem[];
+          totalPages: number;
+        }>("/recipt/paged", {
+          params: { page: listPage, size: 20, search: searchText.trim() },
+        });
+        if (!active) return;
+        if (response.data.totalPages === 0 && listPage !== 0) {
+          setListPage(0);
+          setListTotalPages(0);
+          return;
+        }
+        if (response.data.totalPages > 0 && listPage >= response.data.totalPages) {
+          setListPage(response.data.totalPages - 1);
+          return;
+        }
+        setReceiptList(response.data.content);
+        setListTotalPages(response.data.totalPages);
+      } catch (error) {
+        console.error("Could not load Receipt list:", error);
+        if (active) setListError("Could not load Receipt list. Please try again.");
+      } finally {
+        if (active) setListLoading(false);
+      }
+    }, 300);
+    return () => {
+      active = false;
+      window.clearTimeout(timeout);
+    };
+  }, [showList, listPage, searchText, listRefresh]);
 
   // show (party)
   const [showData, setShowData] = useState<any[]>([]);
@@ -1790,25 +1849,6 @@ useEffect(() => {
     return agentList.filter((a) => (a.name || a.agentName || "").toLowerCase().includes(agentSearchText.toLowerCase()));
   }, [agentList, agentSearchText]);
 
-  const filteredList = useMemo(() => {
-    if (!Array.isArray(receiptList)) return [];
-    const s = searchText.toLowerCase();
-
-    return receiptList.filter((x) => {
-      const displayName =
-        x.receiptTo === "Employee" ? x.employeeName : x.receiptTo === "Broker" ? x.agentName : x.partyName;
-
-      return (
-        !searchText ||
-        (x.entryType || "").toLowerCase().includes(s) ||
-        (x.receiptTo || "").toLowerCase().includes(s) ||
-        (x.processName || "").toLowerCase().includes(s) ||
-        (displayName || "").toLowerCase().includes(s) ||
-        (x.agentName || "").toLowerCase().includes(s)
-      );
-    });
-  }, [receiptList, searchText]);
-
   const nameLabel =
     formData.receiptTo === "Party"
       ? "Party Name"
@@ -1873,13 +1913,8 @@ setSaving(true);
   };
 
   const openList = async () => {
-    try {
-      const res = await api.get(routesReceipt.list);
-      setReceiptList(Array.isArray(res.data) ? res.data : []);
-      setShowList(true);
-    } catch {
-      Swal.fire("Error", "Failed to load list", "error");
-    }
+    setListPage(0);
+    setShowList(true);
   };
 
   const handleEdit = async (id: number) => {
@@ -1956,6 +1991,7 @@ setSaving(true);
     try {
       await api.delete(routesReceipt.delete(targetId));
       Swal.fire("Deleted!", "Record deleted successfully", "success");
+      setListRefresh((refresh) => refresh + 1);
       setEditingId(null);
       handleAddNew(false);
       await loadAll();
@@ -2716,7 +2752,10 @@ setSaving(true);
               placeholder="Search..."
               className="border p-2 rounded w-full mb-3"
               value={searchText}
-              onChange={(e) => setSearchText(e.target.value)}
+              onChange={(e) => {
+                setSearchText(e.target.value);
+                setListPage(0);
+              }}
             />
 
             <div className="overflow-auto flex-1">
@@ -2736,46 +2775,91 @@ setSaving(true);
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredList.length === 0 ? (
+                  {receiptList.map((d, i) => {
+                    const name =
+                      d.receiptTo === "Employee" ? d.employeeName : d.receiptTo === "Broker" ? d.agentName : d.partyName;
+                    const rowKey = d.id ?? i;
+                    const drcr = getDrCr(d.balance);
+                    const balAbs = absVal(d.balance);
+                    return (
+                      <tr key={rowKey}>
+                        <td className="border p-2 text-center">{listPage * 20 + i + 1}</td>
+                        <td className="border p-2">
+                          {d.receiptDate ? new Date(d.receiptDate).toLocaleDateString() : "-"}
+                        </td>
+                        <td className="border p-2">
+                          {d.date ? new Date(d.date).toLocaleDateString() : "-"}
+                        </td>
+                        <td className="border p-2">{d.receiptTo}</td>
+                        <td className="border p-2">{name || "-"}</td>
+                        <td className="border p-2 text-right">{d.amount ?? "-"}</td>
+                        <td className="border p-2 text-right">
+                          {toNum(d.discountAmount ?? 0).toFixed(2)}
+                        </td>
+                        <td className="border p-2 text-right">{d.balance == null ? "-" : balAbs}</td>
+                        <td className="border p-2 text-center">{drcr || "-"}</td>
+                        <td className="border p-2 text-center">
+                          <button
+                            onClick={() => handleEdit(d.id)}
+                            className="px-2 py-1 bg-blue-500 text-white rounded mr-1 hover:bg-blue-600"
+                          >
+                            Edit
+                          </button>
+                          <button
+                            onClick={() => handleDelete(d.id)}
+                            className="px-2 py-1 bg-red-500 text-white rounded hover:bg-red-600"
+                          >
+                            Delete
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                  {listLoading ? (
+                    <tr>
+                      <td colSpan={10} className="border p-4 text-center text-gray-500">
+                        Loading receipts...
+                      </td>
+                    </tr>
+                  ) : listError ? (
+                    <tr>
+                      <td colSpan={10} className="border p-4 text-center text-red-600">
+                        {listError}
+                      </td>
+                    </tr>
+                  ) : receiptList.length === 0 ? (
                     <tr>
                       <td colSpan={10} className="border p-4 text-center text-gray-500">
                         No records found
                       </td>
                     </tr>
-                  ) : (
-                    filteredList.map((d: any, i: number) => {
-                      const name =
-                        d.receiptTo === "Employee" ? d.employeeName : d.receiptTo === "Broker" ? d.agentName : d.partyName;
-                      const rowKey = d.id ?? i;
-
-                      const drcr = getDrCr(d.balance);
-                      const balAbs = absVal(d.balance);
-
-                      return (
-                        <tr key={rowKey}>
-                          <td className="border p-2 text-center">{i + 1}</td>
-                          <td className="border p-2">{d.receiptDate ? new Date(d.receiptDate).toLocaleDateString() : "-"}</td>
-                          <td className="border p-2">{d.date ? new Date(d.date).toLocaleDateString() : "-"}</td>
-                          <td className="border p-2">{d.receiptTo}</td>
-                          <td className="border p-2">{name || "-"}</td>
-                          <td className="border p-2 text-right">{d.amount ?? "-"}</td>
-                          <td className="border p-2 text-right">{toNum(d.discountAmount ?? 0).toFixed(2)}</td>
-                          <td className="border p-2 text-right">{d.balance == null ? "-" : balAbs}</td>
-                          <td className="border p-2 text-center">{drcr || "-"}</td>
-                          <td className="border p-2 text-center">
-                            <button onClick={() => handleEdit(d.id)} className="px-2 py-1 bg-blue-500 text-white rounded mr-1 hover:bg-blue-600">
-                              Edit
-                            </button>
-                            <button onClick={() => handleDelete(d.id)} className="px-2 py-1 bg-red-500 text-white rounded hover:bg-red-600">
-                              Delete
-                            </button>
-                          </td>
-                        </tr>
-                      );
-                    })
-                  )}
+                  ) : null}
                 </tbody>
               </table>
+            </div>
+
+            <div className="flex items-center justify-between mt-3 text-sm">
+              <span>
+                Page {listTotalPages === 0 ? 0 : listPage + 1} of {listTotalPages}
+              </span>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  disabled={listPage === 0 || listLoading}
+                  onClick={() => setListPage((page) => Math.max(0, page - 1))}
+                  className="px-3 py-1 border rounded disabled:opacity-50"
+                >
+                  Previous
+                </button>
+                <button
+                  type="button"
+                  disabled={listPage + 1 >= listTotalPages || listLoading}
+                  onClick={() => setListPage((page) => page + 1)}
+                  className="px-3 py-1 border rounded disabled:opacity-50"
+                >
+                  Next
+                </button>
+              </div>
             </div>
 
             <div className="flex justify-center mt-5">
