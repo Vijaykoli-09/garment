@@ -1,8 +1,11 @@
 package com.garment.controller;
 
-
+import com.garment.DTO.DyeingOutwardListDTO;
+import com.garment.DTO.DyeingOutwardLotCheckDTO;
+import com.garment.DTO.PagedResponse;
 import com.garment.model.DyeingOutward;
 import com.garment.service.DyeingOutwardService;
+import org.springframework.data.domain.Page;
 import org.springframework.web.bind.annotation.*;
 
 
@@ -25,6 +28,30 @@ this.service = service;
 @GetMapping
 public List<DyeingOutward> listAll() {
 return service.findAll();
+}
+
+@GetMapping("/paged")
+public PagedResponse<DyeingOutwardListDTO> listPaged(
+        @RequestParam(defaultValue = "0") int page,
+        @RequestParam(defaultValue = "20") int size,
+        @RequestParam(required = false) String search) {
+Page<DyeingOutwardListDTO> result = service.findAllPaged(page, size, search);
+return PagedResponse.of(result);
+}
+
+@GetMapping("/issued-source-keys")
+public List<String> issuedSourceKeys(@RequestParam(required = false) Long excludeId) {
+return service.findIssuedSourceKeys(excludeId);
+}
+
+@PostMapping("/previously-issued-lots")
+public List<String> previouslyIssuedLots(@RequestBody DyeingOutwardLotCheckDTO request) {
+return service.findPreviouslyIssuedLots(request.getLotNos());
+}
+
+@GetMapping("/next-challan-no")
+public String nextChallanNo() {
+return service.nextChallanNo();
 }
 
 

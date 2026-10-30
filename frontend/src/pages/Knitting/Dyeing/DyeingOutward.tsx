@@ -68,6 +68,13 @@ interface KnittingLot {
   knittingRowId?: number;
 }
 
+type DyeingOutwardListItem = {
+  id: number;
+  challanNo: string | null;
+  dated: string | null;
+  partyName: string | null;
+};
+
 const DyeingOutward: React.FC = () => {
   const [rows, setRows] = useState<DyeingRow[]>([]);
 
@@ -95,9 +102,14 @@ const DyeingOutward: React.FC = () => {
   const [through, setThrough] = useState("");
 
   const [showList, setShowList] = useState(false);
-  const [dyeingList, setDyeingList] = useState<any[]>([]);
+  const [dyeingList, setDyeingList] = useState<DyeingOutwardListItem[]>([]);
   const [searchText, setSearchText] = useState("");
   const listSearchInputRef = useRef<HTMLInputElement>(null);
+  const [listPage, setListPage] = useState(0);
+  const [listTotalPages, setListTotalPages] = useState(0);
+  const [listLoading, setListLoading] = useState(false);
+  const [listError, setListError] = useState("");
+  const [listRefresh, setListRefresh] = useState(0);
   const [editingId, setEditingId] = useState<number | null>(null);
   const savingRef = useRef(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -118,6 +130,45 @@ const DyeingOutward: React.FC = () => {
   useEffect(() => {
     if (showList) listSearchInputRef.current?.focus();
   }, [showList]);
+
+  useEffect(() => {
+    if (!showList) return;
+    let active = true;
+    const timeout = window.setTimeout(async () => {
+      setListLoading(true);
+      setListError("");
+      setDyeingList([]);
+      try {
+        const response = await api.get<{
+          content: DyeingOutwardListItem[];
+          totalPages: number;
+        }>("/dyeing-outward/paged", {
+          params: { page: listPage, size: 20, search: searchText.trim() },
+        });
+        if (!active) return;
+        if (response.data.totalPages === 0 && listPage !== 0) {
+          setListPage(0);
+          setListTotalPages(0);
+          return;
+        }
+        if (response.data.totalPages > 0 && listPage >= response.data.totalPages) {
+          setListPage(response.data.totalPages - 1);
+          return;
+        }
+        setDyeingList(response.data.content);
+        setListTotalPages(response.data.totalPages);
+      } catch (error) {
+        console.error("Could not load Dyeing Outward list:", error);
+        if (active) setListError("Could not load Dyeing Outward list. Please try again.");
+      } finally {
+        if (active) setListLoading(false);
+      }
+    }, 300);
+    return () => {
+      active = false;
+      window.clearTimeout(timeout);
+    };
+  }, [showList, listPage, searchText, listRefresh]);
   useEffect(() => {
     loadParties();
     loadYarnList();
@@ -144,22 +195,18 @@ const DyeingOutward: React.FC = () => {
       // not to the normal Save button in Dyeing Outward.
       if (issuedRows.length > 0) {
         try {
-          const outwardResponse = await api.get("/dyeing-outward");
-          const existingRecords = Array.isArray(outwardResponse.data) ? outwardResponse.data : [];
           const incomingLots = new Set(
             issuedRows.map((r) => String(r.fabricLotNo || "").trim().toUpperCase()).filter(Boolean)
           );
-          const alreadyIssued = new Set<string>();
-          existingRecords.forEach((record: any) => {
-            (Array.isArray(record.rows) ? record.rows : []).forEach((recordRow: any) => {
-              const lot = String(recordRow.lotNo || recordRow.fabricLotNo || "").trim().toUpperCase();
-              if (lot && incomingLots.has(lot)) alreadyIssued.add(lot);
-            });
-          });
-          if (alreadyIssued.size > 0) {
+          const alreadyIssued = (
+            await api.post<string[]>("/dyeing-outward/previously-issued-lots", {
+              lotNos: Array.from(incomingLots),
+            })
+          ).data;
+          if (alreadyIssued.length > 0) {
             const confirmation = await Swal.fire({
               title: "Lot Already Issued",
-              html: `These lot number(s) were issued before:<br><b>${Array.from(alreadyIssued).join(", ")}</b><br><br>Do you want to issue them again?`,
+              html: `These lot number(s) were issued before:<br><b>${alreadyIssued.join(", ")}</b><br><br>Do you want to issue them again?`,
               icon: "warning",
               showCancelButton: true,
               confirmButtonText: "Yes, Issue Again",
@@ -174,6 +221,9 @@ const DyeingOutward: React.FC = () => {
           }
         } catch (checkError) {
           console.error("Could not verify previously issued lots:", checkError);
+          await Swal.fire("Error", "Could not verify previously issued lots. The lots were not loaded.", "error");
+          sessionStorage.removeItem("knittingIssueToDyeingOutwardData");
+          return;
         }
       }
 
@@ -293,23 +343,18 @@ const DyeingOutward: React.FC = () => {
 
   const loadKnittingLots = async () => {
     try {
-      // Load both the source knitting lots and already-issued Dyeing Outward records.
-      const [knittingResponse, outwardResponse] = await Promise.all([
+      const [knittingResponse, issuedSourceResponse] = await Promise.all([
         api.get("/knitting/list"),
-        api.get("/dyeing-outward"),
+        api.get<string[]>("/dyeing-outward/issued-source-keys", {
+          params: editingId == null ? {} : { excludeId: editingId },
+        }),
       ]);
       const data = Array.isArray(knittingResponse.data) ? knittingResponse.data : [];
-      const outwardRecords = Array.isArray(outwardResponse.data) ? outwardResponse.data : [];
-      const usedSources = new Set<string>();
-
-      outwardRecords.forEach((record: any) => {
-        // When editing a challan, allow its own lots to remain available in the picker.
-        if (editingId != null && Number(record.id) === Number(editingId)) return;
-        (Array.isArray(record.rows) ? record.rows : []).forEach((row: any) => {
-          const sourceKey = String(row.sourceKey || "").trim();
-          if (sourceKey) usedSources.add(sourceKey);
-        });
-      });
+      const usedSources = new Set(
+        (Array.isArray(issuedSourceResponse.data) ? issuedSourceResponse.data : [])
+          .map((sourceKey) => String(sourceKey || "").trim())
+          .filter(Boolean)
+      );
       setIssuedSourceKeys(usedSources);
       const lots: KnittingLot[] = [];
 
@@ -360,7 +405,7 @@ const DyeingOutward: React.FC = () => {
       loadKnittingLots();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [yarnList, fabricationList]);
+  }, [yarnList, fabricationList, editingId]);
 
   useEffect(() => {
     if (selectedPartyId) {
@@ -372,25 +417,11 @@ const DyeingOutward: React.FC = () => {
 
   const generateChallanNo = async () => {
     try {
-      const res = await api.get("/dyeing-outward");
-      const list = Array.isArray(res.data) ? res.data : [];
-      const last = list[list.length - 1];
-      const year = new Date().getFullYear();
-      let nextSerial = 1;
-
-      if (last?.challanNo) {
-        const parts = last.challanNo.split("/");
-        if (parts.length > 1) {
-          const lastNum = Number.parseInt(parts[1]);
-          if (!isNaN(lastNum)) nextSerial = lastNum + 1;
-        }
-      }
-
-      const serial = String(nextSerial).padStart(4, "0");
-      setChallanNo(`D-${year}/${serial}`);
-    } catch {
-      const year = new Date().getFullYear();
-      setChallanNo(`D-${year}/0001`);
+      const response = await api.get<string>("/dyeing-outward/next-challan-no");
+      setChallanNo(response.data);
+    } catch (error) {
+      console.error("Could not generate Dyeing Outward challan number:", error);
+      await Swal.fire("Error", "Could not generate a challan number.", "error");
     }
   };
 
@@ -622,23 +653,9 @@ const DyeingOutward: React.FC = () => {
     generateChallanNo();
   };
 
-  const openList = async () => {
-    try {
-      const res = await api.get("/dyeing-outward");
-      const data = Array.isArray(res.data) ? res.data : [];
-      // Newest challan first; use date first, then numeric id as a stable fallback.
-      data.sort((a: any, b: any) => {
-        const dateA = new Date(a.dated || a.createdAt || 0).getTime() || 0;
-        const dateB = new Date(b.dated || b.createdAt || 0).getTime() || 0;
-        if (dateA !== dateB) return dateB - dateA;
-        return (Number(b.id) || 0) - (Number(a.id) || 0);
-      });
-      setDyeingList(data);
-      setShowList(true);
-    } catch (err) {
-      console.error("Load List Error:", err);
-      Swal.fire("Error", "Failed to load list", "error");
-    }
+  const openList = () => {
+    setListPage(0);
+    setShowList(true);
   };
 
   const handleEdit = async (id: number) => {
@@ -692,7 +709,7 @@ const DyeingOutward: React.FC = () => {
     if (result.isConfirmed) {
       try {
         await api.delete(`/dyeing-outward/${id}`);
-        setDyeingList((prev) => prev.filter((x) => x.id !== id));
+        setListRefresh((refresh) => refresh + 1);
         Swal.fire("Deleted!", "Record deleted successfully", "success");
       } catch (err) {
         console.error("Delete Error:", err);
@@ -880,17 +897,6 @@ const DyeingOutward: React.FC = () => {
       issueToRef.current = false;
     }
   };
-
-  const filteredList = Array.isArray(dyeingList)
-    ? dyeingList.filter((x) => {
-        const s = searchText.toLowerCase();
-        return (
-          !searchText ||
-          (x.challanNo || "").toLowerCase().includes(s) ||
-          (x.partyName || "").toLowerCase().includes(s)
-        );
-      })
-    : [];
 
   const selectedRows = rows.filter((r) => r.selected);
   const totalRolls = selectedRows.reduce((sum, r) => sum + (Number.parseFloat(r.roll) || 0), 0);
@@ -1253,7 +1259,10 @@ const DyeingOutward: React.FC = () => {
               placeholder="Search by Challan or Party"
               className="border p-2 rounded w-full mb-3"
               value={searchText}
-              onChange={(e) => setSearchText(e.target.value)}
+              onChange={(e) => {
+                setSearchText(e.target.value);
+                setListPage(0);
+              }}
             />
 
             <div className="overflow-auto flex-1">
@@ -1269,38 +1278,73 @@ const DyeingOutward: React.FC = () => {
                 </thead>
 
                 <tbody>
-                  {filteredList.length === 0 ? (
+                  {dyeingList.map((dyeing, index) => (
+                    <tr key={dyeing.id}>
+                      <td className="border p-2 text-center">{listPage * 20 + index + 1}</td>
+                      <td className="border p-2">{dyeing.challanNo || "-"}</td>
+                      <td className="border p-2">{dyeing.dated || "-"}</td>
+                      <td className="border p-2">{dyeing.partyName || "-"}</td>
+                      <td className="border p-2 text-center">
+                        <button
+                          onClick={() => handleEdit(dyeing.id)}
+                          className="px-3 py-1 bg-blue-500 text-white rounded hover:bg-blue-600 mr-2"
+                        >
+                          Edit
+                        </button>
+                        <button
+                          onClick={() => handleDelete(dyeing.id)}
+                          className="px-3 py-1 bg-red-500 text-white rounded hover:bg-red-600"
+                        >
+                          Delete
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                  {listLoading ? (
+                    <tr>
+                      <td colSpan={5} className="border p-4 text-center text-gray-500">
+                        Loading Dyeing Outward entries...
+                      </td>
+                    </tr>
+                  ) : listError ? (
+                    <tr>
+                      <td colSpan={5} className="border p-4 text-center text-red-600">
+                        {listError}
+                      </td>
+                    </tr>
+                  ) : dyeingList.length === 0 ? (
                     <tr>
                       <td colSpan={5} className="border p-4 text-center text-gray-500">
                         No records found
                       </td>
                     </tr>
-                  ) : (
-                    filteredList.map((dyeing, index) => (
-                      <tr key={dyeing.id}>
-                        <td className="border p-2 text-center">{index + 1}</td>
-                        <td className="border p-2">{dyeing.challanNo}</td>
-                        <td className="border p-2">{dyeing.dated}</td>
-                        <td className="border p-2">{dyeing.partyName}</td>
-                        <td className="border p-2 text-center">
-                          <button
-                            onClick={() => handleEdit(dyeing.id)}
-                            className="px-3 py-1 bg-blue-500 text-white rounded hover:bg-blue-600 mr-2"
-                          >
-                            Edit
-                          </button>
-                          <button
-                            onClick={() => handleDelete(dyeing.id)}
-                            className="px-3 py-1 bg-red-500 text-white rounded hover:bg-red-600"
-                          >
-                            Delete
-                          </button>
-                        </td>
-                      </tr>
-                    ))
-                  )}
+                  ) : null}
                 </tbody>
               </table>
+            </div>
+
+            <div className="flex items-center justify-between mt-3 text-sm">
+              <span>
+                Page {listTotalPages === 0 ? 0 : listPage + 1} of {listTotalPages}
+              </span>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  disabled={listPage === 0 || listLoading}
+                  onClick={() => setListPage((page) => Math.max(0, page - 1))}
+                  className="px-3 py-1 border rounded disabled:opacity-50"
+                >
+                  Previous
+                </button>
+                <button
+                  type="button"
+                  disabled={listPage + 1 >= listTotalPages || listLoading}
+                  onClick={() => setListPage((page) => page + 1)}
+                  className="px-3 py-1 border rounded disabled:opacity-50"
+                >
+                  Next
+                </button>
+              </div>
             </div>
 
             <div className="flex justify-center mt-4">
