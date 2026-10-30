@@ -11,10 +11,13 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.garment.DTO.PurchaseEntryItemDTO;
+import com.garment.DTO.PurchaseEntryListDTO;
 import com.garment.DTO.PurchaseEntryRequestDTO;
+import com.garment.DTO.PagedResponse;
 import com.garment.model.PurchaseEntry;
 import com.garment.service.PurchaseEntryService;
 
@@ -48,6 +51,14 @@ public class PurchaseEntryController {
         return ResponseEntity.ok(entries);
     }
 
+    @GetMapping("/paged")
+    public PagedResponse<PurchaseEntryListDTO> getAllPaged(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size,
+            @RequestParam(required = false) String search) {
+        return service.getAllEntriesPaged(page, size, search);
+    }
+
     // ✅ Update Purchase Entry
     @PutMapping("/{id}")
     public ResponseEntity<PurchaseEntry> update(@PathVariable Long id, @RequestBody PurchaseEntryRequestDTO dto) {
@@ -77,5 +88,3 @@ public class PurchaseEntryController {
     }
     
 }
-
-

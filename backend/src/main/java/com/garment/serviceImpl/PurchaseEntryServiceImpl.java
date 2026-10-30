@@ -5,7 +5,9 @@ import java.util.stream.Collectors;
 import org.springframework.stereotype.Service;
 
 import com.garment.DTO.PurchaseEntryItemDTO;
+import com.garment.DTO.PurchaseEntryListDTO;
 import com.garment.DTO.PurchaseEntryRequestDTO;
+import com.garment.DTO.PagedResponse;
 import com.garment.model.Material;
 import com.garment.model.MaterialGroup;
 import com.garment.model.Party;
@@ -24,6 +26,8 @@ import com.garment.service.PurchaseEntryService;
 
 import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
 
 @Service
 @RequiredArgsConstructor
@@ -145,6 +149,19 @@ public class PurchaseEntryServiceImpl implements PurchaseEntryService {
     @Override
     public List<PurchaseEntry> getAllEntries() {
         return entryRepo.findAll();
+    }
+
+    @Override
+    public PagedResponse<PurchaseEntryListDTO> getAllEntriesPaged(int page, int size, String search) {
+        int safePage = Math.max(0, page);
+        int safeSize = Math.max(1, Math.min(size, 100));
+        String query = "%" + (search == null ? "" : search.trim().toLowerCase(java.util.Locale.ROOT)) + "%";
+        Page<PurchaseEntryListDTO> results = entryRepo.searchPaged(query, PageRequest.of(safePage, safeSize))
+                .map(row -> new PurchaseEntryListDTO(
+                        row.getId(), row.getChallanNo(), row.getDate(), row.getPartyName(),
+                        row.getYarnNames(), row.getMaterialNames(), row.getTotalWtPerBox(),
+                        row.getTotalAmount()));
+        return PagedResponse.of(results);
     }
 
 
