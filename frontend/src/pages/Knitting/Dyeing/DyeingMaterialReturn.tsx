@@ -14,6 +14,7 @@ interface RowData {
   weight: string;
   wastage: string;
   remarks: string;
+  selected: boolean;
 }
 
 // Interface for party
@@ -37,11 +38,12 @@ const DyeingMaterialReturn: React.FC = () => {
   const [totalWastage, setTotalWastage] = useState<number>(0);
   const [parties, setParties] = useState<Party[]>([]);
   const [dyeingInwardList, setDyeingInwardList] = useState<any[]>([]);
-  const [selectedInward, setSelectedInward] = useState<string>("");
+  const [, setSelectedInward] = useState<string>("");
   const [isEditMode, setIsEditMode] = useState<boolean>(false);
   const [editId, setEditId] = useState<number | null>(null);
   const [showInwardModal, setShowInwardModal] = useState<boolean>(false);
   const [loading, setLoading] = useState<boolean>(false);
+  const [lotSearch, setLotSearch] = useState<string>("");
 
   // Load parties on mount
   useEffect(() => {
@@ -57,53 +59,123 @@ const DyeingMaterialReturn: React.FC = () => {
     loadParties();
   }, []);
 
-  // Load dyeing inwards when party changes
+  // When a party is selected, automatically fetch ALL its dyeing inward rows.
+  // No challan selection is required. Rows are summarized by Lot + Item + Shade.
   useEffect(() => {
-    if (!partyId) {
-      setDyeingInwardList([]);
-      setSelectedInward("");
+    if (!partyId || !partyName || isEditMode) {
+      if (!partyId && !isEditMode) {
+        setDyeingInwardList([]);
+        setSelectedInward("");
+        setRows([]);
+        setChallanNo("");
+      }
       return;
     }
 
-    const loadInwards = async () => {
+    let cancelled = false;
+
+    const loadPartySummary = async () => {
+      setLoading(true);
       try {
         const response = await api.get("/dyeing-inward");
         const allInwards = Array.isArray(response.data) ? response.data : [];
-        const filtered = allInwards.filter((inward: any) => inward.partyName === partyName);
+        const normalizedParty = partyName.trim().toLowerCase();
+        const filtered = allInwards.filter(
+          (inward: any) =>
+            String(inward.partyName || "").trim().toLowerCase() === normalizedParty
+        );
+
+        if (cancelled) return;
         setDyeingInwardList(filtered);
+        setSelectedInward("");
+        // Several inward challans may contribute to this summary, so do not bind
+        // the return to a single inwardId or force the user to choose a challan.
+        setChallanNo("");
+
+        const grouped = new Map<string, any>();
+        filtered.forEach((inward: any) => {
+          (Array.isArray(inward.rows) ? inward.rows : []).forEach((row: any) => {
+            const lotNo = String(row.fabricLotNo ?? row.lotNo ?? "").trim();
+            const item = String(row.fabric ?? row.item ?? row.itemName ?? "").trim();
+            const shade = String(row.shade ?? "").trim();
+            if (!item && !lotNo && !shade) return;
+
+            const key = [lotNo.toLowerCase(), item.toLowerCase(), shade.toLowerCase()].join("||");
+            const existing = grouped.get(key);
+            const rolls = Number(row.rolls) || 0;
+            const weight = Number(row.weight ?? row.receivedWeight) || 0;
+
+            if (existing) {
+              existing.rolls = (Number(existing.rolls) || 0) + rolls;
+              existing.weight = (Number(existing.weight) || 0) + weight;
+            } else {
+              grouped.set(key, {
+                id: Date.now() + grouped.size,
+                lotNo,
+                item,
+                shade,
+                processing: "",
+                rolls,
+                weight,
+                wastage: 0,
+                remarks: "",
+                selected: false,
+              });
+            }
+          });
+        });
+
+        const summaryRows: RowData[] = Array.from(grouped.values()).map((row: any) => ({
+          ...row,
+          rolls: String(row.rolls),
+          weight: String(row.weight),
+          wastage: String(row.wastage),
+        }));
+
+        setRows(summaryRows.length ? summaryRows : [{
+          id: Date.now(),
+          lotNo: "",
+          item: "",
+          shade: "",
+          processing: "",
+          rolls: "",
+          weight: "",
+          wastage: "",
+          remarks: "",
+          selected: false,
+        }]);
+
+        if (filtered.length === 0) {
+          Swal.fire("No Inward Data", "No Dyeing Inward records found for this party.", "info");
+        }
       } catch (err) {
-        console.error("Failed to fetch dyeing inwards", err);
-        Swal.fire("Error", "Failed to load dyeing inwards", "error");
-        setDyeingInwardList([]);
+        console.error("Failed to fetch dyeing inward summary", err);
+        if (!cancelled) {
+          setDyeingInwardList([]);
+          setRows([{
+            id: Date.now(),
+            lotNo: "",
+            item: "",
+            shade: "",
+            processing: "",
+            rolls: "",
+            weight: "",
+            wastage: "",
+            remarks: "",
+            selected: false,
+          }]);
+          Swal.fire("Error", "Failed to load dyeing inward summary", "error");
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
       }
     };
-    loadInwards();
-  }, [partyId, partyName]);
 
-  // Auto-fill rows from selected inward
-  useEffect(() => {
-    if (!selectedInward || isEditMode) return;
-
-    const inward = dyeingInwardList.find((i: any) => String(i.id) === String(selectedInward));
-    if (!inward || !inward.rows) {
-      setRows([]);
-      return;
-    }
-
-    const mappedRows = inward.rows.map((row: any, idx: number) => ({
-      id: Date.now() + idx,
-      lotNo: row.fabricLotNo || "",
-      item: row.fabric || "",
-      shade: row.shade || "",
-      processing: "",
-      rolls: row.rolls?.toString() || "",
-      weight: row.weight?.toString() || "",
-      wastage: "",
-      remarks: "",
-    }));
-
-    setRows(mappedRows);
-  }, [selectedInward, isEditMode, dyeingInwardList]);
+    loadPartySummary();
+    return () => {
+      cancelled = true;
+    };
+  }, [partyId, partyName, isEditMode]);
 
   // Add a new empty row
   const addRow = useCallback(() => {
@@ -119,6 +191,7 @@ const DyeingMaterialReturn: React.FC = () => {
         weight: "",
         wastage: "",
         remarks: "",
+        selected: false,
       },
     ]);
   }, []);
@@ -128,7 +201,7 @@ const DyeingMaterialReturn: React.FC = () => {
     let rollsTotal = 0;
     let weightTotal = 0;
     let wastageTotal = 0;
-    rows.forEach((row) => {
+    rows.filter((row) => row.selected).forEach((row) => {
       rollsTotal += Number(row.rolls) || 0;
       weightTotal += Number(row.weight) || 0;
       wastageTotal += Number(row.wastage) || 0;
@@ -159,14 +232,14 @@ const DyeingMaterialReturn: React.FC = () => {
     dated,
     partyName,
     partyId: Number(partyId),
-    inwardId: selectedInward ? Number(selectedInward) : null,
+    inwardId: null,
     vehicleNo,
     through,
     narration,
-    totalRolls,
-    totalWeight,
-    totalWastage,
-    rows: rows.map((row) => ({
+    totalRolls: rows.filter((row) => row.selected).reduce((sum, row) => sum + (Number(row.rolls) || 0), 0),
+    totalWeight: rows.filter((row) => row.selected).reduce((sum, row) => sum + (Number(row.weight) || 0), 0),
+    totalWastage: rows.filter((row) => row.selected).reduce((sum, row) => sum + (Number(row.wastage) || 0), 0),
+    rows: rows.filter((row) => row.selected).map((row) => ({
       id: row.id, // optional if backend doesn't require
       lotNo: row.lotNo,
       item: row.item,
@@ -181,15 +254,20 @@ const DyeingMaterialReturn: React.FC = () => {
 
   // Save new record
   const handleSave = async () => {
-    if (!partyName || !dated || !challanNo) {
-      Swal.fire("Validation Error", "Please fill: Party, Date, and Challan No.", "warning");
+    if (!partyName || !dated) {
+      Swal.fire("Validation Error", "Please select Party and Date.", "warning");
+      return;
+    }
+
+    if (!rows.some((row) => row.selected)) {
+      Swal.fire("Select Items", "Please select at least one lot to return.", "warning");
       return;
     }
 
     setLoading(true);
     try {
       const payload = preparePayload();
-      const response = await api.post("/material-return/save", payload);
+      const response = await api.post("/dyeing-material-return/save", payload);
       const savedId = response.data.id;
 
       Swal.fire("Success", "Material return saved successfully!", "success");
@@ -214,15 +292,19 @@ const DyeingMaterialReturn: React.FC = () => {
       return;
     }
 
-    if (!partyName || !dated || !challanNo) {
-      Swal.fire("Validation Error", "Please fill required fields", "warning");
+    if (!partyName || !dated) {
+      Swal.fire("Validation Error", "Please select Party and Date.", "warning");
+      return;
+    }
+    if (!rows.some((row) => row.selected)) {
+      Swal.fire("Select Items", "Please select at least one lot to return.", "warning");
       return;
     }
 
     setLoading(true);
     try {
       const payload = preparePayload();
-      await api.put(`/material-return/update/${editId}`, payload);
+      await api.put(`/dyeing-material-return/update/${editId}`, payload);
       Swal.fire("Success", "Material return updated successfully!", "success");
     } catch (err: any) {
       console.error("Update Error:", err);
@@ -254,7 +336,7 @@ const DyeingMaterialReturn: React.FC = () => {
 
     if (result.isConfirmed) {
       try {
-        await api.delete(`/material-return/delete/${editId}`);
+        await api.delete(`/dyeing-material-return/delete/${editId}`);
         Swal.fire("Deleted", "Record deleted successfully", "success");
         handleClear();
       } catch (err: any) {
@@ -281,6 +363,7 @@ const DyeingMaterialReturn: React.FC = () => {
     setIsEditMode(false);
     setEditId(null);
     setSelectedInward("");
+    setLotSearch("");
     addRow();
   };
 
@@ -288,7 +371,7 @@ const DyeingMaterialReturn: React.FC = () => {
   const handleEdit = async (id: number) => {
     try {
       setLoading(true);
-      const response = await api.get(`/material-return/${id}`);
+      const response = await api.get(`/dyeing-material-return/${id}`);
       const data = response.data;
 
       setEditId(data.id);
@@ -313,6 +396,7 @@ const DyeingMaterialReturn: React.FC = () => {
         weight: String(row.weight || ""),
         wastage: String(row.wastage || ""),
         remarks: row.remarks || "",
+        selected: true,
       }));
 
       setRows(mappedRows);
@@ -329,7 +413,7 @@ const DyeingMaterialReturn: React.FC = () => {
   const openListModal = async () => {
     try {
       setLoading(true);
-      const response = await api.get("/material-return/list");
+      const response = await api.get("/dyeing-material-return/list");
       const list = Array.isArray(response.data) ? response.data : [];
 
       Swal.fire({
@@ -353,10 +437,10 @@ const DyeingMaterialReturn: React.FC = () => {
                     (item: any, i: number) => `
                   <tr>
                     <td>${i + 1}</td>
-                    <td>${new Date(item.dated).toLocaleDateString()}</td>
+                    <td>${item.dated ? new Date(item.dated).toLocaleDateString() : "-"}</td>
                     <td>${item.challanNo}</td>
                     <td>${item.partyName}</td>
-                    <td>${item.totalWeight.toFixed(2)}</td>
+                    <td>${Number(item.totalWeight || 0).toFixed(2)}</td>
                     <td>
                       <button class="edit-btn" data-id="${
                         item.id
@@ -423,14 +507,13 @@ const DyeingMaterialReturn: React.FC = () => {
               </select>
             </div>
             <div>
-              <label className="block font-semibold">Challan No.</label>
+              <label className="block font-semibold">Challan No. (Optional)</label>
               <input
                 type="text"
                 value={challanNo}
-                onClick={() => setShowInwardModal(true)}
-                readOnly
-                className="border p-2 rounded w-full cursor-pointer bg-gray-50 hover:bg-gray-100"
-                placeholder="Click to select Inward"
+                onChange={(e) => setChallanNo(e.target.value)}
+                className="border p-2 rounded w-full"
+                placeholder="Optional (not required)"
               />
             </div>
             <div>
@@ -494,11 +577,39 @@ const DyeingMaterialReturn: React.FC = () => {
             </div>
           </div>
 
+          {/* Lot search and row selection controls */}
+          <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="w-full sm:max-w-md">
+              <label className="mb-1 block text-sm font-semibold">Search Lot No.</label>
+              <input
+                type="text"
+                value={lotSearch}
+                onChange={(e) => setLotSearch(e.target.value)}
+                placeholder="Enter lot number to search..."
+                className="w-full rounded border p-2"
+              />
+            </div>
+            <div className="flex flex-wrap items-center gap-3 text-sm">
+              <label className="flex cursor-pointer items-center gap-2 font-medium">
+                <input
+                  type="checkbox"
+                  checked={rows.length > 0 && rows.every((row) => row.selected)}
+                  onChange={(e) => setRows((prev) => prev.map((row) => row.lotNo.toLowerCase().includes(lotSearch.trim().toLowerCase()) ? { ...row, selected: e.target.checked } : row))}
+                />
+                Select All
+              </label>
+              <span className="rounded bg-blue-50 px-3 py-2 text-blue-700">
+                Selected: {rows.filter((row) => row.selected).length} / {rows.length}
+              </span>
+            </div>
+          </div>
+
           {/* Table */}
           <div className="overflow-x-auto">
             <table className="w-full border border-red-500 text-sm">
               <thead className="bg-gray-200">
                 <tr>
+                  <th className="border p-2">Select</th>
                   <th className="border p-2">S No</th>
                   <th className="border p-2">Lot No</th>
                   <th className="border p-2">Item</th>
@@ -511,9 +622,19 @@ const DyeingMaterialReturn: React.FC = () => {
                 </tr>
               </thead>
               <tbody>
-                {rows.map((row, index) => (
-                  <tr key={row.id}>
-                    <td className="border p-2 text-center">{index + 1}</td>
+                {rows
+                  .filter((row) => row.lotNo.toLowerCase().includes(lotSearch.trim().toLowerCase()))
+                  .map((row) => (
+                  <tr key={row.id} className={row.selected ? "bg-blue-50" : ""}>
+                    <td className="border p-2 text-center">
+                      <input
+                        type="checkbox"
+                        checked={row.selected}
+                        onChange={(e) => setRows((prev) => prev.map((item) => item.id === row.id ? { ...item, selected: e.target.checked } : item))}
+                        aria-label={`Select lot ${row.lotNo}`}
+                      />
+                    </td>
+                    <td className="border p-2 text-center">{rows.findIndex((item) => item.id === row.id) + 1}</td>
                     <td className="border p-1">
                       <input
                         type="text"
@@ -583,7 +704,7 @@ const DyeingMaterialReturn: React.FC = () => {
               </tbody>
               <tfoot>
                 <tr className="bg-gray-100 font-semibold">
-                  <td className="border p-2 text-right" colSpan={5}>
+                  <td className="border p-2 text-right" colSpan={6}>
                     Total
                   </td>
                   <td className="border p-2 text-right">{totalRolls}</td>

@@ -188,9 +188,14 @@ export const computeLedgerFifo = (args: {
       return (a.id || 0) - (b.id || 0);
     });
 
-  // FIFO queue of open bills
+  // FIFO queue of open bills.
+  // Credits that occur before a bill (especially a CREDIT opening balance)
+  // must be carried forward and applied to the next eligible bill instead of
+  // being discarded. Any credit left after all current bills is unapplied
+  // credit; it must not become a negative/pending bill.
   type QItem = { docKey: string; remaining: number };
   const queue: QItem[] = [];
+  let unappliedCredit = 0;
 
   // bill base state
   const billBase = new Map<
@@ -219,6 +224,27 @@ export const computeLedgerFifo = (args: {
 
     const manualPaidUser = !!manualPaidUserByDocKey.get(docKey);
 
+    // A user-marked paid bill is intentionally excluded from FIFO.
+    if (manualPaidUser) {
+      billBase.set(docKey, {
+        type: e.type,
+        docNo: String(e.orderNo || "").trim() || "-",
+        date: e.date,
+        partyName: e.partyName || "-",
+        brokerName: String(e.brokerName || "").trim() || "-",
+        original,
+        remaining: 0,
+        manualPaidUser: true,
+      });
+      return;
+    }
+
+    // Apply any credit carried from an earlier event (e.g. opening credit)
+    // to this bill before placing its remainder in the FIFO queue.
+    const usedFromCarry = Math.min(original, unappliedCredit);
+    const remaining = Math.max(0, original - usedFromCarry);
+    unappliedCredit = Math.max(0, unappliedCredit - usedFromCarry);
+
     billBase.set(docKey, {
       type: e.type,
       docNo: String(e.orderNo || "").trim() || "-",
@@ -226,12 +252,11 @@ export const computeLedgerFifo = (args: {
       partyName: e.partyName || "-",
       brokerName: String(e.brokerName || "").trim() || "-",
       original,
-      remaining: manualPaidUser ? 0 : original,
-      manualPaidUser,
+      remaining,
+      manualPaidUser: false,
     });
 
-    // manual paid bills do not participate in FIFO allocation
-    if (!manualPaidUser) queue.push({ docKey, remaining: original });
+    if (remaining > 1e-9) queue.push({ docKey, remaining });
   };
 
   const applySettlement = (e: BaseLedgerEvent) => {
@@ -241,7 +266,7 @@ export const computeLedgerFifo = (args: {
     let left = toNum(e.credit);
     if (left <= 0) return;
 
-    while (left > 0 && queue.length > 0) {
+    while (left > 1e-9 && queue.length > 0) {
       const front = queue[0];
       const used = Math.min(left, front.remaining);
 
@@ -256,6 +281,11 @@ export const computeLedgerFifo = (args: {
 
       if (front.remaining <= 1e-9) queue.shift();
     }
+
+    // Preserve excess receipts/payments as unapplied credit so it can offset
+    // later bills. It is not itself a pending bill and therefore must not
+    // inflate Pending (FIFO).
+    if (left > 1e-9) unappliedCredit += left;
   };
 
   for (const e of eligible) {

@@ -669,7 +669,7 @@ const KnittingStockStatement: React.FC = () => {
         );
 
         let balPcs = openingIssuePcs - openingReceiptPcs;
-        let balKgs = openingIssueKgs - openingReceiptKgs;
+        let balKgs = openingIssueKgs - openingReceiptKgs - allBeforeRows.reduce((s, r) => s + toNum(r.shortage), 0);
         let balAmt = openingIssueAmt - openingReceiptAmt;
 
         finalRows.push({
@@ -703,7 +703,7 @@ const KnittingStockStatement: React.FC = () => {
 
         currentPeriodRows.forEach((r) => {
           balPcs += toNum(r.issuePcs) - toNum(r.receiptPcs);
-          balKgs += toNum(r.issueKgs) - toNum(r.receiptKgs);
+          balKgs += toNum(r.issueKgs) - toNum(r.receiptKgs) - toNum(r.shortage);
           balAmt += toNum(r.issueAmount) - toNum(r.receiptAmount);
 
           finalRows.push({
@@ -747,7 +747,7 @@ const KnittingStockStatement: React.FC = () => {
           );
 
           let balPcs = openingIssuePcs - openingReceiptPcs;
-          let balKgs = openingIssueKgs - openingReceiptKgs;
+          let balKgs = openingIssueKgs - openingReceiptKgs - before.reduce((s, r) => s + toNum(r.shortage), 0);
           let balAmt = openingIssueAmt - openingReceiptAmt;
 
           finalRows.push({
@@ -771,7 +771,7 @@ const KnittingStockStatement: React.FC = () => {
             })
             .forEach((r) => {
               balPcs += toNum(r.issuePcs) - toNum(r.receiptPcs);
-              balKgs += toNum(r.issueKgs) - toNum(r.receiptKgs);
+              balKgs += toNum(r.issueKgs) - toNum(r.receiptKgs) - toNum(r.shortage);
               balAmt += toNum(r.issueAmount) - toNum(r.receiptAmount);
 
               finalRows.push({
@@ -1028,7 +1028,7 @@ const KnittingStockStatement: React.FC = () => {
         fabricBreakdownList: Array.from(r.fabricBreakdown.values()).sort((a, b) =>
           a.fabricName.localeCompare(b.fabricName)
         ),
-        remainingKgs: Number((r.issueKgs - r.consumedKgs).toFixed(3)),
+        remainingKgs: Number((r.issueKgs - r.consumedKgs - r.shortage).toFixed(3)),
         remainingAmount: Number((r.issueAmount - r.consumedAmount).toFixed(2)),
       }))
       .sort((a, b) => a.itemName.localeCompare(b.itemName));

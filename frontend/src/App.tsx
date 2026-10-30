@@ -108,6 +108,12 @@ import ViewSales from "./pages/app/ViewSales";
 import CustomerRequests from "./pages/app/CustomerRequests";
 import NotificationsPage from "./pages/Notifications";
 import DispatchReturn from "./pages/Sales/DispatchReturn";
+import FinishingBatchCreation from "./pages/Knitting/Finishing/FinishingBatchCreation";
+//import FinishingOutstandingReport from "./pages/Knitting/Finishing/FinishingItemWiseOutstanding";
+import FinishingItemWiseOutstanding from "./pages/Knitting/Finishing/FinishingItemWiseOutstanding";
+import FabricStockReport from "./pages/Reports/FabricStockReport";
+import ArtCuttingPackingSaleReport from "./pages/Reports/ArtCuttingPackingSaleReport";
+import SelfTransfer from "./pages/Payment/SelfTransfer";
 
 // Wrapper so we can use useNavigate inside Router context
 function CustomerRequestsPage() {
@@ -297,6 +303,8 @@ function App() {
         <Route path="/knitting/finishing/finishing-stock-statement" element={<FinishingStockStatement />} />
         <Route path="/knitting/finishing/finishing-amount-statement" element={<FinishingAmountStatement />} />
         <Route path="/knitting/finishing/in-house-stock-statement" element={<FinishingInHouseStock />} />
+        <Route path="/knitting/finishing/batch-creation" element={<FinishingBatchCreation />} />
+        <Route path="/knitting/finishing/finishing-item-wise-outstanding" element={<FinishingItemWiseOutstanding />} />
 
         {/* Knitting – packing & reports */}
         <Route path="/knitting/packing/packing-challan" element={<PackingChallan />} />
@@ -330,10 +338,13 @@ function App() {
         <Route path="/payment/payment" element={<PaymentMethod />} />
         <Route path="/payment/recipt" element={<PaymentRecipt />} />
         <Route path="/payment/payment-mode" element={<PaymentMode />} />
+        <Route path="/payment/self-transfer" element={<SelfTransfer />} />
 
         {/* Reports (nested) */}
         <Route path="reports">
           <Route path="art-report" element={<ArtReport />} />
+          <Route path="art-cutting-packing-sale-report" element={<ArtCuttingPackingSaleReport />} />
+          <Route path="fabric-stock-report" element={<FabricStockReport />} />
           <Route path="salary-report" element={<SalaryReport/>}/>
           <Route path="dispatch-report" element={<DispatchReport />} />
           <Route path="job-work-report" element={<JobWorkReport />} />

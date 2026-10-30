@@ -81,6 +81,9 @@ const KnittingInwardChallan: React.FC = () => {
   // Current prefix used for auto-generation
   const [currentPrefix, setCurrentPrefix] = useState<string>(DEFAULT_LOT_PREFIX);
   const nextLotRef = useRef<number>(1); // cached next number
+  // Synchronous lock prevents rapid/double clicks before React re-renders.
+  const savingRef = useRef(false);
+  const [isSaving, setIsSaving] = useState(false);
 
   // Rows
   const [rows, setRows] = useState<RowData[]>([]);
@@ -107,15 +110,31 @@ const KnittingInwardChallan: React.FC = () => {
   const [showList, setShowList] = useState<boolean>(false);
   const [knittingList, setKnittingList] = useState<any[]>([]);
   const [searchText, setSearchText] = useState<string>("");
+  const searchInputRef = useRef<HTMLInputElement>(null);
 
   // Fabrication selection modal
   const [fabModalOpen, setFabModalOpen] = useState(false);
   const [fabRowId, setFabRowId] = useState<number | null>(null);
   const [fabSearch, setFabSearch] = useState("");
+  const fabSearchInputRef = useRef<HTMLInputElement>(null);
   const [fabRows, setFabRows] = useState<FabRow[]>([]);
   const [selectedFabSerials, setSelectedFabSerials] = useState<Set<string>>(
     new Set()
   );
+
+  // Automatically focus the search input whenever either searchable modal opens.
+  useEffect(() => {
+    if (fabModalOpen) {
+      fabSearchInputRef.current?.focus();
+    }
+  }, [fabModalOpen]);
+
+  useEffect(() => {
+    if (showList) {
+      searchInputRef.current?.focus();
+    }
+  }, [showList]);
+
 
   // --- INITIAL ROW: only once (React StrictMode safe) ---
   const didInitRef = useRef(false);
@@ -603,114 +622,127 @@ const KnittingInwardChallan: React.FC = () => {
     String(r.item || "").trim() !== "" ||
     String(r.fabricationName || "").trim() !== "";
 
-  // Save
-  const handleSave = () => {
-    if (!challanNo || !accountHead) {
-      Swal.fire("Missing Fields", "Challan No & Party required", "warning");
-      return;
-    }
+  // Save: prevent duplicate submissions and duplicate lot numbers in one challan.
+  const handleSave = async () => {
+    if (savingRef.current) return;
+    savingRef.current = true;
+    setIsSaving(true);
 
-    let workingRows: RowData[] = [...rows];
+    try {
+      if (!challanNo || !accountHead) {
+        await Swal.fire("Missing Fields", "Challan No & Party required", "warning");
+        return;
+      }
 
-    const anySelected = workingRows.some((r) => r.selected);
+      let workingRows: RowData[] = [...rows];
+      const anySelected = workingRows.some((r) => r.selected);
+      const baseRows = anySelected ? workingRows.filter((r) => r.selected) : workingRows;
+      const rowsWithFab = baseRows.filter(rowHasFabrication);
 
-    // Pehle checkbox lagaya gaya rows le lo (agar hai to), warna sab rows
-    const baseRows = anySelected
-      ? workingRows.filter((r) => r.selected)
-      : workingRows;
+      if (rowsWithFab.length === 0) {
+        await Swal.fire("No Fabrication", "Please select Fabrication for at least one row.", "warning");
+        return;
+      }
 
-    // Empty rows hatao: jisme fabrication select nahi hai
-    const rowsWithFab = baseRows.filter(rowHasFabrication);
+      const idsToSave = new Set(rowsWithFab.map((r) => r.id));
+      let num = getNextNumberFromRows(workingRows);
+      const prefix = (currentPrefix && currentPrefix.trim()) || DEFAULT_LOT_PREFIX;
 
-    if (rowsWithFab.length === 0) {
-      Swal.fire(
-        "No Fabrication",
-        "Please select Fabrication for at least one row.",
-        "warning"
+      workingRows = workingRows.map((r) => {
+        if (!idsToSave.has(r.id)) return r;
+        const trimmed = String(r.fabricLotNo || "").trim();
+        if (trimmed) return { ...r, fabricLotNo: trimmed.toUpperCase() };
+        const lot = formatLot(num, prefix);
+        num += 1;
+        return { ...r, fabricLotNo: lot };
+      });
+
+      const rowsForPayload = workingRows.filter((r) => idsToSave.has(r.id));
+      // A lot number may be reused for a different fabrication in the same challan.
+      // Treat a row as duplicate only when BOTH the normalized lot number and
+      // fabrication identity match. Prefer the fabrication serial (stable ID);
+      // use the normalized fabrication name only as a fallback.
+      const seenLotFabricPairs = new Set<string>();
+      const duplicateLotFabricPairs = new Set<string>();
+      rowsForPayload.forEach((r) => {
+        const lot = String(r.fabricLotNo || "").trim().toUpperCase();
+        const fabricationIdentity = String(
+          r.item || r.fabricationName || getFabricationName(r.item) || ""
+        ).trim().toUpperCase();
+        const pairKey = `${lot}::${fabricationIdentity}`;
+        if (seenLotFabricPairs.has(pairKey)) {
+          duplicateLotFabricPairs.add(`${lot} (${fabricationIdentity || "Unknown fabrication"})`);
+        }
+        seenLotFabricPairs.add(pairKey);
+      });
+      if (duplicateLotFabricPairs.size > 0) {
+        await Swal.fire(
+          "Duplicate Lot + Fabrication",
+          `The same lot number and fabrication cannot be repeated in this challan: ${Array.from(duplicateLotFabricPairs).join(", ")}`,
+          "warning"
+        );
+        return;
+      }
+
+      nextLotRef.current = num;
+      setRows(workingRows);
+
+      const totals = rowsForPayload.reduce(
+        (acc, r) => ({
+          rolls: acc.rolls + (Number(r.rolls) || 0),
+          weight: acc.weight + (Number(r.weight) || 0),
+          amount: acc.amount + (Number(r.weight) || 0) * (Number(r.knittingRate) || 0),
+        }),
+        { rolls: 0, weight: 0, amount: 0 }
       );
-      return;
-    }
 
-    const idsToSave = new Set(rowsWithFab.map((r) => r.id));
+      const payload = {
+        challanNo,
+        dated: dated || null,
+        party: { id: Number(accountHead) },
+        totalRolls: totals.rolls,
+        totalWeight: totals.weight,
+        totalAmount: totals.amount,
+        rows: rowsForPayload.map((r) => ({
+          fabricLotNo: r.fabricLotNo,
+          shortage: Number(r.shortage) || 0,
+          percentage: Number(r.percentage) || 0,
+          rolls: Number(r.rolls) || 0,
+          weight: Number(r.weight) || 0,
+          knittingRate: Number(r.knittingRate) || 0,
+          fabrication: r.item ? { serialNo: r.item } : null,
+          yarnRate: r.yarnRate ? Number(r.yarnRate) : 0,
+          yarn: null,
+        })),
+      };
 
-    // Auto-generate missing Fabric Lot Nos for rowsToSave only
-    let num = getNextNumberFromRows(workingRows);
-    const prefix =
-      (currentPrefix && currentPrefix.trim()) || DEFAULT_LOT_PREFIX;
-
-    workingRows = workingRows.map((r) => {
-      if (!idsToSave.has(r.id)) return r;
-      const trimmed = String(r.fabricLotNo || "").trim();
-      if (trimmed) return r;
-      const lot = formatLot(num, prefix);
-      num += 1;
-      return { ...r, fabricLotNo: lot };
-    });
-
-    nextLotRef.current = num;
-    setRows(workingRows);
-
-    const rowsForPayload = workingRows.filter((r) => idsToSave.has(r.id));
-
-    // Totals sirf payload rows ke hisaab se
-    let pRolls = 0,
-      pWeight = 0,
-      pAmount = 0;
-    rowsForPayload.forEach((r) => {
-      const rollsVal = Number(r.rolls) || 0;
-      const weightVal = Number(r.weight) || 0;
-      const rateVal = Number(r.knittingRate) || 0;
-      pRolls += rollsVal;
-      pWeight += weightVal;
-      pAmount += weightVal * rateVal;
-    });
-
-    const payload = {
-      challanNo,
-     dated: dated || null,
-      party: { id: Number(accountHead) },
-      totalRolls: pRolls,
-      totalWeight: pWeight,
-      totalAmount: pAmount,
-      rows: rowsForPayload.map((r) => ({
-        fabricLotNo: r.fabricLotNo,
-        shortage: Number(r.shortage) || 0,
-        percentage: Number(r.percentage) || 0,
-        rolls: Number(r.rolls) || 0,
-        weight: Number(r.weight) || 0,
-        knittingRate: Number(r.knittingRate) || 0,
-        fabrication: r.item ? { serialNo: r.item } : null,
-        yarnRate: r.yarnRate ? Number(r.yarnRate) : 0,
-        yarn: null,
-      })),
-    };
-
-    Swal.fire({
-      title: "Confirm Save",
-      text: anySelected
-        ? `Save ${rowsForPayload.length} selected row(s) with fabrication?`
-        : `Save ${rowsForPayload.length} row(s) with fabrication?`,
-      icon: "question",
-      showCancelButton: true,
-      confirmButtonText: "Yes, Save it!",
-    }).then((res) => {
-      if (!res.isConfirmed) return;
+      const confirmation = await Swal.fire({
+        title: editingId ? "Confirm Update" : "Confirm Save",
+        text: anySelected
+          ? `${editingId ? "Update" : "Save"} ${rowsForPayload.length} selected row(s) with fabrication?`
+          : `${editingId ? "Update" : "Save"} ${rowsForPayload.length} row(s) with fabrication?`,
+        icon: "question",
+        showCancelButton: true,
+        confirmButtonText: editingId ? "Yes, Update" : "Yes, Save",
+        cancelButtonText: "Cancel",
+      });
+      if (!confirmation.isConfirmed) return;
 
       if (editingId) {
-        api
-          .put(`/knitting/update/${editingId}`, payload)
-          .then(() => {
-            Swal.fire("Updated!", "Knitting Challan updated.", "success");
-            setEditingId(null);
-          })
-          .catch(() => Swal.fire("Error", "Update failed", "error"));
+        await api.put(`/knitting/update/${editingId}`, payload);
+        await Swal.fire("Updated!", "Knitting Challan updated.", "success");
+        setEditingId(null);
       } else {
-        api
-          .post("/knitting/save", payload)
-          .then(() => Swal.fire("Saved!", "Knitting Challan saved.", "success"))
-          .catch(() => Swal.fire("Error", "Save failed", "error"));
+        await api.post("/knitting/save", payload);
+        await Swal.fire("Saved!", "Knitting Challan saved.", "success");
       }
-    });
+    } catch (error: any) {
+      console.error("Knitting Inward save error:", error);
+      await Swal.fire("Error", error?.response?.data?.message || (editingId ? "Update failed" : "Save failed"), "error");
+    } finally {
+      savingRef.current = false;
+      setIsSaving(false);
+    }
   };
 
   // List open
@@ -719,6 +751,12 @@ const KnittingInwardChallan: React.FC = () => {
       .get("/knitting/list")
       .then((r) => {
         const data = Array.isArray(r.data) ? r.data : [];
+        data.sort((a: any, b: any) => {
+          const dateA = new Date(a.dated || a.createdAt || 0).getTime() || 0;
+          const dateB = new Date(b.dated || b.createdAt || 0).getTime() || 0;
+          if (dateA !== dateB) return dateB - dateA;
+          return (Number(b.id) || 0) - (Number(a.id) || 0);
+        });
         setKnittingList(data);
         setShowList(true);
       })
@@ -920,57 +958,78 @@ const KnittingInwardChallan: React.FC = () => {
   // Issue To
  // Put this inside KnittingInwardChallan.tsx (replace your handleIssueTo)
 const handleIssueTo = async () => {
-  const res = await Swal.fire({
-    title: "Issue To",
-    text: "Proceed to issue selected fabric to Dyeing Outward?",
-    icon: "question",
-    showCancelButton: true,
-    confirmButtonText: "Yes, Proceed",
-  });
-
-  if (!res.isConfirmed) return;
-
-  // rows to issue: selected if any selected else all with fabrication
   const anySelected = rows.some((r) => r.selected);
   const base = anySelected ? rows.filter((r) => r.selected) : rows;
-
   const issueRows = base
     .filter((r) => String(r.item || "").trim() !== "")
     .map((r) => ({
-      fabricLotNo: r.fabricLotNo,
-      fabricationName: r.fabricationName || "",
-      fabricationSerialNo: r.item,
+      // Stable source identity lets Dyeing Outward distinguish two rows that
+      // share a lot number but have different fabrications.
+      issueRowKey: `${r.id}-${String(r.fabricLotNo || "").trim().toUpperCase()}-${String(r.item || "").trim()}`,
+      fabricLotNo: String(r.fabricLotNo || "").trim(),
+      fabricationName: r.fabricationName || getFabricationName(r.item),
+      fabricationSerialNo: String(r.item),
       rolls: Number(r.rolls) || 0,
       weight: Number(r.weight) || 0,
       knittingRate: Number(r.knittingRate) || 0,
       yarnRate: Number(r.yarnRate) || 0,
-      shortage: Number((r as any).shortage) || 0,     // if exists in your inward UI
-      percentage: Number((r as any).percentage) || 0, // if exists in your inward UI
-      // NOTE: If your backend returns row.id on edit/list, include it from backend.
-      // In this screen you may not have knittingRowId, so we will fallback later in DyeingOutward.
-      knittingRowId: null,
+      shortage: Number((r as any).shortage) || 0,
+      percentage: Number((r as any).percentage) || 0,
+      knittingRowId: r.id,
       knittingInwardId: editingId || null,
     }));
 
   if (issueRows.length === 0) {
-    Swal.fire("Error", "Please select at least one row with fabrication", "error");
+    await Swal.fire("Error", "Please select at least one row with fabrication", "error");
     return;
   }
 
-  //const partyObj = partyList.find((p) => String(p.id) === String(accountHead));
-  // Issue To Dyeing Outward: only Date + Row Data will be transferred.
-  // Party will NOT be transferred.
-  const payloadForDyeingOutward = {
-    dated: dated || "",
-    rows: issueRows,
-  };
+  // Check saved Dyeing Outward records before navigating. Previously issued lots
+  // can be issued again, but only after an explicit user confirmation.
+  try {
+    const response = await api.get("/dyeing-outward");
+    const outwardRecords = Array.isArray(response.data) ? response.data : [];
+    const candidateLots = new Set(issueRows.map((r) => r.fabricLotNo.toUpperCase()).filter(Boolean));
+    const alreadyIssued = new Set<string>();
 
-  sessionStorage.setItem(
-    "knittingIssueToDyeingOutwardData",
-    JSON.stringify(payloadForDyeingOutward)
-  );
+    outwardRecords.forEach((record: any) => {
+      (Array.isArray(record.rows) ? record.rows : []).forEach((row: any) => {
+        const lot = String(row.lotNo || row.fabricLotNo || "").trim().toUpperCase();
+        if (candidateLots.has(lot)) alreadyIssued.add(lot);
+      });
+    });
 
-  navigate("/knitting/dyeing/outward-challan");
+    if (alreadyIssued.size > 0) {
+      const confirm = await Swal.fire({
+        title: "Lot Already Issued",
+        html: `These lot number(s) were issued to Dyeing Outward before:<br/><b>${Array.from(alreadyIssued).join(", ")}</b><br/><br/>Do you want to issue them again?`,
+        icon: "warning",
+        showCancelButton: true,
+        confirmButtonText: "Yes, Issue Again",
+        cancelButtonText: "Cancel",
+        confirmButtonColor: "#d97706",
+      });
+      if (!confirm.isConfirmed) return;
+    } else {
+      const confirm = await Swal.fire({
+        title: "Issue To Dyeing Outward?",
+        text: "Proceed to issue selected fabric to Dyeing Outward?",
+        icon: "question",
+        showCancelButton: true,
+        confirmButtonText: "Yes, Proceed",
+      });
+      if (!confirm.isConfirmed) return;
+    }
+
+    sessionStorage.setItem(
+      "knittingIssueToDyeingOutwardData",
+      JSON.stringify({ dated: dated || "", rows: issueRows })
+    );
+    navigate("/knitting/dyeing/outward-challan");
+  } catch (error) {
+    console.error("Unable to verify previous Dyeing Outward issues:", error);
+    await Swal.fire("Error", "Could not check previous issue history. Please try again.", "error");
+  }
 };
 
   // Filtered List for modal
@@ -1200,7 +1259,8 @@ const handleIssueTo = async () => {
               </button>
               <button
                 onClick={handleSave}
-                className="px-4 py-2 bg-green-500 text-white rounded"
+                disabled={isSaving}
+                className={`px-4 py-2 text-white rounded ${isSaving ? "bg-gray-400 cursor-not-allowed" : "bg-green-500"}`}
               >
                 Save
               </button>
@@ -1248,6 +1308,7 @@ const handleIssueTo = async () => {
             </div>
 
             <input
+              ref={fabSearchInputRef}
               placeholder="Search by fabrication, yarn or rate..."
               value={fabSearch}
               onChange={(e) => setFabSearch(e.target.value)}
@@ -1373,6 +1434,7 @@ const handleIssueTo = async () => {
             </h3>
 
             <input
+              ref={searchInputRef}
               placeholder="Search by Challan or Party"
               className="border p-2 rounded w-full mb-3"
               value={searchText}

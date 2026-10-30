@@ -30,6 +30,9 @@ public class DyeingBatch {
     @Column(name = "created_at", nullable = false)
     private LocalDateTime createdAt;
 
+    @Column(name = "batch_date", length = 10)
+    private String batchDate;
+
     @OneToMany(
             mappedBy = "batch",
             cascade = CascadeType.ALL,
@@ -71,6 +74,10 @@ public class DyeingBatch {
     public void setCreatedAt(LocalDateTime createdAt) {
         this.createdAt = createdAt;
     }
+
+    public String getBatchDate() { return batchDate; }
+
+    public void setBatchDate(String batchDate) { this.batchDate = batchDate; }
 
     public List<DyeingBatchLot> getLots() {
         return lots;

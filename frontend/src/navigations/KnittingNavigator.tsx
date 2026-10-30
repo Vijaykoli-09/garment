@@ -185,6 +185,8 @@ const KnittingNavigator: React.FC<KnittingNavigatorProps> = ({
             "Finishing Stock Statement",
             "Finishing Amount Statement",
             "In House Stock Statement",
+            "Batch Creation",
+            "Finishing Item Wise Outstanding",
           ].map((sub, i) => (
             <button
               key={i}

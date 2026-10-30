@@ -108,8 +108,7 @@ const FinishingInward: React.FC = () => {
   // --- Meta ---
   const [loading, setLoading] = useState<boolean>(false);
   const [editingId, setEditingId] = useState<IdLike | null>(null);
-  const [prefilledFromOutward, setPrefilledFromOutward] =
-    useState<boolean>(false);
+  const [, setPrefilledFromOutward] = useState<boolean>(false);
 
   // --- Party dropdown ---
   const [partyList, setPartyList] = useState<Party[]>([]);
@@ -118,11 +117,20 @@ const FinishingInward: React.FC = () => {
   const [finishingOutwardDocs, setFinishingOutwardDocs] = useState<
     FinishingOutwardDoc[]
   >([]);
+  const [usedInwardLotNos, setUsedInwardLotNos] = useState<Set<string>>(new Set());
+  const [showLotModal, setShowLotModal] = useState(false);
+  const [lotSearchText, setLotSearchText] = useState("");
+  const [lotSearchQuery, setLotSearchQuery] = useState("");
+  const lotSearchInputRef = useRef<HTMLInputElement>(null);
+  const [currentRowId, setCurrentRowId] = useState<number | null>(null);
+  const [selectedLotNos, setSelectedLotNos] = useState<Set<string>>(new Set());
+  const [removedLotKeys, setRemovedLotKeys] = useState<Set<string>>(new Set());
 
   // --- List modal ---
   const [showList, setShowList] = useState(false);
   const [finishingInwardList, setFinishingInwardList] = useState<any[]>([]);
   const [searchText, setSearchText] = useState("");
+  const listSearchInputRef = useRef<HTMLInputElement>(null);
 
   // --- Helpers ---
   const calculateAmount = (rate: string, weight: string): string => {
@@ -245,157 +253,272 @@ const FinishingInward: React.FC = () => {
       .catch(() => Swal.fire("Error", "Failed to load party list", "error"));
   }, []);
 
-  // Load Finishing Outward docs for prefill by party
+  // Load source lots from Finishing Outward and exclude lots already saved in Finishing Inward.
   useEffect(() => {
-    api
-      .get("/finishing-outwards")
-      .then((res) => {
-        const docs = Array.isArray(res.data) ? res.data : [];
-        setFinishingOutwardDocs(docs);
-      })
-      .catch((err) => {
-        console.error("Error loading finishing outward docs:", err);
-        Swal.fire("Error", "Failed to load Finishing Outward data", "error");
-      });
+    const loadSourceLots = async () => {
+      try {
+        const [outwardRes, inwardRes] = await Promise.all([
+          api.get("/finishing-outwards"),
+          api.get("/finishing-inwards"),
+        ]);
+        const outwardDocs = Array.isArray(outwardRes.data) ? outwardRes.data : [];
+        const inwardDocs = Array.isArray(inwardRes.data) ? inwardRes.data : [];
+        setFinishingOutwardDocs(outwardDocs);
+        const used = new Set<string>();
+        inwardDocs.forEach((doc: any) => {
+          (Array.isArray(doc.rows) ? doc.rows : []).forEach((row: any) => {
+            const lotNo = String(row.lotNo || row.fabricLotNo || "").trim().toUpperCase();
+            const fabric = String(row.itemName || row.item || row.fabric || row.fabricName || "").trim().toUpperCase();
+            if (lotNo) used.add(`${lotNo}|${fabric}`);
+          });
+        });
+        setUsedInwardLotNos(used);
+      } catch (err) {
+        console.error("Error loading Finishing Outward/Inward lots:", err);
+        Swal.fire("Error", "Failed to load available lot numbers", "error");
+      }
+    };
+    loadSourceLots();
   }, []);
 
-  // ✅✅ Optional: Prefill from Finishing Outward "Issue To" navigation state
-  // ✅ FIXED: wastage & percentage auto fill from outward shortage/percentage
+  // Prefill from Finishing Outward "Issue To" while blocking lots already received in Finishing Inward.
   useEffect(() => {
     const s: any = (location as any)?.state?.fromOutward;
     if (!s) return;
-    try {
-      const hdr = s.header || {};
-      setPartyName(hdr.partyName || "");
-      setChallanNo(hdr.challanNo || "");
 
-      const hdrDate = toInputDate(hdr.dated || hdr.date);
-      if (hdrDate) setDate(hdrDate);
+    let cancelled = false;
+    const prefillFromOutward = async () => {
+      try {
+        const hdr = s.header || {};
+        const rowsArr: any[] = Array.isArray(s.rows) ? s.rows : [];
 
-      setVehicleNo(hdr.vehicleNo || "");
-      setThrough(hdr.through || "");
-
-      const rowsArr: any[] = Array.isArray(s.rows) ? s.rows : [];
-      const mapped: RowData[] = rowsArr.map((r: any, idx: number) => {
-        const rateFND =
-          r.rateFND || sumRatesToString(r.knittingYarnRate, r.dyeingRate) || "";
-        const weightStr = String(r.weight ?? "");
-        const rateStr = ""; // finishing rate to be entered manually by user
-
-        return {
-          id: idx + 1,
-          lotNo: String(r.lotNo || r.fabricLotNo || ""),
-          itemName: String(r.itemName || r.item || r.fabric || ""),
-          shade: String(r.shade || ""),
-          processing: "",
-          rolls: String(r.rolls ?? ""),
-          weight: weightStr,
-          receivedWeight: String(r.receivedWeight ?? ""),
-
-          // ✅✅ AUTO-FILL FIX HERE
-          wastage: String(r.wastage ?? r.shortage ?? ""),
-          percentage: String(r.percentage ?? ""),
-
-          extraWt: String(r.extraWt ?? ""),
-          rate: rateStr,
-          amount: calculateAmount(rateStr, weightStr),
-          rateFND: String(rateFND),
-        };
-      });
-
-      if (mapped.length) {
-        setRows(mapped);
-        setSelectedRowIds(mapped.map((x) => x.id));
-        setPrefilledFromOutward(true);
-      }
-    } catch (e) {
-      console.error("Prefill from Outward failed:", e);
-    }
-  }, [location]);
-
-  // ✅✅ When party is selected, prefill rows from Finishing Outward for that party
-  // ✅ FIXED: wastage & percentage brought from outward (shortage/percentage)
-  useEffect(() => {
-    if (!partyName?.trim()) return;
-    if (editingId) return;
-    if (prefilledFromOutward) return;
-
-    const rowsFlat: any[] = [];
-    finishingOutwardDocs
-      .filter(
-        (d) =>
-          (d.partyName || "").trim().toLowerCase() ===
-          partyName.trim().toLowerCase()
-      )
-      .forEach((doc) => {
-        (doc.rows || []).forEach((r: any) => {
-          rowsFlat.push({
-            lotNo: r.lotNo || r.fabricLotNo || "",
-            itemName: r.itemName || r.item || r.fabric || "",
-            shade: r.shade || "",
-            rolls: r.rolls || 0,
-            weight: r.weight || 0,
-            receivedWeight: r.receivedWeight ?? "",
-            rateFND:
-              r.rateFND ||
-              sumRatesToString(r.knittingYarnRate, r.dyeingRate) ||
-              "",
-
-            // ✅✅ AUTO-FILL FIX HERE
-            wastage: r.wastage ?? r.shortage ?? "",
-            percentage: r.percentage ?? "",
+        // Refresh saved inward records here too: Issue To must not bypass duplicate-lot protection.
+        let usedLots = new Set<string>();
+        try {
+          const inwardRes = await api.get("/finishing-inwards");
+          const inwardDocs = Array.isArray(inwardRes.data) ? inwardRes.data : [];
+          inwardDocs.forEach((doc: any) => {
+            (Array.isArray(doc.rows) ? doc.rows : []).forEach((row: any) => {
+              const lotNo = String(row.lotNo || row.fabricLotNo || "").trim().toUpperCase();
+              const fabric = String(row.itemName || row.item || row.fabric || row.fabricName || "").trim().toUpperCase();
+              if (lotNo) usedLots.add(`${lotNo}|${fabric}`);
+            });
           });
+          if (!cancelled) setUsedInwardLotNos(usedLots);
+        } catch (loadError) {
+          console.error("Could not refresh existing Finishing Inward lots:", loadError);
+        }
+
+        const sourceLotKey = (r: any) => {
+          const lotNo = String(r.lotNo || r.fabricLotNo || "").trim().toUpperCase();
+          const fabric = String(r.itemName || r.item || r.fabric || r.fabricName || "").trim().toUpperCase();
+          return lotNo ? `${lotNo}|${fabric}` : "";
+        };
+        const duplicates = rowsArr.filter((r: any) => {
+          const key = sourceLotKey(r);
+          return key && usedLots.has(key);
         });
-      });
+        const availableRows = rowsArr.filter((r: any) => {
+          const key = sourceLotKey(r);
+          return !key || !usedLots.has(key);
+        });
 
-    // Unique by lotNo + itemName + shade
-    const seen = new Set<string>();
-    const uniqueLots = rowsFlat.filter((x) => {
-      const key = `${x.lotNo}|${x.itemName}|${x.shade}`;
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return true;
+        if (cancelled) return;
+        setPartyName(hdr.partyName || "");
+        setChallanNo(hdr.challanNo || "");
+        const hdrDate = toInputDate(hdr.dated || hdr.date);
+        if (hdrDate) setDate(hdrDate);
+        setVehicleNo(hdr.vehicleNo || "");
+        setThrough(hdr.through || "");
+
+        const mapped: RowData[] = availableRows.map((r: any, idx: number) => {
+          const rateFND = r.rateFND || sumRatesToString(r.knittingYarnRate, r.dyeingRate) || "";
+          const weightStr = String(r.weight ?? "");
+          const rateStr = ""; // Finishing rate is entered manually.
+          return {
+            id: idx + 1,
+            lotNo: String(r.lotNo || r.fabricLotNo || ""),
+            itemName: String(r.itemName || r.item || r.fabric || r.fabricName || ""),
+            shade: String(r.shade || ""),
+            processing: "",
+            rolls: String(r.rolls ?? ""),
+            weight: weightStr,
+            receivedWeight: String(r.receivedWeight ?? ""),
+            wastage: String(r.wastage ?? r.shortage ?? ""),
+            percentage: String(r.percentage ?? ""),
+            extraWt: String(r.extraWt ?? ""),
+            rate: rateStr,
+            amount: calculateAmount(rateStr, weightStr),
+            rateFND: String(rateFND),
+          };
+        });
+
+        if (mapped.length) {
+          setRows(mapped);
+          setSelectedRowIds(mapped.map((x) => x.id));
+        } else {
+          setRows([createNewRow(1)]);
+          setSelectedRowIds([]);
+        }
+
+        if (duplicates.length) {
+          const duplicateNames = uniq(duplicates.map((r: any) => r.lotNo || r.fabricLotNo)).join(", ");
+          Swal.fire({
+            title: "Lot Already Exists",
+            text: `These lot(s) are already saved in Finishing Inward and were not added again: ${duplicateNames}`,
+            icon: "warning",
+          });
+        }
+        setPrefilledFromOutward(true);
+      } catch (e) {
+        console.error("Prefill from Outward failed:", e);
+      }
+    };
+
+    prefillFromOutward();
+    return () => { cancelled = true; };
+  }, [location, createNewRow]);
+
+  // Lot picker: choose a saved Finishing Outward lot manually instead of auto-filling all rows on party selection.
+  const openLotModal = (rowId: number) => {
+    setCurrentRowId(rowId);
+    setLotSearchText("");
+    setLotSearchQuery("");
+    setSelectedLotNos(new Set());
+    setShowLotModal(true);
+  };
+
+  const toggleLotSelect = (selectionKey: string) => {
+    setSelectedLotNos((prev) => {
+      const next = new Set(prev);
+      if (next.has(selectionKey)) next.delete(selectionKey);
+      else next.add(selectionKey);
+      return next;
     });
+  };
 
-    if (uniqueLots.length === 0) {
-      setRows([createNewRow(1)]);
-      setSelectedRowIds([]);
+  useEffect(() => {
+    const timer = setTimeout(() => setLotSearchQuery(lotSearchText), 200);
+    return () => clearTimeout(timer);
+  }, [lotSearchText]);
+
+  useEffect(() => {
+    if (!showLotModal) return;
+    const timer = window.setTimeout(() => {
+      lotSearchInputRef.current?.focus();
+      lotSearchInputRef.current?.select();
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [showLotModal]);
+
+  useEffect(() => {
+    if (!showList) return;
+    const timer = window.setTimeout(() => {
+      listSearchInputRef.current?.focus();
+      listSearchInputRef.current?.select();
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [showList]);
+
+  const availableOutwardLots = useMemo(() => {
+    const currentLots = new Set(
+      rows
+        .filter((r) => r.id !== currentRowId)
+        .map((r) => `${String(r.lotNo || "").trim().toUpperCase()}|${String(r.itemName || "").trim().toUpperCase()}`)
+        .filter(Boolean)
+    );
+    const seen = new Set<string>();
+    const q = lotSearchQuery.trim().toLowerCase();
+    const tokens = q ? q.split(/\s+/).filter(Boolean) : [];
+    const lots: any[] = [];
+
+    finishingOutwardDocs.forEach((doc) => {
+      if (partyName.trim() && String(doc.partyName || "").trim().toLowerCase() !== partyName.trim().toLowerCase()) return;
+      (Array.isArray(doc.rows) ? doc.rows : []).forEach((r: any) => {
+        const lotNo = String(r.lotNo || r.fabricLotNo || "").trim();
+        const itemName = String(r.itemName || r.item || r.fabric || r.fabricName || "");
+        const key = `${lotNo.toUpperCase()}|${itemName.trim().toUpperCase()}`;
+        if (removedLotKeys.has(key) || !lotNo || usedInwardLotNos.has(key) || currentLots.has(key) || seen.has(key)) return;
+        const shade = String(r.shade || "");
+        const rateFND = String(r.rateFND || sumRatesToString(r.knittingYarnRate, r.dyeingRate) || "");
+        const candidate = {
+          // Lot numbers can repeat for different fabrics; use the composite key for React and selection state.
+          selectionKey: key,
+          lotNo,
+          itemName,
+          shade,
+          processing: String(r.processing || ""),
+          rolls: r.rolls ?? r.roll ?? 0,
+          weight: r.weight ?? 0,
+          receivedWeight: r.receivedWeight ?? "",
+          wastage: r.wastage ?? r.shortage ?? "",
+          extraWt: r.extraWt ?? "",
+          percentage: r.percentage ?? "",
+          rateFND,
+          partyName: doc.partyName || "",
+        };
+        const hay = [candidate.lotNo, candidate.itemName, candidate.shade, candidate.processing, candidate.rolls, candidate.weight, candidate.wastage, candidate.percentage, candidate.rateFND, candidate.partyName].join(" ").toLowerCase();
+        if (tokens.every((t) => hay.includes(t))) {
+          seen.add(key);
+          lots.push(candidate);
+        }
+      });
+    });
+    return lots;
+  }, [finishingOutwardDocs, usedInwardLotNos, rows, partyName, lotSearchQuery, currentRowId, removedLotKeys]);
+
+  const allVisibleLotsSelected = availableOutwardLots.length > 0 && availableOutwardLots.every((lot) => selectedLotNos.has(lot.selectionKey));
+
+  const addSelectedLotsToRow = (explicitLots?: any[]) => {
+    const selectedLots = explicitLots || availableOutwardLots.filter((lot) => selectedLotNos.has(lot.selectionKey));
+    if (currentRowId === null || selectedLots.length === 0) {
+      if (!selectedLots.length) Swal.fire("Info", "Please select at least one lot", "info");
       return;
     }
-
-    const mapped: RowData[] = uniqueLots.map((l, idx) => {
-      const weightStr = String(l.weight ?? "");
-      const rateStr = ""; // finishing rate to be entered manually
-      return {
-        id: idx + 1,
-        lotNo: String(l.lotNo || ""),
-        itemName: String(l.itemName || ""),
-        shade: String(l.shade || ""),
-        processing: "",
-        rolls: String(l.rolls ?? ""),
-        weight: weightStr,
-        receivedWeight: String(l.receivedWeight ?? ""),
-
-        // ✅✅ AUTO-FILL FIX HERE
-        wastage: String(l.wastage ?? ""),
-        percentage: String(l.percentage ?? ""),
-
-        extraWt: "",
-        rate: rateStr,
-        amount: calculateAmount(rateStr, weightStr),
-        rateFND: String(l.rateFND || ""),
+    setRows((prev) => {
+      const next = [...prev];
+      let target = next.findIndex((r) => r.id === currentRowId);
+      if (target < 0) target = 0;
+      const mapLot = (row: RowData, lot: any): RowData => {
+        const weight = String(lot.weight ?? "");
+        const rate = row.rate || "";
+        return {
+          ...row,
+          lotNo: String(lot.lotNo || ""),
+          itemName: String(lot.itemName || ""),
+          shade: String(lot.shade || ""),
+          processing: String(lot.processing || ""),
+          rolls: String(lot.rolls ?? ""),
+          weight,
+          receivedWeight: String(lot.receivedWeight ?? ""),
+          wastage: String(lot.wastage ?? ""),
+          extraWt: String(lot.extraWt ?? ""),
+          percentage: String(lot.percentage ?? ""),
+          rateFND: String(lot.rateFND || ""),
+          rate,
+          amount: calculateAmount(rate, weight),
+        };
       };
+      next[target] = mapLot(next[target], selectedLots[0]);
+      let nextId = next.reduce((max, row) => Math.max(max, row.id), 0);
+      selectedLots.slice(1).forEach((lot) => {
+        const emptyIndex = next.findIndex((r) => !String(r.lotNo || "").trim() && !String(r.itemName || "").trim());
+        if (emptyIndex >= 0) next[emptyIndex] = mapLot(next[emptyIndex], lot);
+        else next.push(mapLot(createNewRow(++nextId), lot));
+      });
+      return next;
     });
-
-    setRows(mapped);
-    setSelectedRowIds(mapped.map((r) => r.id)); // pre-select all
-  }, [
-    partyName,
-    editingId,
-    prefilledFromOutward,
-    finishingOutwardDocs,
-    createNewRow,
-  ]);
+    const maxExistingId = rows.reduce((max, row) => Math.max(max, row.id), 0);
+    setSelectedRowIds((prev) => Array.from(new Set([
+      ...prev,
+      ...rows.map((row) => row.id),
+      currentRowId,
+      ...selectedLots.slice(1).map((_, index) => maxExistingId + index + 1),
+    ].filter((id): id is number => typeof id === "number"))));
+    setShowLotModal(false);
+    setCurrentRowId(null);
+    setSelectedLotNos(new Set());
+  };
 
   // Payload
   const buildPayload = (rowsForPayload: RowData[]) => ({
@@ -494,6 +617,17 @@ const FinishingInward: React.FC = () => {
       );
 
       resetForm();
+      try {
+        const inwardRes = await api.get("/finishing-inwards");
+        const inwardDocs = Array.isArray(inwardRes.data) ? inwardRes.data : [];
+        const used = new Set<string>();
+        inwardDocs.forEach((doc: any) => (Array.isArray(doc.rows) ? doc.rows : []).forEach((row: any) => {
+          const lotNo = String(row.lotNo || row.fabricLotNo || "").trim().toUpperCase();
+          const fabric = String(row.itemName || row.item || row.fabric || row.fabricName || "").trim().toUpperCase();
+          if (lotNo) used.add(`${lotNo}|${fabric}`);
+        }));
+        setUsedInwardLotNos(used);
+      } catch (refreshError) { console.error("Could not refresh used inward lots:", refreshError); }
     } catch (err: any) {
       console.error("Save Error:", err);
       Swal.fire(
@@ -548,6 +682,19 @@ const FinishingInward: React.FC = () => {
       }
 
       resetForm();
+      try {
+        const inwardRes = await api.get("/finishing-inwards");
+        const inwardDocs = Array.isArray(inwardRes.data) ? inwardRes.data : [];
+        const used = new Set<string>();
+        inwardDocs.forEach((doc: any) => (Array.isArray(doc.rows) ? doc.rows : []).forEach((row: any) => {
+          const lotNo = String(row.lotNo || row.fabricLotNo || "").trim().toUpperCase();
+          const fabric = String(row.itemName || row.item || row.fabric || row.fabricName || "").trim().toUpperCase();
+          if (lotNo) used.add(`${lotNo}|${fabric}`);
+        }));
+        setUsedInwardLotNos(used);
+      } catch (refreshError) {
+        console.error("Could not refresh used inward lots after update:", refreshError);
+      }
     } catch (err: any) {
       console.error("Update Error:", err);
       Swal.fire(
@@ -590,8 +737,24 @@ const FinishingInward: React.FC = () => {
   const openList = async () => {
     try {
       const res = await api.get("/finishing-inwards");
-      const data = Array.isArray(res.data) ? res.data : [];
+      const data = Array.isArray(res.data) ? [...res.data] : [];
+      data.sort((a: any, b: any) => {
+        const getTimestamp = (record: any) => {
+          const value =
+            record.createdAt ||
+            record.updatedAt ||
+            record.dated ||
+            record.date ||
+            0;
+          const timestamp = new Date(value).getTime();
+          return Number.isFinite(timestamp) ? timestamp : 0;
+        };
+        const timeDifference = getTimestamp(b) - getTimestamp(a);
+        if (timeDifference !== 0) return timeDifference;
+        return (Number(b.id) || 0) - (Number(a.id) || 0);
+      });
       setFinishingInwardList(data);
+      setSearchText("");
       setShowList(true);
     } catch (err) {
       console.error("List Load Error:", err);
@@ -623,8 +786,9 @@ const FinishingInward: React.FC = () => {
           processing: String(r.processing || ""),
           rolls: String(r.rolls ?? ""),
           weight: String(r.weight ?? ""),
+          // Keep every controlled input defined when loading an existing record.
+          receivedWeight: String(r.receivedWeight ?? ""),
           wastage: String(r.wastage ?? ""),
-          extraWt: String(r.extraWt ?? ""),
           percentage: String(r.percentage ?? ""),
           rate: String(r.rate ?? ""),
           amount: String(r.amount ?? ""),
@@ -1037,7 +1201,19 @@ const FinishingInward: React.FC = () => {
                       <td className="border p-1">
                         <input
                           type="text"
-                          value={row.lotNo}
+                          value={row.lotNo ?? ""}
+                          readOnly
+                          onClick={() => openLotModal(row.id)}
+                          className="w-full min-w-[110px] p-1 text-xs rounded border-none cursor-pointer bg-yellow-50"
+                          placeholder="Click to select"
+                          title="Click to select lot from Finishing Outward"
+                        />
+                      </td>
+
+                      <td className="border p-1">
+                        <input
+                          type="text"
+                          value={row.itemName ?? ""}
                           readOnly
                           className="w-full p-1 text-xs border rounded bg-gray-100"
                         />
@@ -1046,16 +1222,7 @@ const FinishingInward: React.FC = () => {
                       <td className="border p-1">
                         <input
                           type="text"
-                          value={row.itemName}
-                          readOnly
-                          className="w-full p-1 text-xs border rounded bg-gray-100"
-                        />
-                      </td>
-
-                      <td className="border p-1">
-                        <input
-                          type="text"
-                          value={row.shade}
+                          value={row.shade ?? ""}
                           onChange={(e) =>
                             handleChange(row.id, "shade", e.target.value)
                           }
@@ -1066,7 +1233,7 @@ const FinishingInward: React.FC = () => {
                       <td className="border p-1">
                         <input
                           type="text"
-                          value={row.processing}
+                          value={row.processing ?? ""}
                           onChange={(e) =>
                             handleChange(row.id, "processing", e.target.value)
                           }
@@ -1077,7 +1244,7 @@ const FinishingInward: React.FC = () => {
                       <td className="border p-1">
                         <input
                           type="text"
-                          value={row.rateFND}
+                          value={row.rateFND ?? ""}
                           readOnly
                           className="w-full p-1 text-xs border rounded bg-gray-100 text-right"
                         />
@@ -1086,7 +1253,7 @@ const FinishingInward: React.FC = () => {
                       <td className="border p-1">
                         <input
                           type="number"
-                          value={row.rolls}
+                          value={row.rolls ?? ""}
                           onChange={(e) =>
                             handleChange(row.id, "rolls", e.target.value)
                           }
@@ -1098,7 +1265,7 @@ const FinishingInward: React.FC = () => {
                         <input
                           type="number"
                           step="0.001"
-                          value={row.weight}
+                          value={row.weight ?? ""}
                           onChange={(e) =>
                             handleChange(row.id, "weight", e.target.value)
                           }
@@ -1106,7 +1273,7 @@ const FinishingInward: React.FC = () => {
                         />
                       </td>
                       <td className="border p-1">
-                        <input type="number" min="0" value={row.receivedWeight}
+                        <input type="number" min="0" value={row.receivedWeight ?? ""}
                           onChange={(e) => handleChange(row.id, "receivedWeight", e.target.value)}
                           className="w-full p-1 text-xs border rounded text-right" placeholder="Received" />
                       </td>
@@ -1115,7 +1282,7 @@ const FinishingInward: React.FC = () => {
                         <input
                           type="number"
                           step="0.001"
-                          value={row.wastage}
+                          value={row.wastage ?? ""}
                           onChange={(e) =>
                             handleChange(row.id, "wastage", e.target.value)
                           }
@@ -1127,7 +1294,7 @@ const FinishingInward: React.FC = () => {
                         <input
                           type="number"
                           step="0.001"
-                          value={row.extraWt}
+                          value={row.extraWt ?? ""}
                           onChange={(e) =>
                             handleChange(row.id, "extraWt", e.target.value)
                           }
@@ -1138,7 +1305,7 @@ const FinishingInward: React.FC = () => {
                       <td className="border p-1">
                         <input
                           type="text"
-                          value={row.percentage}
+                          value={row.percentage ?? ""}
                           onChange={(e) =>
                             handleChange(row.id, "percentage", e.target.value)
                           }
@@ -1151,7 +1318,7 @@ const FinishingInward: React.FC = () => {
                         <input
                           type="number"
                           step="0.01"
-                          value={row.rate}
+                          value={row.rate ?? ""}
                           onChange={(e) =>
                             handleChange(row.id, "rate", e.target.value)
                           }
@@ -1249,7 +1416,70 @@ const FinishingInward: React.FC = () => {
             </div>
           </div>
 
-          {/* VIEW LIST MODAL */}
+          {/* FINISHING OUTWARD LOT SELECTION MODAL */}
+      {showLotModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 z-[110] flex justify-center items-center p-2">
+          <div className="bg-white rounded-lg shadow-2xl overflow-hidden w-full max-w-5xl max-h-[85vh] flex flex-col">
+            <div className="p-3 bg-gray-800 text-white font-bold text-lg flex items-center justify-between">
+              <span>Select Lot (From Finishing Outward)</span>
+              <span className="text-sm font-normal">Selected: {selectedLotNos.size}</span>
+            </div>
+            <div className="p-3 flex flex-col min-h-0">
+              <input
+                ref={lotSearchInputRef}
+                type="text"
+                autoFocus
+                placeholder="Search lot, fabric, shade, party, rolls, weight..."
+                value={lotSearchText}
+                onChange={(e) => setLotSearchText(e.target.value)}
+                className="border p-2 rounded w-full mb-3 text-sm"
+              />
+              <div className="flex flex-wrap items-center justify-between gap-2 mb-2 text-xs text-gray-600">
+                <span>Available lots: {availableOutwardLots.length}{partyName ? ` for ${partyName}` : ""}</span>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setSelectedLotNos((prev) => {
+                      const next = new Set(prev);
+                      if (allVisibleLotsSelected) availableOutwardLots.forEach((lot) => next.delete(lot.selectionKey));
+                      else availableOutwardLots.forEach((lot) => next.add(lot.selectionKey));
+                      return next;
+                    })}
+                    className="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1 rounded text-xs"
+                  >{allVisibleLotsSelected ? "Unselect Visible" : "Select Visible"}</button>
+                  <button type="button" onClick={() => addSelectedLotsToRow()} className="bg-green-600 hover:bg-green-700 text-white px-3 py-1 rounded text-xs">Add Selected</button>
+                </div>
+              </div>
+              <div className="overflow-auto max-h-[55vh] border rounded">
+                <table className="w-full text-sm">
+                  <thead className="bg-gray-100 sticky top-0 z-10">
+                    <tr>
+                      <th className="p-2 border-b text-center"><input type="checkbox" checked={allVisibleLotsSelected} onChange={() => setSelectedLotNos((prev) => { const next = new Set(prev); if (allVisibleLotsSelected) availableOutwardLots.forEach((lot) => next.delete(lot.selectionKey)); else availableOutwardLots.forEach((lot) => next.add(lot.selectionKey)); return next; })} /></th>
+                      <th className="p-2 border-b text-left">Lot No</th><th className="p-2 border-b text-left">Fabrication</th><th className="p-2 border-b text-left">Shade</th><th className="p-2 border-b text-left">Party</th><th className="p-2 border-b text-right">Rolls</th><th className="p-2 border-b text-right">Weight</th><th className="p-2 border-b text-right">Wastage</th><th className="p-2 border-b text-right">%</th><th className="p-2 border-b text-right">Rate Sum</th><th className="p-2 border-b">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {availableOutwardLots.length === 0 ? (
+                      <tr><td colSpan={11} className="p-5 text-center text-gray-500">{finishingOutwardDocs.length === 0 ? "No Finishing Outward records found." : "No available lots found. Lots already used in Finishing Inward are hidden."}</td></tr>
+                    ) : availableOutwardLots.map((lot) => (
+                      <tr key={lot.selectionKey} className="border-b hover:bg-gray-50">
+                        <td className="p-2 text-center"><input type="checkbox" checked={selectedLotNos.has(lot.selectionKey)} onChange={() => toggleLotSelect(lot.selectionKey)} /></td>
+                        <td className="p-2 whitespace-nowrap">{lot.lotNo}</td><td className="p-2">{lot.itemName}</td><td className="p-2">{lot.shade}</td><td className="p-2">{lot.partyName}</td><td className="p-2 text-right">{lot.rolls}</td><td className="p-2 text-right">{Number(lot.weight || 0).toFixed(3)}</td><td className="p-2 text-right">{String(lot.wastage ?? "")}</td><td className="p-2 text-right">{String(lot.percentage ?? "")}</td><td className="p-2 text-right">{lot.rateFND}</td>
+                        <td className="p-2 text-right"><button type="button" onClick={() => addSelectedLotsToRow([lot])} className="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1 rounded text-xs mr-1">Add</button><button type="button" onClick={() => { const k = `${String(lot.lotNo).trim().toUpperCase()}|${String(lot.itemName || "").trim().toUpperCase()}`; setRemovedLotKeys(prev => new Set(prev).add(k)); setSelectedLotNos(prev => { const n = new Set(prev); n.delete(lot.selectionKey); return n; }); }} className="bg-red-600 hover:bg-red-700 text-white px-2 py-1 rounded text-xs">Remove</button></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div className="p-3 text-right border-t bg-gray-50 mt-3">
+                <button type="button" onClick={() => { setShowLotModal(false); setCurrentRowId(null); setSelectedLotNos(new Set()); }} className="text-gray-700 px-3 py-1 rounded border border-gray-300 bg-white text-sm">Close</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* VIEW LIST MODAL */}
           {showList && (
             <div className="fixed inset-0 bg-black bg-opacity-40 z-50 flex items-center justify-center">
               <div className="bg-white rounded-xl shadow-2xl overflow-hidden w-full max-w-6xl max-h-[90vh] flex flex-col border border-gray-200">
@@ -1265,6 +1495,7 @@ const FinishingInward: React.FC = () => {
 
                 <div className="p-4 border-b border-gray-200">
                   <input
+                    ref={listSearchInputRef}
                     type="text"
                     placeholder="🔍 Search..."
                     value={searchText}

@@ -38,7 +38,21 @@ interface ReceiptDoc {
   paymentThrough?: string;
 }
 
-type TxType = "Payment" | "Receipt";
+interface SelfTransferDoc {
+  id: number;
+  transferDate?: string;
+  fromPaymentModeId?: number | null;
+  toPaymentModeId?: number | null;
+  fromAccountType?: string;
+  toAccountType?: string;
+  fromAccountName?: string;
+  toAccountName?: string;
+  amount?: number | string;
+  referenceNo?: string;
+  narration?: string;
+}
+
+type TxType = "Payment" | "Receipt" | "Self Transfer In" | "Self Transfer Out";
 type TxFilter = "all" | TxType;
 
 type BaseTransaction = {
@@ -98,13 +112,14 @@ const escapeHtml = (s: any) =>
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;");
 
-const typeRank = (t: TxType) => (t === "Payment" ? 1 : 2);
+const typeRank = (t: TxType) => (t === "Payment" || t === "Self Transfer Out" ? 1 : 2);
 
 // ================= Component =================
 const PaymentModeRemainingReport: React.FC = () => {
   const [paymentModes, setPaymentModes] = useState<PaymentModeMaster[]>([]);
   const [payments, setPayments] = useState<PaymentDoc[]>([]);
   const [receipts, setReceipts] = useState<ReceiptDoc[]>([]);
+  const [selfTransfers, setSelfTransfers] = useState<SelfTransferDoc[]>([]);
 
   const [loading, setLoading] = useState(false);
   const [reportPreparing, setReportPreparing] = useState(false);
@@ -135,6 +150,16 @@ const PaymentModeRemainingReport: React.FC = () => {
       setLoading(true);
       setError(null);
 
+      const safeGetSelfTransfers = async (): Promise<any[]> => {
+        try {
+          const response = await api.get<any[]>("/self-transfer");
+          return Array.isArray(response.data) ? response.data : [];
+        } catch (error) {
+          console.error("Failed to load self transfers:", error);
+          return [];
+        }
+      };
+
       const safeGetReceipts = async (): Promise<any[]> => {
         try {
           const r1 = await api.get<any[]>("/recipt");
@@ -154,7 +179,10 @@ const PaymentModeRemainingReport: React.FC = () => {
           api.get<any[]>("/payment/payment-mode"),
           api.get<any[]>("/payment"),
         ]);
-        const recRaw = await safeGetReceipts();
+        const [recRaw, transferRaw] = await Promise.all([
+          safeGetReceipts(),
+          safeGetSelfTransfers(),
+        ]);
 
         const pmRaw = Array.isArray(pmRes.data) ? pmRes.data : [];
         const payRaw = Array.isArray(payRes.data) ? payRes.data : [];
@@ -185,6 +213,22 @@ const PaymentModeRemainingReport: React.FC = () => {
             remarks: p.remarks || "",
             amount: p.amount ?? 0,
             paymentThrough: String(p.paymentThrough ?? "").trim(),
+          })),
+        );
+
+        setSelfTransfers(
+          (Array.isArray(transferRaw) ? transferRaw : []).map((t: any) => ({
+            id: Number(t.id),
+            transferDate: t.transferDate || t.date || "",
+            fromPaymentModeId: t.fromPaymentModeId ?? null,
+            toPaymentModeId: t.toPaymentModeId ?? null,
+            fromAccountType: String(t.fromAccountType ?? "").toUpperCase(),
+            toAccountType: String(t.toAccountType ?? "").toUpperCase(),
+            fromAccountName: t.fromAccountName || "",
+            toAccountName: t.toAccountName || "",
+            amount: t.amount ?? 0,
+            referenceNo: t.referenceNo || "",
+            narration: t.narration || "",
           })),
         );
 
@@ -331,6 +375,51 @@ const PaymentModeRemainingReport: React.FC = () => {
         });
       });
 
+      // Self Transfer: selected source account decreases; selected destination account increases.
+      const selectedMaster = paymentModes.find(
+        (pm) => norm(`${pm.bankNameOrUpiId}-${pm.accountNo}`) === norm(effectiveMode),
+      );
+      const isCashSelected = norm(effectiveMode) === "cash";
+      const transferMatchesMode = (transfer: SelfTransferDoc, side: "from" | "to") => {
+        const accountType = norm(side === "from" ? transfer.fromAccountType : transfer.toAccountType);
+        const accountId = side === "from" ? transfer.fromPaymentModeId : transfer.toPaymentModeId;
+        const accountName = side === "from" ? transfer.fromAccountName : transfer.toAccountName;
+        if (isCashSelected) {
+          return accountType === "cash" || (!accountId && norm(accountName) === "cash");
+        }
+        if (!selectedMaster?.id) return false;
+        if (Number(accountId) === Number(selectedMaster.id)) return true;
+        return norm(accountName) === norm(effectiveMode) && accountType !== "cash";
+      };
+
+      selfTransfers.forEach((transfer) => {
+        const d = transfer.transferDate || effectiveTo;
+        if (toTime(d) > toEnd) return;
+        const amount = toNum(transfer.amount);
+        const narration = transfer.narration || transfer.referenceNo || "Self Transfer";
+
+        if (transferMatchesMode(transfer, "from")) {
+          allRows.push({
+            id: transfer.id,
+            date: d,
+            name: `To: ${transfer.toAccountName || (transfer.toAccountType === "CASH" ? "Cash" : "Account")}`,
+            remarks: narration,
+            amount,
+            type: "Self Transfer Out",
+          });
+        }
+        if (transferMatchesMode(transfer, "to")) {
+          allRows.push({
+            id: transfer.id,
+            date: d,
+            name: `From: ${transfer.fromAccountName || (transfer.fromAccountType === "CASH" ? "Cash" : "Account")}`,
+            remarks: narration,
+            amount,
+            type: "Self Transfer In",
+          });
+        }
+      });
+
       // sort stable
       allRows.sort((a, b) => {
         const dc = toTime(a.date) - toTime(b.date);
@@ -349,11 +438,11 @@ const PaymentModeRemainingReport: React.FC = () => {
         const beforeFrom = allRows.filter((x) => toTime(x.date) < fromT);
 
         const receiptsBefore = beforeFrom
-          .filter((x) => x.type === "Receipt")
+          .filter((x) => x.type === "Receipt" || x.type === "Self Transfer In")
           .reduce((s, x) => s + toNum(x.amount), 0);
 
         const paymentsBefore = beforeFrom
-          .filter((x) => x.type === "Payment")
+          .filter((x) => x.type === "Payment" || x.type === "Self Transfer Out")
           .reduce((s, x) => s + toNum(x.amount), 0);
 
         finalOpening = baseOpening + receiptsBefore - paymentsBefore;
@@ -381,12 +470,12 @@ const PaymentModeRemainingReport: React.FC = () => {
 
   // ---------- Totals ----------
   const totalReceiptDr = useMemo(
-    () => tx.filter((x) => x.type === "Receipt").reduce((s, x) => s + (x.amount || 0), 0),
+    () => tx.filter((x) => x.type === "Receipt" || x.type === "Self Transfer In").reduce((s, x) => s + (x.amount || 0), 0),
     [tx],
   );
 
   const totalPaymentCr = useMemo(
-    () => tx.filter((x) => x.type === "Payment").reduce((s, x) => s + (x.amount || 0), 0),
+    () => tx.filter((x) => x.type === "Payment" || x.type === "Self Transfer Out").reduce((s, x) => s + (x.amount || 0), 0),
     [tx],
   );
 
@@ -396,8 +485,8 @@ const PaymentModeRemainingReport: React.FC = () => {
     let sr = 1;
 
     return tx.map((r) => {
-      if (r.type === "Receipt") rb += r.amount; // DR add
-      else rb -= r.amount; // CR subtract
+      if (r.type === "Receipt" || r.type === "Self Transfer In") rb += r.amount; // incoming adds
+      else rb -= r.amount; // outgoing subtracts
       return { ...r, srNo: sr++, balance: rb };
     });
   }, [tx, openingBalance]);
@@ -434,9 +523,12 @@ const PaymentModeRemainingReport: React.FC = () => {
 
     const htmlRows = filteredRows
       .map((r) => {
-        const cls = r.type === "Receipt" ? "row-dr" : "row-cr";
-        const dr = r.type === "Receipt" ? r.amount : 0;
-        const cr = r.type === "Payment" ? r.amount : 0;
+        const isIncoming = r.type === "Receipt" || r.type === "Self Transfer In";
+        const isOutgoing = r.type === "Payment" || r.type === "Self Transfer Out";
+        const cls = isIncoming ? "row-dr" : "row-cr";
+        const dr = isIncoming ? r.amount : 0;
+        const cr = isOutgoing ? r.amount : 0;
+        const typeLabel = r.type === "Self Transfer In" ? "Self Transfer In" : r.type === "Self Transfer Out" ? "Self Transfer Out" : r.type === "Receipt" ? "Receipt (Dr)" : "Payment (Cr)";
 
         return `<tr class="${cls}">
           <td>${r.srNo}</td>
@@ -446,7 +538,7 @@ const PaymentModeRemainingReport: React.FC = () => {
           <td class="text-right">${fmtNumber(dr)}</td>
           <td class="text-right">${fmtNumber(cr)}</td>
           <td class="text-right">${fmtNumber(r.balance)}</td>
-          <td>${r.type === "Receipt" ? "Receipt (Dr)" : "Payment (Cr)"}</td>
+          <td>${escapeHtml(typeLabel)}</td>
         </tr>`;
       })
       .join("");
@@ -685,6 +777,8 @@ ${htmlRows || `<tr><td colspan="8" style="text-align:center;">No data</td></tr>`
                       <option value="all">All</option>
                       <option value="Receipt">Receipt (Dr)</option>
                       <option value="Payment">Payment (Cr)</option>
+                      <option value="Self Transfer In">Self Transfer In (Dr +)</option>
+                      <option value="Self Transfer Out">Self Transfer Out (Cr -)</option>
                     </select>
                   </div>
                 </div>
@@ -754,9 +848,12 @@ ${htmlRows || `<tr><td colspan="8" style="text-align:center;">No data</td></tr>`
 
                     <tbody>
                       {filteredRows.map((r) => {
-                        const rowClass = r.type === "Receipt" ? "bg-blue-100" : "bg-green-100";
-                        const dr = r.type === "Receipt" ? r.amount : 0;
-                        const cr = r.type === "Payment" ? r.amount : 0;
+                        const isIncoming = r.type === "Receipt" || r.type === "Self Transfer In";
+                        const isOutgoing = r.type === "Payment" || r.type === "Self Transfer Out";
+                        const rowClass = isIncoming ? "bg-blue-100" : "bg-green-100";
+                        const dr = isIncoming ? r.amount : 0;
+                        const cr = isOutgoing ? r.amount : 0;
+                        const typeLabel = r.type === "Self Transfer In" ? "Self Transfer In" : r.type === "Self Transfer Out" ? "Self Transfer Out" : r.type === "Receipt" ? "Receipt (Dr)" : "Payment (Cr)";
 
                         return (
                           <tr key={`${r.type}-${r.id}-${r.srNo}`} className={rowClass}>
@@ -768,7 +865,7 @@ ${htmlRows || `<tr><td colspan="8" style="text-align:center;">No data</td></tr>`
                             <td className="px-2 py-1 border text-right">{fmtNumber(cr)}</td>
                             <td className="px-2 py-1 border text-right">{fmtNumber(r.balance)}</td>
                             <td className="px-2 py-1 border">
-                              {r.type === "Receipt" ? "Receipt (Dr)" : "Payment (Cr)"}
+                              {typeLabel}
                             </td>
                           </tr>
                         );

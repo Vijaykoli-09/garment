@@ -1,6 +1,6 @@
 "use client"
 
-import React, { useEffect, useMemo, useState } from "react"
+import React, { useCallback, useEffect, useMemo, useState } from "react"
 import Dashboard from "../../Dashboard"
 import api from "../../../api/axiosInstance"
 import Swal from "sweetalert2"
@@ -28,6 +28,8 @@ const DyeingItemWiseOutstanding: React.FC = () => {
   const [parties, setParties] = useState<Party[]>([])
   const [lots, setLots] = useState<string[]>([])
   const [items, setItems] = useState<string[]>([])
+  // Canonical fabric names loaded from Fabrication Creation.
+  const [fabricationNames, setFabricationNames] = useState<string[]>([])
 
   // Keep outward data in memory so Lot/Fabric filters can depend on the selected Party.
   const [outwardData, setOutwardData] = useState<any[]>([])
@@ -56,9 +58,45 @@ const DyeingItemWiseOutstanding: React.FC = () => {
   const [loading, setLoading] =
     useState(false)
 
+  // Return the original Fabrication Creation name when a downstream module
+  // stores only the shortened suffix. Resolve only unambiguous suffix matches.
+  const resolveFabricName = useCallback((value: any): string => {
+    const name = String(value ?? "").trim()
+    if (!name || fabricationNames.length === 0) return name
+
+    const exact = fabricationNames.find(
+      (fabric) => fabric.toLocaleLowerCase() === name.toLocaleLowerCase()
+    )
+    if (exact) return exact
+
+    const normalized = name.toLocaleLowerCase()
+    const suffixMatches = fabricationNames.filter((fabric) => {
+      const canonical = fabric.trim().toLocaleLowerCase()
+      return canonical.endsWith(`/ ${normalized}`) ||
+        canonical.endsWith(`/${normalized}`)
+    })
+
+    return suffixMatches.length === 1 ? suffixMatches[0] : name
+  }, [fabricationNames])
+
+  const fetchFabricationNames = async () => {
+    try {
+      const response = await api.get("/fabrication")
+      const names = Array.isArray(response.data)
+        ? response.data
+            .map((item: any) => String(item.fabricName || "").trim())
+            .filter(Boolean)
+        : []
+      setFabricationNames(Array.from(new Set(names)))
+    } catch (error) {
+      console.error("Error fetching canonical fabrication names:", error)
+    }
+  }
+
   useEffect(() => {
     fetchParties()
     fetchLotsAndItems()
+    fetchFabricationNames()
   }, [])
 
   // ============================================================
@@ -142,126 +180,33 @@ const DyeingItemWiseOutstanding: React.FC = () => {
   )
 
   // ============================================================
-  // PARTY -> LOT FILTER
+  // LOT + FABRIC OPTIONS (independent of current selections)
+  // Options always show all available values, whether Party or Lot is selected.
+  // Actual report filtering is applied separately in handleShow.
   // ============================================================
   useEffect(() => {
-    if (selectedParties.length === 0) {
-      setLots([])
-      setSelectedLots([])
-      setItems([])
-      setSelectedItems([])
-      return
-    }
-
-    const partyNames = parties
-      .filter((party) =>
-        selectedParties.includes(party.id)
-      )
-      .map((party) => String(party.partyName || "").trim())
-      .filter(Boolean)
-
     const lotSet = new Set<string>()
-
-    outwardData.forEach((outward: any) => {
-      const partyName = String(
-        outward.partyName || ""
-      ).trim()
-
-      if (!partyNames.includes(partyName)) {
-        return
-      }
-
-      if (!Array.isArray(outward.rows)) {
-        return
-      }
-
-      outward.rows.forEach((row: any) => {
-        const lotNo = String(
-          row.lotNo || ""
-        ).trim()
-
-        if (lotNo) {
-          lotSet.add(lotNo)
-        }
-      })
-    })
-
-    const nextLots = Array.from(lotSet).sort((a, b) =>
-      a.localeCompare(b, undefined, {
-        numeric: true,
-        sensitivity: "base",
-      })
-    )
-
-    setLots(nextLots)
-
-    // Party change means previous Lot/Fabric selections are no longer valid.
-    setSelectedLots([])
-    setItems([])
-    setSelectedItems([])
-    setLotSearch("")
-    setItemSearch("")
-  }, [selectedParties, parties, outwardData])
-
-  // ============================================================
-  // LOT -> ITEM/FABRIC FILTER
-  // ============================================================
-  useEffect(() => {
-    if (selectedParties.length === 0 || selectedLots.length === 0) {
-      setItems([])
-      setSelectedItems([])
-      return
-    }
-
-    const partyNames = parties
-      .filter((party) =>
-        selectedParties.includes(party.id)
-      )
-      .map((party) => String(party.partyName || "").trim())
-      .filter(Boolean)
-
     const itemSet = new Set<string>()
 
     outwardData.forEach((outward: any) => {
-      const partyName = String(
-        outward.partyName || ""
-      ).trim()
-
-      if (!partyNames.includes(partyName)) {
-        return
-      }
-
-      if (!Array.isArray(outward.rows)) {
-        return
-      }
+      if (!Array.isArray(outward.rows)) return
 
       outward.rows.forEach((row: any) => {
-        const lotNo = String(
-          row.lotNo || ""
-        ).trim()
-
-        const itemName = String(
-          row.fabricName || ""
-        ).trim()
-
-        if (selectedLots.includes(lotNo) && itemName) {
-          itemSet.add(itemName)
-        }
+        const lotNo = String(row.lotNo || "").trim()
+        const itemName = resolveFabricName(row.fabricName)
+        if (lotNo) lotSet.add(lotNo)
+        if (itemName) itemSet.add(itemName)
       })
     })
 
-    const nextItems = Array.from(itemSet).sort((a, b) =>
-      a.localeCompare(b, undefined, {
-        numeric: true,
-        sensitivity: "base",
-      })
-    )
+    const sortValues = (values: Set<string>) =>
+      Array.from(values).sort((a, b) =>
+        a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" })
+      )
 
-    setItems(nextItems)
-    setSelectedItems((prev) =>
-      prev.filter((item) => nextItems.includes(item))
-    )
-  }, [selectedLots, selectedParties, parties, outwardData])
+    setLots(sortValues(lotSet))
+    setItems(sortValues(itemSet))
+  }, [outwardData, resolveFabricName])
 
   // ============================================================
   // PARTY SELECT
@@ -330,7 +275,7 @@ const DyeingItemWiseOutstanding: React.FC = () => {
   // SELECT ALL LOTS
   // ============================================================
   const handleSelectAllLots = () => {
-    if (selectedParties.length === 0 || lots.length === 0) {
+    if (lots.length === 0) {
       return
     }
 
@@ -348,7 +293,7 @@ const DyeingItemWiseOutstanding: React.FC = () => {
   // SELECT ALL ITEMS
   // ============================================================
   const handleSelectAllItems = () => {
-    if (selectedLots.length === 0 || items.length === 0) {
+    if (items.length === 0) {
       return
     }
 
@@ -451,19 +396,6 @@ const DyeingItemWiseOutstanding: React.FC = () => {
   // SHOW REPORT
   // ============================================================
   const handleShow = async () => {
-    // Party mandatory
-    if (
-      selectedParties.length === 0
-    ) {
-      Swal.fire(
-        "Warning",
-        "Please select at least one party",
-        "warning"
-      )
-
-      return
-    }
-
     // Report type mandatory
     if (!reportType) {
       Swal.fire(
@@ -520,9 +452,7 @@ const DyeingItemWiseOutstanding: React.FC = () => {
               ).trim()
 
             return (
-              partyNames.includes(
-                partyName
-              ) &&
+              (selectedParties.length === 0 || partyNames.includes(partyName)) &&
               isWithinDateRange(
                 outward.dated
               )
@@ -543,9 +473,7 @@ const DyeingItemWiseOutstanding: React.FC = () => {
               ).trim()
 
             return (
-              partyNames.includes(
-                partyName
-              ) &&
+              (selectedParties.length === 0 || partyNames.includes(partyName)) &&
               isWithinDateRange(
                 inward.dated
               )
@@ -597,11 +525,7 @@ const DyeingItemWiseOutstanding: React.FC = () => {
                   row.lotNo || ""
                 ).trim()
 
-              const itemName =
-                String(
-                  row.fabricName ||
-                    ""
-                ).trim()
+              const itemName = resolveFabricName(row.fabricName)
 
               const partyName =
                 String(
@@ -695,10 +619,7 @@ const DyeingItemWiseOutstanding: React.FC = () => {
                     ""
                 ).trim()
 
-              const itemName =
-                String(
-                  row.fabric || ""
-                ).trim()
+              const itemName = resolveFabricName(row.fabric)
 
               const partyName =
                 String(
@@ -952,9 +873,8 @@ const DyeingItemWiseOutstanding: React.FC = () => {
   // CURRENT DISPLAY DATA
   // ============================================================
   const displayData =
-    reportType === "item"
-      ? itemWiseData
-      : balanceData
+    (reportType === "item" ? itemWiseData : balanceData)
+      .filter((row) => Math.abs(Number(row.outstandingRolls) || 0) > 0.000001)
 
   // ============================================================
   // SEARCH FILTERS
@@ -1552,13 +1472,9 @@ const DyeingItemWiseOutstanding: React.FC = () => {
 
               <div className="border rounded h-48 overflow-auto bg-white">
 
-                {selectedParties.length === 0 ? (
+                {lots.length === 0 ? (
                   <div className="text-center text-gray-500 p-4">
-                    First select Party Name
-                  </div>
-                ) : lots.length === 0 ? (
-                  <div className="text-center text-gray-500 p-4">
-                    No lots available for selected party
+                    No lots available
                   </div>
                 ) : filteredLots.length ===
                   0 ? (
@@ -1603,10 +1519,7 @@ const DyeingItemWiseOutstanding: React.FC = () => {
                 onClick={
                   handleSelectAllLots
                 }
-                disabled={
-                  selectedParties.length === 0 ||
-                  lots.length === 0
-                }
+                disabled={lots.length === 0}
                 className="text-xs text-blue-600 hover:underline mt-1 disabled:text-gray-400"
               >
                 {selectedLots.length ===
@@ -1646,11 +1559,7 @@ const DyeingItemWiseOutstanding: React.FC = () => {
 
               <div className="border rounded h-48 overflow-auto bg-white">
 
-                {selectedLots.length === 0 ? (
-                  <div className="text-center text-gray-500 p-4">
-                    First select Lot No
-                  </div>
-                ) : items.length === 0 ? (
+                {items.length === 0 ? (
                   <div className="text-center text-gray-500 p-4">
                     No items available for selected lot
                   </div>

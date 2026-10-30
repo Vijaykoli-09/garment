@@ -38,6 +38,11 @@ const PaymentNavigator: React.FC<PaymentNavigatorProps> = ({ onNavigate }) => {
                 onClick={() => onNavigate?.("/payment/payment-mode")}>
                 Payment Mode
             </button>
+            <button
+                style={sidebarSubItemStyle}
+                onClick={() => onNavigate?.("/payment/self-transfer")}>
+                Self Transfer
+            </button>
         </div>
     );
 };

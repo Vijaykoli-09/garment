@@ -1,5 +1,5 @@
 // src/pages/reports/FinishingInHouseStock.tsx
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Dashboard from "../../Dashboard";
 import api from "../../../api/axiosInstance";
 import Swal from "sweetalert2";
@@ -130,7 +130,9 @@ interface ReportEvent {
 
 /* ---------------- component ---------------- */
 const FinishingInHouseStock: React.FC = () => {
-  const [fabricationFilter, setFabricationFilter] = useState<string>("");
+  const [selectedFabrications, setSelectedFabrications] = useState<string[]>([]);
+  const [fabricationDropdownOpen, setFabricationDropdownOpen] = useState(false);
+  const [fabricationSearch, setFabricationSearch] = useState("");
   const [fromDate, setFromDate] = useState<string>("");
   const [toDate, setToDate] = useState<string>("");
   const [loading, setLoading] = useState(false);
@@ -138,6 +140,7 @@ const FinishingInHouseStock: React.FC = () => {
   const [finRows, setFinRows] = useState<FinRow[]>([]);
   const [purchaseRows, setPurchaseRows] = useState<PurchaseRow[]>([]);
   const [cuttingEntries, setCuttingEntries] = useState<CuttingEntry[]>([]);
+  const [canonicalFabricationNames, setCanonicalFabricationNames] = useState<string[]>([]);
 
   const [reportEvents, setReportEvents] = useState<ReportEvent[]>([]);
   const [showModal, setShowModal] = useState(false);
@@ -148,11 +151,32 @@ const FinishingInHouseStock: React.FC = () => {
     const loadAll = async () => {
       try {
         setLoading(true);
-        const [finRes, purRes, cutRes] = await Promise.all([
+        const [finRes, purRes, cutRes, fabRes] = await Promise.all([
           api.get("/finishing-inwards"),
           api.get("/purchase-entry"),
           api.get("/cutting-entries"),
+          api.get("/fabrication"),
         ]);
+
+        const fabDocs = Array.isArray(fabRes.data) ? fabRes.data : [];
+        const canonicalNames = Array.from(new Set(
+          fabDocs.map((item: any) => String(item.fabricName || "").trim()).filter(Boolean)
+        ));
+        setCanonicalFabricationNames(canonicalNames);
+        const resolveLoadedFabricName = (value: any): string => {
+          const name = String(value ?? "").trim();
+          if (!name || canonicalNames.length === 0) return name;
+          const normalized = name.toLocaleLowerCase();
+          const exact = canonicalNames.find(
+            (fabric) => fabric.trim().toLocaleLowerCase() === normalized
+          );
+          if (exact) return exact;
+          const suffixMatches = canonicalNames.filter((fabric) => {
+            const canonical = fabric.trim().toLocaleLowerCase();
+            return canonical.endsWith(`/ ${normalized}`) || canonical.endsWith(`/${normalized}`);
+          });
+          return suffixMatches.length === 1 ? suffixMatches[0] : name;
+        };
 
         // Finishing inwards -> flatten rows
         const finDocs: FinishingDoc[] = Array.isArray(finRes.data)
@@ -163,9 +187,9 @@ const FinishingInHouseStock: React.FC = () => {
           const docDate = toISO(doc.dated || doc.date);
           const rows = Array.isArray(doc.rows) ? doc.rows : [];
           rows.forEach((r: any, idx: number) => {
-            const itemName = String(
+            const itemName = resolveLoadedFabricName(
               r.itemName || r.item || r.fabric || r.materialName || ""
-            ).trim();
+            );
             const wt = toNum(r.weight || r.receivedWtBox || r.wt || r.weightKg);
             if (!itemName || wt <= 0) return;
             const rateFND = toNum(r.rateFND || r.rateF || r.rateFnd || 0);
@@ -196,12 +220,12 @@ const FinishingInHouseStock: React.FC = () => {
           const items = Array.isArray(doc.items) ? doc.items : [];
           for (const it of items) {
             const name =
-              String(
+              resolveLoadedFabricName(
                 it.material?.materialName ||
                   it.materialName ||
                   it.material?.name ||
                   ""
-              ).trim() || "";
+              );
             if (!name) continue;
             // qty: prefer weight-like fields (wtPerBox / weight) to treat as kg
             const qty =
@@ -247,6 +271,26 @@ const FinishingInHouseStock: React.FC = () => {
     loadAll();
   }, []);
 
+  /* ---------- canonical fabrication name resolver ---------- */
+  const resolveFabricName = useCallback((value: any): string => {
+    const name = String(value ?? "").trim();
+    if (!name || canonicalFabricationNames.length === 0) return name;
+
+    const normalized = name.toLocaleLowerCase();
+    const exact = canonicalFabricationNames.find(
+      (fabric) => fabric.trim().toLocaleLowerCase() === normalized
+    );
+    if (exact) return exact;
+
+    // Restore prefix only if the shortened name maps to exactly one canonical name.
+    const suffixMatches = canonicalFabricationNames.filter((fabric) => {
+      const canonical = fabric.trim().toLocaleLowerCase();
+      return canonical.endsWith(`/ ${normalized}`) || canonical.endsWith(`/${normalized}`);
+    });
+
+    return suffixMatches.length === 1 ? suffixMatches[0] : name;
+  }, [canonicalFabricationNames]);
+
   /* ---------- fabrication options ---------- */
   const fabricationOptions = useMemo(() => {
     const s = new Set<string>();
@@ -254,28 +298,30 @@ const FinishingInHouseStock: React.FC = () => {
     purchaseRows.forEach((p) => p.materialName && s.add(p.materialName));
     cuttingEntries.forEach((c) =>
       (c.stockRows || []).forEach((sr: any) => {
-        const nm = String(sr.itemName || sr.materialName || "").trim();
+        const nm = resolveFabricName(sr.itemName || sr.materialName || "");
         if (nm) s.add(nm);
       })
     );
     return Array.from(s).sort((a, b) => a.localeCompare(b));
-  }, [finRows, purchaseRows, cuttingEntries]);
+  }, [finRows, purchaseRows, cuttingEntries, resolveFabricName]);
+
+  const filteredFabricationOptions = useMemo(() => {
+    const query = fabricationSearch.trim().toLocaleLowerCase();
+    return fabricationOptions.filter((fabric) =>
+      fabric.toLocaleLowerCase().includes(query)
+    );
+  }, [fabricationOptions, fabricationSearch]);
 
   /* ---------- build report with FIFO ---------- */
   const buildReport = () => {
     try {
+      const activeFabrications = selectedFabrications.length > 0 ? selectedFabrications : [];
       // Build events from three sources
       const events: ReportEvent[] = [];
 
       // 1. Inwards
       for (const f of finRows) {
-        if (fabricationFilter && fabricationFilter.trim()) {
-          if (
-            f.fabricationName.trim().toLowerCase() !==
-            fabricationFilter.trim().toLowerCase()
-          )
-            continue;
-        }
+        if (activeFabrications.length > 0 && !activeFabrications.some((fabric) => fabric.trim().toLowerCase() === f.fabricationName.trim().toLowerCase())) continue;
         if (fromDate && f.date && f.date < fromDate) continue;
         if (toDate && f.date && f.date > toDate) continue;
 
@@ -293,13 +339,7 @@ const FinishingInHouseStock: React.FC = () => {
 
       // 2. Purchases (Material = Fabrication Name)
       for (const p of purchaseRows) {
-        if (fabricationFilter && fabricationFilter.trim()) {
-          if (
-            p.materialName.trim().toLowerCase() !==
-            fabricationFilter.trim().toLowerCase()
-          )
-            continue;
-        }
+        if (activeFabrications.length > 0 && !activeFabrications.some((fabric) => fabric.trim().toLowerCase() === p.materialName.trim().toLowerCase())) continue;
         if (fromDate && p.date && p.date < fromDate) continue;
         if (toDate && p.date && p.date > toDate) continue;
 
@@ -320,15 +360,9 @@ const FinishingInHouseStock: React.FC = () => {
         const cDate = toISO(c.date);
         const stockRows = Array.isArray(c.stockRows) ? c.stockRows : [];
         for (const sr of stockRows) {
-          const name = String(sr.itemName || sr.materialName || "").trim();
+          const name = resolveFabricName(sr.itemName || sr.materialName || "");
           if (!name) continue;
-          if (fabricationFilter && fabricationFilter.trim()) {
-            if (
-              name.trim().toLowerCase() !==
-              fabricationFilter.trim().toLowerCase()
-            )
-              continue;
-          }
+          if (activeFabrications.length > 0 && !activeFabrications.some((fabric) => fabric.trim().toLowerCase() === name.trim().toLowerCase())) continue;
 
           // NEW: compute consumption as consumption + KHO (manual KHO)
           const cons =
@@ -638,22 +672,68 @@ const FinishingInHouseStock: React.FC = () => {
           </h2>
 
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
-            <div>
-              <label className="block font-semibold">
-                Fabrication Name (Material)
-              </label>
-              <select
-                value={fabricationFilter}
-                onChange={(e) => setFabricationFilter(e.target.value)}
-                className="border p-2 rounded w-full"
+            <div className="relative">
+              <label className="block font-semibold mb-1">Fabrication Name (Material)</label>
+              <button
+                type="button"
+                onClick={() => setFabricationDropdownOpen((open) => !open)}
+                className="border p-2 rounded w-full text-left bg-white flex justify-between items-center"
               >
-                <option value="">-- All Fabrications --</option>
-                {fabricationOptions.map((f) => (
-                  <option key={f} value={f}>
-                    {f}
-                  </option>
-                ))}
-              </select>
+                <span className="truncate">
+                  {selectedFabrications.length === 0
+                    ? "Click to Select"
+                    : selectedFabrications.length === 1
+                    ? selectedFabrications[0]
+                    : `${selectedFabrications.length} fabrics selected`}
+                </span>
+                <span aria-hidden="true">▾</span>
+              </button>
+              {fabricationDropdownOpen && (
+                <div className="absolute z-40 mt-1 w-full bg-white border rounded shadow-lg p-2">
+                  <input
+                    type="text"
+                    value={fabricationSearch}
+                    onChange={(e) => setFabricationSearch(e.target.value)}
+                    placeholder="Search fabric name..."
+                    className="border rounded p-2 w-full mb-2"
+                    autoFocus
+                  />
+                  <div className="flex gap-2 mb-2">
+                    <button
+                      type="button"
+                      onClick={() => setSelectedFabrications(filteredFabricationOptions)}
+                      className="text-sm px-2 py-1 bg-blue-600 text-white rounded"
+                    >
+                      Select Visible
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedFabrications([])}
+                      className="text-sm px-2 py-1 bg-gray-200 rounded"
+                    >
+                      Clear
+                    </button>
+                  </div>
+                  <div className="max-h-56 overflow-auto">
+                    {filteredFabricationOptions.length === 0 ? (
+                      <div className="p-2 text-sm text-gray-500">No fabric found</div>
+                    ) : filteredFabricationOptions.map((fabric) => (
+                      <label key={fabric} className="flex items-center gap-2 p-2 hover:bg-gray-100 rounded cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={selectedFabrications.includes(fabric)}
+                          onChange={() => setSelectedFabrications((prev) =>
+                            prev.includes(fabric)
+                              ? prev.filter((item) => item !== fabric)
+                              : [...prev, fabric]
+                          )}
+                        />
+                        <span>{fabric}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
 
             <div>
@@ -686,7 +766,9 @@ const FinishingInHouseStock: React.FC = () => {
               </button>
               <button
                 onClick={() => {
-                  setFabricationFilter("");
+                  setSelectedFabrications([]);
+                  setFabricationSearch("");
+                  setFabricationDropdownOpen(false);
                   setFromDate("");
                   setToDate("");
                 }}
@@ -708,7 +790,7 @@ const FinishingInHouseStock: React.FC = () => {
                     In-House Stock Statement
                   </h3>
                   <div className="text-sm">
-                    Fabrication: <strong>{fabricationFilter || "All"}</strong> |
+                    Fabrication: <strong>{selectedFabrications.length ? selectedFabrications.join(", ") : "All"}</strong> |
                     Period: <strong>{fromDate || "-"}</strong> to{" "}
                     <strong>{toDate || "-"}</strong>
                   </div>
