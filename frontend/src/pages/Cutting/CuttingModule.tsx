@@ -2699,6 +2699,19 @@ type CuttingEntryDTO = {
   sizeRows?: CuttingSizeRowDTO[];
 };
 
+type CuttingEntryListItem = {
+  serialNo: string;
+  date: string;
+  employeeName?: string;
+  issueTo?: IssueTo;
+  issueBranchName?: string;
+  totalPcs?: string;
+  totalConsumption?: string;
+  totalKho?: string;
+  totalConsAmount?: string;
+  lotNos: string;
+};
+
 type Shade = { shadeCode: string; shadeName: string };
 
 type Location = {
@@ -2836,9 +2849,6 @@ const getNextSerial = async (dateISO: string) =>
     })
   ).data;
 
-const listCuttings = async () =>
-  (await api.get<CuttingEntryDTO[]>("/cutting-entries")).data;
-
 const getCutting = async (serialNo: string) =>
   (await api.get<CuttingEntryDTO>(`/cutting-entries/${serialNo}`)).data;
 
@@ -2858,20 +2868,20 @@ const getArtDetail = async (serialNumber: string) =>
   (await api.get<ArtDetail>(`/arts/${serialNumber}`)).data;
 
 const listFinishingRows = async (): Promise<FinishingInwardRow[]> => {
-  const [fin, fabrication, cuttings] = await Promise.all([
+  const [fin, fabrication, cuttingConsumption] = await Promise.all([
     api.get<any[]>("/finishing-inwards"),
     api.get<any[]>("/fabrication"),
-    api.get<any[]>("/cutting-entries"),
+    api.get<{ itemName: string; shade: string; consumption: number }[]>(
+      "/cutting-entries/stock-consumption-summary"
+    ),
   ]);
   const names = (Array.isArray(fabrication.data) ? fabrication.data : [])
     .map((x: any) => String(x.fabricName || "").trim()).filter(Boolean);
   const norm = (v: any) => String(v || "").trim().replace(/^[A-Za-z0-9_-]+\s*\/\s*/, "").replace(/\s+/g, " ").toLowerCase();
   const used = new Map<string, number>();
-  for (const entry of Array.isArray(cuttings.data) ? cuttings.data : []) {
-    for (const row of entry.stockRows || []) {
-      const key = `${norm(row.itemName)}|||${norm(row.shade)}`;
-      used.set(key, (used.get(key) || 0) + toNum(row.consumption));
-    }
+  for (const row of Array.isArray(cuttingConsumption.data) ? cuttingConsumption.data : []) {
+    const key = `${norm(row.itemName)}|||${norm(row.shade)}`;
+    used.set(key, (used.get(key) || 0) + toNum(row.consumption));
   }
   const grouped = new Map<string, FinishingInwardRow>();
   for (const doc of Array.isArray(fin.data) ? fin.data : []) {
@@ -2960,25 +2970,19 @@ const checkDuplicateCutLots = async (
   }
 
   // check other entries
-  let allEntries: CuttingEntryDTO[];
+  let conflicts: string[];
   try {
-    allEntries = await listCuttings();
+    conflicts = (
+      await api.post<string[]>("/cutting-entries/duplicate-lots", {
+        serialNo: payload.serialNo,
+        lotNos: currentLots,
+      })
+    ).data;
   } catch (e) {
     console.error(e);
     return "Could not verify Cutting Lot No uniqueness. Please try again later.";
   }
 
-  const others = (allEntries || []).filter((e) => e.serialNo !== payload.serialNo);
-
-  const usedLots = new Set<string>();
-  for (const e of others) {
-    for (const r of e.lotRows || []) {
-      const lot = norm(r.cutLotNo || "");
-      if (lot) usedLots.add(lot);
-    }
-  }
-
-  const conflicts = Array.from(new Set(currentLots.filter((lot) => usedLots.has(lot))));
   if (conflicts.length > 0) {
     return `Cutting Lot No(s) ${conflicts.join(", ")} already used in another cutting entry.`;
   }
@@ -3230,7 +3234,42 @@ const CuttingModule: React.FC = () => {
   // List modal
   const [listOpen, setListOpen] = useState(false);
   const [listSearch, setListSearch] = useState("");
-  const [entryList, setEntryList] = useState<CuttingEntryDTO[]>([]);
+  const [entryList, setEntryList] = useState<CuttingEntryListItem[]>([]);
+  const [listPage, setListPage] = useState(0);
+  const [listTotalPages, setListTotalPages] = useState(0);
+  const [listLoading, setListLoading] = useState(false);
+  const [listError, setListError] = useState("");
+
+  useEffect(() => {
+    if (!listOpen) return;
+    let active = true;
+    const timeout = window.setTimeout(async () => {
+      setListLoading(true);
+      setListError("");
+      setEntryList([]);
+      try {
+        const response = await api.get<{
+          content: CuttingEntryListItem[];
+          totalPages: number;
+        }>("/cutting-entries/paged", {
+          params: { page: listPage, size: 20, search: listSearch.trim() },
+        });
+        if (active) {
+          setEntryList(response.data.content);
+          setListTotalPages(response.data.totalPages);
+        }
+      } catch (error) {
+        console.error("Could not load cutting entries", error);
+        if (active) setListError("Could not load cutting entries. Please try again.");
+      } finally {
+        if (active) setListLoading(false);
+      }
+    }, 300);
+    return () => {
+      active = false;
+      window.clearTimeout(timeout);
+    };
+  }, [listOpen, listPage, listSearch]);
 
   // ---------- Helpers ----------
   const resolveEmployeeName = useCallback(
@@ -4267,17 +4306,8 @@ const CuttingModule: React.FC = () => {
   };
 
   // ---- View List ----
-  const openList = async () => {
-    const data = await listCuttings();
-    const sorted = data
-      .slice()
-      .sort((a, b) =>
-        String(a.serialNo || "").localeCompare(String(b.serialNo || ""), undefined, {
-          numeric: true,
-          sensitivity: "base",
-        })
-      );
-    setEntryList(sorted);
+  const openList = () => {
+    setListPage(0);
     setListOpen(true);
   };
 
@@ -4414,7 +4444,10 @@ const CuttingModule: React.FC = () => {
 
             <input
               value={listSearch}
-              onChange={(e) => setListSearch(e.target.value)}
+              onChange={(e) => {
+                setListSearch(e.target.value);
+                setListPage(0);
+              }}
               placeholder="Search serial / lot no / employee / date / issue to / branch"
               className="border p-2 rounded w-full mb-3"
             />
@@ -4438,34 +4471,13 @@ const CuttingModule: React.FC = () => {
                   </tr>
                 </thead>
                 <tbody>
-                  {entryList
-                    .filter((e) => {
-                      const q = listSearch.trim().toLowerCase();
-                      if (!q) return true;
-                      const lotNos = (e.lotRows || [])
-                        .map((r) => r.cutLotNo || "")
-                        .join(", ");
-                      const emp = (e.employeeName || "").trim();
-                      return (
-                        (e.serialNo || "").toLowerCase().includes(q) ||
-                        lotNos.toLowerCase().includes(q) ||
-                        emp.toLowerCase().includes(q) ||
-                        (e.date || "").toLowerCase().includes(q) ||
-                        String(e.issueTo || "").toLowerCase().includes(q) ||
-                        String(e.issueBranchName || "").toLowerCase().includes(q)
-                      );
-                    })
-                    .map((e, i) => {
-                      const lotNos = (e.lotRows || [])
-                        .map((r) => r.cutLotNo)
-                        .filter(Boolean)
-                        .join(", ");
-                      return (
+                  {entryList.map((e, i) => {
+                    return (
                         <tr key={e.serialNo} className="hover:bg-gray-50">
-                          <td className="border p-2 text-center">{i + 1}</td>
+                          <td className="border p-2 text-center">{listPage * 20 + i + 1}</td>
                           <td className="border p-2">{e.serialNo}</td>
                           <td className="border p-2">{e.date}</td>
-                          <td className="border p-2">{lotNos || "-"}</td>
+                          <td className="border p-2">{e.lotNos || "-"}</td>
                           <td className="border p-2">{e.issueTo || "-"}</td>
                           <td className="border p-2">
                             {e.issueTo === "Outside"
@@ -4495,10 +4507,24 @@ const CuttingModule: React.FC = () => {
                             </button>
                           </td>
                         </tr>
-                      );
-                    })}
+                    );
+                  })}
 
-                  {entryList.length === 0 && (
+                  {listLoading && (
+                    <tr>
+                      <td className="border p-3 text-center text-gray-500" colSpan={12}>
+                        Loading cutting entries...
+                      </td>
+                    </tr>
+                  )}
+                  {!listLoading && listError && (
+                    <tr>
+                      <td className="border p-3 text-center text-red-600" colSpan={12}>
+                        {listError}
+                      </td>
+                    </tr>
+                  )}
+                  {!listLoading && !listError && entryList.length === 0 && (
                     <tr>
                       <td
                         className="border p-3 text-center text-gray-500"
@@ -4510,6 +4536,29 @@ const CuttingModule: React.FC = () => {
                   )}
                 </tbody>
               </table>
+            </div>
+            <div className="flex items-center justify-between mt-3 text-sm">
+              <span>
+                Page {listTotalPages === 0 ? 0 : listPage + 1} of {listTotalPages}
+              </span>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  disabled={listPage === 0 || listLoading}
+                  onClick={() => setListPage((page) => Math.max(0, page - 1))}
+                  className="px-3 py-1 border rounded disabled:opacity-50"
+                >
+                  Previous
+                </button>
+                <button
+                  type="button"
+                  disabled={listPage + 1 >= listTotalPages || listLoading}
+                  onClick={() => setListPage((page) => page + 1)}
+                  className="px-3 py-1 border rounded disabled:opacity-50"
+                >
+                  Next
+                </button>
+              </div>
             </div>
           </div>
         </div>

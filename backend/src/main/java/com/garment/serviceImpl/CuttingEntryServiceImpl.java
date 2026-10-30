@@ -6,6 +6,8 @@ import com.garment.repository.CuttingEntryRepository;
 import com.garment.repository.EmployeeRepository;
 import com.garment.service.CuttingEntryService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -80,6 +82,43 @@ public class CuttingEntryServiceImpl implements CuttingEntryService {
     @Transactional(readOnly = true)
     public List<CuttingEntryDTO> list() {
         return repo.findAll().stream().map(this::toDTO).collect(Collectors.toList());
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Page<CuttingEntryListDTO> listPaged(int page, int size, String search) {
+        int safePage = Math.max(0, page);
+        int safeSize = Math.max(1, Math.min(size, 100));
+        String query = "%" + (search == null ? "" : search.trim().toLowerCase(Locale.ROOT)) + "%";
+        return repo.searchPaged(query, PageRequest.of(safePage, safeSize))
+                .map(row -> new CuttingEntryListDTO(
+                        row.getSerialNo(), row.getDate(), row.getEmployeeName(), row.getIssueTo(),
+                        row.getIssueBranchName(), row.getTotalPcs(), row.getTotalConsumption(),
+                        row.getTotalKho(), row.getTotalConsAmount(), row.getLotNos()));
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<CuttingStockConsumptionDTO> stockConsumptionSummary() {
+        return repo.findStockConsumptionSummary().stream()
+                .map(row -> new CuttingStockConsumptionDTO(
+                        row.getItemName(), row.getShade(), row.getConsumption()))
+                .collect(Collectors.toList());
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<String> findDuplicateLotNumbers(String serialNo, List<String> lotNos) {
+        if (lotNos == null || lotNos.isEmpty()) return List.of();
+        List<String> normalizedLots = lotNos.stream()
+                .filter(Objects::nonNull)
+                .map(String::trim)
+                .filter(value -> !value.isEmpty())
+                .map(value -> value.toUpperCase(Locale.ROOT))
+                .distinct()
+                .collect(Collectors.toList());
+        if (normalizedLots.isEmpty()) return List.of();
+        return repo.findExistingCutLotNumbers(normalizedLots, serialNo);
     }
 
     @Override
