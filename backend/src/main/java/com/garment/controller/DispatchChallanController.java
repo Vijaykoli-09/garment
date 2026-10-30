@@ -15,7 +15,7 @@ import com.garment.service.DispatchChallanService;
 
 @RestController
 @RequestMapping("api/dispatch-challan")
-@CrossOrigin(origins = "http://localhost:3000")   // adjust origin for your React app if needed
+@CrossOrigin(originPatterns = "*")
 public class DispatchChallanController {
 
     private final DispatchChallanService service;

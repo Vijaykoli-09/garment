@@ -17,7 +17,7 @@ import java.util.List;
 @RestController
 @RequestMapping("/api/cutting-entries")
 @RequiredArgsConstructor
-@CrossOrigin(origins = {"http://localhost:3000"}, allowCredentials = "true")
+@CrossOrigin(originPatterns = "*")
 public class CuttingEntryController {
 
     private final CuttingEntryService service;

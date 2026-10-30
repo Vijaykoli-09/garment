@@ -12,8 +12,9 @@ import org.springframework.web.bind.annotation.*;
 import java.util.List;
 
 @RestController
-@CrossOrigin(origins = "http://localhost:3000")
 @RequestMapping("/api/production-receipt")
+@CrossOrigin(originPatterns = "*")
+
 public class ProductionReceiptController {
 
     private final ProductionReceiptService service;

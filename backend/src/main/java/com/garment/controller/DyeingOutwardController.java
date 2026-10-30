@@ -15,7 +15,7 @@ import java.util.List;
 @RestController
 @RequestMapping("/api/dyeing-outward")
 //@CrossOrigin(origins = "*")
-@CrossOrigin(origins = "http://localhost:3000")
+@CrossOrigin(originPatterns = "*")
 public class DyeingOutwardController {
 private final DyeingOutwardService service;
 

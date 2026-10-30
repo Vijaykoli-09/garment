@@ -16,7 +16,7 @@ import java.util.List;
 @RestController
 @RequestMapping("/api/art-stock-adjustments")
 @RequiredArgsConstructor
-@CrossOrigin(origins = "http://localhost:3000", allowCredentials = "true")
+@CrossOrigin(originPatterns = "*")
 public class ArtStockAdjustmentController {
 
     private final ArtStockAdjustmentRepository repo;
