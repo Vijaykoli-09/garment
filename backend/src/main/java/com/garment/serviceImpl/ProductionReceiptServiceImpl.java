@@ -1,14 +1,19 @@
 package com.garment.serviceImpl;
 
 import com.garment.DTO.ProductionReceiptDto;
+import com.garment.DTO.ProductionReceiptConsumptionDTO;
+import com.garment.DTO.ProductionReceiptListDTO;
 import com.garment.DTO.ProductionReceiptResponseDto;
 import com.garment.DTO.ProductionReceiptRowDto;
+import com.garment.DTO.PagedResponse;
 import com.garment.model.ProductionReceipt;
 import com.garment.model.ProductionReceiptRow;
 import com.garment.repository.ProductionReceiptRepository;
 import com.garment.service.ProductionReceiptService;
-import jakarta.transaction.Transactional;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 import java.time.LocalDate;
@@ -40,6 +45,33 @@ public class ProductionReceiptServiceImpl implements ProductionReceiptService {
         return receiptRepository.findByDeletedFalseOrderByDatedDesc()
                 .stream()
                 .map(this::mapEntityToResponseDto)
+                .collect(Collectors.toList());
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public PagedResponse<ProductionReceiptListDTO> listPaged(int page, int size, String search) {
+        int safePage = Math.max(page, 0);
+        int safeSize = Math.min(Math.max(size, 1), 100);
+        String query = (search == null || search.isBlank())
+                ? "%"
+                : "%" + search.trim().toLowerCase() + "%";
+        Page<ProductionReceiptListDTO> receipts = receiptRepository.searchPaged(
+                query, PageRequest.of(safePage, safeSize)).map(receipt -> new ProductionReceiptListDTO(
+                        receipt.getId(), receipt.getVoucherNo(),
+                        receipt.getDated() == null ? null : receipt.getDated().toString(),
+                        receipt.getEmployeeName(), receipt.getProcessName(),
+                        receipt.getLotArtPairs(), receipt.getTotalPcs()));
+        return PagedResponse.of(receipts);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<ProductionReceiptConsumptionDTO> getConsumption(String processName, Long excludeReceiptId) {
+        return receiptRepository.findConsumptionByProcess(processName, excludeReceiptId)
+                .stream()
+                .map(row -> new ProductionReceiptConsumptionDTO(
+                        row.getCardNo(), row.getArtNo(), row.getConsumedPcs()))
                 .collect(Collectors.toList());
     }
 

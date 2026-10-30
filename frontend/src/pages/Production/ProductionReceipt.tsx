@@ -1142,7 +1142,7 @@
 "use client"
 
 import type React from "react"
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useNavigate } from "react-router-dom"
 import Dashboard from "../Dashboard"
 import Swal from "sweetalert2"
@@ -1203,6 +1203,7 @@ const formatDateDDMMYYYY = (value: any) => {
 }
 
 const ProductionReceipt: React.FC = () => {
+  const LIST_PAGE_SIZE = 20
   const navigate = useNavigate()
 
   const [rows, setRows] = useState<ProductionRow[]>([])
@@ -1223,6 +1224,11 @@ const ProductionReceipt: React.FC = () => {
 
   const [showList, setShowList] = useState(false)
   const [searchText, setSearchText] = useState("")
+  const [listPage, setListPage] = useState(0)
+  const [listTotalPages, setListTotalPages] = useState(0)
+  const [listTotalElements, setListTotalElements] = useState(0)
+  const [listLoading, setListLoading] = useState(false)
+  const skipListSearchRef = useRef(false)
   const [editingId, setEditingId] = useState<number | null>(null)
 
   const [savedRecords, setSavedRecords] = useState<any[]>([])
@@ -1295,11 +1301,34 @@ const ProductionReceipt: React.FC = () => {
     return data as CuttingEntry[]
   }
 
-  const loadSavedRecords = async () => {
-    const res = await api.get("/production-receipt")
-    const data = Array.isArray(res.data) ? res.data : []
-    setSavedRecords(data)
-    return data
+  const loadReceiptPage = async (page: number, search: string) => {
+    try {
+      setListLoading(true)
+      const { data } = await api.get<any>("/production-receipt/paged", {
+        params: { page, size: LIST_PAGE_SIZE, search: search.trim() || undefined },
+      })
+      const records = Array.isArray(data?.content) ? data.content : []
+      setSavedRecords(records)
+      setListPage(data?.page ?? page)
+      setListTotalPages(data?.totalPages ?? 0)
+      setListTotalElements(data?.totalElements ?? 0)
+    } catch (err) {
+      console.error("Failed to load production receipt list:", err)
+      setSavedRecords([])
+      setListPage(0)
+      setListTotalPages(0)
+      setListTotalElements(0)
+      Swal.fire("Error", "Failed to load production receipt list", "error")
+    } finally {
+      setListLoading(false)
+    }
+  }
+
+  const loadConsumptionSummary = async (process: string, excludeReceiptId?: number | null) => {
+    const { data } = await api.get<any[]>("/production-receipt/consumption", {
+      params: { processName: process, excludeReceiptId: excludeReceiptId ?? undefined },
+    })
+    return Array.isArray(data) ? data : []
   }
 
   // Initial load (parallel)
@@ -1307,7 +1336,7 @@ const ProductionReceipt: React.FC = () => {
     const init = async () => {
       setIsInitLoading(true)
       try {
-        await Promise.all([loadEmployees(), loadProcesses(), loadArts(), loadCuttingEntries(), loadSavedRecords()])
+        await Promise.all([loadEmployees(), loadProcesses(), loadArts(), loadCuttingEntries()])
       } catch (err) {
         console.error("Init load error:", err)
         Swal.fire("Error", "Failed to load initial data", "error")
@@ -1338,42 +1367,19 @@ const ProductionReceipt: React.FC = () => {
     }
   }
 
-  const ensureSavedLoaded = async () => {
-    if (savedRecords.length > 0) return savedRecords
-    try {
-      return await loadSavedRecords()
-    } catch (err) {
-      console.error("ensureSavedLoaded failed:", err)
-      return []
-    }
-  }
-
-  // helper: compute consumed from records for a lot (excluding editing record)
+  // helper: match aggregated process consumption to a cutting lot
   const computeConsumed = useCallback(
-    (records: any[], proc: string, cardNo: string, artNo: string) => {
-      let consumed = 0
-      const procTrim = (proc || "").toString().trim().toLowerCase()
+    (records: any[], cardNo: string, artNo: string) => {
       const cardTrim = (cardNo || "").toString().trim().toLowerCase()
       const artTrim = (artNo || "").toString().trim().toLowerCase()
 
-      records.forEach((record) => {
-        if (editingId && record.id === editingId) return
-
-        const recordProc = (record.processName || "").toString().trim().toLowerCase()
-        if (recordProc !== procTrim) return
-
-        ;(record.rows || []).forEach((r: any) => {
-          const c = (r.cardNo || "").toString().trim().toLowerCase()
-          const a = (r.artNo || "").toString().trim().toLowerCase()
-          if (c === cardTrim && a === artTrim) {
-            consumed += Number.parseFloat(r.pcs) || 0
-          }
-        })
-      })
-
-      return consumed
+      const match = records.find((row) =>
+        (row.cardNo || "").toString().trim().toLowerCase() === cardTrim &&
+        (row.artNo || "").toString().trim().toLowerCase() === artTrim,
+      )
+      return Number.parseFloat(match?.consumedPcs) || 0
     },
-    [editingId],
+    [],
   )
 
   const handleProcessSelect = async (selectedProcess: any) => {
@@ -1382,16 +1388,16 @@ const ProductionReceipt: React.FC = () => {
       setShowProcessModal(false)
       setCuttingLotSearchText("")
 
-      const [artsToUse, cuttingToUse, recordsToUse] = await Promise.all([
+      const currentProcess = (selectedProcess.processName || "").toString().trim()
+      const [artsToUse, cuttingToUse, consumptionToUse] = await Promise.all([
         ensureArtsLoaded(),
         ensureCuttingLoaded(),
-        ensureSavedLoaded(),
+        loadConsumptionSummary(currentProcess, editingId),
       ])
 
       const artByArtNo = new Map<string, ArtDetail>()
       artsToUse.forEach((a) => artByArtNo.set((a.artNo || "").toString().trim(), a))
 
-      const currentProcess = (selectedProcess.processName || "").toString().trim()
       const newRows: ProductionRow[] = []
       let rowId = Date.now()
 
@@ -1411,7 +1417,7 @@ const ProductionReceipt: React.FC = () => {
           const processRate = processDetail.rate || ""
           const originalPcs = Number.parseFloat(lotRow.pcs) || 0
 
-          const consumedPcs = computeConsumed(recordsToUse, currentProcess, lotNo, lotArtNo)
+          const consumedPcs = computeConsumed(consumptionToUse, lotNo, lotArtNo)
           const remainingPcs = Math.max(0, originalPcs - consumedPcs)
           if (remainingPcs <= 0) continue
 
@@ -1536,12 +1542,19 @@ const ProductionReceipt: React.FC = () => {
       return
     }
 
-    const latestRecords = await loadSavedRecords()
+    let latestRecords: any[]
+    try {
+      latestRecords = await loadConsumptionSummary(processName, editingId)
+    } catch (err) {
+      console.error("Failed to load production receipt consumption:", err)
+      Swal.fire("Error", "Failed to validate consumed production quantities", "error")
+      return
+    }
 
     for (const r of selectedRows) {
       if (r.originalPcs !== "") {
         const original = Number.parseFloat(r.originalPcs) || 0
-        const alreadyConsumed = computeConsumed(latestRecords, processName, r.cardNo, r.artNo)
+        const alreadyConsumed = computeConsumed(latestRecords, r.cardNo, r.artNo)
         const remaining = Math.max(0, original - alreadyConsumed)
         const pcs = Number.parseFloat(r.pcs) || 0
 
@@ -1589,8 +1602,6 @@ const ProductionReceipt: React.FC = () => {
       }
 
       setVoucherNo(autoVoucherNo)
-      await loadSavedRecords()
-
       if (processName) {
         const selectedProcess = processList.find((p) => p.processName === processName)
         if (selectedProcess) await handleProcessSelect(selectedProcess)
@@ -1619,14 +1630,24 @@ const ProductionReceipt: React.FC = () => {
   }
 
   const openList = async () => {
-    try {
-      await loadSavedRecords()
-      setShowList(true)
-    } catch (err) {
-      console.error("Load List Error:", err)
-      Swal.fire("Error", "Failed to load list", "error")
-    }
+    skipListSearchRef.current = searchText.trim() !== ""
+    setSearchText("")
+    setShowList(true)
+    await loadReceiptPage(0, "")
   }
+
+  useEffect(() => {
+    if (!showList) return
+    if (skipListSearchRef.current) {
+      skipListSearchRef.current = false
+      return
+    }
+    const timer = setTimeout(() => {
+      void loadReceiptPage(0, searchText)
+    }, 400)
+    return () => clearTimeout(timer)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchText])
 
   const handleEdit = async (id: number) => {
     try {
@@ -1676,8 +1697,8 @@ const ProductionReceipt: React.FC = () => {
 
     try {
       await api.delete(`/production-receipt/${id}`)
-      setSavedRecords((prev) => prev.filter((x) => x.id !== id))
-      await loadSavedRecords()
+      const targetPage = savedRecords.length === 1 && listPage > 0 ? listPage - 1 : listPage
+      await loadReceiptPage(targetPage, searchText)
       Swal.fire("Deleted!", "Record deleted successfully", "success")
 
       if (processName) {
@@ -1779,23 +1800,7 @@ const ProductionReceipt: React.FC = () => {
     return pairs
   }
 
-  // UPDATED: Search by Employee OR Art No OR Cutting Lot No
-  const filteredList = Array.isArray(savedRecords)
-    ? savedRecords.filter((x) => {
-        const s = searchText.trim().toLowerCase()
-        if (!s) return true
-
-        const employeeMatch = (x.employeeName || "").toLowerCase().includes(s)
-
-        const lotNos = (x.rows || []).map((r: any) => r.cardNo || "").join(" ").toLowerCase()
-        const artNos = (x.rows || []).map((r: any) => r.artNo || "").join(" ").toLowerCase()
-
-        const lotMatch = lotNos.includes(s)
-        const artMatch = artNos.includes(s)
-
-        return employeeMatch || lotMatch || artMatch
-      })
-    : []
+  const filteredList = savedRecords
 
   const totalPcs = rows.reduce((sum, r) => sum + (Number.parseFloat(r.pcs) || 0), 0)
   const selectedPcs = rows
@@ -2230,7 +2235,13 @@ const ProductionReceipt: React.FC = () => {
                 </thead>
 
                 <tbody>
-                  {filteredList.length === 0 ? (
+                  {listLoading ? (
+                    <tr>
+                      <td colSpan={8} className="p-4 border text-gray-500 text-center">
+                        Loading...
+                      </td>
+                    </tr>
+                  ) : filteredList.length === 0 ? (
                     <tr>
                       <td colSpan={8} className="p-4 border text-gray-500 text-center">
                         No records found
@@ -2238,20 +2249,21 @@ const ProductionReceipt: React.FC = () => {
                     </tr>
                   ) : (
                     filteredList.map((d, i) => {
-                      const total = (d.rows || []).reduce(
-                        (sum: number, r: any) => sum + (Number.parseFloat(r.pcs) || 0),
-                        0,
-                      )
-
-                      // Lot -> Art mapping (unique pairs, order-preserving)
-                      const pairs = buildUniqueLotArtPairs(d.rows || [])
+                      const pairRows = String(d.lotArtPairs || "")
+                        .split("\n")
+                        .filter(Boolean)
+                        .map((pair: string) => {
+                          const [cardNo, artNo] = pair.split("\t")
+                          return { cardNo, artNo }
+                        })
+                      const pairs = buildUniqueLotArtPairs(pairRows)
 
                       const cuttingLotLines = pairs.map((p) => p.cardNo).join("\n")
                       const artNoLines = pairs.map((p) => p.artNo).join("\n")
 
                       return (
                         <tr key={d.id}>
-                          <td className="p-2 border text-center">{i + 1}</td>
+                          <td className="p-2 border text-center">{listPage * LIST_PAGE_SIZE + i + 1}</td>
                           <td className="p-2 border">{formatDateDDMMYYYY(d.dated)}</td>
 
                           {/* NEW */}
@@ -2262,7 +2274,7 @@ const ProductionReceipt: React.FC = () => {
 
                           <td className="p-2 border">{d.employeeName}</td>
                           <td className="p-2 border">{d.processName}</td>
-                          <td className="p-2 border text-right">{total}</td>
+                          <td className="p-2 border text-right">{d.totalPcs ?? 0}</td>
                           <td className="p-2 border text-center">
                             <button
                               onClick={() => handleEdit(d.id)}
@@ -2285,7 +2297,42 @@ const ProductionReceipt: React.FC = () => {
               </table>
             </div>
 
-            <div className="flex justify-center mt-5">
+            <div className="flex items-center justify-between gap-3 mt-5 text-sm">
+              <span>
+                Showing {listTotalElements === 0 ? 0 : listPage * LIST_PAGE_SIZE + 1}–
+                {Math.min((listPage + 1) * LIST_PAGE_SIZE, listTotalElements)} of {listTotalElements}
+              </span>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => loadReceiptPage(0, searchText)}
+                  disabled={listLoading || listPage === 0}
+                  className="px-3 py-1 bg-gray-200 rounded disabled:opacity-50"
+                >
+                  First
+                </button>
+                <button
+                  onClick={() => loadReceiptPage(listPage - 1, searchText)}
+                  disabled={listLoading || listPage === 0}
+                  className="px-3 py-1 bg-gray-200 rounded disabled:opacity-50"
+                >
+                  Prev
+                </button>
+                <span>Page {listTotalPages === 0 ? 0 : listPage + 1} / {listTotalPages}</span>
+                <button
+                  onClick={() => loadReceiptPage(listPage + 1, searchText)}
+                  disabled={listLoading || listPage >= listTotalPages - 1}
+                  className="px-3 py-1 bg-gray-200 rounded disabled:opacity-50"
+                >
+                  Next
+                </button>
+                <button
+                  onClick={() => loadReceiptPage(listTotalPages - 1, searchText)}
+                  disabled={listLoading || listPage >= listTotalPages - 1}
+                  className="px-3 py-1 bg-gray-200 rounded disabled:opacity-50"
+                >
+                  Last
+                </button>
+              </div>
               <button
                 onClick={() => setShowList(false)}
                 className="bg-gray-300 hover:bg-gray-400 px-5 py-2 rounded"
