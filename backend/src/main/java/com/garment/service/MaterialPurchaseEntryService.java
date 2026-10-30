@@ -4,18 +4,23 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.stream.Collectors;
 
 import org.springframework.http.HttpStatus;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
 import com.garment.DTO.MaterialPurchaseEntryDTO;
+import com.garment.DTO.MaterialPurchaseEntryListDTO;
 import com.garment.DTO.MaterialPurchaseEntryItemResponseDTO;
 import com.garment.DTO.MaterialPurchaseEntryResponseDTO;
 import com.garment.DTO.MaterialPurchaseItemDTO;
 import com.garment.DTO.MaterialResponseDTO;
+import com.garment.DTO.PagedResponse;
 import com.garment.model.Material;
 import com.garment.model.MaterialPurchaseEntry;
 import com.garment.model.MaterialPurchaseEntryItem;
@@ -49,6 +54,18 @@ public class MaterialPurchaseEntryService {
         return entries.stream()
                 .map(this::toResponseDTO)
                 .collect(Collectors.toList());
+    }
+
+    @Transactional(readOnly = true)
+    public PagedResponse<MaterialPurchaseEntryListDTO> getAllEntriesPaged(int page, int size, String search) {
+        int safePage = Math.max(0, page);
+        int safeSize = Math.max(1, Math.min(size, 100));
+        String query = "%" + (search == null ? "" : search.trim().toLowerCase(Locale.ROOT)) + "%";
+        Page<MaterialPurchaseEntryListDTO> results = entryRepository.searchPaged(query, PageRequest.of(safePage, safeSize))
+                .map(row -> new MaterialPurchaseEntryListDTO(
+                        row.getId(), row.getChallanNo(), row.getDate(), row.getPartyName(),
+                        row.getMaterialNames(), row.getTotalQuantity(), row.getTotalAmount()));
+        return PagedResponse.of(results);
     }
 
     @Transactional(readOnly = true)

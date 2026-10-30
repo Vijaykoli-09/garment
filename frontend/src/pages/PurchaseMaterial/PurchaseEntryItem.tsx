@@ -47,6 +47,16 @@ interface Shade {
 //   yarnName: string;
 // }
 
+type MaterialPurchaseEntryListItem = {
+  id: number;
+  challanNo: string | null;
+  date: string;
+  partyName: string | null;
+  materialNames: string;
+  totalQuantity: number;
+  totalAmount: number;
+};
+
 const PurchaseEntryItem: React.FC = () => {
   // const navigate = useNavigate();
 
@@ -63,10 +73,53 @@ const PurchaseEntryItem: React.FC = () => {
   // const [allYarns, setAllYarns] = useState<Yarn[]>([]);
 
   const [showEntryList, setShowEntryList] = useState(false);
-  const [entries, setEntries] = useState<any[]>([]);
-  const [filteredEntries, setFilteredEntries] = useState<any[]>([]);
+  const [entries, setEntries] = useState<MaterialPurchaseEntryListItem[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [loading, setLoading] = useState(false);
+  const [listPage, setListPage] = useState(0);
+  const [listTotalPages, setListTotalPages] = useState(0);
+  const [listLoading, setListLoading] = useState(false);
+  const [listError, setListError] = useState("");
+  const [listRefresh, setListRefresh] = useState(0);
+
+  useEffect(() => {
+    if (!showEntryList) return;
+    let active = true;
+    const timeout = window.setTimeout(async () => {
+      setListLoading(true);
+      setListError("");
+      setEntries([]);
+      try {
+        const response = await api.get<{
+          content: MaterialPurchaseEntryListItem[];
+          totalPages: number;
+        }>("/purchase/entry-item/paged", {
+          params: { page: listPage, size: 20, search: searchTerm.trim() },
+        });
+        if (!active) return;
+        if (response.data.totalPages === 0 && listPage !== 0) {
+          setListPage(0);
+          setListTotalPages(0);
+          return;
+        }
+        if (response.data.totalPages > 0 && listPage >= response.data.totalPages) {
+          setListPage(response.data.totalPages - 1);
+          return;
+        }
+        setEntries(response.data.content);
+        setListTotalPages(response.data.totalPages);
+      } catch (error) {
+        console.error("Could not load Material Purchase Entry list:", error);
+        if (active) setListError("Could not load Material Purchase Entry list. Please try again.");
+      } finally {
+        if (active) setListLoading(false);
+      }
+    }, 300);
+    return () => {
+      active = false;
+      window.clearTimeout(timeout);
+    };
+  }, [showEntryList, listPage, searchTerm, listRefresh]);
 
   const [selectedOrders, setSelectedOrders] = useState<number[]>([]);
 
@@ -419,43 +472,9 @@ const PurchaseEntryItem: React.FC = () => {
   // };
 
   const fetchEntries = async () => {
-    try {
-      const res = await api.get("/purchase/entry-item");
-      const data = res.data.map((entry: any) => ({
-        ...entry,
-        partyName: entry.party?.partyName || "(Unknown Party)",
-      }));
-      setEntries(data);
-      setFilteredEntries(data);
-      setShowEntryList(true);
-    } catch (err) {
-      console.error(err);
-      Swal.fire("Error", "Failed to load purchase entries", "error");
-    }
+    setListPage(0);
+    setShowEntryList(true);
   };
-
-  useEffect(() => {
-    if (searchTerm.trim() === "") {
-      setFilteredEntries(entries);
-    } else {
-      const term = searchTerm.toLowerCase();
-      setFilteredEntries(
-        entries.filter((e) => {
-          const challan = e?.challanNo?.toLowerCase() || "";
-          const entryDate = e?.date?.toLowerCase() || "";
-          const partyName =
-            e?.partyName?.toLowerCase() ||
-            e?.party?.partyName?.toLowerCase() ||
-            "";
-          return (
-            challan.includes(term) ||
-            partyName.includes(term) ||
-            entryDate.includes(term)
-          );
-        })
-      );
-    }
-  }, [searchTerm, entries]);
 
   const handleEditEntry = async (entrySummary: any) => {
     try {
@@ -507,8 +526,7 @@ const PurchaseEntryItem: React.FC = () => {
       try {
         await api.delete(`/purchase/entry-item/${id}`);
         Swal.fire("Deleted!", "Entry removed successfully.", "success");
-        setEntries((prev) => prev.filter((e) => e.id !== id));
-        setFilteredEntries((prev) => prev.filter((e) => e.id !== id));
+        setListRefresh((refresh) => refresh + 1);
       } catch (err) {
         console.error(err);
         Swal.fire("Error", "Failed to delete entry", "error");
@@ -808,7 +826,10 @@ const PurchaseEntryItem: React.FC = () => {
                     type="text"
                     placeholder="Search by Challan No, Party, or Date"
                     value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
+                    onChange={(e) => {
+                      setSearchTerm(e.target.value);
+                      setListPage(0);
+                    }}
                     className="border p-2 rounded w-full mb-4"
                   />
                 </div>
@@ -834,84 +855,91 @@ const PurchaseEntryItem: React.FC = () => {
                     </thead>
 
                     <tbody>
-                      {filteredEntries.length === 0 ? (
+                      {entries.map((entry, index) => (
+                        <tr key={entry.id}>
+                          <td className="border p-2 text-center">
+                            {listPage * 20 + index + 1}
+                          </td>
+                          <td className="border p-2 text-center">
+                            {entry.challanNo || "-"}
+                          </td>
+                          <td className="border p-2 text-center">
+                            {entry.partyName || "(Unknown)"}
+                          </td>
+                          <td className="border p-2 text-center">{entry.date}</td>
+                          <td className="border p-2 text-center">
+                            {entry.materialNames || "-"}
+                          </td>
+                          <td className="border p-2 text-center">
+                            {entry.totalQuantity || 0}
+                          </td>
+                          <td className="border p-2 text-center">
+                            ₹{(entry.totalAmount || 0).toFixed(2)}
+                          </td>
+                          <td className="border p-2 text-center">
+                            <button
+                              onClick={() => handleEditEntry(entry)}
+                              className="px-3 py-1 bg-green-500 text-white rounded mr-2 hover:bg-green-600"
+                            >
+                              Edit
+                            </button>
+                            <button
+                              onClick={() => handleDeleteEntry(entry.id)}
+                              className="px-3 py-1 bg-red-500 text-white rounded hover:bg-red-600"
+                            >
+                              Delete
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                      {listLoading ? (
                         <tr>
                           <td
-                            colSpan={9}
+                            colSpan={8}
                             className="text-center py-3 text-gray-500"
                           >
+                            Loading Material Purchase Entry entries...
+                          </td>
+                        </tr>
+                      ) : listError ? (
+                        <tr>
+                          <td colSpan={8} className="text-center py-3 text-red-600">
+                            {listError}
+                          </td>
+                        </tr>
+                      ) : entries.length === 0 ? (
+                        <tr>
+                          <td colSpan={8} className="text-center py-3 text-gray-500">
                             No Entries Found
                           </td>
                         </tr>
-                      ) : (
-                        filteredEntries.map((entry, index) => {
-                          const totalWtBox = (entry.items || []).reduce(
-                            (sum: number, i: { wtPerBox: number }) =>
-                              sum + (Number(i.wtPerBox) || 0),
-                            0
-                          );
-                          const totalAmountEntry = (entry.items || []).reduce(
-                            (sum: number, i: { amount: number }) =>
-                              sum + (Number(i.amount) || 0),
-                            0
-                          );
-
-                          return (
-                            <tr key={entry.id}>
-                              <td className="border p-2 text-center">
-                                {index + 1}
-                              </td>
-                              <td className="border p-2 text-center">
-                                {entry.challanNo || "-"}
-                              </td>
-                              <td className="border p-2 text-center">
-                                {entry.partyName || "(Unknown)"}
-                              </td>
-                              <td className="border p-2 text-center">
-                                {entry.date}
-                              </td>
-                              {/* <td className="border p-2 text-center">
-                                {(entry.items || [])
-                                  .map((i: any) => i.yarnName || "-")
-                                  .join(", ")}
-                              </td> */}
-                              <td className="border p-2 text-center">
-                                {(entry.items || [])
-                                  .map(
-                                    (i: any) =>
-                                      i.material?.materialName ||
-                                      i.materialName ||
-                                      "-"
-                                  )
-                                  .join(", ")}
-                              </td>
-
-                              <td className="border p-2 text-center">
-                                {totalWtBox}
-                              </td>
-                              <td className="border p-2 text-center">
-                                ₹{totalAmountEntry.toFixed(2)}
-                              </td>
-                              <td className="border p-2 text-center">
-                                <button
-                                  onClick={() => handleEditEntry(entry)}
-                                  className="px-3 py-1 bg-green-500 text-white rounded mr-2 hover:bg-green-600"
-                                >
-                                  Edit
-                                </button>
-                                <button
-                                  onClick={() => handleDeleteEntry(entry.id)}
-                                  className="px-3 py-1 bg-red-500 text-white rounded hover:bg-red-600"
-                                >
-                                  Delete
-                                </button>
-                              </td>
-                            </tr>
-                          );
-                        })
-                      )}
+                      ) : null}
                     </tbody>
                   </table>
+                </div>
+
+                <div className="flex items-center justify-between mt-3 text-sm">
+                  <span>
+                    Page {listTotalPages === 0 ? 0 : listPage + 1} of {listTotalPages}
+                  </span>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      disabled={listPage === 0 || listLoading}
+                      onClick={() => setListPage((page) => Math.max(0, page - 1))}
+                      className="px-3 py-1 border rounded disabled:opacity-50"
+                    >
+                      Previous
+                    </button>
+                    <button
+                      type="button"
+                      disabled={listPage + 1 >= listTotalPages || listLoading}
+                      onClick={() => setListPage((page) => page + 1)}
+                      className="px-3 py-1 border rounded disabled:opacity-50"
+                    >
+                      Next
+                    </button>
+                  </div>
                 </div>
 
                 <div className="text-center mt-6">

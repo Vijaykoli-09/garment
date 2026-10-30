@@ -13,9 +13,12 @@ import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.RequestParam;
 
 import com.garment.DTO.MaterialPurchaseEntryDTO;
+import com.garment.DTO.MaterialPurchaseEntryListDTO;
 import com.garment.DTO.MaterialPurchaseEntryResponseDTO;
+import com.garment.DTO.PagedResponse;
 import com.garment.service.MaterialPurchaseEntryService;
 
 @RestController
@@ -34,6 +37,14 @@ public class MaterialPurchaseEntryController {
     @GetMapping("/purchase/entry-item")
     public List<MaterialPurchaseEntryResponseDTO> getAll() {
         return service.getAllEntries();
+    }
+
+    @GetMapping("/purchase/entry-item/paged")
+    public PagedResponse<MaterialPurchaseEntryListDTO> getAllPaged(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size,
+            @RequestParam(required = false) String search) {
+        return service.getAllEntriesPaged(page, size, search);
     }
 
     // GET /purchase/entry-item/{id}
