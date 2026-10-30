@@ -75,6 +75,15 @@ type FabRow = Fabrication & {
   compositionLines: string[];
 };
 
+type KnittingInwardListItem = {
+  id: number;
+  challanNo: string;
+  dated: string | null;
+  partyName: string | null;
+  totalRolls: number | null;
+  totalAmount: number | null;
+};
+
 const KnittingInwardChallan: React.FC = () => {
   const navigate = useNavigate();
 
@@ -108,9 +117,14 @@ const KnittingInwardChallan: React.FC = () => {
 
   // View List
   const [showList, setShowList] = useState<boolean>(false);
-  const [knittingList, setKnittingList] = useState<any[]>([]);
+  const [knittingList, setKnittingList] = useState<KnittingInwardListItem[]>([]);
   const [searchText, setSearchText] = useState<string>("");
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const [listPage, setListPage] = useState(0);
+  const [listTotalPages, setListTotalPages] = useState(0);
+  const [listLoading, setListLoading] = useState(false);
+  const [listError, setListError] = useState("");
+  const [listRefresh, setListRefresh] = useState(0);
 
   // Fabrication selection modal
   const [fabModalOpen, setFabModalOpen] = useState(false);
@@ -134,6 +148,45 @@ const KnittingInwardChallan: React.FC = () => {
       searchInputRef.current?.focus();
     }
   }, [showList]);
+
+  useEffect(() => {
+    if (!showList) return;
+    let active = true;
+    const timeout = window.setTimeout(async () => {
+      setListLoading(true);
+      setListError("");
+      setKnittingList([]);
+      try {
+        const response = await api.get<{
+          content: KnittingInwardListItem[];
+          totalPages: number;
+        }>("/knitting/list/paged", {
+          params: { page: listPage, size: 20, search: searchText.trim() },
+        });
+        if (!active) return;
+        if (response.data.totalPages === 0 && listPage !== 0) {
+          setListPage(0);
+          setListTotalPages(0);
+          return;
+        }
+        if (response.data.totalPages > 0 && listPage >= response.data.totalPages) {
+          setListPage(response.data.totalPages - 1);
+          return;
+        }
+        setKnittingList(response.data.content);
+        setListTotalPages(response.data.totalPages);
+      } catch (error) {
+        console.error("Could not load Knitting Inward list:", error);
+        if (active) setListError("Could not load Knitting Inward list. Please try again.");
+      } finally {
+        if (active) setListLoading(false);
+      }
+    }, 300);
+    return () => {
+      active = false;
+      window.clearTimeout(timeout);
+    };
+  }, [showList, listPage, searchText, listRefresh]);
 
 
   // --- INITIAL ROW: only once (React StrictMode safe) ---
@@ -747,20 +800,8 @@ const KnittingInwardChallan: React.FC = () => {
 
   // List open
   const openList = () => {
-    api
-      .get("/knitting/list")
-      .then((r) => {
-        const data = Array.isArray(r.data) ? r.data : [];
-        data.sort((a: any, b: any) => {
-          const dateA = new Date(a.dated || a.createdAt || 0).getTime() || 0;
-          const dateB = new Date(b.dated || b.createdAt || 0).getTime() || 0;
-          if (dateA !== dateB) return dateB - dateA;
-          return (Number(b.id) || 0) - (Number(a.id) || 0);
-        });
-        setKnittingList(data);
-        setShowList(true);
-      })
-      .catch(() => Swal.fire("Error", "List load failed", "error"));
+    setListPage(0);
+    setShowList(true);
   };
 
   // Delete from list
@@ -776,7 +817,7 @@ const KnittingInwardChallan: React.FC = () => {
         api
           .delete(`/knitting/delete/${id}`)
           .then(() => {
-            setKnittingList((prev) => prev.filter((x) => x.id !== id));
+            setListRefresh((refresh) => refresh + 1);
             Swal.fire("Deleted", "Record removed", "success");
           })
           .catch(() => Swal.fire("Error", "Delete failed", "error"));
@@ -1031,18 +1072,6 @@ const handleIssueTo = async () => {
     await Swal.fire("Error", "Could not check previous issue history. Please try again.", "error");
   }
 };
-
-  // Filtered List for modal
-  const filteredListView = Array.isArray(knittingList)
-    ? knittingList.filter((x) => {
-        const s = searchText.toLowerCase();
-        return (
-          !searchText ||
-          (x.challanNo || "").toLowerCase().includes(s) ||
-          (x.party?.partyName || "").toLowerCase().includes(s)
-        );
-      })
-    : [];
 
   return (
     <Dashboard>
@@ -1438,7 +1467,10 @@ const handleIssueTo = async () => {
               placeholder="Search by Challan or Party"
               className="border p-2 rounded w-full mb-3"
               value={searchText}
-              onChange={(e) => setSearchText(e.target.value)}
+              onChange={(e) => {
+                setSearchText(e.target.value);
+                setListPage(0);
+              }}
             />
 
             <div className="overflow-auto max-h-96">
@@ -1455,14 +1487,14 @@ const handleIssueTo = async () => {
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredListView.map((k, i) => (
+                  {knittingList.map((k, i) => (
                     <tr key={k.id}>
-                      <td className="border p-2 text-center">{i + 1}</td>
+                      <td className="border p-2 text-center">{listPage * 20 + i + 1}</td>
                       <td className="border p-2">{k.challanNo}</td>
                       <td className="border p-2">
-                        {k.dated?.substring(0, 10)}
+                        {k.dated || ""}
                       </td>
-                      <td className="border p-2">{k.party?.partyName}</td>
+                      <td className="border p-2">{k.partyName || ""}</td>
                       <td className="border p-2 text-right">
                         {k.totalRolls || 0}
                       </td>
@@ -1485,8 +1517,51 @@ const handleIssueTo = async () => {
                       </td>
                     </tr>
                   ))}
+                  {listLoading ? (
+                    <tr>
+                      <td colSpan={7} className="border p-4 text-center text-gray-500">
+                        Loading Knitting Inward entries...
+                      </td>
+                    </tr>
+                  ) : listError ? (
+                    <tr>
+                      <td colSpan={7} className="border p-4 text-center text-red-600">
+                        {listError}
+                      </td>
+                    </tr>
+                  ) : knittingList.length === 0 ? (
+                    <tr>
+                      <td colSpan={7} className="border p-4 text-center text-gray-500">
+                        No records found
+                      </td>
+                    </tr>
+                  ) : null}
                 </tbody>
               </table>
+            </div>
+
+            <div className="flex items-center justify-between mt-3 text-sm">
+              <span>
+                Page {listTotalPages === 0 ? 0 : listPage + 1} of {listTotalPages}
+              </span>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  disabled={listPage === 0 || listLoading}
+                  onClick={() => setListPage((page) => Math.max(0, page - 1))}
+                  className="px-3 py-1 border rounded disabled:opacity-50"
+                >
+                  Previous
+                </button>
+                <button
+                  type="button"
+                  disabled={listPage + 1 >= listTotalPages || listLoading}
+                  onClick={() => setListPage((page) => page + 1)}
+                  className="px-3 py-1 border rounded disabled:opacity-50"
+                >
+                  Next
+                </button>
+              </div>
             </div>
 
             <div className="flex justify-center mt-5">

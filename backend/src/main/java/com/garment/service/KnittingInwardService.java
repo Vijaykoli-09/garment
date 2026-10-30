@@ -1,12 +1,16 @@
 package com.garment.service;
 
+import com.garment.DTO.KnittingInwardListDTO;
 import com.garment.model.*;
 import com.garment.repository.*;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
 
 @Service
@@ -96,6 +100,16 @@ public class KnittingInwardService {
 
     public List<KnittingInward> findAll() {
         return repo.findAll();
+    }
+
+    public Page<KnittingInwardListDTO> findAllPaged(int page, int size, String search) {
+        int safePage = Math.max(0, page);
+        int safeSize = Math.max(1, Math.min(size, 100));
+        String query = "%" + (search == null ? "" : search.trim().toLowerCase(Locale.ROOT)) + "%";
+        return repo.searchPaged(query, PageRequest.of(safePage, safeSize))
+                .map(row -> new KnittingInwardListDTO(
+                        row.getId(), row.getChallanNo(), row.getDated(), row.getPartyName(),
+                        row.getTotalRolls(), row.getTotalAmount()));
     }
 
     public Optional<KnittingInward> findById(Long id) {
