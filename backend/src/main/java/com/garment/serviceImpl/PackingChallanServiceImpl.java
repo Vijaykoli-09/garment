@@ -6,13 +6,20 @@ import java.util.*;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.garment.DTO.CuttingLotRowDTO;
+import com.garment.DTO.PackingBoxSummaryDTO;
 import com.garment.DTO.PackingChallanDTO;
+import com.garment.DTO.PackingChallanListDTO;
 import com.garment.DTO.PackingChallanRowDTO;
 import com.garment.DTO.PackingChallanSizeDetailDTO;
+import com.garment.DTO.PackingRateSummaryDTO;
+import com.garment.DTO.PagedResponse;
 import com.garment.model.*;
 import com.garment.repository.*;
 import com.garment.service.PackingChallanService;
@@ -75,6 +82,35 @@ public class PackingChallanServiceImpl implements PackingChallanService {
     @Override @Transactional(readOnly = true)
     public List<PackingChallanDTO> list(){
         return challanRepo.findAll().stream().map(this::toDTO).collect(Collectors.toList());
+    }
+
+    @Override @Transactional(readOnly = true)
+    public PagedResponse<PackingChallanListDTO> listPaged(int page, int size, String search) {
+        int safePage = Math.max(page, 0);
+        int safeSize = Math.min(Math.max(size, 1), 100);
+        String query = (search == null || search.isBlank())
+                ? "%"
+                : "%" + search.trim().toLowerCase() + "%";
+        Page<PackingChallanListDTO> results = challanRepo.searchPaged(query,
+                PageRequest.of(safePage, safeSize,
+                        Sort.by(Sort.Order.desc("date"), Sort.Order.desc("serialNo"))));
+        return PagedResponse.of(results);
+    }
+
+    @Override @Transactional(readOnly = true)
+    public List<PackingBoxSummaryDTO> packedSizeTotals(String excludeSerial) {
+        return challanRepo.findPackedSizeTotals(excludeSerial).stream()
+                .map(row -> new PackingBoxSummaryDTO(
+                        row.getCuttingLotNo(), row.getSizeName(), row.getBoxCount()))
+                .collect(Collectors.toList());
+    }
+
+    @Override @Transactional(readOnly = true)
+    public List<PackingRateSummaryDTO> latestRateSummaries() {
+        return challanRepo.findLatestRateSummaries().stream()
+                .map(row -> new PackingRateSummaryDTO(
+                        row.getArtNo(), row.getSizeName(), row.getRate(), row.getPerBox()))
+                .collect(Collectors.toList());
     }
 
     @Override

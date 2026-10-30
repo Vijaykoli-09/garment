@@ -1,0 +1,17 @@
+package com.garment.DTO;
+
+import java.math.BigDecimal;
+
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+@Data
+@NoArgsConstructor
+@AllArgsConstructor
+public class PackingRateSummaryDTO {
+    private String artNo;
+    private String sizeName;
+    private BigDecimal rate;
+    private Integer perBox;
+}

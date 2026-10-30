@@ -244,6 +244,7 @@ const ShadeModal: React.FC<{
    Main Component
 ========================= */
 const PackingChallan: React.FC = () => {
+  const LIST_PAGE_SIZE = 20;
   const [date, setDate] = useState("");
   const [partyId, setPartyId] = useState("");
   const [parties, setParties] = useState<any[]>([]);
@@ -259,6 +260,11 @@ const PackingChallan: React.FC = () => {
   const [listOpen, setListOpen] = useState(false);
   const [listData, setListData] = useState<any[]>([]);
   const [listSearch, setListSearch] = useState("");
+  const [listPage, setListPage] = useState(0);
+  const [listTotalPages, setListTotalPages] = useState(0);
+  const [listTotalElements, setListTotalElements] = useState(0);
+  const [listLoading, setListLoading] = useState(false);
+  const skipListSearchRef = useRef(false);
 
   // Cutting Lot modal
   const [lotModalOpen, setLotModalOpen] = useState(false);
@@ -303,28 +309,17 @@ const PackingChallan: React.FC = () => {
   const addBlankRow = () => setRows((prev) => [...prev, makeBlankRow()]);
 
   // ---------- Build prev packed map ----------
-  const buildPrevPackedBoxMap = useCallback((challans: any[], excludeSerial?: string | null) => {
+  const buildPrevPackedBoxMap = useCallback((packedSizes: any[]) => {
     const map = new Map<string, Record<string, number>>();
 
-    for (const ch of Array.isArray(challans) ? challans : []) {
-      const sn = String(ch.serialNo ?? ch.serial ?? ch.challanNo ?? "");
-      if (excludeSerial && sn && sn === excludeSerial) continue;
+    for (const packedSize of Array.isArray(packedSizes) ? packedSizes : []) {
+      const lotNo = normLot(packedSize.cuttingLotNo);
+      const sizeName = String(packedSize.sizeName || "").trim();
+      if (!lotNo || !sizeName) continue;
+      const box = toNum(packedSize.boxCount);
 
-      const chRows: any[] = Array.isArray(ch.rows) ? ch.rows : [];
-      for (const r of chRows) {
-        const lotNo = normLot(r.cuttingLotNo || r.cutLotNo || r.cutlotNo || r.cuttinglotNo || "");
-        if (!lotNo) continue;
-
-        const details: any[] = Array.isArray(r.sizeDetails) ? r.sizeDetails : [];
-        for (const sd of details) {
-          const sizeName = String(sd.sizeName || sd.size || "").trim();
-          if (!sizeName) continue;
-          const box = toNum(sd.boxCount ?? sd.box ?? 0);
-
-          if (!map.has(lotNo)) map.set(lotNo, {});
-          map.get(lotNo)![sizeName] = (map.get(lotNo)![sizeName] || 0) + box;
-        }
-      }
+      if (!map.has(lotNo)) map.set(lotNo, {});
+      map.get(lotNo)![sizeName] = (map.get(lotNo)![sizeName] || 0) + box;
     }
 
     const out = new Map<string, Record<string, string>>();
@@ -340,16 +335,10 @@ const PackingChallan: React.FC = () => {
   // ⭐ Available cutting lots
   const fetchAvailableLots = useCallback(async () => {
     try {
-      // prev packed from packing challans
-      let packingDocs: any[] = [];
-      try {
-        const { data } = await api.get<any[]>("/packing-challans");
-        packingDocs = Array.isArray(data) ? data : [];
-      } catch {
-        packingDocs = [];
-      }
-
-      const prevPacked = buildPrevPackedBoxMap(packingDocs, editingSerial);
+      const { data: packedSizes } = await api.get<any[]>("/packing-challans/packed-summary", {
+        params: { excludeSerial: editingSerial || undefined },
+      });
+      const prevPacked = buildPrevPackedBoxMap(Array.isArray(packedSizes) ? packedSizes : []);
       prevPackedRef.current = prevPacked;
 
       // cutting entries
@@ -416,8 +405,10 @@ const PackingChallan: React.FC = () => {
 
       cuttingInfoRef.current = cuttingInfo;
       setLots(Array.from(lotsMap.values()).sort((a, b) => a.lotNo.localeCompare(b.lotNo, undefined, { numeric: true })));
-    } catch {
+    } catch (err) {
+      console.error("Failed to load available cutting lots", err);
       setLots([]);
+      Swal.fire("Error", "Failed to load available cutting lots", "error");
     }
   }, [buildPrevPackedBoxMap, editingSerial]);
 
@@ -470,33 +461,24 @@ const PackingChallan: React.FC = () => {
   useEffect(() => {
     (async () => {
       try {
-        const { data } = await api.get<any[]>("/packing-challans");
-        const challans = Array.isArray(data) ? data : [];
+        const { data } = await api.get<any[]>("/packing-challans/rate-summary");
+        const rateSummaries = Array.isArray(data) ? data : [];
 
         const map: {
           [artNo: string]: { sizeRate: Record<string, string>; sizePerBox: Record<string, string> };
         } = {};
 
-        for (const ch of challans) {
-          const challanRows: any[] = Array.isArray(ch.rows) ? ch.rows : [];
-          for (const r of challanRows) {
-            const artNo = String(r.artNo || "").trim();
-            if (!artNo) continue;
+        for (const summary of rateSummaries) {
+          const artNo = String(summary.artNo || "").trim();
+          const sizeName = String(summary.sizeName || "").trim();
+          if (!artNo || !sizeName) continue;
+          if (!map[artNo]) map[artNo] = { sizeRate: {}, sizePerBox: {} };
 
-            const details: any[] = Array.isArray(r.sizeDetails) ? r.sizeDetails : [];
-            if (!map[artNo]) map[artNo] = { sizeRate: {}, sizePerBox: {} };
-
-            details.forEach((sd) => {
-              const sizeName = String(sd.sizeName || sd.size || "").trim();
-              if (!sizeName) return;
-
-              if (sd.rate !== null && sd.rate !== undefined && sd.rate !== "") {
-                map[artNo].sizeRate[sizeName] = String(sd.rate);
-              }
-              if (sd.perBox !== null && sd.perBox !== undefined && sd.perBox !== "") {
-                map[artNo].sizePerBox[sizeName] = String(sd.perBox);
-              }
-            });
+          if (summary.rate !== null && summary.rate !== undefined && summary.rate !== "") {
+            map[artNo].sizeRate[sizeName] = String(summary.rate);
+          }
+          if (summary.perBox !== null && summary.perBox !== undefined && summary.perBox !== "") {
+            map[artNo].sizePerBox[sizeName] = String(summary.perBox);
           }
         }
 
@@ -971,66 +953,49 @@ const PackingChallan: React.FC = () => {
   };
 
   // View List
-  const openList = async () => {
+  const loadPackingChallanPage = async (page: number, search: string) => {
     try {
-      const { data } = await api.get<any[]>("/packing-challans");
-      setListData(Array.isArray(data) ? data : []);
-      setListOpen(true);
-    } catch {
+      setListLoading(true);
+      const { data } = await api.get<any>("/packing-challans/paged", {
+        params: { page, size: LIST_PAGE_SIZE, search: search.trim() || undefined },
+      });
+      setListData(Array.isArray(data?.content) ? data.content : []);
+      setListPage(data?.page ?? page);
+      setListTotalPages(data?.totalPages ?? 0);
+      setListTotalElements(data?.totalElements ?? 0);
+    } catch (err) {
+      console.error("Failed to load packing challan list", err);
       setListData([]);
-      setListOpen(true);
+      setListPage(0);
+      setListTotalPages(0);
+      setListTotalElements(0);
+      Swal.fire("Error", "Failed to load packing challan list", "error");
+    } finally {
+      setListLoading(false);
     }
   };
 
-  const flatRows = useMemo(() => {
-    const out: any[] = [];
-    for (const ch of listData) {
-      const chDate = ch.date || ch.dated || "";
-      const partyName = ch.partyName || "";
-      const chRows = Array.isArray(ch.rows) ? ch.rows : [];
+  const openList = async () => {
+    skipListSearchRef.current = listSearch.trim() !== "";
+    setListSearch("");
+    setListOpen(true);
+    await loadPackingChallanPage(0, "");
+  };
 
-      chRows.forEach((r: any) => {
-        const details: any[] = Array.isArray(r.sizeDetails) ? r.sizeDetails : [];
-        const sortedDetails = [...details].sort((a, b) =>
-          sizeSort(String(a.sizeName || a.size || ""), String(b.sizeName || b.size || "")),
-        );
-
-        const nonEmptyDetails = sortedDetails.filter((sd: any) => {
-          const box = Number(sd.boxCount ?? sd.box ?? 0);
-          const perBox = Number(sd.perBox ?? 0);
-          const rate = Number(sd.rate ?? 0);
-          return box !== 0 || perBox !== 0 || rate !== 0;
-        });
-
-        const sizeLabel = nonEmptyDetails.length
-          ? nonEmptyDetails
-              .map(
-                (sd: any) =>
-                  `${sd.sizeName ?? sd.size ?? ""}: Box ${sd.boxCount ?? 0}, PB ${sd.perBox ?? 0}, INR ${Number(sd.rate ?? 0).toFixed(2)}`,
-              )
-              .join("\n")
-          : "";
-
-        out.push({
-          serialNo: ch.serialNo ?? ch.serial ?? ch.challanNo ?? "",
-          date: chDate,
-          partyName,
-          cuttingLotNo: r.cuttingLotNo || r.cutLotNo || "",
-          artGroup: r.artGroupName || "",
-          artNo: r.artNo || "",
-          size: sizeLabel,
-          shade: r.shadeName || "",
-          box: details.length ? details.reduce((s: number, sd: any) => s + Number(sd.boxCount || 0), 0) : r.box || r.boxCount || 0,
-          pcs: r.pcs || 0,
-          amount: r.amount || 0,
-        });
-      });
+  useEffect(() => {
+    if (!listOpen) return;
+    if (skipListSearchRef.current) {
+      skipListSearchRef.current = false;
+      return;
     }
+    const timer = setTimeout(() => {
+      void loadPackingChallanPage(0, listSearch);
+    }, 400);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [listSearch]);
 
-    const q = listSearch.trim().toLowerCase();
-    if (!q) return out;
-    return out.filter((x) => Object.values(x).some((v) => String(v).toLowerCase().includes(q)));
-  }, [listData, listSearch]);
+  const flatRows = listData;
 
   const handleEditFromList = async (serialNo: string) => {
     try {
@@ -1124,8 +1089,9 @@ const PackingChallan: React.FC = () => {
 
     try {
       await api.delete(`/packing-challans/${encodeURIComponent(serialNo)}`);
-      const { data } = await api.get<any[]>("/packing-challans");
-      setListData(Array.isArray(data) ? data : []);
+      const targetPage =
+        listData.length === 1 && listPage > 0 ? listPage - 1 : listPage;
+      await loadPackingChallanPage(targetPage, listSearch);
       await fetchAvailableLots();
       Swal.fire("Deleted", "Challan deleted.", "success");
     } catch (e) {
@@ -1171,32 +1137,24 @@ const PackingChallan: React.FC = () => {
                   <tr>
                     <th className="border p-2 text-center">S.No</th>
                     <th className="border p-2 text-center">Date</th>
+                    <th className="border p-2 text-center">Serial No</th>
                     <th className="border p-2 text-center">Party Name</th>
-                    <th className="border p-2 text-center">Cutting Lot No</th>
-                    <th className="border p-2 text-center">Art Group</th>
-                    <th className="border p-2 text-center">Art No</th>
-                    <th className="border p-2 text-center">Size</th>
-                    <th className="border p-2 text-center">Shade</th>
-                    <th className="border p-2 text-center">Box</th>
-                    <th className="border p-2 text-center">Pcs</th>
-                    <th className="border p-2 text-center">Amount</th>
+                    <th className="border p-2 text-center">Total Box</th>
+                    <th className="border p-2 text-center">Total Pcs</th>
+                    <th className="border p-2 text-center">Total Amount</th>
                     <th className="border p-2 text-center">Action</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {flatRows.map((r, i) => (
+                  {!listLoading && flatRows.map((r, i) => (
                     <tr key={i}>
-                      <td className="border p-2 text-center">{i + 1}</td>
+                      <td className="border p-2 text-center">{listPage * LIST_PAGE_SIZE + i + 1}</td>
                       <td className="border p-2 text-center">{r.date}</td>
+                      <td className="border p-2 text-center">{r.serialNo}</td>
                       <td className="border p-2 text-center">{r.partyName}</td>
-                      <td className="border p-2 text-center">{r.cuttingLotNo}</td>
-                      <td className="border p-2 text-center">{r.artGroup}</td>
-                      <td className="border p-2 text-center">{r.artNo}</td>
-                      <td className="border p-2 text-center whitespace-pre-line min-w-[260px]">{r.size}</td>
-                      <td className="border p-2 text-center">{r.shade}</td>
-                      <td className="border p-2 text-center">{r.box}</td>
-                      <td className="border p-2 text-center">{r.pcs}</td>
-                      <td className="border p-2 text-center">{Number(r.amount).toFixed(2)}</td>
+                      <td className="border p-2 text-center">{r.totalBox ?? 0}</td>
+                      <td className="border p-2 text-center">{r.totalPcs ?? 0}</td>
+                      <td className="border p-2 text-center">{Number(r.totalAmount ?? 0).toFixed(2)}</td>
                       <td className="border p-2">
                         <div className="flex items-center justify-center gap-2">
                           <button
@@ -1216,9 +1174,16 @@ const PackingChallan: React.FC = () => {
                     </tr>
                   ))}
 
-                  {flatRows.length === 0 && (
+                  {listLoading && (
                     <tr>
-                      <td className="border p-3 text-center text-gray-500" colSpan={12}>
+                      <td className="border p-3 text-center text-gray-500" colSpan={8}>
+                        Loading...
+                      </td>
+                    </tr>
+                  )}
+                  {!listLoading && flatRows.length === 0 && (
+                    <tr>
+                      <td className="border p-3 text-center text-gray-500" colSpan={8}>
                         No records
                       </td>
                     </tr>
@@ -1227,7 +1192,42 @@ const PackingChallan: React.FC = () => {
               </table>
             </div>
 
-            <div className="text-center mt-6">
+            <div className="flex items-center justify-between gap-3 mt-6 text-sm">
+              <span>
+                Showing {listTotalElements === 0 ? 0 : listPage * LIST_PAGE_SIZE + 1}–
+                {Math.min((listPage + 1) * LIST_PAGE_SIZE, listTotalElements)} of {listTotalElements}
+              </span>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => loadPackingChallanPage(0, listSearch)}
+                  disabled={listLoading || listPage === 0}
+                  className="px-3 py-1 bg-gray-200 rounded disabled:opacity-50"
+                >
+                  First
+                </button>
+                <button
+                  onClick={() => loadPackingChallanPage(listPage - 1, listSearch)}
+                  disabled={listLoading || listPage === 0}
+                  className="px-3 py-1 bg-gray-200 rounded disabled:opacity-50"
+                >
+                  Prev
+                </button>
+                <span>Page {listTotalPages === 0 ? 0 : listPage + 1} / {listTotalPages}</span>
+                <button
+                  onClick={() => loadPackingChallanPage(listPage + 1, listSearch)}
+                  disabled={listLoading || listPage >= listTotalPages - 1}
+                  className="px-3 py-1 bg-gray-200 rounded disabled:opacity-50"
+                >
+                  Next
+                </button>
+                <button
+                  onClick={() => loadPackingChallanPage(listTotalPages - 1, listSearch)}
+                  disabled={listLoading || listPage >= listTotalPages - 1}
+                  className="px-3 py-1 bg-gray-200 rounded disabled:opacity-50"
+                >
+                  Last
+                </button>
+              </div>
               <button
                 onClick={() => setListOpen(false)}
                 className="px-5 py-2 bg-gray-600 text-white rounded hover:bg-gray-700 transition-all"

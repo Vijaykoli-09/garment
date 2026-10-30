@@ -18,7 +18,11 @@ import org.springframework.web.bind.annotation.RestController;
 
 import com.garment.DTO.ArtGroupDTO;
 import com.garment.DTO.CuttingLotRowDTO;
+import com.garment.DTO.PackingBoxSummaryDTO;
 import com.garment.DTO.PackingChallanDTO;
+import com.garment.DTO.PackingChallanListDTO;
+import com.garment.DTO.PackingRateSummaryDTO;
+import com.garment.DTO.PagedResponse;
 import com.garment.model.Party;
 import com.garment.model.Shade;
 import com.garment.model.Size;
@@ -53,6 +57,22 @@ public class PackingChallanController {
 	  @GetMapping 
 	  public List<PackingChallanDTO> list()
 	  { return svc.list(); }
+
+	  @GetMapping("/paged")
+	  public PagedResponse<PackingChallanListDTO> listPaged(
+	          @RequestParam(defaultValue = "0") int page,
+	          @RequestParam(defaultValue = "20") int size,
+	          @RequestParam(required = false) String search)
+	  { return svc.listPaged(page, size, search); }
+
+	  @GetMapping("/packed-summary")
+	  public List<PackingBoxSummaryDTO> packedSizeTotals(
+	          @RequestParam(required = false) String excludeSerial)
+	  { return svc.packedSizeTotals(excludeSerial); }
+
+	  @GetMapping("/rate-summary")
+	  public List<PackingRateSummaryDTO> latestRateSummaries()
+	  { return svc.latestRateSummaries(); }
 	  
 	  @DeleteMapping("/{serialNo}") 
 	  public void delete(@PathVariable String serialNo)
