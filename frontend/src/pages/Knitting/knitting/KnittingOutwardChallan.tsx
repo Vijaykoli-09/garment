@@ -41,6 +41,17 @@ interface Yarn {
   yarnName: string;
 }
 
+type KnittingOutwardListItem = {
+  id: number;
+  challanNo: string | null;
+  date: string | null;
+  partyName: string | null;
+  yarnNames: string;
+  materialNames: string;
+  totalWtPerBox: number;
+  totalAmount: number;
+};
+
 // Local “consumed items” helpers
 const CONSUMED_KEY = "consumedPurchaseItemsByParty_v1";
 
@@ -82,26 +93,12 @@ const KnittingOutwardChallan: React.FC = () => {
   const location: any = useLocation();
 
   const generateChallanNo = useCallback(async () => {
-    const year = new Date().getFullYear();
     try {
-      const res = await api.get("/knitting-outward-challan");
-      const data = Array.isArray(res.data) ? res.data : [];
-      const re = new RegExp(`^P-${year}/(\\d{4})$`);
-      let maxNum = 0;
-
-      data.forEach((doc: any) => {
-        const cn = doc.challanNo || "";
-        const m = cn.match(re);
-        if (m) {
-          const n = parseInt(m[1], 10);
-          if (!isNaN(n)) maxNum = Math.max(maxNum, n);
-        }
-      });
-
-      const next = (maxNum + 1).toString().padStart(4, "0");
-      setChallanNo(`P-${year}/${next}`);
-    } catch {
-      setChallanNo(`P-${year}/0001`);
+      const response = await api.get<string>("/knitting-outward-challan/next-challan-no");
+      setChallanNo(response.data);
+    } catch (error) {
+      console.error("Could not generate Knitting Outward challan number:", error);
+      await Swal.fire("Error", "Could not generate a challan number.", "error");
     }
   }, []);
 
@@ -121,10 +118,53 @@ const KnittingOutwardChallan: React.FC = () => {
   const [fromPurchaseEntryId, setFromPurchaseEntryId] = useState<number | null>(null);
 
   const [showEntryList, setShowEntryList] = useState(false);
-  const [entries, setEntries] = useState<any[]>([]);
-  const [filteredEntries, setFilteredEntries] = useState<any[]>([]);
+  const [entries, setEntries] = useState<KnittingOutwardListItem[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [loading, setLoading] = useState(false);
+  const [listPage, setListPage] = useState(0);
+  const [listTotalPages, setListTotalPages] = useState(0);
+  const [listLoading, setListLoading] = useState(false);
+  const [listError, setListError] = useState("");
+  const [listRefresh, setListRefresh] = useState(0);
+
+  useEffect(() => {
+    if (!showEntryList) return;
+    let active = true;
+    const timeout = window.setTimeout(async () => {
+      setListLoading(true);
+      setListError("");
+      setEntries([]);
+      try {
+        const response = await api.get<{
+          content: KnittingOutwardListItem[];
+          totalPages: number;
+        }>("/knitting-outward-challan/paged", {
+          params: { page: listPage, size: 20, search: searchTerm.trim() },
+        });
+        if (!active) return;
+        if (response.data.totalPages === 0 && listPage !== 0) {
+          setListPage(0);
+          setListTotalPages(0);
+          return;
+        }
+        if (response.data.totalPages > 0 && listPage >= response.data.totalPages) {
+          setListPage(response.data.totalPages - 1);
+          return;
+        }
+        setEntries(response.data.content);
+        setListTotalPages(response.data.totalPages);
+      } catch (error) {
+        console.error("Could not load Knitting Outward list:", error);
+        if (active) setListError("Could not load Knitting Outward list. Please try again.");
+      } finally {
+        if (active) setListLoading(false);
+      }
+    }, 300);
+    return () => {
+      active = false;
+      window.clearTimeout(timeout);
+    };
+  }, [showEntryList, listPage, searchTerm, listRefresh]);
 
   const [selectedOrders, setSelectedOrders] = useState<number[]>([]);
 
@@ -493,82 +533,44 @@ const KnittingOutwardChallan: React.FC = () => {
   };
 
   const fetchEntries = async () => {
-    try {
-      const res = await api.get("/knitting-outward-challan");
-      const list = res.data || [];
-
-      if (list.length === 0) {
-        const year = new Date().getFullYear();
-        const resetChallan = `P-${year}/0001`;
-        setChallanNo(resetChallan);
-        localStorage.setItem("lastChallanNo", resetChallan);
-      } else {
-        const data = list.map((entry: any) => ({
-          ...entry,
-          partyName: entry.party?.partyName || "(Unknown Party)",
-        }));
-        setEntries(data);
-        setFilteredEntries(data);
-      }
-
-      setShowEntryList(true);
-    } catch (err) {
-      console.error("Fetch entries error:", err);
-      Swal.fire("Error", "Failed to load entries", "error");
-    }
+    setListPage(0);
+    setShowEntryList(true);
   };
 
-  useEffect(() => {
-    if (searchTerm.trim() === "") {
-      setFilteredEntries(entries);
-    } else {
-      const term = searchTerm.toLowerCase();
-      setFilteredEntries(
-        entries.filter((e) => {
-          const challan = e?.challanNo?.toLowerCase() || "";
-          const entryDate = e?.date?.toLowerCase() || "";
-          const partyName =
-            e?.partyName?.toLowerCase() ||
-            e?.party?.partyName?.toLowerCase() ||
-            "";
-          return (
-            challan.includes(term) ||
-            partyName.includes(term) ||
-            entryDate.includes(term)
-          );
+  const handleEditEntry = async (id: number) => {
+    try {
+      const { data: entry } = await api.get(`/knitting-outward-challan/${id}`);
+      setShowEntryList(false);
+      setEntryId(entry.id || null);
+      setDate(entry.date || "");
+      setChallanNo(entry.challanNo || "");
+      setPartyId(entry.party?.id?.toString() || "");
+
+      setRows(
+        (entry.items || []).map((i: any, idx: number) => {
+          const mat = i.material || {};
+          const shade = i.shade || {};
+          return {
+            id: i.id || idx + 1,
+            orderNo: i.orderNo || "",
+            yarnName: i.yarnName || "",
+            materialId: mat.id?.toString() || "",
+            materialName: mat.materialName || "",
+            unit: mat.materialUnit || "",
+            shadeCode: i.shadeCode || shade.shadeCode || "",
+            shadeName: i.shadeName || shade.shadeName || "",
+            receivedRolls: i.roll?.toString() || "",
+            receivedWtBox: i.wtPerBox?.toString() || "",
+            receivedWeight: i.weight?.toString() || "",
+            rate: i.rate?.toString() || "",
+            amount: i.amount?.toString() || "",
+          };
         })
       );
+    } catch (error) {
+      console.error("Could not load Knitting Outward entry:", error);
+      Swal.fire("Error", "Could not load entry details.", "error");
     }
-  }, [searchTerm, entries]);
-
-  const handleEditEntry = (entry: any) => {
-    setShowEntryList(false);
-    setEntryId(entry.id || null);
-    setDate(entry.date || "");
-    setChallanNo(entry.challanNo || "");
-    setPartyId(entry.party?.id?.toString() || "");
-
-    setRows(
-      (entry.items || []).map((i: any, idx: number) => {
-        const mat = i.material || {};
-        const shade = i.shade || {};
-        return {
-          id: i.id || idx + 1,
-          orderNo: i.orderNo || "",
-          yarnName: i.yarnName || "",
-          materialId: mat.id?.toString() || "",
-          materialName: mat.materialName || "",
-          unit: mat.materialUnit || "",
-          shadeCode: i.shadeCode || shade.shadeCode || "",
-          shadeName: i.shadeName || shade.shadeName || "",
-          receivedRolls: i.roll?.toString() || "",
-          receivedWtBox: i.wtPerBox?.toString() || "",
-          receivedWeight: i.weight?.toString() || "",
-          rate: i.rate?.toString() || "",
-          amount: i.amount?.toString() || "",
-        };
-      })
-    );
   };
 
   const handleDeleteEntry = async (id: number) => {
@@ -583,8 +585,7 @@ const KnittingOutwardChallan: React.FC = () => {
       try {
         await api.delete(`/knitting-outward-challan/${id}`);
         Swal.fire("Deleted!", "Entry removed successfully.", "success");
-        setEntries((prev) => prev.filter((e) => e.id !== id));
-        setFilteredEntries((prev) => prev.filter((e) => e.id !== id));
+        setListRefresh((refresh) => refresh + 1);
       } catch (err) {
         console.error(err);
         Swal.fire("Error", "Failed to delete entry", "error");
@@ -863,7 +864,10 @@ const KnittingOutwardChallan: React.FC = () => {
                     type="text"
                     placeholder="Search by Challan No, Party, or Date"
                     value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
+                    onChange={(e) => {
+                      setSearchTerm(e.target.value);
+                      setListPage(0);
+                    }}
                     className="border p-2 rounded w-full mb-4"
                   />
                 </div>
@@ -885,96 +889,96 @@ const KnittingOutwardChallan: React.FC = () => {
                     </thead>
 
                     <tbody>
-                      {filteredEntries.length === 0 ? (
+                      {entries.map((entry, index) => (
+                        <tr key={entry.id}>
+                          <td className="border p-2 text-center">
+                            {listPage * 20 + index + 1}
+                          </td>
+                          <td className="border p-2 text-center">
+                            {entry.challanNo || "-"}
+                          </td>
+                          <td className="border p-2 text-center">
+                            {entry.partyName || "(Unknown)"}
+                          </td>
+                          <td className="border p-2 text-center">
+                            {entry.date || ""}
+                          </td>
+                          <td className="border p-2 text-center">
+                            {entry.yarnNames || "-"}
+                          </td>
+                          <td className="border p-2 text-center">
+                            {entry.materialNames || "-"}
+                          </td>
+                          <td className="border p-2 text-center">
+                            {entry.totalWtPerBox || 0}
+                          </td>
+                          <td className="border p-2 text-center">
+                            ₹{(entry.totalAmount || 0).toFixed(2)}
+                          </td>
+                          <td className="border p-2 text-center">
+                            <button
+                              onClick={() => handleEditEntry(entry.id)}
+                              className="px-3 py-1 bg-green-500 text-white rounded mr-2 hover:bg-green-600"
+                            >
+                              Edit
+                            </button>
+                            <button
+                              onClick={() => handleDeleteEntry(entry.id)}
+                              className="px-3 py-1 bg-red-500 text-white rounded hover:bg-red-600"
+                            >
+                              Delete
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                      {listLoading ? (
                         <tr>
                           <td
                             colSpan={9}
                             className="text-center py-3 text-gray-500"
                           >
+                            Loading Knitting Outward entries...
+                          </td>
+                        </tr>
+                      ) : listError ? (
+                        <tr>
+                          <td colSpan={9} className="text-center py-3 text-red-600">
+                            {listError}
+                          </td>
+                        </tr>
+                      ) : entries.length === 0 ? (
+                        <tr>
+                          <td colSpan={9} className="text-center py-3 text-gray-500">
                             No Entries Found
                           </td>
                         </tr>
-                      ) : (
-                        filteredEntries.map((entry, index) => {
-                          const totalWtBox = entry.items?.reduce(
-                            (sum: number, i: { wtPerBox: string }) =>
-                              sum + (parseFloat(i.wtPerBox) || 0),
-                            0
-                          );
-                          const totalAmount = entry.items?.reduce(
-                            (sum: number, i: { amount: string }) =>
-                              sum + (parseFloat(i.amount) || 0),
-                            0
-                          );
-
-                          return (
-                            <tr key={entry.id}>
-                              <td className="border p-2 text-center">
-                                {index + 1}
-                              </td>
-                              <td className="border p-2 text-center">
-                                {entry.challanNo || "-"}
-                              </td>
-                              <td className="border p-2 text-center">
-                                {entry.partyName || "(Unknown)"}
-                              </td>
-                              <td className="border p-2 text-center">
-                                {entry.date}
-                              </td>
-                              {/* Yarn Name */}
-                              <td className="border p-2 text-center">
-                                {Array.from(
-                                  new Set(
-                                    (entry.items || [])
-                                      .map((i: any) => i.yarnName || "")
-                                      .filter(Boolean)
-                                  )
-                                ).join(", ") || "-"}
-                              </td>
-
-                              {/* Material Name */}
-                              <td className="border p-2 text-center">
-                                {Array.from(
-                                  new Set(
-                                    (entry.items || [])
-                                      .map(
-                                        (i: any) =>
-                                          i.material?.materialName ||
-                                          i.materialName ||
-                                          ""
-                                      )
-                                      .filter(Boolean)
-                                  )
-                                ).join(", ") || "-"}
-                              </td>
-
-                              {/* Total Receive Wt/Box */}
-                              <td className="border p-2 text-center">
-                                {totalWtBox || 0}
-                              </td>
-                              <td className="border p-2 text-center">
-                                ₹{totalAmount?.toFixed(2)}
-                              </td>
-                              <td className="border p-2 text-center">
-                                <button
-                                  onClick={() => handleEditEntry(entry)}
-                                  className="px-3 py-1 bg-green-500 text-white rounded mr-2 hover:bg-green-600"
-                                >
-                                  Edit
-                                </button>
-                                <button
-                                  onClick={() => handleDeleteEntry(entry.id)}
-                                  className="px-3 py-1 bg-red-500 text-white rounded hover:bg-red-600"
-                                >
-                                  Delete
-                                </button>
-                              </td>
-                            </tr>
-                          );
-                        })
-                      )}
+                      ) : null}
                     </tbody>
                   </table>
+                </div>
+
+                <div className="flex items-center justify-between mt-3 text-sm">
+                  <span>
+                    Page {listTotalPages === 0 ? 0 : listPage + 1} of {listTotalPages}
+                  </span>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      disabled={listPage === 0 || listLoading}
+                      onClick={() => setListPage((page) => Math.max(0, page - 1))}
+                      className="px-3 py-1 border rounded disabled:opacity-50"
+                    >
+                      Previous
+                    </button>
+                    <button
+                      type="button"
+                      disabled={listPage + 1 >= listTotalPages || listLoading}
+                      onClick={() => setListPage((page) => page + 1)}
+                      className="px-3 py-1 border rounded disabled:opacity-50"
+                    >
+                      Next
+                    </button>
+                  </div>
                 </div>
 
                 <div className="text-center mt-6">

@@ -5,7 +5,11 @@ import java.util.List;
 import java.util.stream.Collectors;
 
 import org.springframework.stereotype.Service;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
 
+import com.garment.DTO.KnittingOutwardChallanListDTO;
+import com.garment.DTO.PagedResponse;
 import com.garment.DTO.KnittingOutwardChallanDTO;
 import com.garment.DTO.KnittingOutwardChallanRowDTO;
 import com.garment.model.KnittingOutwardChallan;
@@ -23,6 +27,8 @@ import com.garment.service.MaterialStockService;
 
 import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
+import java.time.LocalDate;
+import java.util.Locale;
 
 @Service
 @RequiredArgsConstructor
@@ -101,6 +107,26 @@ public class KnittingOutwardChallanServiceImpl implements KnittingOutwardChallan
     @Override
     public List<KnittingOutwardChallan> getAllEntries() {
         return challanRepo.findAll();
+    }
+
+    @Override
+    public PagedResponse<KnittingOutwardChallanListDTO> getAllEntriesPaged(int page, int size, String search) {
+        int safePage = Math.max(0, page);
+        int safeSize = Math.max(1, Math.min(size, 100));
+        String query = "%" + (search == null ? "" : search.trim().toLowerCase(Locale.ROOT)) + "%";
+        Page<KnittingOutwardChallanListDTO> results = challanRepo.searchPaged(query, PageRequest.of(safePage, safeSize))
+                .map(row -> new KnittingOutwardChallanListDTO(
+                        row.getId(), row.getChallanNo(), row.getDate(), row.getPartyName(),
+                        row.getYarnNames(), row.getMaterialNames(), row.getTotalWtPerBox(),
+                        row.getTotalAmount()));
+        return PagedResponse.of(results);
+    }
+
+    @Override
+    public String nextChallanNo() {
+        int year = LocalDate.now().getYear();
+        int serial = challanRepo.findMaxChallanNumberForPrefix("P-" + year + "/") + 1;
+        return String.format(Locale.ROOT, "P-%d/%04d", year, serial);
     }
 
     //Update Chllan

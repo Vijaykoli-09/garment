@@ -1,6 +1,8 @@
 package com.garment.controller;
 
 import com.garment.DTO.KnittingOutwardChallanDTO;
+import com.garment.DTO.KnittingOutwardChallanListDTO;
+import com.garment.DTO.PagedResponse;
 import com.garment.model.KnittingOutwardChallan;
 import com.garment.service.KnittingOutwardChallanService;
 import org.springframework.web.bind.annotation.*;
@@ -21,6 +23,19 @@ public class KnittingOutwardChallanController {
     @GetMapping
     public List<KnittingOutwardChallan> getAll() {
         return service.getAllEntries();
+    }
+
+    @GetMapping("/paged")
+    public PagedResponse<KnittingOutwardChallanListDTO> getAllPaged(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size,
+            @RequestParam(required = false) String search) {
+        return service.getAllEntriesPaged(page, size, search);
+    }
+
+    @GetMapping("/next-challan-no")
+    public String nextChallanNo() {
+        return service.nextChallanNo();
     }
 
     // ✅ Get one challan by ID
