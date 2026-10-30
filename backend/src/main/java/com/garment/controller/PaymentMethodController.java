@@ -1,5 +1,7 @@
 package com.garment.controller;
 
+import com.garment.DTO.PagedResponse;
+import com.garment.DTO.PaymentListDTO;
 import java.util.List;
 
 import org.springframework.http.HttpStatus;
@@ -9,6 +11,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
@@ -37,6 +40,14 @@ public class PaymentMethodController {
     @GetMapping
     public List<Payment> list() {
         return paymentService.list();
+    }
+
+    @GetMapping("/paged")
+    public PagedResponse<PaymentListDTO> listPaged(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size,
+            @RequestParam(required = false) String search) {
+        return paymentService.listPaged(page, size, search);
     }
 
     @GetMapping("/{id}")

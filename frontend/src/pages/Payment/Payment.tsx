@@ -498,9 +498,53 @@ const processSearchRef = useRef<HTMLInputElement>(null);
   const [showList, setShowList] = useState(false);
   const [paymentList, setPaymentList] = useState<PaymentRecord[]>([]);
   const [searchText, setSearchText] = useState("");
+  const [listPage, setListPage] = useState(0);
+  const [listTotalPages, setListTotalPages] = useState(0);
+  const [listLoading, setListLoading] = useState(false);
+  const [listError, setListError] = useState("");
+  const [listRefresh, setListRefresh] = useState(0);
 
   const [savedRecords, setSavedRecords] = useState<PaymentRecord[]>([]);
   const [paymentModes, setPaymentModes] = useState<PaymentMode[]>([]);
+
+  useEffect(() => {
+    if (!showList) return;
+    let active = true;
+    const timeout = window.setTimeout(async () => {
+      setListLoading(true);
+      setListError("");
+      setPaymentList([]);
+      try {
+        const response = await api.get<{
+          content: PaymentRecord[];
+          totalPages: number;
+        }>("/payment/paged", {
+          params: { page: listPage, size: 20, search: searchText.trim() },
+        });
+        if (!active) return;
+        if (response.data.totalPages === 0 && listPage !== 0) {
+          setListPage(0);
+          setListTotalPages(0);
+          return;
+        }
+        if (response.data.totalPages > 0 && listPage >= response.data.totalPages) {
+          setListPage(response.data.totalPages - 1);
+          return;
+        }
+        setPaymentList(response.data.content);
+        setListTotalPages(response.data.totalPages);
+      } catch (error) {
+        console.error("Could not load Payment list:", error);
+        if (active) setListError("Could not load Payment list. Please try again.");
+      } finally {
+        if (active) setListLoading(false);
+      }
+    }, 300);
+    return () => {
+      active = false;
+      window.clearTimeout(timeout);
+    };
+  }, [showList, listPage, searchText, listRefresh]);
 
   // ================= Employee balance sources =================
   const [cuttingEntries, setCuttingEntries] = useState<CuttingEntryDTO[]>([]);
@@ -1890,22 +1934,6 @@ const loadPartySources = async () => {
     return partyList.filter((p) => (p || "").toLowerCase().includes(partySearchText.toLowerCase()));
   }, [partyList, partySearchText]);
 
-  const filteredList = useMemo(() => {
-    if (!Array.isArray(paymentList)) return [];
-    const s = searchText.toLowerCase();
-
-    return paymentList.filter((x: any) => {
-      const displayName = (x.paymentTo === "Employee" ? x.employeeName : x.partyName) || "";
-      return (
-        !searchText ||
-        (x.paymentTo || "").toLowerCase().includes(s) ||
-        (x.processName || "").toLowerCase().includes(s) ||
-        (x.paymentThrough || "").toLowerCase().includes(s) ||
-        displayName.toLowerCase().includes(s)
-      );
-    });
-  }, [paymentList, searchText]);
-
   // ================= Payload =================
   const buildPayload = () => {
   const payload: any = {
@@ -2001,15 +2029,8 @@ setSaving(true);
 };
 
   const openList = async () => {
-    try {
-      const res = await api.get(routes.list);
-      const data = Array.isArray(res.data) ? res.data : [];
-      setPaymentList(data);
-      setShowList(true);
-    } catch (err) {
-      console.error("Load list error:", err);
-      Swal.fire("Error", "Failed to load list", "error");
-    }
+    setListPage(0);
+    setShowList(true);
   };
 
     const handleEdit = async (id: number) => {
@@ -2094,7 +2115,7 @@ setSaving(true);
 
   try {
     await api.delete(routes.delete(targetId));
-    setPaymentList((prev) => prev.filter((x) => x.id !== targetId));
+    setListRefresh((refresh) => refresh + 1);
 
     if (editingId === targetId) {
       setEditingId(null);
@@ -2713,7 +2734,10 @@ setSaving(true);
               placeholder="Search by Payment To / Name / Process / Through"
               className="border p-2 rounded w-full mb-3"
               value={searchText}
-              onChange={(e) => setSearchText(e.target.value)}
+              onChange={(e) => {
+                setSearchText(e.target.value);
+                setListPage(0);
+              }}
             />
 
             <div className="overflow-auto flex-1">
@@ -2730,45 +2754,80 @@ setSaving(true);
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredList.length === 0 ? (
+                  {paymentList.map((d, i) => {
+                    const name = d.paymentTo === "Employee" ? d.employeeName : d.partyName;
+                    return (
+                      <tr key={d.id}>
+                        <td className="border p-2 text-center">{listPage * 20 + i + 1}</td>
+                        <td className="border p-2">
+                          {d.paymentDate ? new Date(d.paymentDate).toLocaleDateString() : "-"}
+                        </td>
+                        <td className="border p-2">{d.paymentTo}</td>
+                        <td className="border p-2">{name || "-"}</td>
+                        <td className="border p-2">{d.processName || "-"}</td>
+                        <td className="border p-2 text-right">{d.amount ?? "-"}</td>
+                        <td className="border p-2 text-center">
+                          <button
+                            onClick={() => handleEdit(d.id)}
+                            className="px-2 py-1 bg-blue-500 text-white rounded mr-1 hover:bg-blue-600"
+                          >
+                            Edit
+                          </button>
+                          <button
+                            onClick={() => handleDelete(d.id)}
+                            className="px-2 py-1 bg-red-500 text-white rounded hover:bg-red-600"
+                          >
+                            Delete
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                  {listLoading ? (
+                    <tr>
+                      <td colSpan={7} className="border p-4 text-center text-gray-500">
+                        Loading payments...
+                      </td>
+                    </tr>
+                  ) : listError ? (
+                    <tr>
+                      <td colSpan={7} className="border p-4 text-center text-red-600">
+                        {listError}
+                      </td>
+                    </tr>
+                  ) : paymentList.length === 0 ? (
                     <tr>
                       <td colSpan={7} className="border p-4 text-center text-gray-500">
                         No records found
                       </td>
                     </tr>
-                  ) : (
-                    filteredList.map((d: any, i: number) => {
-                      const name = d.paymentTo === "Employee" ? d.employeeName : d.partyName;
-                      return (
-                        <tr key={d.id}>
-                          <td className="border p-2 text-center">{i + 1}</td>
-                          <td className="border p-2">
-                            {d.paymentDate ? new Date(d.paymentDate).toLocaleDateString() : "-"}
-                          </td>
-                          <td className="border p-2">{d.paymentTo}</td>
-                          <td className="border p-2">{name || "-"}</td>
-                          <td className="border p-2">{d.processName || "-"}</td>
-                          <td className="border p-2 text-right">{d.amount ?? "-"}</td>
-                          <td className="border p-2 text-center">
-                            <button
-                              onClick={() => handleEdit(d.id)}
-                              className="px-2 py-1 bg-blue-500 text-white rounded mr-1 hover:bg-blue-600"
-                            >
-                              Edit
-                            </button>
-                            <button
-                              onClick={() => handleDelete(d.id)}
-                              className="px-2 py-1 bg-red-500 text-white rounded hover:bg-red-600"
-                            >
-                              Delete
-                            </button>
-                          </td>
-                        </tr>
-                      );
-                    })
-                  )}
+                  ) : null}
                 </tbody>
               </table>
+            </div>
+
+            <div className="flex items-center justify-between mt-3 text-sm">
+              <span>
+                Page {listTotalPages === 0 ? 0 : listPage + 1} of {listTotalPages}
+              </span>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  disabled={listPage === 0 || listLoading}
+                  onClick={() => setListPage((page) => Math.max(0, page - 1))}
+                  className="px-3 py-1 border rounded disabled:opacity-50"
+                >
+                  Previous
+                </button>
+                <button
+                  type="button"
+                  disabled={listPage + 1 >= listTotalPages || listLoading}
+                  onClick={() => setListPage((page) => page + 1)}
+                  className="px-3 py-1 border rounded disabled:opacity-50"
+                >
+                  Next
+                </button>
+              </div>
             </div>
 
             <div className="flex justify-center mt-5">

@@ -3,8 +3,11 @@ package com.garment.serviceImpl;
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.Objects;
+import java.util.Locale;
 
 import org.springframework.data.domain.Sort;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -13,6 +16,8 @@ import org.springframework.web.server.ResponseStatusException;
 import com.garment.model.Employee;
 import com.garment.model.Party;
 import com.garment.model.Payment;
+import com.garment.DTO.PagedResponse;
+import com.garment.DTO.PaymentListDTO;
 import com.garment.repository.EmployeeRepository;
 import com.garment.repository.PartyRepository;
 import com.garment.repository.PaymentMethodRepository;
@@ -45,6 +50,19 @@ public class PaymentMethodServiceImpl implements PaymentMethodService {
     @Transactional(readOnly = true)
     public List<Payment> list() {
         return paymentRepository.findAll(Sort.by(Sort.Direction.DESC, "id"));
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public PagedResponse<PaymentListDTO> listPaged(int page, int size, String search) {
+        int safePage = Math.max(0, page);
+        int safeSize = Math.max(1, Math.min(size, 100));
+        String query = "%" + (search == null ? "" : search.trim().toLowerCase(Locale.ROOT)) + "%";
+        Page<PaymentListDTO> results = paymentRepository.searchPaged(query, PageRequest.of(safePage, safeSize))
+                .map(row -> new PaymentListDTO(
+                        row.getId(), row.getPaymentDate(), row.getPaymentTo(), row.getPartyName(),
+                        row.getEmployeeName(), row.getProcessName(), row.getAmount()));
+        return PagedResponse.of(results);
     }
 
     @Override
