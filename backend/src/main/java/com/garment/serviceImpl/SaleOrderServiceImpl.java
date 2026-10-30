@@ -6,14 +6,20 @@ import java.util.*;
 import java.util.stream.Collectors;
 
 import com.garment.repository.*;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.garment.DTO.OrderSettleDTO;
 import com.garment.DTO.OrderSettleRowDTO;
 import com.garment.DTO.OrderSettleSizeDetailDTO;
+import com.garment.DTO.PagedResponse;
 import com.garment.DTO.PendencyFulfillRequestDTO;
 import com.garment.DTO.SaleOrderDTO;
+import com.garment.DTO.SaleOrderListDTO;
 import com.garment.DTO.SaleOrderPendencyRowDTO;
 import com.garment.DTO.SaleOrderRowDTO;
 import com.garment.DTO.SaleOrderSaveDTO;
@@ -224,6 +230,22 @@ public class SaleOrderServiceImpl implements SaleOrderService {
     @Transactional(readOnly = true)
     public List<SaleOrderDTO> list() {
         return repo.findAll().stream().map(this::toDto).collect(Collectors.toList());
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public PagedResponse<SaleOrderListDTO> listPaged(int page, int size, String search) {
+        int safePage = Math.max(page, 0);
+        int safeSize = Math.min(Math.max(size, 1), 100);
+        String query = (search == null || search.isBlank())
+                ? "%"
+                : "%" + search.trim().toLowerCase() + "%";
+        Pageable pageable = PageRequest.of(safePage, safeSize,
+                Sort.by(Sort.Order.desc("dated"), Sort.Order.desc("id")));
+        Page<SaleOrder> orders = repo.searchPaged(query, pageable);
+        return PagedResponse.of(orders.map(order -> new SaleOrderListDTO(
+                order.getId(), order.getOrderNo(), order.getDated(), order.getDeliveryDate(),
+                order.getPartyId(), order.getPartyName(), order.getTotalPeti(), order.getTotalPcs())));
     }
 
     @Override

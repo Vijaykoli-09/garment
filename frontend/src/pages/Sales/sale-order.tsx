@@ -8,6 +8,8 @@ import api from "../../api/axiosInstance"
 import jsPDF from "jspdf"
 import html2canvas from "html2canvas"
 
+const LIST_PAGE_SIZE = 20
+
 if (typeof window !== "undefined") {
   ;(window as any).html2canvas = html2canvas
 }
@@ -498,6 +500,10 @@ const SaleOrder: React.FC = () => {
   const [showList, setShowList] = useState(false)
   const [saleOrderList, setSaleOrderList] = useState<any[]>([])
   const [listSearch, setListSearch] = useState("")
+  const [listPage, setListPage] = useState(0)
+  const [listTotalPages, setListTotalPages] = useState(0)
+  const [listTotalElements, setListTotalElements] = useState(0)
+  const [listLoading, setListLoading] = useState(false)
   const [editingId, setEditingId] = useState<number | null>(null)
 
   const [orderTotals, setOrderTotals] = useState<Record<number, OrderTotals>>({})
@@ -1840,43 +1846,7 @@ const SaleOrder: React.FC = () => {
     }
   }
 
-  // LIST FILTER
-  const filteredList = useMemo(() => {
-    const base = Array.isArray(saleOrderList) ? saleOrderList : []
-    const sorted = [...base].sort((a, b) =>
-      String(a.orderNo || "").localeCompare(String(b.orderNo || "")),
-    )
-
-    const s = listSearch.trim().toLowerCase()
-    if (!s) return sorted
-
-    return sorted.filter((x) => {
-      const orderNoStr = String(x.orderNo || "").toLowerCase()
-      const partyNameStr = String(x.partyName || "").toLowerCase()
-
-      const party = partyList.find(
-        (p) =>
-          normStr(p.partyName) === normStr(x.partyName),
-      )
-
-      const station = String(party?.station || "").toLowerCase()
-
-      const baseAgentName = party?.agent?.agentName || ""
-      const code = party?.agent?.serialNo
-      const masterAgentName =
-        code && agents.length
-          ? agents.find((a) => String(a.serialNo) === String(code))?.agentName || ""
-          : ""
-      const agentName = String(baseAgentName || masterAgentName || "").toLowerCase()
-
-      return (
-        orderNoStr.includes(s) ||
-        partyNameStr.includes(s) ||
-        station.includes(s) ||
-        agentName.includes(s)
-      )
-    })
-  }, [saleOrderList, listSearch, partyList, agents])
+  const filteredList = saleOrderList
 
   // packing sync on party change
   useEffect(() => {
@@ -2131,16 +2101,40 @@ const SaleOrder: React.FC = () => {
       })
   }
 
-  const openList = async () => {
+  const loadListPage = async (page: number, search: string) => {
     try {
-      const { data } = await api.get<any[]>("/sale-orders")
-      setSaleOrderList(Array.isArray(data) ? data : [])
-      setShowList(true)
+      setListLoading(true)
+      const { data } = await api.get<any>("/sale-orders/paged", {
+        params: { page, size: LIST_PAGE_SIZE, search: search.trim() || undefined },
+      })
+      setSaleOrderList(Array.isArray(data?.content) ? data.content : [])
+      setListPage(data?.page ?? page)
+      setListTotalPages(data?.totalPages ?? 0)
+      setListTotalElements(data?.totalElements ?? 0)
+      setOrderTotals({})
     } catch (err) {
       console.error("Failed to load sale orders list", err)
       Swal.fire("Error", "Failed to load Sale Orders list", "error")
+    } finally {
+      setListLoading(false)
     }
   }
+
+  const openList = async () => {
+    setListSearch("")
+    setShowList(true)
+    await loadListPage(0, "")
+  }
+
+  useEffect(() => {
+    if (!showList) return
+    const timer = setTimeout(() => {
+      setListPage(0)
+      loadListPage(0, listSearch)
+    }, 400)
+    return () => clearTimeout(timer)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [listSearch])
 
   const handleEdit = async (id: number) => {
     try {
@@ -2249,11 +2243,8 @@ const SaleOrder: React.FC = () => {
       await api.delete(`/sale-orders/${id}`)
       Swal.fire("Deleted", "Sale Order deleted successfully", "success")
 
-      setSaleOrderList((prev) => prev.filter((so: any) => so.id !== id))
-      setOrderTotals((prev) => {
-        const { [id]: _, ...rest } = prev
-        return rest
-      })
+      const targetPage = saleOrderList.length === 1 && listPage > 0 ? listPage - 1 : listPage
+      await loadListPage(targetPage, listSearch)
     } catch (err) {
       console.error("Failed to delete sale order", err)
       Swal.fire("Error", "Failed to delete Sale Order", "error")
@@ -2917,7 +2908,7 @@ const SaleOrder: React.FC = () => {
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredList.map((so: any, i: number) => {
+                  {!listLoading && filteredList.map((so: any, i: number) => {
                     const party = partyList.find(
                       (p) =>
                         normStr(p.partyName) === normStr(so.partyName),
@@ -2937,7 +2928,7 @@ const SaleOrder: React.FC = () => {
 
                     return (
                       <tr key={so.id}>
-                        <td className="border p-2 text-center">{i + 1}</td>
+                        <td className="border p-2 text-center">{listPage * LIST_PAGE_SIZE + i + 1}</td>
                         <td className="border p-2 text-center">{so.orderNo}</td>
                         <td className="border p-2 text-center">
                           {so.dated ? formatDateDDMMYY(so.dated) : ""}
@@ -2974,7 +2965,14 @@ const SaleOrder: React.FC = () => {
                       </tr>
                     )
                   })}
-                  {filteredList.length === 0 && (
+                  {listLoading && (
+                    <tr>
+                      <td className="border p-4 text-center text-gray-500" colSpan={11}>
+                        Loading...
+                      </td>
+                    </tr>
+                  )}
+                  {!listLoading && filteredList.length === 0 && (
                     <tr>
                       <td className="border p-4 text-center text-gray-500" colSpan={11}>
                         No records
@@ -2983,6 +2981,43 @@ const SaleOrder: React.FC = () => {
                   )}
                 </tbody>
               </table>
+            </div>
+            <div className="flex items-center justify-between gap-3 mt-4 text-sm">
+              <span>
+                Showing {listTotalElements === 0 ? 0 : listPage * LIST_PAGE_SIZE + 1}–
+                {Math.min((listPage + 1) * LIST_PAGE_SIZE, listTotalElements)} of {listTotalElements}
+              </span>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => loadListPage(0, listSearch)}
+                  disabled={listLoading || listPage === 0}
+                  className="px-3 py-1 bg-gray-200 rounded disabled:opacity-50"
+                >
+                  First
+                </button>
+                <button
+                  onClick={() => loadListPage(listPage - 1, listSearch)}
+                  disabled={listLoading || listPage === 0}
+                  className="px-3 py-1 bg-gray-200 rounded disabled:opacity-50"
+                >
+                  Prev
+                </button>
+                <span>Page {listTotalPages === 0 ? 0 : listPage + 1} / {listTotalPages}</span>
+                <button
+                  onClick={() => loadListPage(listPage + 1, listSearch)}
+                  disabled={listLoading || listPage >= listTotalPages - 1}
+                  className="px-3 py-1 bg-gray-200 rounded disabled:opacity-50"
+                >
+                  Next
+                </button>
+                <button
+                  onClick={() => loadListPage(listTotalPages - 1, listSearch)}
+                  disabled={listLoading || listPage >= listTotalPages - 1}
+                  className="px-3 py-1 bg-gray-200 rounded disabled:opacity-50"
+                >
+                  Last
+                </button>
+              </div>
             </div>
             <div className="flex justify-center mt-4">
               <button

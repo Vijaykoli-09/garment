@@ -4,13 +4,32 @@ import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
 
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 import com.garment.model.SaleOrder;
 
 public interface SaleOrderRepository extends JpaRepository<SaleOrder, Long> {
     Optional<SaleOrder> findByOrderNo(String orderNo);
+
+    @Query(value = "select s from SaleOrder s "
+            + "left join Party p on p.id = s.partyId "
+            + "left join p.agent a "
+            + "where lower(s.orderNo) like :q "
+            + "or lower(s.partyName) like :q "
+            + "or lower(coalesce(p.station, '')) like :q "
+            + "or lower(coalesce(a.agentName, '')) like :q",
+            countQuery = "select count(s) from SaleOrder s "
+                    + "left join Party p on p.id = s.partyId "
+                    + "left join p.agent a "
+                    + "where lower(s.orderNo) like :q "
+                    + "or lower(s.partyName) like :q "
+                    + "or lower(coalesce(p.station, '')) like :q "
+                    + "or lower(coalesce(a.agentName, '')) like :q")
+    Page<SaleOrder> searchPaged(@Param("q") String query, Pageable pageable);
 
     @Query("select s.orderNo from SaleOrder s where s.orderNo like concat(:prefix, '%')")
     List<String> findOrderNosByPrefix(String prefix);

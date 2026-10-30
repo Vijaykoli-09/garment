@@ -5,8 +5,10 @@ import java.util.List;
 
 import com.garment.DTO.PendencyFulfillRequestDTO;
 import com.garment.DTO.SaleOrderDTO;
+import com.garment.DTO.SaleOrderListDTO;
 import com.garment.DTO.SaleOrderPendencyRowDTO;
 import com.garment.DTO.SaleOrderSaveDTO;
+import com.garment.DTO.PagedResponse;
 
 public interface SaleOrderService {
 
@@ -14,6 +16,7 @@ public interface SaleOrderService {
     SaleOrderDTO update(Long id, SaleOrderSaveDTO dto);
     SaleOrderDTO get(Long id);
     List<SaleOrderDTO> list();
+    PagedResponse<SaleOrderListDTO> listPaged(int page, int size, String search);
     void delete(Long id);
     String nextOrderNo();
 

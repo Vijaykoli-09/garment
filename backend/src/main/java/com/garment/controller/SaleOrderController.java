@@ -9,7 +9,9 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import com.garment.DTO.PendencyFulfillRequestDTO;
+import com.garment.DTO.PagedResponse;
 import com.garment.DTO.SaleOrderDTO;
+import com.garment.DTO.SaleOrderListDTO;
 import com.garment.DTO.SaleOrderPendencyRowDTO;
 import com.garment.DTO.SaleOrderSaveDTO;
 import com.garment.service.SaleOrderService;
@@ -47,6 +49,14 @@ public class SaleOrderController {
     @GetMapping
     public List<SaleOrderDTO> list() {
         return svc.list();
+    }
+
+    @GetMapping("/paged")
+    public PagedResponse<SaleOrderListDTO> listPaged(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size,
+            @RequestParam(required = false) String search) {
+        return svc.listPaged(page, size, search);
     }
 
     @DeleteMapping("/{id}")
