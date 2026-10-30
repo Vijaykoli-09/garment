@@ -75,6 +75,7 @@ public class SecurityConfig {
 
                       // ✅ IMPORTANT: allow preflight
                       .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
+                      .requestMatchers("/actuator/health/**").permitAll()
 
                       // ── Web admin auth ────────────────────────────────────
                       .requestMatchers("/api/auth/**").permitAll()
