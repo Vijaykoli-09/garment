@@ -264,49 +264,27 @@ const fetchPendingMapFor = async (
       }
     } catch (e) {
       console.error("Dispatch-challan fetch error in fetchPendingMapFor:", e);
+      Swal.fire("Error", "Failed to load dispatch totals for pending boxes", "error");
     }
 
     // 3) Order settle se settle qty
     const settleMap = new Map<AggKey, number>();
-    try {
-      const { data: osData } = await api.get<any[]>("/order-settles");
-      const docs = Array.isArray(osData) ? osData : [];
-
-      for (const doc of docs) {
-        const docDate = doc.dated || doc.date || "";
-        if (!inRange(docDate, from, to)) continue;
-
-        const pName = String(doc.partyName || "").trim();
-        if (!pName) continue;
-
-        const rowsOs = Array.isArray(doc.rows) ? doc.rows : [];
-        for (const row of rowsOs) {
-          const artNo = String(row.artNo || "").trim();
-          if (!artNo) continue;
-
-          if (
-            !artNos
-              .map((a) => a.trim().toUpperCase())
-              .includes(artNo.toUpperCase())
-          )
-            continue;
-
-          const dets = Array.isArray(row.sizeDetails) ? row.sizeDetails : [];
-          for (const sd of dets) {
-            const size = String(sd.sizeName || "").trim();
-            if (!size) continue;
-
-            const qty = Number(sd.settleBox ?? sd.box ?? sd.qty ?? 0);
-            if (!qty || isNaN(qty)) continue;
-
-            const key: AggKey = `${norm(pName)}|${norm(artNo)}|${norm(size)}`;
-            const prev = settleMap.get(key) || 0;
-            settleMap.set(key, prev + qty);
-          }
-        }
-      }
-    } catch (e) {
-      console.error("Order-settles fetch error in fetchPendingMapFor:", e);
+    const { data: settleSummaries } = await api.get<any[]>("/order-settles/pendency-summary", {
+      params: {
+        partyId,
+        fromDate: from,
+        toDate: to,
+        artNos: artNos.map((artNo) => artNo.trim().toUpperCase()).join(","),
+      },
+    });
+    for (const row of Array.isArray(settleSummaries) ? settleSummaries : []) {
+      const pName = String(row.partyName || "").trim();
+      const artNo = String(row.artNo || "").trim();
+      const size = String(row.sizeName || "").trim();
+      const qty = Number(row.settledBox || 0);
+      if (!pName || !artNo || !size || !qty || isNaN(qty)) continue;
+      const key: AggKey = `${norm(pName)}|${norm(artNo)}|${norm(size)}`;
+      settleMap.set(key, (settleMap.get(key) || 0) + qty);
     }
 
     // 4) Pending = opening + receipt − dispatch − settle
@@ -325,12 +303,14 @@ const fetchPendingMapFor = async (
     return result;
   } catch (e) {
     console.error("Error in fetchPendingMapFor:", e);
+    Swal.fire("Error", "Failed to calculate pending order settle quantities", "error");
     return {};
   }
 };
 
 /* =============== Component =============== */
 const OrderSettle: React.FC = () => {
+  const LIST_PAGE_SIZE = 20;
   const [rows, setRows] = useState<OrderSettleRow[]>([]);
 
   // Header
@@ -355,6 +335,11 @@ const OrderSettle: React.FC = () => {
   const [showList, setShowList] = useState(false);
   const [settleList, setSettleList] = useState<any[]>([]);
   const [listSearch, setListSearch] = useState("");
+  const [listPage, setListPage] = useState(0);
+  const [listTotalPages, setListTotalPages] = useState(0);
+  const [listTotalElements, setListTotalElements] = useState(0);
+  const [listLoading, setListLoading] = useState(false);
+  const skipListSearchRef = useRef(false);
 
   const artTimers = useRef<Record<number, number | undefined>>({});
   const printRef = useRef<HTMLDivElement | null>(null);
@@ -439,13 +424,10 @@ const OrderSettle: React.FC = () => {
     partyId?: number | null,
     pName?: string
   ) => {
-    const { data } = await api.get<SaleOrderDTO[]>("/sale-orders");
-    const list = Array.isArray(data) ? data : [];
-    return list.filter((so) => {
-      if (partyId != null && so.partyId != null)
-        return Number(so.partyId) === Number(partyId);
-      return pName ? norm(so.partyName) === norm(pName) : false;
+    const { data } = await api.get<SaleOrderDTO[]>("/sale-orders/by-party", {
+      params: partyId != null ? { partyId } : { partyName: pName },
     });
+    return Array.isArray(data) ? data : [];
   };
 
   const mapSaleOrdersToSettleRows = (sos: SaleOrderDTO[]): OrderSettleRow[] => {
@@ -645,27 +627,49 @@ const OrderSettle: React.FC = () => {
   };
 
   /* List modal */
-  const openList = async () => {
+  const loadSettlePage = async (page: number, search: string) => {
     try {
-      const { data } = await api.get<any[]>("/order-settles");
-      setSettleList(Array.isArray(data) ? data : []);
-    } catch {
+      setListLoading(true);
+      const { data } = await api.get<any>("/order-settles/paged", {
+        params: { page, size: LIST_PAGE_SIZE, search: search.trim() || undefined },
+      });
+      setSettleList(Array.isArray(data?.content) ? data.content : []);
+      setListPage(data?.page ?? page);
+      setListTotalPages(data?.totalPages ?? 0);
+      setListTotalElements(data?.totalElements ?? 0);
+    } catch (err) {
+      console.error("Failed to load order settle list", err);
       setSettleList([]);
+      setListPage(0);
+      setListTotalPages(0);
+      setListTotalElements(0);
+      Swal.fire("Error", "Failed to load order settle list", "error");
     } finally {
-      setShowList(true);
+      setListLoading(false);
     }
   };
 
-  const filteredSettleList = useMemo(() => {
-    const s = listSearch.toLowerCase();
-    return (Array.isArray(settleList) ? settleList : []).filter((x: any) => {
-      return (
-        !s ||
-        (x.challanNo || "").toLowerCase().includes(s) ||
-        (x.partyName || "").toLowerCase().includes(s)
-      );
-    });
-  }, [settleList, listSearch]);
+  const openList = async () => {
+    skipListSearchRef.current = listSearch.trim() !== "";
+    setListSearch("");
+    setShowList(true);
+    await loadSettlePage(0, "");
+  };
+
+  useEffect(() => {
+    if (!showList) return;
+    if (skipListSearchRef.current) {
+      skipListSearchRef.current = false;
+      return;
+    }
+    const timer = setTimeout(() => {
+      void loadSettlePage(0, listSearch);
+    }, 400);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [listSearch]);
+
+  const filteredSettleList = settleList;
 
   const handleEdit = async (id: number) => {
     try {
@@ -729,7 +733,9 @@ const OrderSettle: React.FC = () => {
     try {
       await api.delete(`/order-settles/${id}`);
       Swal.fire("Deleted!", "Record deleted successfully", "success");
-      openList();
+      const targetPage =
+        settleList.length === 1 && listPage > 0 ? listPage - 1 : listPage;
+      await loadSettlePage(targetPage, listSearch);
     } catch {
       Swal.fire("Error", "Failed to delete", "error");
     }
@@ -1012,9 +1018,9 @@ const OrderSettle: React.FC = () => {
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredSettleList.map((doc: any, i: number) => (
+                  {!listLoading && filteredSettleList.map((doc: any, i: number) => (
                     <tr key={doc.id}>
-                      <td className="border p-2 text-center">{i + 1}</td>
+                      <td className="border p-2 text-center">{listPage * LIST_PAGE_SIZE + i + 1}</td>
                       <td className="border p-2">{doc.challanNo || ""}</td>
                       <td className="border p-2">{doc.dated || ""}</td>
                       <td className="border p-2">{doc.partyName || ""}</td>
@@ -1034,7 +1040,17 @@ const OrderSettle: React.FC = () => {
                       </td>
                     </tr>
                   ))}
-                  {filteredSettleList.length === 0 && (
+                  {listLoading && (
+                    <tr>
+                      <td
+                        className="border p-4 text-center text-gray-500"
+                        colSpan={5}
+                      >
+                        Loading...
+                      </td>
+                    </tr>
+                  )}
+                  {!listLoading && filteredSettleList.length === 0 && (
                     <tr>
                       <td
                         className="border p-4 text-center text-gray-500"
@@ -1048,7 +1064,42 @@ const OrderSettle: React.FC = () => {
               </table>
             </div>
 
-            <div className="flex justify-center mt-4">
+            <div className="flex items-center justify-between gap-3 mt-4 text-sm">
+              <span>
+                Showing {listTotalElements === 0 ? 0 : listPage * LIST_PAGE_SIZE + 1}–
+                {Math.min((listPage + 1) * LIST_PAGE_SIZE, listTotalElements)} of {listTotalElements}
+              </span>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => loadSettlePage(0, listSearch)}
+                  disabled={listLoading || listPage === 0}
+                  className="px-3 py-1 bg-gray-200 rounded disabled:opacity-50"
+                >
+                  First
+                </button>
+                <button
+                  onClick={() => loadSettlePage(listPage - 1, listSearch)}
+                  disabled={listLoading || listPage === 0}
+                  className="px-3 py-1 bg-gray-200 rounded disabled:opacity-50"
+                >
+                  Prev
+                </button>
+                <span>Page {listTotalPages === 0 ? 0 : listPage + 1} / {listTotalPages}</span>
+                <button
+                  onClick={() => loadSettlePage(listPage + 1, listSearch)}
+                  disabled={listLoading || listPage >= listTotalPages - 1}
+                  className="px-3 py-1 bg-gray-200 rounded disabled:opacity-50"
+                >
+                  Next
+                </button>
+                <button
+                  onClick={() => loadSettlePage(listTotalPages - 1, listSearch)}
+                  disabled={listLoading || listPage >= listTotalPages - 1}
+                  className="px-3 py-1 bg-gray-200 rounded disabled:opacity-50"
+                >
+                  Last
+                </button>
+              </div>
               <button
                 onClick={() => setShowList(false)}
                 className="px-5 py-2 bg-gray-300 hover:bg-gray-400 rounded"

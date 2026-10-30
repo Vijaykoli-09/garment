@@ -4,12 +4,18 @@ import java.time.LocalDate;
 import java.util.List;
 import java.util.stream.Collectors;
 
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.garment.DTO.OrderSettleDTO;
+import com.garment.DTO.OrderSettleListDTO;
+import com.garment.DTO.OrderSettlePendencySummaryDTO;
 import com.garment.DTO.OrderSettleRowDTO;
 import com.garment.DTO.OrderSettleSizeDetailDTO;
+import com.garment.DTO.PagedResponse;
 import com.garment.model.OrderSettle;
 import com.garment.model.OrderSettleRow;
 import com.garment.model.OrderSettleSizeDetail;
@@ -56,6 +62,28 @@ public class OrderSettleServiceImpl implements OrderSettleService {
         return repo.findAll().stream()
                 .map(this::toDto)
                 .collect(Collectors.toList());
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public PagedResponse<OrderSettleListDTO> listPaged(int page, int size, String search) {
+        int safePage = Math.max(page, 0);
+        int safeSize = Math.min(Math.max(size, 1), 100);
+        String query = (search == null || search.isBlank())
+                ? "%"
+                : "%" + search.trim().toLowerCase() + "%";
+        Page<OrderSettleListDTO> results = repo.searchPaged(query,
+                PageRequest.of(safePage, safeSize,
+                        Sort.by(Sort.Order.desc("dated"), Sort.Order.desc("id"))));
+        return PagedResponse.of(results);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<OrderSettlePendencySummaryDTO> pendencySummary(
+            Long partyId, LocalDate fromDate, LocalDate toDate, List<String> artNos) {
+        if (artNos == null || artNos.isEmpty()) return List.of();
+        return repo.findPendencySummary(partyId, fromDate, toDate, artNos);
     }
 
     @Override

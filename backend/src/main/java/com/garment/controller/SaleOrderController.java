@@ -51,6 +51,13 @@ public class SaleOrderController {
         return svc.list();
     }
 
+    @GetMapping("/by-party")
+    public List<SaleOrderDTO> listByParty(
+            @RequestParam(required = false) Long partyId,
+            @RequestParam(required = false) String partyName) {
+        return svc.listByParty(partyId, partyName);
+    }
+
     @GetMapping("/paged")
     public PagedResponse<SaleOrderListDTO> listPaged(
             @RequestParam(defaultValue = "0") int page,

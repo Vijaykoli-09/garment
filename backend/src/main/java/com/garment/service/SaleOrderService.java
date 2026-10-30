@@ -16,6 +16,7 @@ public interface SaleOrderService {
     SaleOrderDTO update(Long id, SaleOrderSaveDTO dto);
     SaleOrderDTO get(Long id);
     List<SaleOrderDTO> list();
+    List<SaleOrderDTO> listByParty(Long partyId, String partyName);
     PagedResponse<SaleOrderListDTO> listPaged(int page, int size, String search);
     void delete(Long id);
     String nextOrderNo();

@@ -40,5 +40,6 @@ public interface SaleOrderRepository extends JpaRepository<SaleOrder, Long> {
 
     // ── NEW: for broker "party orders" screen ─────────────────────────
     List<SaleOrder> findByPartyIdOrderByDatedDesc(Long partyId);
+    List<SaleOrder> findByPartyNameIgnoreCaseOrderByDatedDesc(String partyName);
     List<SaleOrder> findByPartyIdAndDatedBetweenOrderByDatedDesc(Long partyId, LocalDate fromDate, LocalDate toDate);
 }

@@ -234,6 +234,20 @@ public class SaleOrderServiceImpl implements SaleOrderService {
 
     @Override
     @Transactional(readOnly = true)
+    public List<SaleOrderDTO> listByParty(Long partyId, String partyName) {
+        List<SaleOrder> orders;
+        if (partyId != null) {
+            orders = repo.findByPartyIdOrderByDatedDesc(partyId);
+        } else if (partyName != null && !partyName.isBlank()) {
+            orders = repo.findByPartyNameIgnoreCaseOrderByDatedDesc(partyName.trim());
+        } else {
+            throw new IllegalArgumentException("A partyId or partyName is required");
+        }
+        return orders.stream().map(this::toDto).collect(Collectors.toList());
+    }
+
+    @Override
+    @Transactional(readOnly = true)
     public PagedResponse<SaleOrderListDTO> listPaged(int page, int size, String search) {
         int safePage = Math.max(page, 0);
         int safeSize = Math.min(Math.max(size, 1), 100);
