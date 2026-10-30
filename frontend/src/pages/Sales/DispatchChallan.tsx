@@ -31,6 +31,7 @@ const routes = {
   materialGroups: "/material-groups",
   materials: "/materials",
 };
+const LIST_PAGE_SIZE = 20;
 
 // ----------------- Types -----------------
 interface DispatchRow {
@@ -258,7 +259,12 @@ type ChallanSearchModalProps = {
   isOpen: boolean;
   searchText: string;
   challans: any[];
+  page: number;
+  totalPages: number;
+  totalElements: number;
+  loading: boolean;
   onSearchTextChange: (value: string) => void;
+  onPageChange: (page: number) => void;
   onEdit: (id: number) => void;
   onDelete: (id: number) => void;
   onClose: () => void;
@@ -268,7 +274,12 @@ const ChallanSearchModal: React.FC<ChallanSearchModalProps> = ({
   isOpen,
   searchText,
   challans,
+  page,
+  totalPages,
+  totalElements,
+  loading,
   onSearchTextChange,
+  onPageChange,
   onEdit,
   onDelete,
   onClose,
@@ -307,7 +318,13 @@ const ChallanSearchModal: React.FC<ChallanSearchModalProps> = ({
               </tr>
             </thead>
             <tbody className="bg-yellow-50">
-              {challans.length === 0 ? (
+              {loading ? (
+                <tr>
+                  <td colSpan={7} className="border p-3 text-center text-gray-500">
+                    Loading...
+                  </td>
+                </tr>
+              ) : challans.length === 0 ? (
                 <tr>
                   <td
                     colSpan={7}
@@ -320,18 +337,9 @@ const ChallanSearchModal: React.FC<ChallanSearchModalProps> = ({
                 challans.map((c: any, index: number) => {
                   const station =
                     c.station || c.destination || c.remarks1 || "";
-                  const artNos = Array.isArray(c.rows)
-                    ? Array.from(
-                        new Set(
-                          c.rows
-                            .map((r: any) => (r.artNo || "").toString().trim())
-                            .filter(Boolean)
-                        )
-                      ).join(", ")
-                    : "";
                   return (
                     <tr key={c.id || index} className="hover:bg-yellow-100">
-                      <td className="border p-2 text-center">{index + 1}</td>
+                      <td className="border p-2 text-center">{page * LIST_PAGE_SIZE + index + 1}</td>
                       <td className="border p-2">{c.challanNo}</td>
                       <td className="border p-2">
                         {c.date || c.dated
@@ -340,7 +348,7 @@ const ChallanSearchModal: React.FC<ChallanSearchModalProps> = ({
                       </td>
                       <td className="border p-2">{c.partyName}</td>
                       <td className="border p-2">{station}</td>
-                      <td className="border p-2">{artNos}</td>
+                      <td className="border p-2">{c.artNos || ""}</td>
                       <td className="border p-2 text-center space-x-1">
                         <button
                           onClick={() => onEdit(c.id)}
@@ -362,7 +370,18 @@ const ChallanSearchModal: React.FC<ChallanSearchModalProps> = ({
             </tbody>
           </table>
         </div>
-        <div className="mt-4 flex justify-end">
+        <div className="mt-4 flex items-center justify-between gap-3 text-sm">
+          <span>
+            Showing {totalElements === 0 ? 0 : page * LIST_PAGE_SIZE + 1}–
+            {Math.min((page + 1) * LIST_PAGE_SIZE, totalElements)} of {totalElements}
+          </span>
+          <div className="flex items-center gap-2">
+            <button onClick={() => onPageChange(0)} disabled={loading || page === 0} className="px-3 py-1 bg-gray-200 rounded disabled:opacity-50">First</button>
+            <button onClick={() => onPageChange(page - 1)} disabled={loading || page === 0} className="px-3 py-1 bg-gray-200 rounded disabled:opacity-50">Prev</button>
+            <span>Page {totalPages === 0 ? 0 : page + 1} / {totalPages}</span>
+            <button onClick={() => onPageChange(page + 1)} disabled={loading || page >= totalPages - 1} className="px-3 py-1 bg-gray-200 rounded disabled:opacity-50">Next</button>
+            <button onClick={() => onPageChange(totalPages - 1)} disabled={loading || page >= totalPages - 1} className="px-3 py-1 bg-gray-200 rounded disabled:opacity-50">Last</button>
+          </div>
           <button
             onClick={onClose}
             className="px-4 py-2 bg-gray-500 text-white rounded"
@@ -379,7 +398,12 @@ type ListViewModalProps = {
   isOpen: boolean;
   searchText: string;
   challans: any[];
+  page: number;
+  totalPages: number;
+  totalElements: number;
+  loading: boolean;
   onSearchTextChange: (value: string) => void;
+  onPageChange: (page: number) => void;
   onEdit: (id: number) => void;
   onDelete: (id: number) => void;
   onClose: () => void;
@@ -389,7 +413,12 @@ const ListViewModal: React.FC<ListViewModalProps> = ({
   isOpen,
   searchText,
   challans,
+  page,
+  totalPages,
+  totalElements,
+  loading,
   onSearchTextChange,
+  onPageChange,
   onEdit,
   onDelete,
   onClose,
@@ -435,7 +464,13 @@ const ListViewModal: React.FC<ListViewModalProps> = ({
               </tr>
             </thead>
             <tbody>
-              {challans.length === 0 ? (
+              {loading ? (
+                <tr>
+                  <td className="border p-3 text-center text-gray-500" colSpan={12}>
+                    Loading...
+                  </td>
+                </tr>
+              ) : challans.length === 0 ? (
                 <tr>
                   <td
                     className="border p-3 text-center text-gray-500"
@@ -446,33 +481,31 @@ const ListViewModal: React.FC<ListViewModalProps> = ({
                 </tr>
               ) : (
                 challans.map((c: any, idx: number) => {
-                  const firstRow =
-                    Array.isArray(c.rows) && c.rows.length > 0 ? c.rows[0] : {};
                   return (
                     <tr key={c.id || idx} className="hover:bg-green-50">
-                      <td className="border p-2 text-center">{idx + 1}</td>
+                      <td className="border p-2 text-center">{page * LIST_PAGE_SIZE + idx + 1}</td>
                       <td className="border p-2">
                         {c.date || c.dated
                           ? formatDateDDMMYY(c.date || c.dated)
                           : ""}
                       </td>
-                      <td className="border p-2">{firstRow.artNo || ""}</td>
-                      <td className="border p-2">{firstRow.size || ""}</td>
-                      <td className="border p-2">{firstRow.shade || ""}</td>
+                      <td className="border p-2">{c.artNo || ""}</td>
+                      <td className="border p-2">{c.size || ""}</td>
+                      <td className="border p-2">{c.shade || ""}</td>
                       <td className="border p-2 text-right">
-                        {firstRow.box ?? ""}
+                        {c.box ?? ""}
                       </td>
                       <td className="border p-2 text-right">
-                        {firstRow.pcsPerBox ?? ""}
+                        {c.pcsPerBox ?? ""}
                       </td>
                       <td className="border p-2 text-right">
-                        {firstRow.pcs ?? ""}
+                        {c.pcs ?? ""}
                       </td>
                       <td className="border p-2 text-right">
-                        {firstRow.rate ?? ""}
+                        {c.rate ?? ""}
                       </td>
                       <td className="border p-2 text-right">
-                        {firstRow.amt ?? ""}
+                        {c.amt ?? ""}
                       </td>
                       <td className="border p-2 text-right">
                         {c.netAmt ?? ""}
@@ -498,7 +531,18 @@ const ListViewModal: React.FC<ListViewModalProps> = ({
             </tbody>
           </table>
         </div>
-        <div className="mt-4 flex justify-end">
+        <div className="mt-4 flex items-center justify-between gap-3 text-sm">
+          <span>
+            Showing {totalElements === 0 ? 0 : page * LIST_PAGE_SIZE + 1}–
+            {Math.min((page + 1) * LIST_PAGE_SIZE, totalElements)} of {totalElements}
+          </span>
+          <div className="flex items-center gap-2">
+            <button onClick={() => onPageChange(0)} disabled={loading || page === 0} className="px-3 py-1 bg-gray-200 rounded disabled:opacity-50">First</button>
+            <button onClick={() => onPageChange(page - 1)} disabled={loading || page === 0} className="px-3 py-1 bg-gray-200 rounded disabled:opacity-50">Prev</button>
+            <span>Page {totalPages === 0 ? 0 : page + 1} / {totalPages}</span>
+            <button onClick={() => onPageChange(page + 1)} disabled={loading || page >= totalPages - 1} className="px-3 py-1 bg-gray-200 rounded disabled:opacity-50">Next</button>
+            <button onClick={() => onPageChange(totalPages - 1)} disabled={loading || page >= totalPages - 1} className="px-3 py-1 bg-gray-200 rounded disabled:opacity-50">Last</button>
+          </div>
           <button
             onClick={onClose}
             className="px-4 py-2 bg-gray-500 text-white rounded"
@@ -900,11 +944,21 @@ const DispatchChallan: React.FC = () => {
   const [isChallanModalOpen, setIsChallanModalOpen] = useState(false);
   const [challanList, setChallanList] = useState<any[]>([]);
   const [challanSearchText, setChallanSearchText] = useState("");
+  const [challanPage, setChallanPage] = useState(0);
+  const [challanTotalPages, setChallanTotalPages] = useState(0);
+  const [challanTotalElements, setChallanTotalElements] = useState(0);
+  const [challanLoading, setChallanLoading] = useState(false);
+  const skipChallanSearchRef = useRef(false);
 
   // List View modal
   const [isListViewModalOpen, setIsListViewModalOpen] = useState(false);
   const [listViewChallanList, setListViewChallanList] = useState<any[]>([]);
   const [listViewSearchText, setListViewSearchText] = useState("");
+  const [listViewPage, setListViewPage] = useState(0);
+  const [listViewTotalPages, setListViewTotalPages] = useState(0);
+  const [listViewTotalElements, setListViewTotalElements] = useState(0);
+  const [listViewLoading, setListViewLoading] = useState(false);
+  const skipListViewSearchRef = useRef(false);
 
   // Party search modal
   const [isPartyModalOpen, setIsPartyModalOpen] = useState(false);
@@ -1869,96 +1923,85 @@ const DispatchChallan: React.FC = () => {
   };
 
   // ----------------- Challan search / list view -----------------
-  const filteredChallans = useMemo(() => {
-    if (!challanSearchText) return challanList;
-    const term = challanSearchText.toLowerCase();
+  const filteredChallans = challanList;
 
-    return challanList.filter((c: any) => {
-      const challanNoVal = (c.challanNo || "").toLowerCase();
-      const rawDate = c.date || c.dated || "";
-      const datedRaw = String(rawDate).toLowerCase();
-      const datedFormatted = formatDateDDMMYY(rawDate).toLowerCase();
-      const party = (c.partyName || "").toLowerCase();
-      const stationVal = (c.station || c.destination || c.remarks1 || "").toLowerCase();
-      const allArtNosText = Array.isArray(c.rows)
-        ? c.rows
-            .map((r: any) => (r.artNo || "").toString().toLowerCase())
-            .join(" ")
-        : "";
-
-      return (
-        challanNoVal.includes(term) ||
-        datedRaw.includes(term) ||
-        datedFormatted.includes(term) ||
-        party.includes(term) ||
-        stationVal.includes(term) ||
-        allArtNosText.includes(term)
-      );
-    });
-  }, [challanSearchText, challanList]);
-
-  const openChallanSearch = async () => {
+  const loadChallanPage = async (page: number, search: string) => {
     try {
-      const res = await api.get(routes.list);
-      let data = Array.isArray(res.data) ? res.data : [];
-      data = data
-        .slice()
-        .sort((a: any, b: any) =>
-          String(a.challanNo || "").localeCompare(String(b.challanNo || ""))
-        );
-
-      setChallanList(data);
-      setChallanSearchText("");
-      setIsChallanModalOpen(true);
+      setChallanLoading(true);
+      const { data } = await api.get<any>(`${routes.list}/paged`, {
+        params: { page, size: LIST_PAGE_SIZE, search: search.trim() || undefined },
+      });
+      setChallanList(Array.isArray(data?.content) ? data.content : []);
+      setChallanPage(data?.page ?? page);
+      setChallanTotalPages(data?.totalPages ?? 0);
+      setChallanTotalElements(data?.totalElements ?? 0);
     } catch (err) {
       console.error("Error loading challans:", err);
       Swal.fire("Error", "Failed to load challan list", "error");
+    } finally {
+      setChallanLoading(false);
     }
   };
 
-  const filteredListViewChallans = useMemo(() => {
-    if (!listViewSearchText) return listViewChallanList;
-    const term = listViewSearchText.toLowerCase();
-
-    return listViewChallanList.filter((c: any) => {
-      const firstRow =
-        Array.isArray(c.rows) && c.rows.length > 0 ? c.rows[0] : {};
-      const dateVal = formatDateDDMMYY(c.date || c.dated || "").toLowerCase();
-
-      return [
-        dateVal,
-        String(firstRow.artNo ?? "").toLowerCase(),
-        String(firstRow.size ?? "").toLowerCase(),
-        String(firstRow.shade ?? "").toLowerCase(),
-        String(firstRow.box ?? "").toLowerCase(),
-        String(firstRow.pcsPerBox ?? "").toLowerCase(),
-        String(firstRow.pcs ?? "").toLowerCase(),
-        String(firstRow.rate ?? "").toLowerCase(),
-        String(firstRow.amt ?? "").toLowerCase(),
-        String(c.netAmt ?? "").toLowerCase(),
-      ].some((field) => field.includes(term));
-    });
-  }, [listViewSearchText, listViewChallanList]);
-
-  const openListViewModal = async () => {
+  const loadListViewPage = async (page: number, search: string) => {
     try {
-      const res = await api.get(routes.list);
-      let data = Array.isArray(res.data) ? res.data : [];
-
-      data = data
-        .slice()
-        .sort((a: any, b: any) =>
-          String(a.challanNo || "").localeCompare(String(b.challanNo || ""))
-        );
-
-      setListViewChallanList(data);
-      setListViewSearchText("");
-      setIsListViewModalOpen(true);
+      setListViewLoading(true);
+      const { data } = await api.get<any>(`${routes.list}/paged`, {
+        params: { page, size: LIST_PAGE_SIZE, search: search.trim() || undefined },
+      });
+      setListViewChallanList(Array.isArray(data?.content) ? data.content : []);
+      setListViewPage(data?.page ?? page);
+      setListViewTotalPages(data?.totalPages ?? 0);
+      setListViewTotalElements(data?.totalElements ?? 0);
     } catch (err) {
       console.error("Error loading challans for list view:", err);
       Swal.fire("Error", "Failed to load challan list", "error");
+    } finally {
+      setListViewLoading(false);
     }
   };
+
+  const openChallanSearch = async () => {
+    skipChallanSearchRef.current = challanSearchText.trim() !== "";
+    setChallanSearchText("");
+    setIsChallanModalOpen(true);
+    await loadChallanPage(0, "");
+  };
+
+  useEffect(() => {
+    if (!isChallanModalOpen) return;
+    if (skipChallanSearchRef.current) {
+      skipChallanSearchRef.current = false;
+      return;
+    }
+    const timer = setTimeout(() => {
+      void loadChallanPage(0, challanSearchText);
+    }, 400);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [challanSearchText]);
+
+  const filteredListViewChallans = listViewChallanList;
+
+  const openListViewModal = async () => {
+    skipListViewSearchRef.current = listViewSearchText.trim() !== "";
+    setListViewSearchText("");
+    setIsListViewModalOpen(true);
+    await loadListViewPage(0, "");
+  };
+
+  useEffect(() => {
+    if (!isListViewModalOpen) return;
+    if (skipListViewSearchRef.current) {
+      skipListViewSearchRef.current = false;
+      return;
+    }
+    const timer = setTimeout(() => {
+      void loadListViewPage(0, listViewSearchText);
+    }, 400);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [listViewSearchText]);
 
   const handleSelectChallan = useCallback(
   async (id: number) => {
@@ -2058,10 +2101,20 @@ useEffect(() => {
 
     try {
       await api.delete(routes.delete(id));
-      setChallanList((prev) => prev.filter((c: any) => c.id !== id));
-      setListViewChallanList((prev) => prev.filter((c: any) => c.id !== id));
       Swal.fire("Deleted!", "Challan deleted successfully", "success");
 
+      if (isChallanModalOpen) {
+        const targetPage =
+          challanList.length === 1 && challanPage > 0 ? challanPage - 1 : challanPage;
+        await loadChallanPage(targetPage, challanSearchText);
+      }
+      if (isListViewModalOpen) {
+        const targetPage =
+          listViewChallanList.length === 1 && listViewPage > 0
+            ? listViewPage - 1
+            : listViewPage;
+        await loadListViewPage(targetPage, listViewSearchText);
+      }
       if (editingId === id) handleAddNew(false);
       await loadProducts();
     } catch (err) {
@@ -2474,7 +2527,12 @@ useEffect(() => {
         isOpen={isChallanModalOpen}
         searchText={challanSearchText}
         challans={filteredChallans}
+        page={challanPage}
+        totalPages={challanTotalPages}
+        totalElements={challanTotalElements}
+        loading={challanLoading}
         onSearchTextChange={setChallanSearchText}
+        onPageChange={(page) => loadChallanPage(page, challanSearchText)}
         onEdit={handleSelectChallan}
         onDelete={handleDeleteChallanFromList}
         onClose={() => setIsChallanModalOpen(false)}
@@ -2484,7 +2542,12 @@ useEffect(() => {
         isOpen={isListViewModalOpen}
         searchText={listViewSearchText}
         challans={filteredListViewChallans}
+        page={listViewPage}
+        totalPages={listViewTotalPages}
+        totalElements={listViewTotalElements}
+        loading={listViewLoading}
         onSearchTextChange={setListViewSearchText}
+        onPageChange={(page) => loadListViewPage(page, listViewSearchText)}
         onEdit={handleSelectChallan}
         onDelete={handleDeleteChallanFromList}
         onClose={() => setIsListViewModalOpen(false)}

@@ -8,7 +8,9 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import com.garment.DTO.DispatchChallanDTO;
+import com.garment.DTO.DispatchChallanListDTO;
 import com.garment.DTO.NextDispatchNumbersDTO;
+import com.garment.DTO.PagedResponse;
 import com.garment.service.DispatchChallanService;
 
 @RestController
@@ -33,6 +35,15 @@ public class DispatchChallanController {
     @GetMapping
     public ResponseEntity<List<DispatchChallanDTO>> getAll() {
         return ResponseEntity.ok(service.getAll());
+    }
+
+    @GetMapping("/paged")
+    public PagedResponse<DispatchChallanListDTO> getAllPaged(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size,
+            @RequestParam(required = false) String search
+    ) {
+        return service.getAllPaged(page, size, search);
     }
 
     // GET /dispatch-challan/{id}

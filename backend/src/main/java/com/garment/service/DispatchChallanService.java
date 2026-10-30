@@ -4,7 +4,9 @@ import java.time.LocalDate;
 import java.util.List;
 
 import com.garment.DTO.DispatchChallanDTO;
+import com.garment.DTO.DispatchChallanListDTO;
 import com.garment.DTO.NextDispatchNumbersDTO;
+import com.garment.DTO.PagedResponse;
 
 public interface DispatchChallanService {
 
@@ -15,6 +17,8 @@ public interface DispatchChallanService {
     DispatchChallanDTO getById(Long id);
 
     List<DispatchChallanDTO> getAll();
+
+    PagedResponse<DispatchChallanListDTO> getAllPaged(int page, int size, String search);
 
     void delete(Long id);
 

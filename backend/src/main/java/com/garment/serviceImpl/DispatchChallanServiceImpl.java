@@ -4,13 +4,17 @@ import java.time.LocalDate;
 import java.util.List;
 import java.util.stream.Collectors;
 
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.garment.DTO.DispatchChallanDTO;
+import com.garment.DTO.DispatchChallanListDTO;
 import com.garment.DTO.DispatchPackingRowDto;
 import com.garment.DTO.DispatchRowDto;
 import com.garment.DTO.NextDispatchNumbersDTO;
+import com.garment.DTO.PagedResponse;
 import com.garment.model.DispatchChallan;
 import com.garment.model.DispatchPackingRow;
 import com.garment.model.DispatchRow;
@@ -86,6 +90,23 @@ public class DispatchChallanServiceImpl implements DispatchChallanService {
         return repository.findAll().stream()
                 .map(this::mapToDto)
                 .collect(Collectors.toList());
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public PagedResponse<DispatchChallanListDTO> getAllPaged(int page, int size, String search) {
+        int safePage = Math.max(page, 0);
+        int safeSize = Math.min(Math.max(size, 1), 100);
+        String query = (search == null || search.isBlank())
+                ? "%"
+                : "%" + search.trim().toLowerCase() + "%";
+        Page<DispatchChallanListDTO> pageResult = repository.searchPaged(
+                query, PageRequest.of(safePage, safeSize)).map(row -> new DispatchChallanListDTO(
+                        row.getId(), row.getSerialNo(), row.getDate(), row.getChallanNo(),
+                        row.getPartyName(), row.getStation(), row.getNetAmt(), row.getArtNos(),
+                        row.getArtNo(), row.getSize(), row.getShade(), row.getBox(),
+                        row.getPcsPerBox(), row.getPcs(), row.getRate(), row.getAmt()));
+        return PagedResponse.of(pageResult);
     }
 
     // ----------------- DELETE -----------------
