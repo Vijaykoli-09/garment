@@ -94,6 +94,29 @@ public class PackingChallanServiceImpl implements PackingChallanService {
         Page<PackingChallanListDTO> results = challanRepo.searchPaged(query,
                 PageRequest.of(safePage, safeSize,
                         Sort.by(Sort.Order.desc("date"), Sort.Order.desc("serialNo"))));
+
+        // Enrich only the records on this page. One grouped query replaces
+        // per-row lookups and avoids fetching full entity graphs for the list.
+        if (!results.isEmpty()) {
+            List<String> serialNos = results.getContent().stream()
+                    .map(PackingChallanListDTO::getSerialNo)
+                    .filter(Objects::nonNull)
+                    .collect(Collectors.toList());
+            Map<String, PackingChallanRepository.PackingRowSummaryProjection> summaries =
+                    challanRepo.findRowSummariesBySerialNos(serialNos).stream()
+                            .collect(Collectors.toMap(
+                                    PackingChallanRepository.PackingRowSummaryProjection::getSerialNo,
+                                    row -> row,
+                                    (first, ignored) -> first));
+            results.getContent().forEach(item -> {
+                PackingChallanRepository.PackingRowSummaryProjection summary =
+                        summaries.get(item.getSerialNo());
+                if (summary != null) {
+                    item.setArtNumbers(summary.getArtNumbers());
+                    item.setCuttingLotNumbers(summary.getCuttingLotNumbers());
+                }
+            });
+        }
         return PagedResponse.of(results);
     }
 

@@ -164,6 +164,7 @@ public class SecurityConfig {
                       .requestMatchers("/api/extra-hours/**").permitAll()
                       .requestMatchers("/api/attendance/**").permitAll()
                       .requestMatchers("/api/salary-support/**").permitAll()
+                      .requestMatchers("/api/self-transfer/**").permitAll()
 
                       // ── Mobile orders — JWT required ───────────────────────
                       .requestMatchers("/api/orders/**").authenticated()

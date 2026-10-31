@@ -2,6 +2,7 @@ package com.garment.repository;
 
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Collection;
 
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -88,6 +89,28 @@ public interface PackingChallanRepository extends JpaRepository<PackingChallan, 
             """)
     Page<PackingChallanListDTO> searchPaged(@Param("q") String query, Pageable pageable);
 
+    /**
+     * Fetch Art Numbers and Cutting Lot Numbers for the current page in one
+     * grouped query. This avoids loading challan rows (and size details) for
+     * every item in the View List.
+     */
+    @Query(value = """
+            select r.challan_serial_no as "serialNo",
+                   string_agg(distinct nullif(trim(r.art_no), ''), ', ' order by nullif(trim(r.art_no), '')) as "artNumbers",
+                   string_agg(distinct nullif(trim(r.cut_lot_no), ''), ', ' order by nullif(trim(r.cut_lot_no), '')) as "cuttingLotNumbers"
+            from packing_challan_rows r
+            where r.challan_serial_no in (:serialNos)
+            group by r.challan_serial_no
+            """, nativeQuery = true)
+    List<PackingRowSummaryProjection> findRowSummariesBySerialNos(
+            @Param("serialNos") Collection<String> serialNos);
+
+    interface PackingRowSummaryProjection {
+        String getSerialNo();
+        String getArtNumbers();
+        String getCuttingLotNumbers();
+    }
+
     @Query(value = """
             select packing_row.cut_lot_no as "cuttingLotNo",
                    detail.size_name as "sizeName",
@@ -117,10 +140,10 @@ public interface PackingChallanRepository extends JpaRepository<PackingChallan, 
             """, nativeQuery = true)
     List<PackingRateProjection> findLatestRateSummaries();
 
-	@Query("select p.serialNo from PackingChallan p where p.serialNo like concat(:prefix, '%')")
-	  List<String> findSerialsByPrefix(@Param("prefix") String prefix);
-	  boolean existsBySerialNo(String serialNo);
-	List<PackingChallan> findByDateBetween(LocalDate from, LocalDate to);
+    @Query("select p.serialNo from PackingChallan p where p.serialNo like concat(:prefix, '%')")
+    List<String> findSerialsByPrefix(@Param("prefix") String prefix);
+    boolean existsBySerialNo(String serialNo);
+    List<PackingChallan> findByDateBetween(LocalDate from, LocalDate to);
 
     interface PackedSizeProjection {
         String getCuttingLotNo();

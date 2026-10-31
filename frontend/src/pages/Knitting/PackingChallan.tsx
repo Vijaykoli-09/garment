@@ -1139,6 +1139,8 @@ const PackingChallan: React.FC = () => {
                     <th className="border p-2 text-center">Date</th>
                     <th className="border p-2 text-center">Serial No</th>
                     <th className="border p-2 text-center">Party Name</th>
+                    <th className="border p-2 text-center">Art Number</th>
+                    <th className="border p-2 text-center">Cutting Lot Number</th>
                     <th className="border p-2 text-center">Total Box</th>
                     <th className="border p-2 text-center">Total Pcs</th>
                     <th className="border p-2 text-center">Total Amount</th>
@@ -1152,6 +1154,8 @@ const PackingChallan: React.FC = () => {
                       <td className="border p-2 text-center">{r.date}</td>
                       <td className="border p-2 text-center">{r.serialNo}</td>
                       <td className="border p-2 text-center">{r.partyName}</td>
+                      <td className="border p-2 text-center">{r.artNumbers || "-"}</td>
+                      <td className="border p-2 text-center">{r.cuttingLotNumbers || "-"}</td>
                       <td className="border p-2 text-center">{r.totalBox ?? 0}</td>
                       <td className="border p-2 text-center">{r.totalPcs ?? 0}</td>
                       <td className="border p-2 text-center">{Number(r.totalAmount ?? 0).toFixed(2)}</td>
