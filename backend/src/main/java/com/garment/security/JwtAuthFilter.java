@@ -31,16 +31,20 @@ public class JwtAuthFilter extends OncePerRequestFilter {
     @Autowired
     private BrokerUserDetailsService brokerUserDetailsService;
 
-  @Override
-protected boolean shouldNotFilter(HttpServletRequest request) {
-    String path   = request.getServletPath();
-    String method = request.getMethod();
-    return path.startsWith("/api/auth/")
-        || path.equals("/api/customer/auth/login")
-        || path.equals("/api/customer/auth/signup")
-        || path.startsWith("/api/party/auth/")       // ← ADD THIS ONE LINE
-        || "OPTIONS".equalsIgnoreCase(method);
-}
+    @Override
+    protected boolean shouldNotFilter(HttpServletRequest request) {
+        String path   = request.getServletPath();
+        String method = request.getMethod();
+        return path.startsWith("/api/auth/")
+                || path.equals("/api/customer/auth/login")
+                || path.equals("/api/customer/auth/signup")
+                || path.startsWith("/api/party/auth/")
+                // Packing Challan endpoints are permitAll in SecurityConfig. Do not let
+                // an expired/stale browser JWT interfere with these public requests.
+                || path.equals("/api/packing-challans")
+                || path.startsWith("/api/packing-challans/")
+                || "OPTIONS".equalsIgnoreCase(method);
+    }
 
     @Override
     protected void doFilterInternal(HttpServletRequest request,
@@ -84,8 +88,8 @@ protected boolean shouldNotFilter(HttpServletRequest request) {
                 UserDetails userDetails = isBrokerToken
                         ? brokerUserDetailsService.loadUserByUsername(subject)
                         : isMobileToken
-                            ? customerUserDetailsService.loadUserByUsername(subject)
-                            : webUserDetailsService.loadUserByUsername(subject);
+                        ? customerUserDetailsService.loadUserByUsername(subject)
+                        : webUserDetailsService.loadUserByUsername(subject);
 
                 if (jwtUtil.validateToken(jwt, userDetails.getUsername())) {
                     UsernamePasswordAuthenticationToken authToken =

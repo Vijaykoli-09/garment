@@ -90,15 +90,16 @@ public interface PackingChallanRepository extends JpaRepository<PackingChallan, 
     Page<PackingChallanListDTO> searchPaged(@Param("q") String query, Pageable pageable);
 
     /**
-     * Fetch Art Numbers and Cutting Lot Numbers for the current page in one
-     * grouped query. This avoids loading challan rows (and size details) for
-     * every item in the View List.
+     * Aggregated summaries for only the current View List page.
+     * Includes art numbers, cutting lots and size names.
      */
     @Query(value = """
             select r.challan_serial_no as "serialNo",
                    string_agg(distinct nullif(trim(r.art_no), ''), ', ' order by nullif(trim(r.art_no), '')) as "artNumbers",
-                   string_agg(distinct nullif(trim(r.cut_lot_no), ''), ', ' order by nullif(trim(r.cut_lot_no), '')) as "cuttingLotNumbers"
+                   string_agg(distinct nullif(trim(r.cut_lot_no), ''), ', ' order by nullif(trim(r.cut_lot_no), '')) as "cuttingLotNumbers",
+                   string_agg(distinct nullif(trim(d.size_name), ''), ', ' order by nullif(trim(d.size_name), '')) as "sizeNames"
             from packing_challan_rows r
+            left join packing_challan_size_details d on d.row_id = r.id
             where r.challan_serial_no in (:serialNos)
             group by r.challan_serial_no
             """, nativeQuery = true)
@@ -109,6 +110,39 @@ public interface PackingChallanRepository extends JpaRepository<PackingChallan, 
         String getSerialNo();
         String getArtNumbers();
         String getCuttingLotNumbers();
+        String getSizeNames();
+    }
+
+    /**
+     * Fetch complete size-wise values only for the challans in the requested page.
+     * Keeps pagination efficient while returning the same details shown in the old list.
+     */
+    @Query(value = """
+            select r.challan_serial_no as "serialNo",
+                   d.size_name as "sizeName",
+                   d.box_count as "boxCount",
+                   d.per_box as "perBox",
+                   d.pcs as "pcs",
+                   d.rate as "rate",
+                   d.amount as "amount",
+                   d.id as "detailId"
+            from packing_challan_rows r
+            join packing_challan_size_details d on d.row_id = r.id
+            where r.challan_serial_no in (:serialNos)
+            order by r.challan_serial_no, r.sno, d.id
+            """, nativeQuery = true)
+    List<PackingListSizeDetailProjection> findListSizeDetailsBySerialNos(
+            @Param("serialNos") Collection<String> serialNos);
+
+    interface PackingListSizeDetailProjection {
+        String getSerialNo();
+        String getSizeName();
+        Integer getBoxCount();
+        Integer getPerBox();
+        Integer getPcs();
+        java.math.BigDecimal getRate();
+        java.math.BigDecimal getAmount();
+        Long getDetailId();
     }
 
     @Query(value = """
@@ -124,15 +158,16 @@ public interface PackingChallanRepository extends JpaRepository<PackingChallan, 
             """, nativeQuery = true)
     List<PackedSizeProjection> findPackedSizeTotals(@Param("excludeSerial") String excludeSerial);
 
+
     @Query(value = """
-            select distinct on (row.art_no, detail.size_name)
+            select distinct on (packing_row.art_no, detail.size_name)
                    packing_row.art_no as "artNo",
                    detail.size_name as "sizeName",
                    detail.rate as "rate",
                    detail.per_box as "perBox"
             from packing_challans challan
             join packing_challan_rows packing_row on packing_row.challan_serial_no = challan.serial_no
-            join packing_challan_size_details detail on detail.row_id = row.id
+            join packing_challan_size_details detail on detail.row_id = packing_row.id
             where packing_row.art_no is not null
               and detail.size_name is not null
             order by packing_row.art_no, detail.size_name,

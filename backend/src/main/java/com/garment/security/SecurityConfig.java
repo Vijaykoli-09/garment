@@ -77,6 +77,10 @@ public class SecurityConfig {
                       .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                       .requestMatchers("/actuator/health/**").permitAll()
 
+                      // Packing Challan rate defaults are intentionally public, matching
+                      // the existing permitAll rule for the whole Packing Challan module.
+                      .requestMatchers(HttpMethod.GET, "/api/packing-challans/rate-summary").permitAll()
+
                       // ── Web admin auth ────────────────────────────────────
                       .requestMatchers("/api/auth/**").permitAll()
 

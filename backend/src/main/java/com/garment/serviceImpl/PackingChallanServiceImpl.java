@@ -16,6 +16,7 @@ import com.garment.DTO.CuttingLotRowDTO;
 import com.garment.DTO.PackingBoxSummaryDTO;
 import com.garment.DTO.PackingChallanDTO;
 import com.garment.DTO.PackingChallanListDTO;
+import com.garment.DTO.PackingChallanListSizeDTO;
 import com.garment.DTO.PackingChallanRowDTO;
 import com.garment.DTO.PackingChallanSizeDetailDTO;
 import com.garment.DTO.PackingRateSummaryDTO;
@@ -114,8 +115,26 @@ public class PackingChallanServiceImpl implements PackingChallanService {
                 if (summary != null) {
                     item.setArtNumbers(summary.getArtNumbers());
                     item.setCuttingLotNumbers(summary.getCuttingLotNumbers());
+                    item.setSizeNames(summary.getSizeNames());
                 }
             });
+
+            Map<String, List<PackingChallanListSizeDTO>> sizeDetailsBySerial = new HashMap<>();
+            challanRepo.findListSizeDetailsBySerialNos(serialNos).forEach(detail -> {
+                PackingChallanListSizeDTO sizeDto = new PackingChallanListSizeDTO(
+                        detail.getSizeName(),
+                        detail.getBoxCount(),
+                        detail.getPerBox(),
+                        detail.getPcs(),
+                        detail.getRate(),
+                        detail.getAmount());
+                sizeDetailsBySerial
+                        .computeIfAbsent(detail.getSerialNo(), key -> new ArrayList<>())
+                        .add(sizeDto);
+            });
+            results.getContent().forEach(item ->
+                    item.setSizeDetails(sizeDetailsBySerial.getOrDefault(
+                            item.getSerialNo(), Collections.emptyList())));
         }
         return PagedResponse.of(results);
     }

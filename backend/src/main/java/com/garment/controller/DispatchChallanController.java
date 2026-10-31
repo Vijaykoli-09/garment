@@ -9,6 +9,7 @@ import org.springframework.web.bind.annotation.*;
 
 import com.garment.DTO.DispatchChallanDTO;
 import com.garment.DTO.DispatchChallanListDTO;
+import com.garment.DTO.DispatchStockSummaryDTO;
 import com.garment.DTO.NextDispatchNumbersDTO;
 import com.garment.DTO.PagedResponse;
 import com.garment.service.DispatchChallanService;
@@ -44,6 +45,15 @@ public class DispatchChallanController {
             @RequestParam(required = false) String search
     ) {
         return service.getAllPaged(page, size, search);
+    }
+
+    /**
+     * Lightweight aggregate endpoint used by the Dispatch stock picker.
+     * Avoids fetching the full Dispatch Challan history with child entities.
+     */
+    @GetMapping("/stock-summary")
+    public ResponseEntity<List<DispatchStockSummaryDTO>> getDispatchStockSummary() {
+        return ResponseEntity.ok(service.getDispatchStockSummary());
     }
 
     // GET /dispatch-challan/{id}

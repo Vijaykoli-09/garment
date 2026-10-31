@@ -409,7 +409,7 @@ const ArtCuttingPackingSaleReport: React.FC = () => {
           {filterCard("Select Size","size",sizeOptions.map(x=>({label:x.sizeName,value:x.serialNo})),selectedSizes,setSelectedSizes)}
         </div>
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg bg-white p-4 shadow">
-          <p className="text-sm text-gray-600">Agar koi filter select nahi karte ya sab uncheck kar dete ho, report sabhi records show/print karega.</p>
+          
           <button disabled={loading} onClick={handleShow} className="rounded bg-blue-600 px-5 py-2 font-semibold text-white hover:bg-blue-700 disabled:opacity-50">{loading ? "Loading..." : "Show Report"}</button>
         </div>
       </> : <>

@@ -59,7 +59,7 @@ public interface DispatchChallanRepository extends JpaRepository<DispatchChallan
                or lower(coalesce(cast(first_row.rate as text), '')) like :q
                or lower(coalesce(cast(first_row.amt as text), '')) like :q
                or lower(coalesce(cast(d.net_amt as text), '')) like :q
-            order by d.challan_no asc nulls last, d.id desc
+            order by d.date desc nulls last, d.id desc
             """,
             countQuery = """
             select count(*)
@@ -99,7 +99,40 @@ public interface DispatchChallanRepository extends JpaRepository<DispatchChallan
             nativeQuery = true)
     Page<DispatchChallanListProjection> searchPaged(@Param("q") String query, Pageable pageable);
 
-    // Saal ke hisaab se challans nikalne ke liye
+
+    /**
+     * Lightweight stock summary for Dispatch rows.
+     * Returns one record per Art + Size + Shade instead of loading every
+     * DispatchChallan entity and its lazy child collections.
+     */
+    @Query(value = """
+            select
+                coalesce(trim(r.art_no), '') as "artNo",
+                coalesce(max(r.description), '') as "description",
+                coalesce(trim(r.size), '') as "size",
+                coalesce(trim(r.shade), '') as "shade",
+                coalesce(sum(coalesce(r.box, 0)), 0)::integer as "box",
+                coalesce(max(coalesce(r.pcs_per_box, 0)), 0)::integer as "pcsPerBox",
+                coalesce(sum(coalesce(r.pcs, 0)), 0)::integer as "pcs"
+            from dispatch_challan_row r
+            where coalesce(trim(r.art_no), '') <> ''
+              and coalesce(trim(r.size), '') <> ''
+            group by upper(trim(r.art_no)), upper(trim(r.size)), upper(trim(r.shade)),
+                     trim(r.art_no), trim(r.size), trim(r.shade)
+            """, nativeQuery = true)
+    List<DispatchStockSummaryProjection> findDispatchStockSummary();
+
+    interface DispatchStockSummaryProjection {
+        String getArtNo();
+        String getDescription();
+        String getSize();
+        String getShade();
+        Integer getBox();
+        Integer getPcsPerBox();
+        Integer getPcs();
+    }
+
+
     List<DispatchChallan> findByDateBetween(LocalDate start, LocalDate end);
 
     interface DispatchChallanListProjection {

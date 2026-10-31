@@ -26,6 +26,7 @@ const routes = {
   arts: "/arts",
   artDetail: (serial: string | number) => `/arts/${serial}`,
   nextNumbers: "/dispatch-challan/next",
+  dispatchStockSummary: "/dispatch-challan/stock-summary",
 
   // ✅ NEW: for packing items from group
   materialGroups: "/material-groups",
@@ -1426,7 +1427,7 @@ const DispatchChallan: React.FC = () => {
         await Promise.all([
           api.get<ArtListView[]>(routes.arts),
           api.get<any[]>(routes.packingChallans),
-          api.get<any[]>(routes.list),
+          api.get<any[]>(routes.dispatchStockSummary),
           api.get<any[]>(routes.dispatchReturns),
           api.get<any[]>(routes.artStockAdjustments, {
             params: { toDate: asOnDate, limit: 10000 },
@@ -1435,7 +1436,8 @@ const DispatchChallan: React.FC = () => {
 
       const arts: ArtListView[] = Array.isArray(artsRes.data) ? artsRes.data : [];
       const challans: any[] = Array.isArray(packingRes.data) ? packingRes.data : [];
-      const dispatchChallans: any[] = Array.isArray(dispatchRes.data)
+      // Aggregated dispatch deductions; do not download every challan + child rows.
+      const dispatchStockSummary: any[] = Array.isArray(dispatchRes.data)
         ? dispatchRes.data
         : [];
       const returnChallans: any[] = Array.isArray(returnRes.data)
@@ -1630,37 +1632,31 @@ const DispatchChallan: React.FC = () => {
         });
       });
 
-      // 3) MINUS Dispatch Challans (outgoing, rate = 0)
-      dispatchChallans.forEach((dc: any) => {
-        const rows = Array.isArray(dc.rows) ? dc.rows : [];
-        rows.forEach((r: any) => {
-          const artNo = String(r.artNo || "").trim();
-          if (!artNo) return;
+      // 3) MINUS Dispatch Challans (outgoing, rate = 0).
+      // Backend sends grouped totals, so no full challan history is loaded.
+      dispatchStockSummary.forEach((r: any) => {
+        const artNo = String(r.artNo || "").trim();
+        const sizeName = String(r.size || "").trim();
+        if (!artNo || !sizeName) return;
 
-          const description = String(r.description || "").trim();
-          const sizeName = String(r.sizeName || r.size || "").trim();
-          const shade = String(r.shadeName || r.shade || "").trim();
-          if (!sizeName) return;
+        const box = Number(r.box ?? 0);
+        const perBox = Number(r.pcsPerBox ?? 0);
+        const pcs =
+          r.pcs != null
+            ? Number(r.pcs)
+            : Number.isFinite(box * perBox)
+            ? box * perBox
+            : 0;
 
-          const box = Number(r.box ?? 0);
-          const perBox = Number(r.pcsPerBox ?? 0);
-          const pcs =
-            r.pcs != null
-              ? Number(r.pcs)
-              : Number.isFinite(box * perBox)
-              ? box * perBox
-              : 0;
-
-          addToAggregate({
-            artNo,
-            description,
-            size: sizeName,
-            shade,
-            box: -Math.abs(box),
-            pcs: -Math.abs(pcs),
-            perBox,
-            rate: 0,
-          });
+        addToAggregate({
+          artNo,
+          description: String(r.description || "").trim(),
+          size: sizeName,
+          shade: String(r.shade || "").trim(),
+          box: -Math.abs(box),
+          pcs: -Math.abs(pcs),
+          perBox,
+          rate: 0,
         });
       });
 

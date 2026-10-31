@@ -2,6 +2,7 @@ package com.garment.DTO;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.List;
 
 import lombok.AllArgsConstructor;
 import lombok.Data;
@@ -19,6 +20,8 @@ public class PackingChallanListDTO {
     private BigDecimal totalAmount;
     private String artNumbers;
     private String cuttingLotNumbers;
+    private String sizeNames; // retained for backward compatibility
+    private List<PackingChallanListSizeDTO> sizeDetails;
 
     // Keeps the existing JPQL constructor projection compatible.
     public PackingChallanListDTO(String serialNo, LocalDate date, String partyName,

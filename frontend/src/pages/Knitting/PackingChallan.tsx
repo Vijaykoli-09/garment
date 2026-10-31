@@ -1141,6 +1141,7 @@ const PackingChallan: React.FC = () => {
                     <th className="border p-2 text-center">Party Name</th>
                     <th className="border p-2 text-center">Art Number</th>
                     <th className="border p-2 text-center">Cutting Lot Number</th>
+                    <th className="border p-2 text-center">Size</th>
                     <th className="border p-2 text-center">Total Box</th>
                     <th className="border p-2 text-center">Total Pcs</th>
                     <th className="border p-2 text-center">Total Amount</th>
@@ -1156,6 +1157,19 @@ const PackingChallan: React.FC = () => {
                       <td className="border p-2 text-center">{r.partyName}</td>
                       <td className="border p-2 text-center">{r.artNumbers || "-"}</td>
                       <td className="border p-2 text-center">{r.cuttingLotNumbers || "-"}</td>
+                      <td className="border p-2 text-left whitespace-pre-wrap min-w-[190px]">
+                        {Array.isArray(r.sizeDetails) && r.sizeDetails.length > 0 ? (
+                          <div className="space-y-1">
+                            {r.sizeDetails.map((sd: any, sizeIndex: number) => (
+                              <div key={`${r.serialNo}-${sd.sizeName}-${sizeIndex}`}>
+                                {sd.sizeName || "-"}: Box {sd.boxCount ?? 0}, PB {sd.perBox ?? 0}, INR {Number(sd.rate ?? 0).toFixed(2)}
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          (r.sizeNames || "").trim() || "-"
+                        )}
+                      </td>
                       <td className="border p-2 text-center">{r.totalBox ?? 0}</td>
                       <td className="border p-2 text-center">{r.totalPcs ?? 0}</td>
                       <td className="border p-2 text-center">{Number(r.totalAmount ?? 0).toFixed(2)}</td>
@@ -1180,14 +1194,14 @@ const PackingChallan: React.FC = () => {
 
                   {listLoading && (
                     <tr>
-                      <td className="border p-3 text-center text-gray-500" colSpan={8}>
+                      <td className="border p-3 text-center text-gray-500" colSpan={11}>
                         Loading...
                       </td>
                     </tr>
                   )}
                   {!listLoading && flatRows.length === 0 && (
                     <tr>
-                      <td className="border p-3 text-center text-gray-500" colSpan={8}>
+                      <td className="border p-3 text-center text-gray-500" colSpan={11}>
                         No records
                       </td>
                     </tr>

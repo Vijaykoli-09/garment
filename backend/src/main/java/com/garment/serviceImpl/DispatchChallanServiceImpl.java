@@ -11,6 +11,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import com.garment.DTO.DispatchChallanDTO;
 import com.garment.DTO.DispatchChallanListDTO;
+import com.garment.DTO.DispatchStockSummaryDTO;
 import com.garment.DTO.DispatchPackingRowDto;
 import com.garment.DTO.DispatchRowDto;
 import com.garment.DTO.NextDispatchNumbersDTO;
@@ -40,11 +41,11 @@ public class DispatchChallanServiceImpl implements DispatchChallanService {
         // DTO → Entity (serialNo/challanNo yaha set nahi kar rahe)
         copyDtoToEntity(dto, entity);
 
-        // Date null ho to aaj ki date
+
         LocalDate date = entity.getDate() != null ? entity.getDate() : LocalDate.now();
         entity.setDate(date);
 
-        // Backend se next numbers nikaal lo (DB based)
+
         NextDispatchNumbersDTO next = getNextNumbers(date, entity.getPartyName(), entity.getBrokerName());
         entity.setSerialNo(next.getSerialNo());
         entity.setChallanNo(next.getChallanNo());
@@ -61,7 +62,7 @@ public class DispatchChallanServiceImpl implements DispatchChallanService {
                 .orElseThrow(() -> new IllegalArgumentException("Dispatch challan not found: " + id));
 
         // SerialNo / ChallanNo ko update pe change nahi karte
-        // sirf baaki fields update honge
+
         String existingSerial = existing.getSerialNo();
         String existingChallanNo = existing.getChallanNo();
 
@@ -102,11 +103,30 @@ public class DispatchChallanServiceImpl implements DispatchChallanService {
                 : "%" + search.trim().toLowerCase() + "%";
         Page<DispatchChallanListDTO> pageResult = repository.searchPaged(
                 query, PageRequest.of(safePage, safeSize)).map(row -> new DispatchChallanListDTO(
-                        row.getId(), row.getSerialNo(), row.getDate(), row.getChallanNo(),
-                        row.getPartyName(), row.getStation(), row.getNetAmt(), row.getArtNos(),
-                        row.getArtNo(), row.getSize(), row.getShade(), row.getBox(),
-                        row.getPcsPerBox(), row.getPcs(), row.getRate(), row.getAmt()));
+                row.getId(), row.getSerialNo(), row.getDate(), row.getChallanNo(),
+                row.getPartyName(), row.getStation(), row.getNetAmt(), row.getArtNos(),
+                row.getArtNo(), row.getSize(), row.getShade(), row.getBox(),
+                row.getPcsPerBox(), row.getPcs(), row.getRate(), row.getAmt()));
         return PagedResponse.of(pageResult);
+    }
+
+    /**
+     * Stock calculation should not call getAll(), which materializes every
+     * challan and all child rows. This query returns grouped numeric totals.
+     */
+    @Override
+    @Transactional(readOnly = true)
+    public List<DispatchStockSummaryDTO> getDispatchStockSummary() {
+        return repository.findDispatchStockSummary().stream()
+                .map(row -> new DispatchStockSummaryDTO(
+                        row.getArtNo(),
+                        row.getDescription(),
+                        row.getSize(),
+                        row.getShade(),
+                        row.getBox(),
+                        row.getPcsPerBox(),
+                        row.getPcs()))
+                .collect(Collectors.toList());
     }
 
     // ----------------- DELETE -----------------
