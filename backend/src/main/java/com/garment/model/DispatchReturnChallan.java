@@ -1,5 +1,7 @@
 package com.garment.model;
 
+import lombok.ToString;
+import lombok.EqualsAndHashCode;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.ArrayList;
@@ -9,7 +11,9 @@ import jakarta.persistence.*;
 import lombok.Data;
 
 @Entity
-@Table(name = "dispatch_return_challan")
+@Table(name = "dispatch_return_challan", indexes = {
+        @Index(name = "idx_dispatch_return_date", columnList = "date")
+})
 @Data
 public class DispatchReturnChallan {
 
@@ -81,8 +85,10 @@ public class DispatchReturnChallan {
     private BigDecimal netAmt;
 
     @OneToMany(mappedBy = "challan", cascade = CascadeType.ALL, orphanRemoval = true)
+    @ToString.Exclude @EqualsAndHashCode.Exclude
     private List<DispatchReturnRow> rows = new ArrayList<>();
 
     @OneToMany(mappedBy = "challan", cascade = CascadeType.ALL, orphanRemoval = true)
+    @ToString.Exclude @EqualsAndHashCode.Exclude
     private List<DispatchReturnPackingRow> packingRows = new ArrayList<>();
 }

@@ -9,6 +9,7 @@ import com.garment.DTO.PackingBoxSummaryDTO;
 import com.garment.DTO.PackingChallanDTO;
 import com.garment.DTO.PackingChallanListDTO;
 import com.garment.DTO.PackingRateSummaryDTO;
+import com.garment.DTO.PackingStockSummaryDTO;
 import com.garment.DTO.PagedResponse;
 import com.garment.model.Shade;
 import com.garment.model.Size;
@@ -21,6 +22,7 @@ public interface PackingChallanService {
     PagedResponse<PackingChallanListDTO> listPaged(int page, int size, String search);
     List<PackingBoxSummaryDTO> packedSizeTotals(String excludeSerial);
     List<PackingRateSummaryDTO> latestRateSummaries();
+    List<PackingStockSummaryDTO> stockSummary();
     void delete(String serialNo);
 
     // Lookups

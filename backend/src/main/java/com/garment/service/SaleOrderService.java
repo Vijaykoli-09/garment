@@ -4,6 +4,7 @@ import java.time.LocalDate;
 import java.util.List;
 
 import com.garment.DTO.PendencyFulfillRequestDTO;
+import com.garment.DTO.SaleOrderArtIndexDTO;
 import com.garment.DTO.SaleOrderDTO;
 import com.garment.DTO.SaleOrderListDTO;
 import com.garment.DTO.SaleOrderPendencyRowDTO;
@@ -16,6 +17,7 @@ public interface SaleOrderService {
     SaleOrderDTO update(Long id, SaleOrderSaveDTO dto);
     SaleOrderDTO get(Long id);
     List<SaleOrderDTO> list();
+    List<SaleOrderArtIndexDTO> artIndex();
     List<SaleOrderDTO> listByParty(Long partyId, String partyName);
     PagedResponse<SaleOrderListDTO> listPaged(int page, int size, String search);
     void delete(Long id);

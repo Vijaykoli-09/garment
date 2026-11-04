@@ -42,4 +42,18 @@ public interface SaleOrderRepository extends JpaRepository<SaleOrder, Long> {
     List<SaleOrder> findByPartyIdOrderByDatedDesc(Long partyId);
     List<SaleOrder> findByPartyNameIgnoreCaseOrderByDatedDesc(String partyName);
     List<SaleOrder> findByPartyIdAndDatedBetweenOrderByDatedDesc(Long partyId, LocalDate fromDate, LocalDate toDate);
+
+    /** Distinct party + date + art number rows (slim index for the Pendency screen's art filter). */
+    @Query("""
+            select distinct so.partyId as partyId, so.dated as dated, r.artNo as artNo
+            from SaleOrder so join so.rows r
+            where r.artNo is not null and trim(r.artNo) <> ''
+            """)
+    List<SaleOrderArtRow> findArtIndexRows();
+
+    interface SaleOrderArtRow {
+        Long getPartyId();
+        LocalDate getDated();
+        String getArtNo();
+    }
 }

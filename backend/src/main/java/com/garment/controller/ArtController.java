@@ -3,6 +3,7 @@ package com.garment.controller;
 import com.garment.DTO.ArtListDTO;
 import com.garment.DTO.ArtRequestDTO;
 import com.garment.DTO.ArtResponseDTO;
+import com.garment.DTO.ArtStockDetailDTO;
 import com.garment.service.ArtService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -40,6 +41,12 @@ public class ArtController {
                 ))
                 .collect(Collectors.toList());
         return ResponseEntity.ok(dropdown);
+    }
+
+    // Slim art data for stock screens (replaces one GET /arts/{serial} call per art)
+    @GetMapping("/stock-details")
+    public ResponseEntity<List<ArtStockDetailDTO>> getArtStockDetails() {
+        return ResponseEntity.ok(artService.getStockDetails());
     }
 
     @GetMapping("/{serialNumber}")

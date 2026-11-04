@@ -153,4 +153,37 @@ public interface DispatchChallanRepository extends JpaRepository<DispatchChallan
         java.math.BigDecimal getRate();
         java.math.BigDecimal getAmt();
     }
+
+    /**
+     * Dispatched boxes per Party + Art + Size + Shade between two dates, summed in SQL.
+     * Used by Sale Order Pendency so no DispatchChallan / DispatchRow entities are loaded.
+     * Box rule is unchanged: box if present, else pcs / pcsPerBox (when pcsPerBox is not 0), else 0.
+     */
+    @Query(value = """
+            select c.party_name as "partyName",
+                   r.art_no as "artNo",
+                   r.size as "size",
+                   r.shade as "shade",
+                   coalesce(sum(case
+                                  when r.box is not null then r.box
+                                  when r.pcs is not null and r.pcs_per_box is not null and r.pcs_per_box <> 0
+                                       then r.pcs / r.pcs_per_box
+                                  else 0
+                                end), 0) as "box"
+            from dispatch_challan c
+            join dispatch_challan_row r on r.challan_id = c.id
+            where c.date between :fromDate and :toDate
+            group by c.party_name, r.art_no, r.size, r.shade
+            """, nativeQuery = true)
+    List<DispatchPendencyProjection> findPendencyTotals(
+            @Param("fromDate") LocalDate fromDate,
+            @Param("toDate") LocalDate toDate);
+
+    interface DispatchPendencyProjection {
+        String getPartyName();
+        String getArtNo();
+        String getSize();
+        String getShade();
+        Long getBox();
+    }
 }

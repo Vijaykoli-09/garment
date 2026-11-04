@@ -51,4 +51,32 @@ public interface OrderSettleRepository extends JpaRepository<OrderSettle, Long> 
             @Param("fromDate") LocalDate fromDate,
             @Param("toDate") LocalDate toDate,
             @Param("artNos") List<String> artNos);
+
+    /**
+     * Settled boxes per Party + Art + Shade + Size between two dates, summed in SQL.
+     * Used by Sale Order Pendency so no OrderSettle graph / DTOs are built.
+     */
+    @Query(value = """
+            select s.party_name as "partyName",
+                   r.art_no as "artNo",
+                   r.shade_name as "shade",
+                   d.size_name as "sizeName",
+                   coalesce(sum(coalesce(d.settle_box, 0)), 0) as "settleBox"
+            from order_settles s
+            join order_settle_rows r on r.settle_id = s.id
+            join order_settle_size_details d on d.row_id = r.id
+            where s.dated between :fromDate and :toDate
+            group by s.party_name, r.art_no, r.shade_name, d.size_name
+            """, nativeQuery = true)
+    List<SettlePendencyProjection> findPendencyTotals(
+            @Param("fromDate") LocalDate fromDate,
+            @Param("toDate") LocalDate toDate);
+
+    interface SettlePendencyProjection {
+        String getPartyName();
+        String getArtNo();
+        String getShade();
+        String getSizeName();
+        Long getSettleBox();
+    }
 }

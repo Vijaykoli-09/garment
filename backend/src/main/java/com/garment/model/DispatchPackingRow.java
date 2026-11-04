@@ -1,5 +1,8 @@
 package com.garment.model;
 
+import jakarta.persistence.Index;
+import lombok.ToString;
+import lombok.EqualsAndHashCode;
 import java.math.BigDecimal;
 
 import jakarta.persistence.Entity;
@@ -13,7 +16,9 @@ import jakarta.persistence.Table;
 import lombok.Data;
 
 @Entity
-@Table(name = "dispatch_challan_packing_row")
+@Table(name = "dispatch_challan_packing_row", indexes = {
+        @Index(name = "idx_dispatch_packing_row_challan_id", columnList = "challan_id")
+})
 @Data
 public class DispatchPackingRow {
 
@@ -23,6 +28,7 @@ public class DispatchPackingRow {
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "challan_id")
+    @ToString.Exclude @EqualsAndHashCode.Exclude
     private DispatchChallan challan;
 
     private String itemName;

@@ -1,5 +1,6 @@
 package com.garment.serviceImpl;
 
+import com.garment.DTO.PackingStockSummaryDTO;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.*;
@@ -83,6 +84,16 @@ public class PackingChallanServiceImpl implements PackingChallanService {
     @Override @Transactional(readOnly = true)
     public List<PackingChallanDTO> list(){
         return challanRepo.findAll().stream().map(this::toDTO).collect(Collectors.toList());
+    }
+
+    /** Packed stock per Art + Size + Shade, aggregated in SQL (no entity graph, no giant JSON). */
+    @Override @Transactional(readOnly = true)
+    public List<PackingStockSummaryDTO> stockSummary(){
+        return challanRepo.findPackingStockSummary().stream()
+                .map(r -> new PackingStockSummaryDTO(
+                        r.getArtNo(), r.getDescription(), r.getSize(), r.getShade(),
+                        r.getBox(), r.getPcs(), r.getPerBox(), r.getRate()))
+                .collect(Collectors.toList());
     }
 
     @Override @Transactional(readOnly = true)

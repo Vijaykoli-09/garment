@@ -12,6 +12,7 @@ import org.springframework.transaction.annotation.Transactional;
 import com.garment.DTO.DispatchReturnChallanDTO;
 import com.garment.DTO.DispatchReturnPackingRowDTO;
 import com.garment.DTO.DispatchReturnRowDTO;
+import com.garment.DTO.DispatchStockSummaryDTO;
 import com.garment.DTO.NextDispatchNumbersDTO;
 import com.garment.model.DispatchReturnChallan;
 import com.garment.model.DispatchReturnPackingRow;
@@ -118,6 +119,17 @@ public class DispatchReturnChallanServiceImpl implements DispatchReturnChallanSe
     public List<DispatchReturnChallanDTO> getAll() {
         return repository.findAll().stream()
                 .map(this::mapToDto)
+                .collect(Collectors.toList());
+    }
+
+    /** Returned stock per Art + Size + Shade up to toDate, aggregated in SQL (no entity graph). */
+    @Override
+    @Transactional(readOnly = true)
+    public List<DispatchStockSummaryDTO> getReturnStockSummary(LocalDate toDate) {
+        return repository.findReturnStockSummary(toDate).stream()
+                .map(r -> new DispatchStockSummaryDTO(
+                        r.getArtNo(), r.getDescription(), r.getSize(), r.getShade(),
+                        r.getBox(), r.getPcsPerBox(), r.getPcs()))
                 .collect(Collectors.toList());
     }
 

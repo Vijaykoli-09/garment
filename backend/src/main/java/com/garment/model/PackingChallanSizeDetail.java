@@ -1,5 +1,8 @@
 package com.garment.model;
 
+import jakarta.persistence.Index;
+import lombok.ToString;
+import lombok.EqualsAndHashCode;
 import java.math.BigDecimal;
 
 import jakarta.persistence.Column;
@@ -16,7 +19,9 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 @Entity
-@Table(name = "packing_challan_size_details")
+@Table(name = "packing_challan_size_details", indexes = {
+		@Index(name = "idx_pcsd_row_id", columnList = "row_id")
+})
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
@@ -28,11 +33,13 @@ public class PackingChallanSizeDetail {
     /** Parent row (one row can have many size details) */
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "row_id", nullable = false)
+    @ToString.Exclude @EqualsAndHashCode.Exclude
     private PackingChallanRow row;
 
     /** Optional reference to master Size entity */
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "size_id")
+    @ToString.Exclude @EqualsAndHashCode.Exclude
     private Size size;
 
     /** Readable size label, e.g. S, M, L, XL */

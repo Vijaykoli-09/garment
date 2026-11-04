@@ -1,5 +1,8 @@
 package com.garment.model;
 
+import jakarta.persistence.Index;
+import lombok.ToString;
+import lombok.EqualsAndHashCode;
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
@@ -21,7 +24,12 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 @Entity 
-@Table(name="packing_challan_rows")
+@Table(name="packing_challan_rows", indexes = {
+		@Index(name = "idx_pcr_challan_serial", columnList = "challan_serial_no"),
+		@Index(name = "idx_pcr_art_no", columnList = "art_no"),
+		@Index(name = "idx_pcr_cut_lot_no", columnList = "cut_lot_no"),
+		@Index(name = "idx_pcr_work_on_art", columnList = "work_on_art")
+})
 @Data 
 @NoArgsConstructor 
 @AllArgsConstructor
@@ -49,15 +57,18 @@ public class PackingChallanRow {
 	  @Deprecated
 	  @ManyToOne(fetch = FetchType.LAZY)
 	  @JoinColumn(name="size_id")
+	  @ToString.Exclude @EqualsAndHashCode.Exclude
 	  private Size size;
 
 
 	  @OneToMany(mappedBy = "row", cascade = CascadeType.ALL, orphanRemoval = true)
 	  @OrderBy("id ASC")
+	  @ToString.Exclude @EqualsAndHashCode.Exclude
 	  private List<PackingChallanSizeDetail> sizeDetails = new ArrayList<>();
 
 	  @ManyToOne(fetch = FetchType.LAZY)
 	  @JoinColumn(name="shade_code", referencedColumnName = "shade_code")
+	  @ToString.Exclude @EqualsAndHashCode.Exclude
 	  private Shade shade;
 
 	  @Column(name="box")     
@@ -74,5 +85,6 @@ public class PackingChallanRow {
 
 	  @ManyToOne(fetch = FetchType.LAZY)
 	  @JoinColumn(name="challan_serial_no")
+	  @ToString.Exclude @EqualsAndHashCode.Exclude
 	  private PackingChallan challan;
 }

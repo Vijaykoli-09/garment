@@ -4,6 +4,7 @@ import java.time.LocalDate;
 import java.util.List;
 
 import com.garment.DTO.DispatchReturnChallanDTO;
+import com.garment.DTO.DispatchStockSummaryDTO;
 import com.garment.DTO.NextDispatchNumbersDTO;
 
 public interface DispatchReturnChallanService {
@@ -15,6 +16,8 @@ public interface DispatchReturnChallanService {
     DispatchReturnChallanDTO getById(Long id);
 
     List<DispatchReturnChallanDTO> getAll();
+
+    List<DispatchStockSummaryDTO> getReturnStockSummary(LocalDate toDate);
 
     void delete(Long id);
 

@@ -1,5 +1,7 @@
 package com.garment.model;
 
+import lombok.ToString;
+import lombok.EqualsAndHashCode;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -9,7 +11,10 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 @Entity
-@Table(name = "sale_order_rows")
+@Table(name = "sale_order_rows", indexes = {
+        @Index(name = "idx_sor_sale_order_id", columnList = "sale_order_id"),
+        @Index(name = "idx_sor_art_no", columnList = "art_no")
+})
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
@@ -33,6 +38,7 @@ public class SaleOrderRow {
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name="shade_code", referencedColumnName = "shade_code")
+    @ToString.Exclude @EqualsAndHashCode.Exclude
     private Shade shade;                  // optional M2O
 
     @Column(name="shade_name", length=100)
@@ -46,10 +52,12 @@ public class SaleOrderRow {
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "sale_order_id")
+    @ToString.Exclude @EqualsAndHashCode.Exclude
     private SaleOrder saleOrder;
 
     @OneToMany(mappedBy = "row", cascade = CascadeType.ALL, orphanRemoval = true)
     @OrderBy("id asc")
+    @ToString.Exclude @EqualsAndHashCode.Exclude
     private List<SaleOrderSizeDetail> sizeDetails = new ArrayList<>();
 
     public void addSize(SaleOrderSizeDetail d){

@@ -10,6 +10,7 @@ import org.springframework.web.bind.annotation.*;
 
 import com.garment.DTO.PendencyFulfillRequestDTO;
 import com.garment.DTO.PagedResponse;
+import com.garment.DTO.SaleOrderArtIndexDTO;
 import com.garment.DTO.SaleOrderDTO;
 import com.garment.DTO.SaleOrderListDTO;
 import com.garment.DTO.SaleOrderPendencyRowDTO;
@@ -49,6 +50,12 @@ public class SaleOrderController {
     @GetMapping
     public List<SaleOrderDTO> list() {
         return svc.list();
+    }
+
+    // Slim party + date + art numbers index (used by the Pendency screen instead of GET /sale-orders)
+    @GetMapping("/art-index")
+    public List<SaleOrderArtIndexDTO> artIndex() {
+        return svc.artIndex();
     }
 
     @GetMapping("/by-party")

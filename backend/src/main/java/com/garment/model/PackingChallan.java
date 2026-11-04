@@ -1,5 +1,8 @@
 package com.garment.model;
 
+import jakarta.persistence.Index;
+import lombok.ToString;
+import lombok.EqualsAndHashCode;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -23,7 +26,9 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 @Entity 
-@Table(name="packing_challans")
+@Table(name="packing_challans", indexes = {
+		@Index(name = "idx_packing_challans_dated", columnList = "dated")
+})
 @Data 
 @NoArgsConstructor 
 @AllArgsConstructor
@@ -37,6 +42,7 @@ public class PackingChallan {
 
 	  @ManyToOne(fetch = FetchType.LAZY) 
 	  @JoinColumn(name="party_id")
+	  @ToString.Exclude @EqualsAndHashCode.Exclude
 	  private Party party;
 	  
 	  @Column(name="party_name") 
@@ -56,6 +62,7 @@ public class PackingChallan {
 
 	  @OneToMany(mappedBy="challan", cascade=CascadeType.ALL, orphanRemoval=true)
 	  @OrderBy("sno asc")
+	  @ToString.Exclude @EqualsAndHashCode.Exclude
 	  private List<PackingChallanRow> rows = new ArrayList<>();
 
 	  @PrePersist 

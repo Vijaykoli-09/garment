@@ -21,15 +21,15 @@ public interface ProductionReceiptRepository extends JpaRepository<ProductionRec
                    receipt.dated as "dated",
                    receipt.employee_name as "employeeName",
                    receipt.process_name as "processName",
-                   coalesce(summary.lot_art_pairs, '') as "lotArtPairs",
-                   coalesce(summary.total_pcs, 0) as "totalPcs"
+                   case when summary.lot_art_pairs is null then '' else summary.lot_art_pairs end as "lotArtPairs",
+                   case when summary.total_pcs is null then 0 else summary.total_pcs end as "totalPcs"
             from production_receipt receipt
             left join lateral (
                 select (
-                           select string_agg(pairs.pair_text, E'\\n' order by pairs.first_row_id)
-                           from (
+                           select string_agg(pairs.pair_text, chr(10) order by pairs.first_row_id)
+                               from (
                                select concat_ws(
-                                          E'\\t',
+                                          chr(9),
                                           coalesce(nullif(trim(receipt_row.card_no), ''), '-'),
                                           coalesce(nullif(trim(receipt_row.art_no), ''), '-')
                                       ) as pair_text,
@@ -42,7 +42,7 @@ public interface ProductionReceiptRepository extends JpaRepository<ProductionRec
                                  )
                                group by nullif(trim(receipt_row.card_no), ''),
                                         nullif(trim(receipt_row.art_no), '')
-                           ) pairs
+                               ) pairs
                        ) as lot_art_pairs,
                        coalesce((
                            select sum(

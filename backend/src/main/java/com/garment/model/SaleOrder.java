@@ -1,5 +1,7 @@
 package com.garment.model;
 
+import lombok.ToString;
+import lombok.EqualsAndHashCode;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -55,6 +57,7 @@ public class SaleOrder {
 
     @OneToMany(mappedBy = "saleOrder", cascade = CascadeType.ALL, orphanRemoval = true)
     @OrderBy("sno asc")
+    @ToString.Exclude @EqualsAndHashCode.Exclude
     private List<SaleOrderRow> rows = new ArrayList<>();
 
     @PrePersist

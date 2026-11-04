@@ -256,7 +256,7 @@ const SaleOrderPendencyArtSizeWise: React.FC = () => {
 
       // Sale Orders list (for availableArts)
       try {
-        const { data } = await api.get<any[]>("/sale-orders");
+        const { data } = await api.get<any[]>("/sale-orders/art-index");
         setSaleOrders(Array.isArray(data) ? data : []);
       } catch (e) {
         console.error("Error loading sale orders:", e);

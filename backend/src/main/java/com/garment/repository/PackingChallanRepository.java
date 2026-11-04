@@ -175,6 +175,55 @@ public interface PackingChallanRepository extends JpaRepository<PackingChallan, 
             """, nativeQuery = true)
     List<PackingRateProjection> findLatestRateSummaries();
 
+    /**
+     * Packed stock grouped by Art + Size + Shade across ALL packing challans, computed in SQL.
+     * Replaces downloading every challan (with rows and size details) just to add them up.
+     * Same rules the Dispatch screen used on the full list: size name comes from the size master
+     * when linked, pcs falls back to box * perBox, perBox and rate = latest positive value.
+     */
+    @Query(value = """
+            select (array_agg(trim(r.art_no)
+                        order by c.dated desc nulls last, c.serial_no desc, d.id desc))[1] as "artNo",
+                   coalesce((array_agg(trim(r.work_on_art)
+                        order by c.dated desc nulls last, c.serial_no desc, d.id desc)
+                        filter (where nullif(trim(r.work_on_art), '') is not null))[1], '') as "description",
+                   (array_agg(trim(case when d.size_id is not null then sz.size_name else d.size_name end)
+                        order by c.dated desc nulls last, c.serial_no desc, d.id desc))[1] as "size",
+                   coalesce((array_agg(trim(sh.shade_name)
+                        order by c.dated desc nulls last, c.serial_no desc, d.id desc)
+                        filter (where nullif(trim(sh.shade_name), '') is not null))[1], '') as "shade",
+                   coalesce(sum(coalesce(d.box_count, 0)), 0) as "box",
+                   coalesce(sum(coalesce(d.pcs, coalesce(d.box_count, 0) * coalesce(d.per_box, 0))), 0) as "pcs",
+                   coalesce((array_agg(d.per_box
+                        order by c.dated desc nulls last, c.serial_no desc, d.id desc)
+                        filter (where d.per_box > 0))[1], 0) as "perBox",
+                   (array_agg(d.rate
+                        order by c.dated desc nulls last, c.serial_no desc, d.id desc)
+                        filter (where d.rate > 0))[1] as "rate"
+            from packing_challan_size_details d
+            join packing_challan_rows r on r.id = d.row_id
+            join packing_challans c on c.serial_no = r.challan_serial_no
+            left join sizes sz on sz.id = d.size_id
+            left join shades sh on sh.shade_code = r.shade_code
+            where nullif(trim(r.art_no), '') is not null
+              and nullif(trim(case when d.size_id is not null then sz.size_name else d.size_name end), '') is not null
+            group by upper(trim(r.art_no)),
+                     upper(trim(case when d.size_id is not null then sz.size_name else d.size_name end)),
+                     upper(trim(coalesce(sh.shade_name, '')))
+            """, nativeQuery = true)
+    List<PackingStockProjection> findPackingStockSummary();
+
+    interface PackingStockProjection {
+        String getArtNo();
+        String getDescription();
+        String getSize();
+        String getShade();
+        Long getBox();
+        Long getPcs();
+        Integer getPerBox();
+        java.math.BigDecimal getRate();
+    }
+
     @Query("select p.serialNo from PackingChallan p where p.serialNo like concat(:prefix, '%')")
     List<String> findSerialsByPrefix(@Param("prefix") String prefix);
     boolean existsBySerialNo(String serialNo);

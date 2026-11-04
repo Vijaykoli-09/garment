@@ -8,6 +8,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import com.garment.DTO.DispatchReturnChallanDTO;
+import com.garment.DTO.DispatchStockSummaryDTO;
 import com.garment.DTO.NextDispatchNumbersDTO;
 import com.garment.service.DispatchReturnChallanService;
 
@@ -33,6 +34,13 @@ public class DispatchReturnChallanController {
     @GetMapping
     public ResponseEntity<List<DispatchReturnChallanDTO>> getAll() {
         return ResponseEntity.ok(service.getAll());
+    }
+
+    // GET /dispatch-return-challan/stock-summary?toDate=YYYY-MM-DD  (used by Dispatch Challan instead of getAll)
+    @GetMapping("/stock-summary")
+    public ResponseEntity<List<DispatchStockSummaryDTO>> getReturnStockSummary(
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate toDate) {
+        return ResponseEntity.ok(service.getReturnStockSummary(toDate != null ? toDate : LocalDate.now()));
     }
 
     // GET /dispatch-return-challan/{id}

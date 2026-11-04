@@ -18,6 +18,7 @@ import com.garment.DTO.OrderSettleRowDTO;
 import com.garment.DTO.OrderSettleSizeDetailDTO;
 import com.garment.DTO.PagedResponse;
 import com.garment.DTO.PendencyFulfillRequestDTO;
+import com.garment.DTO.SaleOrderArtIndexDTO;
 import com.garment.DTO.SaleOrderDTO;
 import com.garment.DTO.SaleOrderListDTO;
 import com.garment.DTO.SaleOrderPendencyRowDTO;
@@ -44,6 +45,7 @@ public class SaleOrderServiceImpl implements SaleOrderService {
     private final PartyRepository partyRepo;
     private final OrderSettleService orderSettleService; // USE EXISTING SERVICE
     private final DispatchChallanRepository dispatchChallanRepository;
+    private final OrderSettleRepository orderSettleRepository;
 
     /* ---------- Helpers ---------- */
 
@@ -234,6 +236,22 @@ public class SaleOrderServiceImpl implements SaleOrderService {
 
     @Override
     @Transactional(readOnly = true)
+    public List<SaleOrderArtIndexDTO> artIndex() {
+        Map<String, SaleOrderArtIndexDTO> grouped = new LinkedHashMap<>();
+        for (SaleOrderRepository.SaleOrderArtRow r : repo.findArtIndexRows()) {
+            String key = r.getPartyId() + "|" + r.getDated();
+            SaleOrderArtIndexDTO dto = grouped.get(key);
+            if (dto == null) {
+                dto = new SaleOrderArtIndexDTO(r.getPartyId(), r.getDated(), new ArrayList<>());
+                grouped.put(key, dto);
+            }
+            dto.getRows().add(new SaleOrderArtIndexDTO.ArtRef(r.getArtNo()));
+        }
+        return new ArrayList<>(grouped.values());
+    }
+
+    @Override
+    @Transactional(readOnly = true)
     public List<SaleOrderDTO> listByParty(Long partyId, String partyName) {
         List<SaleOrder> orders;
         if (partyId != null) {
@@ -410,75 +428,40 @@ public class SaleOrderServiceImpl implements SaleOrderService {
             }
         }
 
+        // Index of the aggregated rows for O(1) matching. Key = party(UPPER) | art(lower) | shade(UPPER) | size(UPPER),
+        // exactly the fields the old code compared one by one by scanning the whole map for every dispatch/settle row.
+        final char SEP = (char) 1;
+        Map<String, List<Agg>> matchIndex = new HashMap<>();
+        for (Agg a : map.values()) {
+            String k = up.apply(a.pname) + SEP + low.apply(a.artNo) + SEP + up.apply(a.shade) + SEP + up.apply(a.size);
+            matchIndex.computeIfAbsent(k, x -> new ArrayList<>()).add(a);
+        }
+
         // ========= 4) MINUS DISPATCH CHALLAN =========
+        // Totals are summed in SQL per party/art/size/shade: no DispatchChallan entities are loaded.
         try {
-            // Directly use repository (you have DispatchChallanRepository)
-            // or a service method returning all DispatchChallan between from/to.
-            // For simplicity, we assume you have repository bean here; if not, inject it.
-            // Example with repository bean:
-            // private final DispatchChallanRepository dispatchRepo;
-            // and here:
-            // List<DispatchChallan> challans = dispatchRepo.findByDateBetween(from, to);
+            for (DispatchChallanRepository.DispatchPendencyProjection dr
+                    : dispatchChallanRepository.findPendencyTotals(from, to)) {
+                String partyUpper = up.apply(Optional.ofNullable(dr.getPartyName()).orElse(""));
+                String artNoLower = low.apply(Optional.ofNullable(dr.getArtNo()).orElse(""));
+                if (!artFilter.isEmpty() && !artFilter.contains(artNoLower)) continue;
 
-            // If you don't want to inject repo here, you can call service.getAll() and filter by date,
-            // but repo is better.
+                String sizeUpper = up.apply(Optional.ofNullable(dr.getSize()).orElse(""));
+                if (!sizeFilter.isEmpty() && !sizeFilter.contains(sizeUpper)) continue;
 
-            // Assume you inject DispatchChallanRepository:
-            List<com.garment.model.DispatchChallan> challans =
-                    dispatchChallanRepository.findByDateBetween(from, to);
+                String shadeUpper = up.apply(Optional.ofNullable(dr.getShade()).orElse(""));
+                if (!shadeFilter.isEmpty()) {
+                    if (shadeUpper.isEmpty() || !shadeFilter.contains(shadeUpper)) continue;
+                }
 
-            for (com.garment.model.DispatchChallan ch : challans) {
-                String pName = Optional.ofNullable(ch.getPartyName()).orElse("");
-                Long pid = null; // we don't have partyId in DispatchChallan, so we match by partyName only
+                long dispatchedBox = dr.getBox() == null ? 0L : dr.getBox();
+                if (dispatchedBox == 0L) continue;
 
-                String partyUpper = up.apply(pName);
-
-                for (com.garment.model.DispatchRow rr :
-                        Optional.ofNullable(ch.getRows()).orElse(List.of())) {
-
-                    String artNo = Optional.ofNullable(rr.getArtNo()).orElse("");
-                    String artNoLower = low.apply(artNo);
-                    if (!artFilter.isEmpty() && !artFilter.contains(artNoLower)) continue;
-
-                    String sizeName = Optional.ofNullable(rr.getSize()).orElse("");
-                    String sizeUpper = up.apply(sizeName);
-                    if (!sizeFilter.isEmpty() && !sizeFilter.contains(sizeUpper)) continue;
-
-                    String shadeName = Optional.ofNullable(rr.getShade()).orElse("");
-                    String shadeUpper = up.apply(shadeName);
-                    if (!shadeFilter.isEmpty()) {
-                        if (shadeUpper.isEmpty() || !shadeFilter.contains(shadeUpper)) continue;
-                    }
-
-                    Integer boxVal = rr.getBox();
-                    Integer pcsVal = rr.getPcs();
-                    Integer perBox = rr.getPcsPerBox();
-
-                    int box;
-                    if (boxVal != null) {
-                        box = boxVal;
-                    } else if (pcsVal != null && perBox != null && perBox != 0) {
-                        box = pcsVal / perBox;
-                    } else {
-                        box = 0;
-                    }
-                    if (box == 0) continue;
-
-                    // key without partyId (match on partyName, art, shade, size)
-                    String key = "" + "|" + partyUpper + "|" + artNoLower + "|" + shadeUpper + "|" + sizeUpper;
-
-                    // since map key uses pid (Long) and station, we need to search by matching fields:
-                    // But we only know partyName; we can't get pid here. We'll match by partyName case-insensitive.
-                    for (Map.Entry<String, Agg> e : map.entrySet()) {
-                        Agg a = e.getValue();
-                        if (up.apply(a.pname).equals(partyUpper)
-                                && low.apply(a.artNo).equals(artNoLower)
-                                && up.apply(a.shade).equals(shadeUpper)
-                                && up.apply(a.size).equals(sizeUpper)) {
-                            a.dispatch += box;
-                            a.pending = a.opening + a.receipt - a.dispatch;
-                        }
-                    }
+                List<Agg> targets = matchIndex.get(partyUpper + SEP + artNoLower + SEP + shadeUpper + SEP + sizeUpper);
+                if (targets == null) continue;
+                for (Agg a : targets) {
+                    a.dispatch += (int) dispatchedBox;
+                    a.pending = a.opening + a.receipt - a.dispatch;
                 }
             }
         } catch (Exception ex) {
@@ -486,47 +469,31 @@ public class SaleOrderServiceImpl implements SaleOrderService {
         }
 
         // ========= 5) MINUS ORDER SETTLE =========
+        // Same idea: settled boxes summed in SQL, then matched through the index.
         try {
-            List<OrderSettleDTO> settles = orderSettleService.listByDateRange(from, to);
-            for (OrderSettleDTO os : settles) {
-                String pName = Optional.ofNullable(os.getPartyName()).orElse("");
-                String partyUpper = up.apply(pName);
+            for (OrderSettleRepository.SettlePendencyProjection sr
+                    : orderSettleRepository.findPendencyTotals(from, to)) {
+                String partyUpper = up.apply(Optional.ofNullable(sr.getPartyName()).orElse(""));
+                String artNoLower = low.apply(Optional.ofNullable(sr.getArtNo()).orElse(""));
+                if (!artFilter.isEmpty() && !artFilter.contains(artNoLower)) continue;
 
-                List<OrderSettleRowDTO> rs = os.getRows() != null ? os.getRows() : List.of();
-                for (OrderSettleRowDTO r : rs) {
-                    String artNo = Optional.ofNullable(r.getArtNo()).orElse("");
-                    String artNoLower = low.apply(artNo);
-                    if (!artFilter.isEmpty() && !artFilter.contains(artNoLower)) continue;
+                String shadeUpper = up.apply(Optional.ofNullable(sr.getShade()).orElse(""));
+                if (!shadeFilter.isEmpty()) {
+                    if (shadeUpper.isEmpty() || !shadeFilter.contains(shadeUpper)) continue;
+                }
 
-                    String shadeName = Optional.ofNullable(r.getShade()).orElse("");
-                    String shadeUpper = up.apply(shadeName);
-                    if (!shadeFilter.isEmpty()) {
-                        if (shadeUpper.isEmpty() || !shadeFilter.contains(shadeUpper)) continue;
-                    }
+                String sizeUpper = up.apply(Optional.ofNullable(sr.getSizeName()).orElse(""));
+                if (!sizeFilter.isEmpty() && !sizeFilter.contains(sizeUpper)) continue;
 
-                    List<OrderSettleSizeDetailDTO> ds =
-                            r.getSizeDetails() != null ? r.getSizeDetails() : List.of();
-                    for (OrderSettleSizeDetailDTO sd : ds) {
-                        String sizeName = Optional.ofNullable(sd.getSizeName()).orElse("");
-                        String sizeUpper = up.apply(sizeName);
-                        if (!sizeFilter.isEmpty() && !sizeFilter.contains(sizeUpper)) continue;
+                long settledBox = sr.getSettleBox() == null ? 0L : sr.getSettleBox();
+                if (settledBox == 0L) continue;
 
-                        int settleBox = Optional.ofNullable(sd.getSettleBox()).orElse(0);
-                        if (settleBox == 0) continue;
-
-                        // again, match in map by partyName, artNo, shade, size
-                        for (Map.Entry<String, Agg> e : map.entrySet()) {
-                            Agg a = e.getValue();
-                            if (up.apply(a.pname).equals(partyUpper)
-                                    && low.apply(a.artNo).equals(artNoLower)
-                                    && up.apply(a.shade).equals(shadeUpper)
-                                    && up.apply(a.size).equals(sizeUpper)) {
-                                // treat settleBox same as dispatch for pending
-                                a.dispatch += settleBox;
-                                a.pending = a.opening + a.receipt - a.dispatch;
-                            }
-                        }
-                    }
+                List<Agg> targets = matchIndex.get(partyUpper + SEP + artNoLower + SEP + shadeUpper + SEP + sizeUpper);
+                if (targets == null) continue;
+                for (Agg a : targets) {
+                    // treat settleBox same as dispatch for pending
+                    a.dispatch += (int) settledBox;
+                    a.pending = a.opening + a.receipt - a.dispatch;
                 }
             }
         } catch (Exception ex) {

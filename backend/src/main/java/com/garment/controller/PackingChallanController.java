@@ -22,6 +22,7 @@ import com.garment.DTO.PackingBoxSummaryDTO;
 import com.garment.DTO.PackingChallanDTO;
 import com.garment.DTO.PackingChallanListDTO;
 import com.garment.DTO.PackingRateSummaryDTO;
+import com.garment.DTO.PackingStockSummaryDTO;
 import com.garment.DTO.PagedResponse;
 import com.garment.model.Party;
 import com.garment.model.Shade;
@@ -69,6 +70,11 @@ public class PackingChallanController {
 	  public List<PackingBoxSummaryDTO> packedSizeTotals(
 	          @RequestParam(required = false) String excludeSerial)
 	  { return svc.packedSizeTotals(excludeSerial); }
+
+	  // Packed stock grouped by Art + Size + Shade (used by Dispatch Challan instead of GET /packing-challans)
+	  @GetMapping("/stock-summary")
+	  public List<PackingStockSummaryDTO> stockSummary()
+	  { return svc.stockSummary(); }
 
 	  @GetMapping("/rate-summary")
 	  public List<PackingRateSummaryDTO> latestRateSummaries()

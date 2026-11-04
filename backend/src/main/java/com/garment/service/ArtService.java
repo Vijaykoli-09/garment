@@ -2,6 +2,9 @@
 
 package com.garment.service;
 
+import java.util.Map;
+import java.util.LinkedHashMap;
+import java.util.ArrayList;
 import com.garment.DTO.ArtResponseDTO;
 import com.garment.DTO.*;
 import com.garment.model.*;
@@ -32,6 +35,35 @@ public class ArtService {
     public ArtResponseDTO getArtBySerialNumber(String serialNumber) {
         Art art = artRepository.findBySerialNumber(serialNumber).orElse(null);
         return art != null ? convertToResponseDTO(art) : null;
+    }
+
+    /**
+     * Slim data for ALL arts in 4 queries total (arts, shades, sizes, size details).
+     * Replaces one GET /api/arts/{serial} per art (about 7 queries each) on stock screens.
+     */
+    @Transactional(readOnly = true)
+    public List<ArtStockDetailDTO> getStockDetails() {
+        Map<String, ArtStockDetailDTO> byArt = new LinkedHashMap<>();
+        for (ArtRepository.ArtBasicRow a : artRepository.findAllBasicRows()) {
+            ArtStockDetailDTO d = new ArtStockDetailDTO();
+            d.setSerialNumber(a.getSerialNumber());
+            d.setArtNo(a.getArtNo());
+            d.setArtName(a.getArtName());
+            byArt.put(a.getSerialNumber(), d);
+        }
+        for (ArtRepository.ArtShadeRow s : artRepository.findAllShadeRows()) {
+            ArtStockDetailDTO d = byArt.get(s.getArtSerial());
+            if (d != null) d.getShades().add(new ArtStockDetailDTO.ShadeItem(s.getShadeName()));
+        }
+        for (ArtRepository.ArtSizeRow s : artRepository.findAllSizeRows()) {
+            ArtStockDetailDTO d = byArt.get(s.getArtSerial());
+            if (d != null) d.getSizes().add(new ArtStockDetailDTO.SizeItem(s.getSizeName()));
+        }
+        for (ArtRepository.ArtSizeDetailRow s : artRepository.findAllSizeDetailRows()) {
+            ArtStockDetailDTO d = byArt.get(s.getArtSerial());
+            if (d != null) d.getSizeDetails().add(new ArtStockDetailDTO.SizeDetailItem(s.getSizeName(), s.getBox(), s.getPcs()));
+        }
+        return new ArrayList<>(byArt.values());
     }
 
     @Transactional
@@ -400,5 +432,3 @@ public class ArtService {
         return dto;
     }
 }
-
-
