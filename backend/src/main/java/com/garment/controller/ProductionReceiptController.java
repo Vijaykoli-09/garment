@@ -1,6 +1,7 @@
 package com.garment.controller;
 
 import com.garment.DTO.ProductionReceiptDto;
+import com.garment.DTO.ProductionReceiptArtDetailDTO;
 import com.garment.DTO.ProductionReceiptConsumptionDTO;
 import com.garment.DTO.ProductionReceiptListDTO;
 import com.garment.DTO.ProductionReceiptResponseDto;
@@ -35,6 +36,11 @@ public class ProductionReceiptController {
             @RequestParam(required = false) String search
     ) {
         return service.listPaged(page, size, search);
+    }
+
+    @GetMapping("/art-details")
+    public List<ProductionReceiptArtDetailDTO> getArtDetailsForReceipt() {
+        return service.getArtDetailsForReceipt();
     }
 
     @GetMapping("/consumption")

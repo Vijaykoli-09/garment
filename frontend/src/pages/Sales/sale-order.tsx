@@ -510,6 +510,14 @@ const SaleOrder: React.FC = () => {
 
   const [sizeMaster, setSizeMaster] = useState<SizeMaster[]>([])
 
+  // Lazy master-data loaders: keep page initialization lightweight and
+  // coalesce concurrent opens so each master endpoint is requested once.
+  const partyLoadRef = useRef<Promise<void> | null>(null)
+  const artLoadRef = useRef<Promise<void> | null>(null)
+  const shadeLoadRef = useRef<Promise<void> | null>(null)
+  const partyMastersLoadRef = useRef<Promise<void> | null>(null)
+  const sizeLoadRef = useRef<Promise<void> | null>(null)
+
   // Save in progress (double-save prevention)
   const [isSaving, setIsSaving] = useState(false)
 
@@ -862,43 +870,59 @@ const SaleOrder: React.FC = () => {
     return partyTransportName
   }, [selectedTransportSerial, transports, partyTransportName])
 
-  // Load masters + next order no
-  useEffect(() => {
-    const init = async () => {
-      try {
-        const [
-          nextRes,
-          partiesRes,
-          agentsRes,
-          transportsRes,
-          artsRes,
-          shadesList,
-          sizesRes,
-        ] = await Promise.all([
-          api.get<string>("/sale-orders/next-order-no").catch(() => ({ data: "" as string })),
-          api.get<PartyFromApi[]>("/party/all"),
-          api.get<Agent[]>("/agent/list").catch(() => ({ data: [] as Agent[] })),
-          api.get<Transporter[]>("/transports").catch(() => ({ data: [] as Transporter[] })),
-          api.get<ArtListItem[]>("/arts"),
-          listShades().catch(() => [] as Shade[]),
-          api.get<SizeMaster[]>("/sizes").catch(() => ({ data: [] as SizeMaster[] })),
-        ])
+  const loadParties = async () => {
+    if (partyList.length || partyLoadRef.current) return partyLoadRef.current
+    partyLoadRef.current = api.get<PartyFromApi[]>("/party/all")
+      .then(({ data }) => setPartyList(Array.isArray(data) ? data : []))
+      .finally(() => { partyLoadRef.current = null })
+    return partyLoadRef.current
+  }
 
-        if (nextRes.data) setOrderNo(nextRes.data)
-        setPartyList(Array.isArray(partiesRes.data) ? partiesRes.data : [])
-        setAgents(Array.isArray(agentsRes.data) ? agentsRes.data : [])
-        setTransports(Array.isArray(transportsRes.data) ? transportsRes.data : [])
-        setArtList(Array.isArray(artsRes.data) ? artsRes.data : [])
-        setShades(shadesList)
-        setSizeMaster(Array.isArray(sizesRes.data) ? sizesRes.data : [])
-      } catch (e) {
-        console.error(e)
-        Swal.fire("Error", "Failed to load Parties/Arts/Shades/Sizes", "error")
-      } finally {
-        if (rows.length === 0) addRow()
-      }
-    }
-    init()
+  const loadPartyMasters = async () => {
+    if (partyMastersLoadRef.current) return partyMastersLoadRef.current
+    if (agents.length && transports.length) return
+    partyMastersLoadRef.current = Promise.all([
+      agents.length ? Promise.resolve({ data: agents }) : api.get<Agent[]>("/agent/list").catch(() => ({ data: [] as Agent[] })),
+      transports.length ? Promise.resolve({ data: transports }) : api.get<Transporter[]>("/transports").catch(() => ({ data: [] as Transporter[] })),
+    ]).then(([a, t]) => {
+      setAgents(Array.isArray(a.data) ? a.data : [])
+      setTransports(Array.isArray(t.data) ? t.data : [])
+    }).finally(() => { partyMastersLoadRef.current = null })
+    return partyMastersLoadRef.current
+  }
+
+  const loadArts = async () => {
+    if (artList.length || artLoadRef.current) return artLoadRef.current
+    artLoadRef.current = api.get<ArtListItem[]>("/arts")
+      .then(({ data }) => setArtList(Array.isArray(data) ? data : []))
+      .finally(() => { artLoadRef.current = null })
+    return artLoadRef.current
+  }
+
+  const loadShades = async () => {
+    if (shades.length || shadeLoadRef.current) return shadeLoadRef.current
+    shadeLoadRef.current = listShades()
+      .then(setShades)
+      .finally(() => { shadeLoadRef.current = null })
+    return shadeLoadRef.current
+  }
+
+  const loadSizes = async () => {
+    if (sizeMaster.length || sizeLoadRef.current) return sizeLoadRef.current
+    sizeLoadRef.current = api.get<SizeMaster[]>("/sizes")
+      .then(({ data }) => setSizeMaster(Array.isArray(data) ? data : []))
+      .finally(() => { sizeLoadRef.current = null })
+    return sizeLoadRef.current
+  }
+
+  // Initial page load: only obtain the next order number. Master lists are lazy.
+  useEffect(() => {
+    let active = true
+    api.get<string>("/sale-orders/next-order-no")
+      .then(({ data }) => { if (active && data) setOrderNo(data) })
+      .catch((e) => console.error("Failed to load next Sale Order number", e))
+      .finally(() => { if (active && rows.length === 0) addRow() })
+    return () => { active = false }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -1023,12 +1047,17 @@ const SaleOrder: React.FC = () => {
   const openPartyModal = () => {
     setPartySearch("")
     setShowPartyModal(true)
+    void Promise.all([loadParties(), loadPartyMasters()]).catch((e) => {
+      console.error("Failed to load party selection data", e)
+      Swal.fire("Error", "Failed to load party selection data", "error")
+    })
   }
 
   const selectParty = (p: PartyFromApi) => {
     setPartyName(p.partyName)
     setSelectedParty(p)
     setShowPartyModal(false)
+    void loadPartyMasters()
 
     // Party select -> immediately open Art selection.
     window.setTimeout(() => {
@@ -1041,6 +1070,10 @@ const SaleOrder: React.FC = () => {
     setArtSearch("")
     setCurrentRowId(rowId ?? null)
     setShowArtModal(true)
+    void Promise.all([loadArts(), loadSizes()]).catch((e) => {
+      console.error("Failed to load art selection data", e)
+      Swal.fire("Error", "Failed to load art selection data", "error")
+    })
   }
 
   const toggleArtSelection = (serialNumber: string) => {
@@ -1225,6 +1258,10 @@ const SaleOrder: React.FC = () => {
     setShadeRowId(rowId)
     setShadeSearch("")
     setShowShadeModal(true)
+    void loadShades().catch((e) => {
+      console.error("Failed to load shades", e)
+      Swal.fire("Error", "Failed to load shades", "error")
+    })
   }
 
   const selectShadeForCurrentRow = async (shade: Shade) => {

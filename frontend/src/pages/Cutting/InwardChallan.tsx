@@ -38,6 +38,96 @@ interface Process {
   serialNo: string;
   processName: string;
 }
+
+const ProcessSearchSelect: React.FC<{
+  processes: Process[];
+  value: string;
+  onChange: (value: string) => void;
+  placeholder?: string;
+}> = ({ processes, value, onChange, placeholder = "Select Process" }) => {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+
+  const selectedProcess = processes.find((process) => String(process.serialNo) === String(value));
+  const filteredProcesses = useMemo(() => {
+    const searchText = query.trim().toLowerCase();
+    if (!searchText) return processes;
+    return processes.filter((process) =>
+      String(process.processName || "").toLowerCase().includes(searchText) ||
+      String(process.serialNo || "").toLowerCase().includes(searchText)
+    );
+  }, [processes, query]);
+
+  return (
+    <div className="relative w-full">
+      <button
+        type="button"
+        onClick={() => {
+          setOpen((previous) => !previous);
+          setQuery("");
+        }}
+        className="border p-2 rounded w-full bg-white text-left flex items-center justify-between min-h-[42px]"
+        aria-haspopup="listbox"
+        aria-expanded={open}
+      >
+        <span className={selectedProcess ? "text-gray-900" : "text-gray-500"}>
+          {selectedProcess?.processName || placeholder}
+        </span>
+        <span className="ml-2 text-gray-600">▾</span>
+      </button>
+
+      {open && (
+        <div className="absolute left-0 right-0 top-full mt-1 z-[100] bg-white border border-gray-300 rounded-md shadow-lg overflow-hidden">
+          <div className="p-2 border-b bg-white">
+            <input
+              type="text"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Search process..."
+              className="w-full border p-2 rounded outline-none focus:ring-2 focus:ring-blue-500"
+              autoFocus
+            />
+          </div>
+          <div className="max-h-56 overflow-y-auto" role="listbox">
+            <button
+              type="button"
+              onClick={() => {
+                onChange("");
+                setOpen(false);
+                setQuery("");
+              }}
+              className="w-full text-left px-3 py-2 hover:bg-gray-100 text-gray-500"
+            >
+              {placeholder}
+            </button>
+            {filteredProcesses.map((process) => (
+              <button
+                type="button"
+                key={process.serialNo}
+                role="option"
+                aria-selected={String(process.serialNo) === String(value)}
+                onClick={() => {
+                  onChange(process.serialNo);
+                  setOpen(false);
+                  setQuery("");
+                }}
+                className={`w-full text-left px-3 py-2 hover:bg-blue-50 ${
+                  String(process.serialNo) === String(value) ? "bg-blue-100 font-semibold" : ""
+                }`}
+              >
+                {process.processName}
+              </button>
+            ))}
+            {filteredProcesses.length === 0 && (
+              <div className="px-3 py-3 text-sm text-gray-500">No matching processes found.</div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
 interface ArtListItem {
   serialNumber?: string;
   serialNo?: string;
@@ -46,6 +136,8 @@ interface ArtListItem {
   name?: string;
   id?: string;
 }
+
+interface OutwardLotOption { key: string; cuttinglotNumber: string; cuttingDozen: string; artNo: string; sizeName: string; pcs: string; }
 
 interface ChallanListItem {
   id: number;
@@ -77,6 +169,16 @@ const normalizeCutLotNoLoose = (raw: any) => {
   return s;
 };
 
+// Lot numbers can arrive from older records either as the full generated value
+// (2026-0066-1283) or as the short value (1283). Keep both forms for matching.
+const cuttingLotMatchKeys = (raw: any): string[] => {
+  const value = String(raw ?? "").trim().toLowerCase();
+  if (!value) return [];
+  const normalized = normalizeCutLotNoLoose(value).toLowerCase();
+  const lastPart = value.split("-").filter(Boolean).pop() || normalized;
+  return Array.from(new Set([value, normalized, lastPart].filter(Boolean)));
+};
+
 const buildLotSummary = (rows: any[]) => {
   const lots = Array.from(
     new Set(
@@ -102,6 +204,31 @@ const emptyRow = (id: number, defaultArt?: string): RowData => ({
   amount: "0.00",
   selected: true,
 });
+
+
+// Newest challans first. If dates are equal (or unavailable), use the
+// generated database ID / serial as a deterministic newest-first fallback.
+const compareRecentFirst = (
+  aDate: string,
+  aId: string | number,
+  bDate: string,
+  bId: string | number,
+): number => {
+  const aTime = aDate ? Date.parse(aDate) : Number.NaN;
+  const bTime = bDate ? Date.parse(bDate) : Number.NaN;
+  if (Number.isFinite(aTime) && Number.isFinite(bTime) && aTime !== bTime) {
+    return bTime - aTime;
+  }
+  const aNumber = Number(aId);
+  const bNumber = Number(bId);
+  if (Number.isFinite(aNumber) && Number.isFinite(bNumber) && aNumber !== bNumber) {
+    return bNumber - aNumber;
+  }
+  return String(bId ?? "").localeCompare(String(aId ?? ""), undefined, {
+    numeric: true,
+    sensitivity: "base",
+  });
+};
 
 const InwardChallan: React.FC = () => {
   const [form, setForm] = useState<InwardChallanForm>({
@@ -130,6 +257,10 @@ const InwardChallan: React.FC = () => {
   // Art picker modal (same as your code)
   const [artPickerRowId, setArtPickerRowId] = useState<number | null>(null);
   const [artPickerSearch, setArtPickerSearch] = useState<string>("");
+  const [cuttingLotOptions, setCuttingLotOptions] = useState<OutwardLotOption[]>([]);
+  const [showCuttingLotPicker, setShowCuttingLotPicker] = useState(false);
+  const [cuttingLotSearch, setCuttingLotSearch] = useState("");
+  const [selectedCuttingLotKeys, setSelectedCuttingLotKeys] = useState<string[]>([]);
 
   // load masters
   useEffect(() => {
@@ -235,10 +366,20 @@ const InwardChallan: React.FC = () => {
     try {
       if (isEdit) {
         await api.put(`/job-inward-challan/${form.id}`, payload);
+        const savedLotKeys = new Set(selectedRows.flatMap((r) => cuttingLotMatchKeys(r.cuttinglotNumber)));
+        setCuttingLotOptions((prev) => prev.filter((lot) =>
+          !cuttingLotMatchKeys(lot.cuttinglotNumber).some((key) => savedLotKeys.has(key)),
+        ));
+        setSelectedCuttingLotKeys([]);
         Swal.fire("Updated", "Inward Challan updated successfully.", "success");
       } else {
         const res = await api.post("/job-inward-challan", payload);
         if (res?.data?.id) patchForm({ id: res.data.id });
+        const savedLotKeys = new Set(selectedRows.flatMap((r) => cuttingLotMatchKeys(r.cuttinglotNumber)));
+        setCuttingLotOptions((prev) => prev.filter((lot) =>
+          !cuttingLotMatchKeys(lot.cuttinglotNumber).some((key) => savedLotKeys.has(key)),
+        ));
+        setSelectedCuttingLotKeys([]);
         Swal.fire("Saved", "Inward Challan saved successfully.", "success");
       }
     } catch (e: any) {
@@ -269,7 +410,11 @@ const InwardChallan: React.FC = () => {
         };
       });
 
-      setList(mapped);
+      setList(
+        mapped.sort((a, b) =>
+          compareRecentFirst(a.date, a.id, b.date, b.id),
+        ),
+      );
     } catch (err) {
       console.error("Failed to load inward challan list", err);
       setList([]);
@@ -372,6 +517,7 @@ const InwardChallan: React.FC = () => {
 
     const masterMatch = arts.find(
       (a) =>
+        String(a.artNo ?? "").toLowerCase().trim() === String(artVal).toLowerCase().trim() ||
         String(a.serialNumber ?? a.serialNo ?? a.id ?? "") === String(artVal) ||
         String(a.artName ?? a.name ?? "").toLowerCase().trim() === String(artVal).toLowerCase().trim(),
     );
@@ -382,8 +528,8 @@ const InwardChallan: React.FC = () => {
 
     const artDetail = await fetchArtDetail(serialToUse);
 
-    if (masterMatch && serialToUse !== artVal) {
-      patchRow(rowId, { artNo: serialToUse });
+    if (masterMatch) {
+      patchRow(rowId, { artNo: String(masterMatch.artNo || artVal) });
     }
 
     const rate = deriveRateFromArt(artDetail ?? null, currentProcessName);
@@ -393,94 +539,164 @@ const InwardChallan: React.FC = () => {
     });
   };
 
-  // Fill from outward challan when party selected — ✅ ensure lot no only
-  const handlePartySelected = async (partyId: string) => {
-    patchForm({ partyId });
+  // Load pending outward lots for the exact Party + Process.
+  // IMPORTANT: inward lots from other parties/processes must never block this list.
+  const handlePartySelected = async (partyId: string, processOverride?: string) => {
+    patchForm({ partyId, rows: [emptyRow(1)], artHeader: "" });
+    setCuttingLotOptions([]);
+    setSelectedCuttingLotKeys([]);
+    setShowCuttingLotPicker(false);
+
     if (!partyId) return;
 
+    const currentProcess = String(processOverride ?? form.processId ?? "").trim();
+    if (!currentProcess) {
+      Swal.fire("Select Process", "Please select Process Name to load matching outward lots.", "info");
+      return;
+    }
+
+    const normalizeId = (value: any) => String(value ?? "").trim();
+
     try {
-      const res = await api.get("/job-outward-challan", { params: { partyId } });
-      const docs: any[] = Array.isArray(res.data) ? res.data : [];
-      if (!docs.length) {
-        patchForm({ rows: [emptyRow(1)], artHeader: "" });
-        return;
-      }
+      const [outwardRes, inwardRes] = await Promise.all([
+        api.get("/job-outward-challan", { params: { partyId } }),
+        api.get("/job-inward-challan"),
+      ]);
 
-      // most recent for header art
-      const sorted = docs.slice().sort((a: any, b: any) => {
-        const da = a?.date ? new Date(a.date).getTime() : 0;
-        const db = b?.date ? new Date(b.date).getTime() : 0;
-        return db - da;
-      });
-      const mostRecent = sorted[0];
-      const headerRawMostRecent =
-        mostRecent.processArtNo || mostRecent.headerArtNo || mostRecent.processArt || "";
+      const outwardDocs: any[] = Array.isArray(outwardRes.data) ? outwardRes.data : [];
+      const inwardDocs: any[] = Array.isArray(inwardRes.data) ? inwardRes.data : [];
 
-      // resolve header serial
-      let headerSerial = "";
-      if (headerRawMostRecent) {
-        const masterHeader = arts.find(
-          (a) =>
-            String(a.serialNumber ?? a.serialNo ?? a.id ?? "") === String(headerRawMostRecent) ||
-            String(a.artName ?? a.name ?? "").toLowerCase().trim() === String(headerRawMostRecent).toLowerCase().trim() ||
-            String(a.artNo ?? "").toLowerCase().trim() === String(headerRawMostRecent).toLowerCase().trim(),
+      // Build received-lot keys only for this Party + Process.
+      // The previous code added every inward lot globally, which caused a lot
+      // received by another party/process to disappear from this party's list.
+      const alreadyReceived = new Set<string>();
+
+      inwardDocs.forEach((doc: any) => {
+        const inwardPartyId = normalizeId(doc.partyId);
+        const inwardProcessId = normalizeId(
+          doc.processId ?? doc.processSerialNo ?? doc.process?.serialNo
         );
-        headerSerial = masterHeader
-          ? String(masterHeader.serialNumber ?? masterHeader.serialNo ?? masterHeader.id ?? "")
-          : headerRawMostRecent;
-      }
 
-      const allRows: RowData[] = [];
-      let nextId = 1;
+        if (inwardPartyId !== normalizeId(partyId)) return;
+        if (inwardProcessId !== currentProcess) return;
 
-      docs.forEach((doc) => {
-        const headerRawDoc =
-          doc.processArtNo || doc.headerArtNo || doc.processArt || headerRawMostRecent || "";
-        const outwardRows = Array.isArray(doc.rows) ? doc.rows : [];
+        // While editing, do not let this same inward challan hide its own lots.
+        if (form.id && normalizeId(doc.id) === normalizeId(form.id)) return;
 
-        outwardRows.forEach((r: any) => {
-          // ✅ normalize lot no here
-          const cutLot = normalizeCutLotNoLoose(
-            r.cutLotNo || r.cuttinglotNumber || r.cuttingLotNumber || r.cutlotNo || "",
+        (Array.isArray(doc.rows) ? doc.rows : []).forEach((row: any) => {
+          const rawLot = row.cuttinglotNumber ?? row.cutLotNo ?? row.cuttingLotNumber ?? row.cutlotNo ?? "";
+          cuttingLotMatchKeys(rawLot).forEach((key) => alreadyReceived.add(key));
+        });
+      });
+
+      const options: OutwardLotOption[] = [];
+
+      outwardDocs.forEach((doc: any, docIndex: number) => {
+        if (normalizeId(doc.partyId) !== normalizeId(partyId)) return;
+
+        const outwardProcessId = normalizeId(
+          doc.processSerialNo ?? doc.processId ?? doc.process?.serialNo
+        );
+        if (outwardProcessId !== currentProcess) return;
+
+        (Array.isArray(doc.rows) ? doc.rows : []).forEach((row: any, rowIndex: number) => {
+          const rawLot = row.cutLotNo ?? row.cuttinglotNumber ?? row.cuttingLotNumber ?? row.cutlotNo ?? "";
+          const lotNo = normalizeCutLotNoLoose(rawLot);
+          if (!lotNo) return;
+
+          const lotKeys = cuttingLotMatchKeys(rawLot);
+          if (lotKeys.some((key) => alreadyReceived.has(key))) return;
+
+          const rawArt = String(
+            row.artNo || row.art_no || row.art ||
+            doc.processArtNo || doc.headerArtNo || doc.processArt || ""
           );
 
-          const cuttingDozenVal = String(r.cuttingDozenPcs ?? r.cuttingDozen ?? "");
-          const rawArtVal = String(r.artNo || r.art_no || r.art || headerRawDoc || "");
-          const sizeNameVal = String(r.size || r.sizeName || r.itemName || "");
-
-          const masterMatch = arts.find(
-            (a) =>
-              String(a.serialNumber ?? a.serialNo ?? a.id ?? "") === String(rawArtVal) ||
-              String(a.artName ?? a.name ?? "").toLowerCase().trim() === String(rawArtVal).toLowerCase().trim() ||
-              String(a.artNo ?? "").toLowerCase().trim() === String(rawArtVal).toLowerCase().trim(),
+          const artMatch = arts.find((a) =>
+            String(a.artNo || "").trim().toLowerCase() === rawArt.trim().toLowerCase() ||
+            String(a.serialNumber ?? a.serialNo ?? a.id ?? "").trim().toLowerCase() === rawArt.trim().toLowerCase() ||
+            String(a.artName ?? a.name ?? "").trim().toLowerCase() === rawArt.trim().toLowerCase()
           );
 
-          const artNoForRow = masterMatch
-            ? String(masterMatch.serialNumber ?? masterMatch.serialNo ?? masterMatch.id ?? "")
-            : rawArtVal;
-
-          allRows.push({
-            id: nextId++,
-            cuttinglotNumber: cutLot, // ✅ only cutLotNo
-            cuttingDozen: cuttingDozenVal,
-            artNo: artNoForRow,
-            sizeName: sizeNameVal,
-            pcs: "",
-            wastage: "",
-            rate: "",
-            amount: "0.00",
-            selected: true,
+          options.push({
+            key: `${doc.id ?? doc.challanNo ?? docIndex}::${rowIndex}::${lotNo}`,
+            cuttinglotNumber: lotNo,
+            cuttingDozen: String(row.cuttingDozenPcs ?? row.cuttingDozen ?? ""),
+            artNo: artMatch
+              ? String(artMatch.artNo || artMatch.serialNumber || artMatch.serialNo || artMatch.id || "")
+              : rawArt,
+            sizeName: String(row.size || row.sizeName || row.itemName || ""),
+            pcs: String(row.pcs ?? ""),
           });
         });
       });
 
-      patchForm({
-        rows: allRows.length ? allRows : [emptyRow(1)],
-        artHeader: headerSerial || "",
-      });
+      setCuttingLotOptions(options);
+      setSelectedCuttingLotKeys([]);
+      setCuttingLotSearch("");
+
+      if (options.length > 0) {
+        setShowCuttingLotPicker(true);
+      } else {
+        Swal.fire(
+          "No Pending Lots",
+          "No pending outward lots are available for this party and process.",
+          "info"
+        );
+      }
     } catch (err) {
-      console.error("Failed to fetch outward challans for party", partyId, err);
+      console.error("Failed to load pending outward lots", err);
+      Swal.fire("Error", "Failed to load pending cutting lots.", "error");
     }
+  };
+
+  const openCuttingLotPicker = (rowId: number) => {
+    if (!form.partyId) {
+      Swal.fire("Select Party", "Please select Party Name first.", "warning");
+      return;
+    }
+    if (!form.processId) {
+      Swal.fire("Select Process", "Please select Process Name first.", "warning");
+      return;
+    }
+    setCuttingLotSearch("");
+    setShowCuttingLotPicker(true);
+  };
+
+  const toggleCuttingLotSelection = (key: string) => {
+    setSelectedCuttingLotKeys((prev) =>
+      prev.includes(key) ? prev.filter((x) => x !== key) : [...prev, key]
+    );
+  };
+
+  const addSelectedCuttingLots = () => {
+    const selected = cuttingLotOptions.filter((lot) => selectedCuttingLotKeys.includes(lot.key));
+    if (!selected.length) {
+      Swal.fire("Select Lots", "Please tick at least one cutting lot.", "warning");
+      return;
+    }
+
+    setForm((prev) => {
+      const existing = new Set(prev.rows.map((r) => normalizeCutLotNoLoose(r.cuttinglotNumber).toLowerCase()).filter(Boolean));
+      const fresh = selected.filter((lot) => !existing.has(lot.cuttinglotNumber.toLowerCase()));
+      const baseRows = prev.rows.filter((r) => r.cuttinglotNumber || r.pcs || r.artNo || r.sizeName);
+      let nextId = Math.max(0, ...baseRows.map((r) => r.id));
+      const newRows: RowData[] = fresh.map((lot) => ({
+        id: ++nextId,
+        cuttinglotNumber: lot.cuttinglotNumber,
+        cuttingDozen: lot.cuttingDozen,
+        artNo: lot.artNo,
+        sizeName: lot.sizeName,
+        pcs: "",
+        wastage: "",
+        rate: "",
+        amount: "0.00",
+        selected: true,
+      }));
+      return { ...prev, rows: [...baseRows, ...newRows] };
+    });
+    setSelectedCuttingLotKeys([]);
+    setShowCuttingLotPicker(false);
   };
 
   // totals (ONLY selected)
@@ -563,18 +779,16 @@ const InwardChallan: React.FC = () => {
           <div className="grid grid-cols-3 gap-4 mb-6">
             <div>
               <label className="block font-semibold">Process Name</label>
-              <select
+              <ProcessSearchSelect
+                processes={processes}
                 value={form.processId}
-                onChange={(e) => patchForm({ processId: e.target.value })}
-                className="border p-2 rounded w-full"
-              >
-                <option value="">Select Process</option>
-                {processes.map((p) => (
-                  <option key={p.serialNo} value={p.serialNo}>
-                    {p.processName}
-                  </option>
-                ))}
-              </select>
+                onChange={(processId) => {
+                  patchForm({ processId });
+                  if (form.partyId) {
+                    handlePartySelected(form.partyId, processId);
+                  }
+                }}
+              />
             </div>
 
             <div>
@@ -586,8 +800,8 @@ const InwardChallan: React.FC = () => {
               >
                 <option value="">Select Art (optional)</option>
                 {arts.map((a) => {
-                  const key = String(a.serialNumber ?? a.serialNo ?? a.id ?? "");
-                  const label = String(a.artName ?? a.name ?? "");
+                  const key = String(a.artNo || a.serialNumber || a.serialNo || a.id || "");
+                  const label = String(a.artNo || a.serialNumber || a.serialNo || a.id || "");
                   return (
                     <option key={key} value={key}>
                       {label}
@@ -661,9 +875,12 @@ const InwardChallan: React.FC = () => {
 
                     <td className="border p-1">
                       <input
-                        className="border p-1 rounded w-full"
+                        className="border p-1 rounded w-full bg-yellow-50 cursor-pointer"
                         value={normalizeCutLotNoLoose(row.cuttinglotNumber)}
-                        onChange={(e) => patchRow(row.id, { cuttinglotNumber: e.target.value })}
+                        placeholder="Click to Select"
+                        readOnly
+                        onClick={() => openCuttingLotPicker(row.id)}
+                        title="Click to select Cutting Lot Number"
                       />
                     </td>
 
@@ -684,8 +901,8 @@ const InwardChallan: React.FC = () => {
                         >
                           <option value="">Select Art</option>
                           {arts.map((a) => {
-                            const key = String(a.serialNumber ?? a.serialNo ?? a.id ?? "");
-                            const label = String(a.artName ?? a.name ?? "");
+                            const key = String(a.artNo || a.serialNumber || a.serialNo || a.id || "");
+                            const label = String(a.artNo || a.serialNumber || a.serialNo || a.id || "");
                             return (
                               <option key={key} value={key}>
                                 {label}
@@ -713,7 +930,7 @@ const InwardChallan: React.FC = () => {
 
                     <td className="border p-1">
                       <input
-                        type="number"
+                        type="text" inputMode="decimal"
                         className="border p-1 rounded w-full"
                         value={row.pcs}
                         onChange={(e) => patchRow(row.id, { pcs: e.target.value })}
@@ -722,7 +939,7 @@ const InwardChallan: React.FC = () => {
 
                     <td className="border p-1">
                       <input
-                        type="number"
+                        type="text" inputMode="decimal"
                         className="border p-1 rounded w-full"
                         value={row.wastage}
                         onChange={(e) => patchRow(row.id, { wastage: e.target.value })}
@@ -731,7 +948,7 @@ const InwardChallan: React.FC = () => {
 
                     <td className="border p-1">
                       <input
-                        type="number"
+                        type="text" inputMode="decimal"
                         className="border p-1 rounded w-full"
                         value={row.rate}
                         onChange={(e) => patchRow(row.id, { rate: e.target.value })}
@@ -760,8 +977,39 @@ const InwardChallan: React.FC = () => {
               <button onClick={handleSaveOrUpdate} className="px-4 py-2 bg-green-500 text-white rounded mr-2">
                 {isEdit ? "Update" : "Save"}
               </button>
-              <button onClick={resetForm} className="px-4 py-2 bg-gray-600 text-white rounded mr-2">
+              <button
+                type="button"
+                onClick={() => {
+                  resetForm();
+                  setShowList(false);
+                  setSearch("");
+                  setCuttingLotOptions([]);
+                  setSelectedCuttingLotKeys([]);
+                  setShowCuttingLotPicker(false);
+                  setCuttingLotSearch("");
+                  setArtPickerRowId(null);
+                  setArtPickerSearch("");
+                }}
+                className="px-4 py-2 bg-gray-600 text-white rounded mr-2"
+              >
                 Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  resetForm();
+                  setShowList(false);
+                  setSearch("");
+                  setCuttingLotOptions([]);
+                  setSelectedCuttingLotKeys([]);
+                  setShowCuttingLotPicker(false);
+                  setCuttingLotSearch("");
+                  setArtPickerRowId(null);
+                  setArtPickerSearch("");
+                }}
+                className="px-4 py-2 bg-emerald-600 text-white rounded mr-2"
+              >
+                New Entry
               </button>
               <button onClick={openList} className="px-4 py-2 bg-indigo-500 text-white rounded mr-2">
                 View List
@@ -853,6 +1101,37 @@ const InwardChallan: React.FC = () => {
             </div>
           )}
 
+          {/* Cutting Lot Picker: select lots manually after choosing party */}
+          {showCuttingLotPicker && (
+            <div className="fixed inset-0 bg-black/50 flex justify-center items-start z-[1200] pt-16">
+              <div className="bg-white rounded-lg shadow-lg w-11/12 md:w-9/12 p-4 max-h-[82vh] flex flex-col">
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-lg font-semibold">Select Cutting Lot Number</h3>
+                  <button type="button" onClick={() => setShowCuttingLotPicker(false)} className="px-3 py-1 bg-gray-300 rounded">Close</button>
+                </div>
+                <input type="text" autoFocus placeholder="Search Cutting Lot / Art No" value={cuttingLotSearch} onChange={(e) => setCuttingLotSearch(e.target.value)} className="w-full border p-2 rounded mb-3" />
+                <div className="overflow-auto border rounded">
+                  <table className="w-full text-sm"><thead className="bg-gray-100 sticky top-0"><tr><th className="border p-2">Select</th><th className="border p-2">Cutting Lot No.</th><th className="border p-2">Cutting Dozen Pcs</th><th className="border p-2">Art No.</th><th className="border p-2">Size</th></tr></thead>
+                    <tbody>{cuttingLotOptions.filter((x) => { const q = cuttingLotSearch.trim().toLowerCase(); return !q || [x.cuttinglotNumber, x.artNo, x.sizeName].some((v) => v.toLowerCase().includes(q)); }).map((lot) => (
+                      <tr key={lot.key} className="hover:bg-gray-50">
+                        <td className="border p-2 text-center"><input type="checkbox" checked={selectedCuttingLotKeys.includes(lot.key)} onChange={() => toggleCuttingLotSelection(lot.key)} /></td>
+                        <td className="border p-2">{lot.cuttinglotNumber}</td>
+                        <td className="border p-2">{lot.cuttingDozen}</td>
+                        <td className="border p-2">{lot.artNo}</td>
+                        <td className="border p-2">{lot.sizeName}</td>
+                      </tr>
+                    ))}</tbody>
+                  </table>
+                </div>
+                <div className="flex justify-end gap-2 mt-3">
+                  <span className="mr-auto text-sm text-gray-600">{selectedCuttingLotKeys.length} lot(s) selected</span>
+                  <button type="button" onClick={() => setShowCuttingLotPicker(false)} className="px-4 py-2 bg-gray-300 rounded">Cancel</button>
+                  <button type="button" onClick={addSelectedCuttingLots} className="px-4 py-2 bg-blue-600 text-white rounded">Add Selected Lots</button>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Art Picker Modal (same as before, optional) */}
           {artPickerRowId !== null && (
             <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-start z-60 pt-20">
@@ -888,13 +1167,13 @@ const InwardChallan: React.FC = () => {
                         .filter((a) => {
                           const q = artPickerSearch.trim().toLowerCase();
                           if (!q) return true;
-                          const artNoDisplay = String(a.artNo ?? a.serialNumber ?? a.serialNo ?? a.id ?? "").toLowerCase();
+                          const artNoDisplay = String(a.artNo || a.serialNumber || a.serialNo || a.id || "").toLowerCase();
                           const artName = String(a.artName ?? a.name ?? "").toLowerCase();
                           return artNoDisplay.includes(q) || artName.includes(q);
                         })
                         .map((a) => {
-                          const artSerial = String(a.serialNumber ?? a.serialNo ?? a.id ?? "");
-                          const artNoDisplay = String(a.artNo ?? a.serialNumber ?? a.serialNo ?? a.id ?? "");
+                          const artSerial = String(a.artNo || a.serialNumber || a.serialNo || a.id || "");
+                          const artNoDisplay = String(a.artNo || a.serialNumber || a.serialNo || a.id || "");
                           const artName = String(a.artName ?? a.name ?? "");
                           return (
                             <tr key={artSerial}>

@@ -84,7 +84,7 @@ const CuttingNavigator: React.FC<CuttingNavigatorProps> = ({ onNavigate }) => {
       </button>
       {open["job_work"] && (
         <div style={{ marginLeft: "15px" }}>
-          {["Outward Challan", "Inward Challan"].map((sub, i) => (
+          {["Outward Challan", "Inward Challan", "Job Work Outstanding Report"].map((sub, i) => (
             <button
               key={i}
               style={sidebarNestedItemStyle}

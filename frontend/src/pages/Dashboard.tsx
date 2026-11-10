@@ -38,6 +38,7 @@ const Dashboard: React.FC<DashboardProps> = ({ children }) => {
   const [openKnitting, setOpenKnitting] = useState(false);
   const [openReport, setOpenReport] = useState(false);
   const [openCutting, setOpenCutting] = useState(false);
+  const [openProduction, setOpenProduction] = useState(false);
   const [openPayments, setOpenPayments] = useState(false);
   const [openSales, setOpenSales] = useState(false);
   const [openMaterialPurchase, setOpenMaterialPurchase] = useState(false);
@@ -95,6 +96,7 @@ const Dashboard: React.FC<DashboardProps> = ({ children }) => {
 
     if (p.startsWith("/knitting") && !p.startsWith("/knitting/cutting")) setOpenKnitting(true);
     if (p.startsWith("/knitting/cutting") || p.startsWith("/cutting")) setOpenCutting(true);
+    if (p.startsWith("/production")) setOpenProduction(true);
 
     if (p.startsWith("/sales")) setOpenSales(true);
     if (p.startsWith("/payment")) setOpenPayments(true);
@@ -182,9 +184,22 @@ const Dashboard: React.FC<DashboardProps> = ({ children }) => {
           {openCutting && <CuttingNavigator onNavigate={(p: string) => navigate(p)} />}
 
           {/* PRODUCTION */}
-          <button style={buttonStyle} onClick={() => navigate("/production/receipt")}>
+          <button style={buttonStyle} onClick={() => setOpenProduction(!openProduction)}>
             <CubeIcon style={iconStyle} /> Production
+            <span style={{ marginLeft: "auto" }}>
+              {openProduction ? <ChevronUpIcon style={chevronStyle} /> : <ChevronDownIcon style={chevronStyle} />}
+            </span>
           </button>
+          {openProduction && (
+            <div style={{ display: "flex", flexDirection: "column", paddingLeft: "30px" }}>
+              <button style={buttonStyle} onClick={() => navigate("/production/receipt")}>
+                Production Receipt
+              </button>
+              <button style={buttonStyle} onClick={() => navigate("/production/production-outstanding-lot")}>
+                Production Outstanding Lot
+              </button>
+            </div>
+          )}
 
           {/* REPORTS */}
           <button style={buttonStyle} onClick={() => setOpenReport(!openReport)}>

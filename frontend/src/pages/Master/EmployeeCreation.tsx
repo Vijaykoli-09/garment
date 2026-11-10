@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import Swal from "sweetalert2";
 import Dashboard from "../Dashboard";
 import api from "../../api/axiosInstance";
@@ -23,7 +23,7 @@ const EmployeeCreation: React.FC = () => {
     openingBalance: "",
     asOn: "",
     under: "",
-    process: { serialNo: "", processName: "" },
+    processes: [],
   };
 
   const [formData, setFormData] = useState<any>(emptyForm);
@@ -32,6 +32,30 @@ const EmployeeCreation: React.FC = () => {
   const [processList, setProcessList] = useState<any[]>([]);
   const [filteredEmployees, setFilteredEmployees] = useState<any[]>([]);
   const [isEditing, setIsEditing] = useState(false); // ✅ NEW (since backend uses code, not id)
+  const [processSearch, setProcessSearch] = useState("");
+  const [isProcessDropdownOpen, setIsProcessDropdownOpen] = useState(false);
+
+  const selectedProcesses = Array.isArray(formData.processes) ? formData.processes : [];
+  const filteredProcesses = useMemo(() => {
+    const term = processSearch.trim().toLowerCase();
+    if (!term) return processList;
+    return processList.filter((p) =>
+      String(p.processName || "").toLowerCase().includes(term) ||
+      String(p.serialNo || "").toLowerCase().includes(term)
+    );
+  }, [processList, processSearch]);
+
+  const toggleProcess = (serialNo: string) => {
+    setFormData((prev: any) => {
+      const current = Array.isArray(prev.processes) ? prev.processes : [];
+      const exists = current.some((p: any) => String(p.serialNo) === String(serialNo));
+      const next = exists
+        ? current.filter((p: any) => String(p.serialNo) !== String(serialNo))
+        : [...current, processList.find((p: any) => String(p.serialNo) === String(serialNo))].filter(Boolean);
+      return { ...prev, processes: next };
+    });
+  };
+
 
   // ⭐ helper: clear form and generate a new random employee code
   const generateNewEmployeeForm = () => {
@@ -45,19 +69,6 @@ const EmployeeCreation: React.FC = () => {
       code: empCode,
     });
   };
-
-  // when process list becomes available, replace process object with canonical one
-  useEffect(() => {
-    if (!formData.process?.serialNo) return;
-    if (processList.length === 0) return;
-
-    const matched = processList.find((p) => String(p.serialNo) === String(formData.process.serialNo));
-
-    if (matched && matched.processName !== formData.process.processName) {
-      setFormData((prev: any) => ({ ...prev, process: matched }));
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [processList]);
 
   // Handle input change
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
@@ -111,8 +122,8 @@ const EmployeeCreation: React.FC = () => {
     if (!formData.employeeName?.trim()) {
       return Swal.fire("Validation Error", "Please fill the Employee Name field", "warning");
     }
-    if (!formData.process?.serialNo) {
-      return Swal.fire("Validation Error", "Please select a Process", "warning");
+    if (!Array.isArray(formData.processes) || formData.processes.length === 0) {
+      return Swal.fire("Validation Error", "Please select at least one Process", "warning");
     }
 
     try {
@@ -158,7 +169,9 @@ const EmployeeCreation: React.FC = () => {
     const filtered = allEmployees.filter((emp) => {
       const code = emp.code?.toLowerCase() || "";
       const name = emp.employeeName?.toLowerCase() || "";
-      const process = emp.process?.processName?.toLowerCase() || "";
+      const process = (Array.isArray(emp.processes) ? emp.processes : emp.process ? [emp.process] : [])
+        .map((p: any) => p.processName?.toLowerCase() || "")
+        .join(" ");
       const contact = emp.contact?.toLowerCase() || "";
       const salary = emp.salaryType?.toLowerCase() || "";
 
@@ -217,27 +230,65 @@ const EmployeeCreation: React.FC = () => {
             <label style={labelStyle}>Code</label>
             <input type="text" name="code" value={formData.code} disabled style={{ ...inputStyle, backgroundColor: "#e9ecef" }} />
 
-            <label style={labelStyle}>Process Name</label>
-            <select
-              name="process"
-              value={formData.process?.serialNo || ""}
-              onChange={(e) => {
-                const selectedSerial = e.target.value;
-                const matched = processList.find((p) => p.serialNo === selectedSerial);
-                setFormData((prev: any) => ({
-                  ...prev,
-                  process: matched || { serialNo: selectedSerial, processName: "" },
-                }));
-              }}
-              style={inputStyle}
-            >
-              <option value="">-- Select Process --</option>
-              {processList.map((proc) => (
-                <option key={proc.serialNo} value={proc.serialNo}>
-                  {proc.processName}
-                </option>
-              ))}
-            </select>
+            <label style={labelStyle}>Processes</label>
+            <div style={{ ...inputStyle, position: "relative", padding: 0, minHeight: "36px" }}>
+              <button
+                type="button"
+                onClick={() => setIsProcessDropdownOpen((open) => !open)}
+                style={{
+                  width: "100%", minHeight: "34px", padding: "6px 10px", textAlign: "left",
+                  border: "none", background: "transparent", cursor: "pointer", color: "#333"
+                }}
+              >
+                {selectedProcesses.length
+                  ? `${selectedProcesses.length} process(es) selected`
+                  : "-- Select Processes --"}
+                <span style={{ float: "right" }}>{isProcessDropdownOpen ? "▲" : "▼"}</span>
+              </button>
+              {isProcessDropdownOpen && (
+                <div style={{
+                  position: "absolute", top: "100%", left: 0, right: 0, zIndex: 1000,
+                  background: "#fff", border: "1px solid #ccc", borderRadius: 4,
+                  boxShadow: "0 4px 10px rgba(0,0,0,0.12)", padding: 8, maxHeight: 260,
+                  overflowY: "auto"
+                }}>
+                  <input
+                    type="text"
+                    autoFocus
+                    value={processSearch}
+                    onChange={(e) => setProcessSearch(e.target.value)}
+                    placeholder="Search process..."
+                    style={{ width: "100%", boxSizing: "border-box", padding: "7px 9px",
+                      border: "1px solid #ccc", borderRadius: 4, marginBottom: 8 }}
+                  />
+                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
+                    <small>{selectedProcesses.length} selected</small>
+                    <button type="button" onClick={() => setFormData((prev: any) => ({ ...prev, processes: [] }))}
+                      style={{ border: 0, background: "transparent", color: "#dc3545", cursor: "pointer" }}>
+                      Clear selection
+                    </button>
+                  </div>
+                  {filteredProcesses.map((proc: any) => {
+                    const checked = selectedProcesses.some((p: any) => String(p.serialNo) === String(proc.serialNo));
+                    return (
+                      <label key={proc.serialNo} style={{
+                        display: "flex", alignItems: "center", gap: 8, padding: "7px 4px",
+                        cursor: "pointer", borderBottom: "1px solid #f1f1f1"
+                      }}>
+                        <input type="checkbox" checked={checked}
+                          onChange={() => toggleProcess(String(proc.serialNo))} />
+                        <span>{proc.processName}</span>
+                      </label>
+                    );
+                  })}
+                  {filteredProcesses.length === 0 && <div style={{ padding: 8, color: "#777" }}>No processes found.</div>}
+                  <button type="button" onClick={() => setIsProcessDropdownOpen(false)}
+                    style={{ ...buttonStyle, width: "100%", marginTop: 8 }}>
+                    Done
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
 
           {/* Employee Name + Address */}
@@ -381,7 +432,8 @@ const EmployeeCreation: React.FC = () => {
                     <tr key={emp.code}>
                       <td style={{ border: "1px solid #ccc", padding: 6 }}>{emp.code}</td>
                       <td style={{ border: "1px solid #ccc", padding: 6 }}>{emp.employeeName}</td>
-                      <td style={{ border: "1px solid #ccc", padding: 6 }}>{emp.process?.processName}</td>
+                      <td style={{ border: "1px solid #ccc", padding: 6 }}>{(Array.isArray(emp.processes) ? emp.processes : emp.process ? [emp.process] : [])
+                        .map((p: any) => p.processName).filter(Boolean).join(", ")}</td>
                       <td style={{ border: "1px solid #ccc", padding: 6 }}>{emp.gender}</td>
                       <td style={{ border: "1px solid #ccc", padding: 6 }}>{emp.contact}</td>
                       <td style={{ border: "1px solid #ccc", padding: 6 }}>{emp.salaryType}</td>
@@ -390,12 +442,15 @@ const EmployeeCreation: React.FC = () => {
                           type="button"
                           style={{ ...buttonStyle, backgroundColor: "green", marginRight: "5px" }}
                           onClick={() => {
-                            // ensure serialNo is string for dropdown value
-                            const proc = emp.process
-                              ? { ...emp.process, serialNo: String(emp.process.serialNo) }
-                              : { serialNo: "", processName: "" };
-
-                            setFormData({ ...emp, process: proc });
+                            const employeeProcesses = Array.isArray(emp.processes) && emp.processes.length
+                              ? emp.processes
+                              : emp.process ? [emp.process] : [];
+                            const normalizedProcesses = employeeProcesses.map((proc: any) => ({
+                              ...proc, serialNo: String(proc.serialNo)
+                            }));
+                            setFormData({ ...emp, processes: normalizedProcesses });
+                            setProcessSearch("");
+                            setIsProcessDropdownOpen(false);
                             setIsEditing(true);
                             setShowListModal(false);
                           }}

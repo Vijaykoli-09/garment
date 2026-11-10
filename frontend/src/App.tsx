@@ -114,6 +114,8 @@ import FinishingItemWiseOutstanding from "./pages/Knitting/Finishing/FinishingIt
 import FabricStockReport from "./pages/Reports/FabricStockReport";
 import ArtCuttingPackingSaleReport from "./pages/Reports/ArtCuttingPackingSaleReport";
 import SelfTransfer from "./pages/Payment/SelfTransfer";
+import JobWorkOutstandingReport from "./pages/Cutting/JobWorkOutstandingReport";
+import ProductionOutstandingLot from "./pages/Production/ProductionOutstandingLot";
 
 // Wrapper so we can use useNavigate inside Router context
 function CustomerRequestsPage() {
@@ -315,6 +317,7 @@ function App() {
         <Route path="/cutting/cutting-module" element={<CuttingModule />} />
         <Route path="/job_work/outward-challan" element={<OutwardChallan />} />
         <Route path="/job_work/inward-challan" element={<InwardChallan />} />
+        <Route path="/job_work/Job-Work-Outstanding-Report" element={<JobWorkOutstandingReport />} />
 
         {/* Sales */}
         <Route path="/Sales/sales-order" element={<SaleOrder />} />
@@ -335,6 +338,7 @@ function App() {
 
         {/* Production & Payment */}
         <Route path="/production/receipt" element={<ProductionReceipt />} />
+        <Route path="/production/production-outstanding-lot" element={<ProductionOutstandingLot />} />
         <Route path="/payment/payment" element={<PaymentMethod />} />
         <Route path="/payment/recipt" element={<PaymentRecipt />} />
         <Route path="/payment/payment-mode" element={<PaymentMode />} />

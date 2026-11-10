@@ -111,13 +111,6 @@ interface ReceiptDoc {
   agentName?: string;
 }
 
-interface JobOutwardChallanDoc {
-  id: string | number;
-  challanNo: string;
-  date: string;
-  partyName: string;
-  totalPcs: number;
-}
 
 interface JobInwardChallanDoc {
   id: string | number;
@@ -351,7 +344,6 @@ const AccountStatement: React.FC = () => {
   const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrderDoc[]>([]);
   const [purchaseEntries, setPurchaseEntries] = useState<PurchaseEntryDoc[]>([]);
   const [purchaseReturns, setPurchaseReturns] = useState<PurchaseReturnDoc[]>([]);
-  const [jobOutwards, setJobOutwards] = useState<JobOutwardChallanDoc[]>([]);
   const [jobInwards, setJobInwards] = useState<JobInwardChallanDoc[]>([]);
   const [knittingInwards, setKnittingInwards] = useState<KnittingInwardChallanDoc[]>([]);
   const [dyeingInwards, setDyeingInwards] = useState<any[]>([]);
@@ -461,7 +453,7 @@ const AccountStatement: React.FC = () => {
       setLoading(true);
       setError(null);
       try {
-        const [partyRaw, agentRaw, dcRaw, drcRaw, odcRaw, poRaw, peRaw, prRaw, payRaw, jobOutRaw, jobInRaw, knittingInRaw, dyeingInRaw, finishingInRaw] =
+        const [partyRaw, agentRaw, dcRaw, drcRaw, odcRaw, poRaw, peRaw, prRaw, payRaw, jobInRaw, knittingInRaw, dyeingInRaw, finishingInRaw] =
           await Promise.all([
             safeGet<Party[]>("/party/all"),
             safeGet<Agent[]>("/agent/list"),
@@ -472,7 +464,6 @@ const AccountStatement: React.FC = () => {
             safeGet<any[]>("/purchase-entry"),
             safeGet<any[]>("/purchase-returns"),
             safeGet<any[]>("/payment"),
-            safeGet<any[]>("/job-outward-challan"),
             safeGet<any[]>("/job-inward-challan"),
             safeGet<any[]>("/knitting/list"),
             safeGet<any[]>("/dyeing-inward"),
@@ -563,22 +554,6 @@ const AccountStatement: React.FC = () => {
               amount,
             };
           }),
-        );
-
-        setJobOutwards(
-          (Array.isArray(jobOutRaw) ? jobOutRaw : [])
-            .map((d: any) => {
-              const rows: any[] = Array.isArray(d.rows) ? d.rows : [];
-              const totalPcs = rows.reduce((s, r) => s + (Number(r.pcs) || 0), 0);
-              return {
-                id: d.serialNo ?? d.id ?? "",
-                challanNo: String(d.orderChallanNo ?? d.challanNo ?? ""),
-                date: String(d.date ?? ""),
-                partyName: String(d.partyName ?? "") || partyIdToName.get(String(d.partyId ?? "")) || "",
-                totalPcs,
-              } as JobOutwardChallanDoc;
-            })
-            .filter((x) => x.partyName && x.date && x.challanNo),
         );
 
         setJobInwards(
@@ -784,7 +759,6 @@ const AccountStatement: React.FC = () => {
     purchaseOrders.forEach((d) => add(getBrokerFromPartyName(d.partyName), d.partyName));
     purchaseEntries.forEach((d) => add(getBrokerFromPartyName(d.partyName), d.partyName));
     purchaseReturns.forEach((d) => add(getBrokerFromPartyName(d.partyName), d.partyName));
-    jobOutwards.forEach((d) => add(getBrokerFromPartyName(d.partyName), d.partyName));
     jobInwards.forEach((d) => add(getBrokerFromPartyName(d.partyName), d.partyName));
     knittingInwards.forEach((d) => add(getBrokerFromPartyName(d.partyName), d.partyName));
 
@@ -812,7 +786,6 @@ const AccountStatement: React.FC = () => {
     purchaseOrders,
     purchaseEntries,
     purchaseReturns,
-    jobOutwards,
     jobInwards,
     knittingInwards,
     payments,
@@ -1093,24 +1066,6 @@ const AccountStatement: React.FC = () => {
           brokerName: bName,
           amount: toNum(pr.amount),
           docKey: makeDocKey("PurchaseReturn", pr.id),
-        });
-      });
-
-      jobOutwards.forEach((j) => {
-        const bName = getBrokerFromPartyName(j.partyName);
-        if (!brokerOk(bName)) return;
-        if (!partyOk(j.partyName)) return;
-
-        docs.push({
-          source: "JobOutward",
-          id: typeof j.id === "number" ? j.id : hashToInt(String(j.id)),
-          date: j.date || fromDate,
-          number: j.challanNo,
-          partyName: j.partyName,
-          brokerName: bName,
-          amount: 0,
-          mode: j.totalPcs ? `Pcs: ${j.totalPcs}` : "",
-          docKey: makeDocKey("JobOutward", String(j.id)),
         });
       });
 
@@ -2469,7 +2424,6 @@ const AccountStatement: React.FC = () => {
                       <option value="PurchaseOrder">Purchase Order</option>
                       <option value="PurchaseEntry">Purchase Entry</option>
                       <option value="PurchaseReturn">Purchase Return</option>
-                      <option value="JobOutward">Job Outward Challan</option>
                       <option value="JobInward">Job Inward Challan</option>
                       <option value="KnittingInward">Knitting Inward Challan</option>
                       <option value="DyeingInward">Dyeing Inward Challan</option>

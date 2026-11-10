@@ -937,6 +937,11 @@ const DispatchChallan: React.FC = () => {
 
   const [partyList, setPartyList] = useState<Party[]>([]);
   const [productList, setProductList] = useState<PackingSourceItem[]>([]);
+  // Lazy-load master data only when the related control is actually used.
+  const partiesLoadedRef = useRef(false);
+  const productsLoadedRef = useRef(false);
+  const materialGroupsLoadedRef = useRef(false);
+  const materialsLoadedRef = useRef(false);
 
   // Art lookup modal
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -1360,6 +1365,7 @@ const DispatchChallan: React.FC = () => {
     try {
       const res = await api.get<Party[]>(routes.parties);
       setPartyList(Array.isArray(res.data) ? res.data : []);
+      partiesLoadedRef.current = true;
     } catch (err) {
       console.error("Error loading parties:", err);
       setPartyList([]);
@@ -1380,6 +1386,7 @@ const DispatchChallan: React.FC = () => {
           }))
           .filter((g) => Number.isFinite(g.id) && g.materialGroup)
       );
+      materialGroupsLoadedRef.current = true;
     } catch (err) {
       console.error("Error loading material groups:", err);
       setMaterialGroups([]);
@@ -1410,6 +1417,7 @@ const DispatchChallan: React.FC = () => {
               m.materialName
           )
       );
+      materialsLoadedRef.current = true;
     } catch (err) {
       console.error("Error loading materials:", err);
       setMaterials([]);
@@ -1674,9 +1682,11 @@ const DispatchChallan: React.FC = () => {
       });
 
       setProductList(items);
+      productsLoadedRef.current = true;
     } catch (err) {
       console.error("Error loading Net Art Stock:", err);
       setProductList([]);
+      productsLoadedRef.current = false;
       Swal.fire("Error", "Failed to load Net Art Stock", "error");
     }
   }, []);
@@ -1713,23 +1723,11 @@ const DispatchChallan: React.FC = () => {
       Swal.fire("Cleared", "Ready for new dispatch challan", "success");
   }, []);
 
-  // initial load once
+  // Initial page load is intentionally lightweight. Parties, net stock and
+  // packing masters are fetched only when their corresponding UI is opened.
   useEffect(() => {
-    loadParties();
-    loadProducts();
-
-    // ✅ NEW
-    loadMaterialGroups();
-    loadMaterialsMaster();
-
     handleAddNew(false);
-  }, [
-    loadParties,
-    loadProducts,
-    loadMaterialGroups,
-    loadMaterialsMaster,
-    handleAddNew,
-  ]);
+  }, [handleAddNew]);
 
   // ----------------- Next numbers -----------------
   const fetchNextNumbers = useCallback(
@@ -1767,6 +1765,9 @@ const DispatchChallan: React.FC = () => {
    */
   useEffect(() => {
     const selectedParty = partyList.find((p) => p.partyName === partyName);
+
+    // Do not clear challan-derived values while the party master is not loaded.
+    if (!partyList.length) return;
 
     if (!selectedParty) {
       // Party cleared / not found
@@ -1807,6 +1808,7 @@ const DispatchChallan: React.FC = () => {
     setCurrentRowIdForLookup(rowId);
     setProductSearchTerm("");
     setIsModalOpen(true);
+    if (!productsLoadedRef.current) void loadProducts();
   };
 
   const handleProductSelect = (item: PackingSourceItem) => {
@@ -2032,12 +2034,14 @@ useEffect(() => {
 
   if (!Number.isFinite(editId) || editId <= 0) return;
 
+  if (!partiesLoadedRef.current) void loadParties();
+
   // wait for party master to load to avoid clearing broker/transport/station
   // (your partyName effect clears these when party is not found)
   if (!partyList.length) return;
 
   handleSelectChallan(editId);
-}, [location.search, partyList.length, handleSelectChallan]);
+}, [location.search, partyList.length, handleSelectChallan, loadParties]);
 
   const handleDeleteChallanFromList = async (id: number) => {
     const result = await Swal.fire({
@@ -2096,6 +2100,7 @@ useEffect(() => {
   const openPartyModal = () => {
     setPartySearchText("");
     setIsPartyModalOpen(true);
+    if (!partiesLoadedRef.current) void loadParties();
   };
 
   const handlePartySelect = (party: Party) => {
@@ -2751,7 +2756,11 @@ useEffect(() => {
                 <h3 className="text-lg font-semibold">Packing</h3>
 
                 <button
-                  onClick={() => setIsPackingGroupModalOpen(true)}
+                  onClick={() => {
+                    setIsPackingGroupModalOpen(true);
+                    if (!materialGroupsLoadedRef.current) void loadMaterialGroups();
+                    if (!materialsLoadedRef.current) void loadMaterialsMaster();
+                  }}
                   className="px-3 py-1 bg-indigo-500 text-white rounded hover:bg-indigo-600 text-sm"
                 >
                   Load From PETTI PACKING

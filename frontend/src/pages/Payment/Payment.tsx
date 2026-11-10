@@ -507,6 +507,15 @@ const processSearchRef = useRef<HTMLInputElement>(null);
   const [savedRecords, setSavedRecords] = useState<PaymentRecord[]>([]);
   const [paymentModes, setPaymentModes] = useState<PaymentMode[]>([]);
 
+  // Lazy-load guards: do not fetch module data until the user needs it.
+  const processesLoadedRef = useRef(false);
+  const employeesLoadedRef = useRef(false);
+  const partyNamesLoadedRef = useRef(false);
+  const paymentModesLoadedRef = useRef(false);
+  const salarySourcesLoadedRef = useRef(false);
+  const partySourcesLoadedRef = useRef(false);
+  const savedRecordsLoadedRef = useRef(false);
+
   useEffect(() => {
     if (!showList) return;
     let active = true;
@@ -1280,72 +1289,90 @@ const processSearchRef = useRef<HTMLInputElement>(null);
     }
   }, [editingId, formData.paymentTo, selectedPartyKey, pendingBillsFifo.length, openPendingModal]);
 
-  const loadProcesses = async () => {
+  const loadProcesses = async (force = false) => {
+    if (processesLoadedRef.current && !force) return;
     try {
       const r = await api.get(routes.processes);
       setProcessList(Array.isArray(r.data) ? r.data : []);
+      processesLoadedRef.current = true;
     } catch {
       Swal.fire("Error", "Failed to load processes", "error");
     }
   };
 
-  const loadEmployees = async () => {
+  const loadEmployees = async (force = false) => {
+    if (employeesLoadedRef.current && !force) return;
     try {
       const r = await api.get(routes.employees);
       setEmployeeList(Array.isArray(r.data) ? r.data : []);
+      employeesLoadedRef.current = true;
     } catch {
       Swal.fire("Error", "Failed to load employees", "error");
     }
   };
-    useEffect(() => {
-    // ✅ Required for Party Pending (FIFO) + removes no-unused-vars warnings
-    loadProcesses();
-    loadEmployees();
-    loadPaymentModes();
-    loadSalarySources();
-    loadPartySources();
-    loadSavedRecords();
-  }, []);
+
+  // Payment modes are the only lookup needed to render the initial form.
   useEffect(() => {
-  if (showEmployeeModal) {
-    setTimeout(() => employeeSearchRef.current?.focus(), 100);
-  }
-}, [showEmployeeModal]);
+    if (paymentModesLoadedRef.current) return;
+    paymentModesLoadedRef.current = true;
+    void loadPaymentModes();
+  }, []);
 
-useEffect(() => {
-  if (showPartyModal) {
-    setTimeout(() => partySearchRef.current?.focus(), 100);
-  }
-}, [showPartyModal]);
+  useEffect(() => {
+    if (showEmployeeModal) {
+      setTimeout(() => employeeSearchRef.current?.focus(), 100);
+    }
+  }, [showEmployeeModal]);
 
-useEffect(() => {
-  if (showProcessModal) {
-    setTimeout(() => processSearchRef.current?.focus(), 100);
-  }
-}, [showProcessModal]);
-    useEffect(() => {
+  useEffect(() => {
+    if (showPartyModal) {
+      setTimeout(() => partySearchRef.current?.focus(), 100);
+    }
+  }, [showPartyModal]);
+
+  useEffect(() => {
+    if (showProcessModal) {
+      setTimeout(() => processSearchRef.current?.focus(), 100);
+    }
+  }, [showProcessModal]);
+
+  // Refresh only the data belonging to the currently selected payment type.
+  useEffect(() => {
     const h = () => {
-      // ✅ Keep Party Pending sources in sync with AccountStatement/Receipt updates
-      loadPartySources();
-      loadSavedRecords();
-      loadSalarySources();
+      if (formData.paymentTo === "Party" && selectedPartyKey) {
+        void loadPartySources(true);
+        void loadSavedRecords(true);
+      } else if (formData.paymentTo === "Employee" && selectedEmployee?.name) {
+        void loadSalarySources(true);
+        void loadSavedRecords(true);
+      }
     };
 
     window.addEventListener("ledger:changed", h);
     return () => window.removeEventListener("ledger:changed", h);
-  }, []);
-    useEffect(() => {
-    if (formData.paymentTo !== "Party") return;
-    if (!selectedPartyKey) return;
+  }, [formData.paymentTo, selectedPartyKey, selectedEmployee?.name]);
 
-    loadPartySources();
-    loadSavedRecords();
-  }, [formData.paymentTo, selectedPartyKey, asOfIso]);
+  // Party ledger data is fetched only after a party is actually selected.
+  // Date changes recalculate the ledger locally and must not re-fetch every source.
+  useEffect(() => {
+    if (formData.paymentTo !== "Party" || !selectedPartyKey) return;
+    void loadPartySources();
+    void loadSavedRecords();
+  }, [formData.paymentTo, selectedPartyKey]);
 
-  const loadPartyNames = async () => {
+  // Employee salary data is fetched only after an employee is selected.
+  useEffect(() => {
+    if (formData.paymentTo !== "Employee" || !selectedEmployee?.name) return;
+    void loadSalarySources();
+    void loadSavedRecords();
+  }, [formData.paymentTo, selectedEmployee?.name]);
+
+  const loadPartyNames = async (force = false) => {
+    if (partyNamesLoadedRef.current && !force) return;
     try {
       const res = await api.get(routes.names("Party"));
       setPartyList(Array.isArray(res.data) ? res.data : []);
+      partyNamesLoadedRef.current = true;
     } catch (err) {
       setPartyList([]);
       console.error("Error fetching party names:", err);
@@ -1353,11 +1380,13 @@ useEffect(() => {
     }
   };
 
-  const loadSavedRecords = async () => {
+  const loadSavedRecords = async (force = false) => {
+    if (savedRecordsLoadedRef.current && !force) return;
     try {
       const res = await api.get(routes.list);
       const data = Array.isArray(res.data) ? res.data : [];
       setSavedRecords(data);
+      savedRecordsLoadedRef.current = true;
     } catch (err) {
       console.error("Error loading saved records:", err);
     }
@@ -1367,6 +1396,7 @@ useEffect(() => {
     try {
       const res = await api.get(routes.paymentModes);
       setPaymentModes(Array.isArray(res.data) ? res.data : []);
+      paymentModesLoadedRef.current = true;
     } catch (err) {
       console.error("Error loading payment modes:", err);
       Swal.fire("Error", "Failed to load payment modes", "error");
@@ -1374,20 +1404,23 @@ useEffect(() => {
   };
 
   // -------- Employee salary sources --------
-  const loadSalarySources = async () => {
+  const loadSalarySources = async (force = false) => {
+    if (salarySourcesLoadedRef.current && !force) return;
     try {
       const [cRes, pRes] = await Promise.all([api.get(routes.cuttingEntries), api.get(routes.productionReceipt)]);
       const cuttingList: CuttingEntryDTO[] = Array.isArray(cRes.data) ? cRes.data : cRes.data?.data || [];
       const prodList: ProductionReceiptDTO[] = Array.isArray(pRes.data) ? pRes.data : pRes.data?.data || [];
       setCuttingEntries(cuttingList);
       setProductionReceipts(prodList);
+      salarySourcesLoadedRef.current = true;
     } catch (e) {
       console.error("Failed to load salary sources:", e);
     }
   };
 
   // -------- Party statement sources --------
-const loadPartySources = async () => {
+const loadPartySources = async (force = false) => {
+  if (partySourcesLoadedRef.current && !force) return;
   const safeGet = async <T,>(url: string): Promise<T> => {
     try {
       const res = await api.get<T>(url);
@@ -1565,6 +1598,7 @@ const loadPartySources = async () => {
         paymentThrough: String(r.paymentThrough ?? "").trim(),
       })),
     );
+    partySourcesLoadedRef.current = true;
   } catch (e) {
     console.error("Failed to load party statement sources:", e);
   } finally {
@@ -1854,9 +1888,10 @@ const loadPartySources = async () => {
   };
 
   // ================= Open modals =================
-  const openProcessModal = () => {
-    setShowProcessModal(true);
+  const openProcessModal = async () => {
+    await loadProcesses();
     setProcessSearchText("");
+    setShowProcessModal(true);
   };
 
   const openNameModal = async () => {
@@ -1865,6 +1900,7 @@ const loadPartySources = async () => {
       return;
     }
     if (formData.paymentTo === "Employee") {
+      await loadEmployees();
       setEmployeeSearchText("");
       setShowEmployeeModal(true);
     } else if (formData.paymentTo === "Party") {
@@ -1998,7 +2034,7 @@ setSaving(true);
     saveLastPaymentThrough(formData.paymentThrough);
 
     // ✅ refresh local + notify all ledger screens (AccountStatement, etc.)
-    await loadSavedRecords();
+    await loadSavedRecords(true);
     try {
       window.dispatchEvent(new Event("ledger:changed"));
     } catch {}
@@ -2124,7 +2160,7 @@ setSaving(true);
 
     Swal.fire("Deleted!", "Record deleted successfully", "success");
 
-    await loadSavedRecords();
+    await loadSavedRecords(true);
 
     // ✅ notify ledger screens
     try {

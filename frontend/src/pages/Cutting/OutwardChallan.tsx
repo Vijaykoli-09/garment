@@ -36,6 +36,96 @@ interface Process {
   serialNo: string;
 }
 
+const ProcessSearchSelect: React.FC<{
+  processes: Process[];
+  value: string;
+  onChange: (value: string) => void;
+  placeholder?: string;
+}> = ({ processes, value, onChange, placeholder = "Select Process" }) => {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+
+  const selectedProcess = processes.find((process) => String(process.serialNo) === String(value));
+  const filteredProcesses = useMemo(() => {
+    const searchText = query.trim().toLowerCase();
+    if (!searchText) return processes;
+    return processes.filter((process) =>
+      String(process.processName || "").toLowerCase().includes(searchText) ||
+      String(process.serialNo || "").toLowerCase().includes(searchText)
+    );
+  }, [processes, query]);
+
+  return (
+    <div className="relative w-full">
+      <button
+        type="button"
+        onClick={() => {
+          setOpen((previous) => !previous);
+          setQuery("");
+        }}
+        className="border p-2 rounded w-full bg-white text-left flex items-center justify-between min-h-[42px]"
+        aria-haspopup="listbox"
+        aria-expanded={open}
+      >
+        <span className={selectedProcess ? "text-gray-900" : "text-gray-500"}>
+          {selectedProcess?.processName || placeholder}
+        </span>
+        <span className="ml-2 text-gray-600">▾</span>
+      </button>
+
+      {open && (
+        <div className="absolute left-0 right-0 top-full mt-1 z-[100] bg-white border border-gray-300 rounded-md shadow-lg overflow-hidden">
+          <div className="p-2 border-b bg-white">
+            <input
+              type="text"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Search process..."
+              className="w-full border p-2 rounded outline-none focus:ring-2 focus:ring-blue-500"
+              autoFocus
+            />
+          </div>
+          <div className="max-h-56 overflow-y-auto" role="listbox">
+            <button
+              type="button"
+              onClick={() => {
+                onChange("");
+                setOpen(false);
+                setQuery("");
+              }}
+              className="w-full text-left px-3 py-2 hover:bg-gray-100 text-gray-500"
+            >
+              {placeholder}
+            </button>
+            {filteredProcesses.map((process) => (
+              <button
+                type="button"
+                key={process.serialNo}
+                role="option"
+                aria-selected={String(process.serialNo) === String(value)}
+                onClick={() => {
+                  onChange(process.serialNo);
+                  setOpen(false);
+                  setQuery("");
+                }}
+                className={`w-full text-left px-3 py-2 hover:bg-blue-50 ${
+                  String(process.serialNo) === String(value) ? "bg-blue-100 font-semibold" : ""
+                }`}
+              >
+                {process.processName}
+              </button>
+            ))}
+            {filteredProcesses.length === 0 && (
+              <div className="px-3 py-3 text-sm text-gray-500">No matching processes found.</div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+
 interface ChallanListItem {
   serialNo: string;
   challanNo: string;
@@ -50,7 +140,11 @@ interface CuttingEntryLotRowDTO {
   cutLotNo?: string;
   artNo?: string;
   itemName?: string;
+  pcs?: string | number;
+  cuttingDozenPcs?: string | number;
+  cuttingDozen?: string | number;
 }
+interface ArtMasterItem { artNo?: string; artName?: string; serialNumber?: string; serialNo?: string; id?: string | number; name?: string; }
 interface CuttingEntryDTO {
   serialNo?: string;
   lotRows?: CuttingEntryLotRowDTO[];
@@ -94,8 +188,10 @@ const CuttingLotModal: React.FC<{
   open: boolean;
   lots: CuttingLotOption[];
   onClose: () => void;
-  onSelect: (lot: CuttingLotOption) => void;
-}> = ({ open, lots, onClose, onSelect }) => {
+  selectedKeys: string[];
+  onToggle: (key: string) => void;
+  onAddSelected: () => void;
+}> = ({ open, lots, onClose, selectedKeys, onToggle, onAddSelected }) => {
   const [q, setQ] = useState("");
   useEffect(() => {
     if (open) setQ("");
@@ -135,10 +231,10 @@ const CuttingLotModal: React.FC<{
           <table className="w-full text-sm">
             <thead className="bg-gray-100">
               <tr>
+                <th className="border p-2">Select</th>
                 <th className="border p-2">Lot No</th>
                 <th className="border p-2">Art No</th>
                 <th className="border p-2">Item</th>
-                <th className="border p-2 text-center">Action</th>
               </tr>
             </thead>
             <tbody>
@@ -151,22 +247,20 @@ const CuttingLotModal: React.FC<{
               ) : (
                 filtered.map((x) => (
                   <tr key={x.key} className="hover:bg-gray-50">
+                    <td className="border p-2 text-center"><input type="checkbox" checked={selectedKeys.includes(x.key)} onChange={() => onToggle(x.key)} /></td>
                     <td className="border p-2">{x.cutLotNo}</td>
                     <td className="border p-2">{x.artNo}</td>
                     <td className="border p-2">{x.itemName}</td>
-                    <td className="border p-2 text-center">
-                      <button
-                        onClick={() => onSelect(x)}
-                        className="px-3 py-1 bg-blue-600 text-white rounded"
-                      >
-                        Select
-                      </button>
-                    </td>
                   </tr>
                 ))
               )}
             </tbody>
           </table>
+        </div>
+        <div className="flex justify-end items-center gap-2 mt-3">
+          <span className="mr-auto text-sm text-gray-600">{selectedKeys.length} lot(s) selected</span>
+          <button type="button" onClick={onClose} className="px-4 py-2 bg-gray-300 rounded">Cancel</button>
+          <button type="button" onClick={onAddSelected} className="px-4 py-2 bg-blue-600 text-white rounded">Add Selected Lots</button>
         </div>
       </div>
     </div>
@@ -252,6 +346,31 @@ const emptyRow = (id: number): RowData => ({
   targetDate: "",
 });
 
+
+// Newest challans first. If dates are equal (or unavailable), use the
+// generated database ID / serial as a deterministic newest-first fallback.
+const compareRecentFirst = (
+  aDate: string,
+  aId: string | number,
+  bDate: string,
+  bId: string | number,
+): number => {
+  const aTime = aDate ? Date.parse(aDate) : Number.NaN;
+  const bTime = bDate ? Date.parse(bDate) : Number.NaN;
+  if (Number.isFinite(aTime) && Number.isFinite(bTime) && aTime !== bTime) {
+    return bTime - aTime;
+  }
+  const aNumber = Number(aId);
+  const bNumber = Number(bId);
+  if (Number.isFinite(aNumber) && Number.isFinite(bNumber) && aNumber !== bNumber) {
+    return bNumber - aNumber;
+  }
+  return String(bId ?? "").localeCompare(String(aId ?? ""), undefined, {
+    numeric: true,
+    sensitivity: "base",
+  });
+};
+
 const OutwardChallan: React.FC = () => {
   const [isSaving, setIsSaving] = useState(false);
   const [showList, setShowList] = useState(false);
@@ -260,11 +379,12 @@ const OutwardChallan: React.FC = () => {
 
   const [parties, setParties] = useState<Party[]>([]);
   const [processes, setProcesses] = useState<Process[]>([]);
+  const [artMasters, setArtMasters] = useState<ArtMasterItem[]>([]);
 
   // cutting lot modal
   const [showCuttingLotModal, setShowCuttingLotModal] = useState(false);
   const [cuttingLotOptions, setCuttingLotOptions] = useState<CuttingLotOption[]>([]);
-  const [activeRowForSelect, setActiveRowForSelect] = useState<number | null>(null);
+  const [selectedCuttingLotKeys, setSelectedCuttingLotKeys] = useState<string[]>([]);
 
   // size modal
   const [showSizeModal, setShowSizeModal] = useState(false);
@@ -439,7 +559,11 @@ const OutwardChallan: React.FC = () => {
         // ✅ show lot numbers summary in list
         lotSummary: buildLotSummary(d.rows || []),
       }));
-      setList(items);
+      setList(
+        items.sort((a, b) =>
+          compareRecentFirst(a.date, a.serialNo, b.date, b.serialNo),
+        ),
+      );
     } catch (err) {
       console.error("Failed to load list", err);
       setList([]);
@@ -509,8 +633,12 @@ const OutwardChallan: React.FC = () => {
   useEffect(() => {
     (async () => {
       try {
-        const res = await api.get<CuttingEntryDTO[]>("/cutting-entries");
-        const docs: CuttingEntryDTO[] = res.data || [];
+        const [res, artRes] = await Promise.all([
+          api.get<CuttingEntryDTO[]>("/cutting-entries"),
+          api.get<ArtMasterItem[]>("/arts"),
+        ]);
+        const docs: CuttingEntryDTO[] = Array.isArray(res.data) ? res.data : [];
+        setArtMasters(Array.isArray(artRes.data) ? artRes.data : []);
 
         const opts: CuttingLotOption[] = [];
         for (const entry of docs) {
@@ -539,45 +667,76 @@ const OutwardChallan: React.FC = () => {
     })();
   }, []);
 
-  const openCuttingLotSelector = (rowId: number) => {
-    setActiveRowForSelect(rowId);
+  const openCuttingLotSelector = () => {
+    setSelectedCuttingLotKeys([]);
     setShowCuttingLotModal(true);
   };
 
-  const chooseCuttingLotForRow = async (lot: CuttingLotOption) => {
-    if (activeRowForSelect == null) return;
+  const toggleCuttingLotSelection = (key: string) => {
+    setSelectedCuttingLotKeys((prev) => prev.includes(key) ? prev.filter((x) => x !== key) : [...prev, key]);
+  };
 
-    setShowCuttingLotModal(false);
-
-    // ✅ show only cutLotNo in row
-    patchRow(activeRowForSelect, { cuttinglotNumber: lot.cutLotNo });
-
-    try {
-      if (lot.parentSerial) {
-        const res = await api.get<CuttingEntryDTO>(`/cutting-entries/${encodeURIComponent(lot.parentSerial)}`);
-        const entry = res.data;
-        const lotRows = Array.isArray((entry as any).lotRows) ? (entry as any).lotRows : [];
-
-        const found = lotRows.find((r: any) => String(r.cutLotNo || "").trim() === lot.cutLotNo);
-
-        if (found) {
-          const artVal = String(found.artNo || "").trim();
-          patchRow(activeRowForSelect, { artNo: artVal || "" });
-          patchForm({ headerArtNo: artVal || "" });
-        } else {
-          patchRow(activeRowForSelect, { artNo: lot.artNo || "" });
-          if (lot.artNo) patchForm({ headerArtNo: lot.artNo });
-        }
-      } else {
-        patchRow(activeRowForSelect, { artNo: lot.artNo || "" });
-        if (lot.artNo) patchForm({ headerArtNo: lot.artNo });
-      }
-    } catch (err) {
-      console.error("Failed to fetch cutting entry", err);
-      Swal.fire("Error", "Failed to fetch cutting lot details", "error");
-    } finally {
-      setActiveRowForSelect(null);
+  const addSelectedCuttingLots = async () => {
+    const selectedLots = cuttingLotOptions.filter((lot) => selectedCuttingLotKeys.includes(lot.key));
+    if (!selectedLots.length) {
+      Swal.fire("Select Lots", "Please tick at least one cutting lot.", "warning");
+      return;
     }
+    const existing = new Set(form.rows.map((r) => normalizeCutLotNoLoose(r.cuttinglotNumber).toLowerCase()).filter(Boolean));
+    const fresh = selectedLots.filter((lot) => !existing.has(lot.cutLotNo.toLowerCase()));
+    if (!fresh.length) {
+      Swal.fire("Already Selected", "Selected cutting lots are already added.", "info");
+      return;
+    }
+
+    const newRows: RowData[] = [];
+    for (const lot of fresh) {
+      let artNo = lot.artNo;
+      let cuttingDozen = "";
+      if (lot.parentSerial) {
+        try {
+          const res = await api.get<CuttingEntryDTO>(`/cutting-entries/${encodeURIComponent(lot.parentSerial)}`);
+          const entry = res.data;
+          const lotRows = Array.isArray((entry as any).lotRows) ? (entry as any).lotRows : [];
+          const found = lotRows.find((r: any) => String(r.cutLotNo || "").trim() === lot.cutLotNo);
+          if (found) {
+            const rawArt = String(found.artNo || lot.artNo || "").trim();
+            const artMaster = artMasters.find((a) =>
+              String(a.artNo || "").trim().toLowerCase() === rawArt.toLowerCase() ||
+              String(a.artName || a.name || "").trim().toLowerCase() === rawArt.toLowerCase() ||
+              String(a.serialNumber || a.serialNo || a.id || "").trim().toLowerCase() === rawArt.toLowerCase()
+            );
+            artNo = artMaster ? String(artMaster.artNo || artMaster.serialNumber || artMaster.serialNo || artMaster.id || "") : rawArt;
+            const dozenRaw = found.cuttingDozenPcs ?? found.cuttingDozen;
+            cuttingDozen = dozenRaw !== undefined && dozenRaw !== null && String(dozenRaw).trim() !== ""
+              ? String(dozenRaw)
+              : (Number(found.pcs) > 0 ? (Number(found.pcs) / 12).toFixed(2) : "");
+          }
+        } catch (err) {
+          console.error("Failed to fetch cutting entry", lot.cutLotNo, err);
+        }
+      }
+      newRows.push({
+        id: 0,
+        cuttinglotNumber: lot.cutLotNo,
+        cuttingDozen,
+        artNo,
+        size: "",
+        pcs: "",
+        narration: "",
+        targetDate: "",
+      });
+    }
+
+    setForm((prev) => {
+      let nextId = Math.max(0, ...prev.rows.map((r) => r.id));
+      const rows = [...prev.rows.filter((r) => r.cuttinglotNumber || r.artNo || r.size || r.pcs), ...newRows.map((r) => ({ ...r, id: ++nextId }))];
+      return { ...prev, rows };
+    });
+    const firstArt = newRows.find((r) => r.artNo)?.artNo;
+    if (firstArt) patchForm({ headerArtNo: firstArt });
+    setSelectedCuttingLotKeys([]);
+    setShowCuttingLotModal(false);
   };
 
   // Size select
@@ -599,9 +758,11 @@ const OutwardChallan: React.FC = () => {
         lots={cuttingLotOptions}
         onClose={() => {
           setShowCuttingLotModal(false);
-          setActiveRowForSelect(null);
+          setSelectedCuttingLotKeys([]);
         }}
-        onSelect={(lot) => chooseCuttingLotForRow(lot)}
+        selectedKeys={selectedCuttingLotKeys}
+        onToggle={toggleCuttingLotSelection}
+        onAddSelected={addSelectedCuttingLots}
       />
 
       <SizeModal
@@ -660,18 +821,11 @@ const OutwardChallan: React.FC = () => {
           <div className="grid grid-cols-3 gap-4 mb-6">
             <div>
               <label className="block font-semibold">Process Name</label>
-              <select
+              <ProcessSearchSelect
+                processes={processes}
                 value={form.processSerialNo}
-                onChange={(e) => patchForm({ processSerialNo: e.target.value })}
-                className="border p-2 rounded w-full"
-              >
-                <option value="">Select Process</option>
-                {processes.map((p) => (
-                  <option key={p.serialNo} value={p.serialNo}>
-                    {p.processName}
-                  </option>
-                ))}
-              </select>
+                onChange={(processSerialNo) => patchForm({ processSerialNo })}
+              />
             </div>
 
             <div>
@@ -722,11 +876,11 @@ const OutwardChallan: React.FC = () => {
                           value={normalizeCutLotNoLoose(row.cuttinglotNumber)}
                           readOnly
                           className="border p-1 rounded w-full bg-yellow-50 cursor-pointer"
-                          onClick={() => openCuttingLotSelector(row.id)}
+                          onClick={() => openCuttingLotSelector()}
                           title="Click to select Cutting Lot"
                         />
                         <button
-                          onClick={() => openCuttingLotSelector(row.id)}
+                          onClick={() => openCuttingLotSelector()}
                           className="px-2 py-1 bg-blue-500 text-white rounded whitespace-nowrap"
                         >
                           Select
@@ -766,7 +920,7 @@ const OutwardChallan: React.FC = () => {
                         value={row.pcs}
                         onChange={(e) => patchRow(row.id, { pcs: e.target.value })}
                         className="border p-1 rounded w-full"
-                        type="number"
+                        type="text" inputMode="decimal"
                       />
                     </td>
 
@@ -803,6 +957,22 @@ const OutwardChallan: React.FC = () => {
               </button>
               <button onClick={resetForm} disabled={isSaving} className="px-4 py-2 bg-gray-600 text-white rounded mr-2 disabled:opacity-70">
                 Cancel
+              </button>
+              <button
+                type="button"
+                disabled={isSaving}
+                onClick={() => {
+                  resetForm();
+                  setShowList(false);
+                  setSearch("");
+                  setShowCuttingLotModal(false);
+                  setSelectedCuttingLotKeys([]);
+                  setShowSizeModal(false);
+                  setActiveRowForSize(null);
+                }}
+                className="px-4 py-2 bg-emerald-600 text-white rounded mr-2 disabled:opacity-70"
+              >
+                New Entry
               </button>
               <button onClick={openList} className="px-4 py-2 bg-indigo-500 text-white rounded mr-2">
                 View List

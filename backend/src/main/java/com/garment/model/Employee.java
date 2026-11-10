@@ -1,14 +1,20 @@
 package com.garment.model;
 
 import java.time.LocalDate;
+import java.util.LinkedHashSet;
+import java.util.Set;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.garment.enums.Gender;
 
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
+import jakarta.persistence.FetchType;
 import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
+import jakarta.persistence.JoinTable;
+import jakarta.persistence.ManyToMany;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 import lombok.AllArgsConstructor;
@@ -34,43 +40,37 @@ public class Employee {
 
 	private LocalDate dateOfBirth;
 	private LocalDate dateOfJoining;
-
 	private String address;
-
-	/**
-	 * Keep as String to avoid breaking existing behavior.
-	 * Frontend currently uses values like: PRODUCTION / ATTENDENCE.
-	 * You can also use HOURLY / MONTHLY later without DB change.
-	 */
 	private String salaryType;
-
 	private Double monthlySalary;
-
-	/**
-	 * Existing field kept unchanged (meaning NOT assumed).
-	 */
 	private Double contractorPayment;
-
-	/**
-	 * Existing field kept unchanged.
-	 * Used as "normal working hours" (display + calculations) on frontend where applicable.
-	 */
 	private Double workingHours;
-
-	/**
-	 * ✅ New field for hour-based employees (NOT hard-coded; user can set).
-	 * This avoids wrongly assuming contractorPayment meaning.
-	 */
 	private Double hourlyRate;
-
 	private String contact;
 	private String qualification;
-
 	private Double openingBalance;
 	private LocalDate asOn;
 	private String under;
 
-	@ManyToOne
+	// Legacy single-process relationship retained for compatibility.
+	@ManyToOne(fetch = FetchType.LAZY)
 	@JoinColumn(name = "process_serial_no")
-	private Process process; // Reference to Process entity
+	@JsonIgnoreProperties({"hibernateLazyInitializer", "handler"})
+	private Process process;
+
+	// Multiple process assignments.
+	@Builder.Default
+	@ManyToMany(fetch = FetchType.LAZY)
+	@JoinTable(
+			name = "employee_process",
+			joinColumns = @JoinColumn(
+					name = "employee_code",
+					referencedColumnName = "code"
+			),
+			inverseJoinColumns = @JoinColumn(
+					name = "process_serial_no"
+			)
+	)
+	@JsonIgnoreProperties({"employees", "hibernateLazyInitializer", "handler"})
+	private Set<Process> processes = new LinkedHashSet<>();
 }

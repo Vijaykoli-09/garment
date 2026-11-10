@@ -1,6 +1,7 @@
 package com.garment.serviceImpl;
 
 import com.garment.DTO.ProductionReceiptDto;
+import com.garment.DTO.ProductionReceiptArtDetailDTO;
 import com.garment.DTO.ProductionReceiptConsumptionDTO;
 import com.garment.DTO.ProductionReceiptListDTO;
 import com.garment.DTO.ProductionReceiptResponseDto;
@@ -15,9 +16,13 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.PersistenceContext;
 
 import java.time.LocalDate;
 import java.util.List;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 @Service
@@ -26,8 +31,52 @@ public class ProductionReceiptServiceImpl implements ProductionReceiptService {
 
     private final ProductionReceiptRepository receiptRepository;
 
+    @PersistenceContext
+    private EntityManager entityManager;
+
+
     public ProductionReceiptServiceImpl(ProductionReceiptRepository receiptRepository) {
         this.receiptRepository = receiptRepository;
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<ProductionReceiptArtDetailDTO> getArtDetailsForReceipt() {
+        Map<String, ProductionReceiptArtDetailDTO> bySerial = new LinkedHashMap<>();
+
+        List<Object[]> artRows = entityManager.createQuery(
+                "select a.serialNumber, a.artNo, a.artName from Art a order by a.serialNumber",
+                Object[].class
+        ).getResultList();
+
+        for (Object[] row : artRows) {
+            String serialNumber = (String) row[0];
+            if (serialNumber != null) {
+                bySerial.put(serialNumber, new ProductionReceiptArtDetailDTO(
+                        serialNumber,
+                        (String) row[1],
+                        (String) row[2]
+                ));
+            }
+        }
+
+        List<Object[]> processRows = entityManager.createQuery(
+                "select ap.art.serialNumber, ap.processName, ap.rate from ArtProcess ap order by ap.id",
+                Object[].class
+        ).getResultList();
+
+        for (Object[] row : processRows) {
+            String artSerial = (String) row[0];
+            ProductionReceiptArtDetailDTO art = bySerial.get(artSerial);
+            if (art != null) {
+                art.getProcesses().add(new ProductionReceiptArtDetailDTO.ProcessRateDTO(
+                        (String) row[1],
+                        (String) row[2]
+                ));
+            }
+        }
+
+        return new java.util.ArrayList<>(bySerial.values());
     }
 
     @Override
@@ -58,10 +107,10 @@ public class ProductionReceiptServiceImpl implements ProductionReceiptService {
                 : "%" + search.trim().toLowerCase() + "%";
         Page<ProductionReceiptListDTO> receipts = receiptRepository.searchPaged(
                 query, PageRequest.of(safePage, safeSize)).map(receipt -> new ProductionReceiptListDTO(
-                        receipt.getId(), receipt.getVoucherNo(),
-                        receipt.getDated() == null ? null : receipt.getDated().toString(),
-                        receipt.getEmployeeName(), receipt.getProcessName(),
-                        receipt.getLotArtPairs(), receipt.getTotalPcs()));
+                receipt.getId(), receipt.getVoucherNo(),
+                receipt.getDated() == null ? null : receipt.getDated().toString(),
+                receipt.getEmployeeName(), receipt.getProcessName(),
+                receipt.getLotArtPairs(), receipt.getTotalPcs()));
         return PagedResponse.of(receipts);
     }
 

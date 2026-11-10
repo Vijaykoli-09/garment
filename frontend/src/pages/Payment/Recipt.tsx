@@ -719,15 +719,41 @@ const agentSearchRef = useRef<HTMLInputElement>(null);
     }
   }, [safeGetArray]);
 
-  useEffect(() => {
-    loadAll();
-  }, [loadAll]);
+  // Receipt screen intentionally does not preload every master and ledger endpoint.
+  // Full ledger data is loaded only when a Party is selected (FIFO requires it).
+  const loadedReceiptLookups = useRef<Set<string>>(new Set());
+  const receiptLookupRequests = useRef<Map<string, Promise<any[]>>>(new Map());
+  const loadReceiptLookup = useCallback(async (key: string, url: string, setter: (rows: any[]) => void) => {
+    if (loadedReceiptLookups.current.has(key)) return;
+    const pending = receiptLookupRequests.current.get(key);
+    if (pending) { setter(await pending); return; }
+    const request = safeGetArray(url);
+    receiptLookupRequests.current.set(key, request);
+    try {
+      const rows = await request;
+      setter(rows);
+      loadedReceiptLookups.current.add(key);
+    } finally {
+      receiptLookupRequests.current.delete(key);
+    }
+  }, [safeGetArray]);
 
-  // refresh on any ledger status changes (manual paid toggles from other screens)
+  const loadPaymentModes = useCallback(() =>
+    loadReceiptLookup("paymentModes", routesReceipt.paymentModes, setPaymentModes), [loadReceiptLookup]);
+  const loadProcesses = useCallback(() =>
+    loadReceiptLookup("processes", routesReceipt.processes, setProcessList), [loadReceiptLookup]);
+  const loadEmployees = useCallback(() =>
+    loadReceiptLookup("employees", routesReceipt.employees, setEmployeeList), [loadReceiptLookup]);
+  const loadParties = useCallback(() =>
+    loadReceiptLookup("parties", routesReceipt.parties, setPartyList), [loadReceiptLookup]);
+  const loadAgents = useCallback(() =>
+    loadReceiptLookup("agents", routesReceipt.agents, setAgentList), [loadReceiptLookup]);
+
+  // Refresh ledger only when another screen changes it and this receipt screen has
+  // already loaded party-ledger data; avoid background requests on an untouched page.
   useEffect(() => {
     const h = () => {
-      
-      loadAll();
+      if (loadedReceiptLookups.current.has("ledger")) loadAll();
     };
     window.addEventListener("ledger:changed", h);
     return () => window.removeEventListener("ledger:changed", h);
@@ -1685,6 +1711,7 @@ useEffect(() => {
 
   const openProcessModal = () => {
     if (!isProcessSelectable) return;
+    void loadProcesses();
     setShowProcessModal(true);
     setProcessSearchText("");
   };
@@ -1698,18 +1725,21 @@ useEffect(() => {
     if (formData.receiptTo === "Other") return;
 
     if (formData.receiptTo === "Employee") {
+      void loadEmployees();
       setEmployeeSearchText("");
       setShowEmployeeModal(true);
       return;
     }
 
     if (formData.receiptTo === "Party") {
+      void loadParties();
       setPartySearchText("");
       setShowPartyModal(true);
       return;
     }
 
     if (formData.receiptTo === "Broker") {
+      void loadAgents();
       setAgentModalTarget("brokerName");
       setAgentSearchText("");
       setShowAgentModal(true);
@@ -1721,6 +1751,7 @@ useEffect(() => {
     if (!isAgentSelectable) return;
     setAgentModalTarget("agentName");
     setAgentSearchText("");
+    void loadAgents();
     setShowAgentModal(true);
   };
 
@@ -1758,6 +1789,11 @@ useEffect(() => {
 
   const selectParty = async (p: Party) => {
     const partyName = p.partyName || "";
+    // FIFO balances require complete ledger sources; fetch them only after party selection.
+    if (!loadedReceiptLookups.current.has("ledger")) {
+      await loadAll();
+      loadedReceiptLookups.current.add("ledger");
+    }
 
     setFormData((prev) => ({
       ...prev,
@@ -2166,7 +2202,7 @@ setSaving(true);
 
             <div className="col-span-2">
               <label className="block mb-1 font-semibold">Payment Through</label>
-              <select name="paymentThrough" value={formData.paymentThrough} onChange={handleChange} className="border p-2 w-full rounded">
+              <select name="paymentThrough" value={formData.paymentThrough} onFocus={() => void loadPaymentModes()} onChange={handleChange} className="border p-2 w-full rounded">
                 <option value="">Select</option>
                 <option value="Cash">Cash</option>
                 {paymentModes.map((pm, index) => {
