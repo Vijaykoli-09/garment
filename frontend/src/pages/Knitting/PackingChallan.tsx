@@ -1142,6 +1142,7 @@ const PackingChallan: React.FC = () => {
                     <th className="border p-2 text-center">Art Number</th>
                     <th className="border p-2 text-center">Cutting Lot Number</th>
                     <th className="border p-2 text-center">Size</th>
+                    <th className="border p-2 text-center">Shade</th>
                     <th className="border p-2 text-center">Total Box</th>
                     <th className="border p-2 text-center">Total Pcs</th>
                     <th className="border p-2 text-center">Total Amount</th>
@@ -1169,6 +1170,9 @@ const PackingChallan: React.FC = () => {
                         ) : (
                           (r.sizeNames || "").trim() || "-"
                         )}
+                      </td>
+                      <td className="border p-2 text-center whitespace-pre-wrap min-w-[100px]">
+                        {String(r.shadeNames ?? r.shadeName ?? r.shade ?? "").trim() || "-"}
                       </td>
                       <td className="border p-2 text-center">{r.totalBox ?? 0}</td>
                       <td className="border p-2 text-center">{r.totalPcs ?? 0}</td>

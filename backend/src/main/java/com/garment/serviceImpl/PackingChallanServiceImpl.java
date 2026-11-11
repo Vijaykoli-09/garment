@@ -27,7 +27,9 @@ import com.garment.repository.*;
 import com.garment.service.PackingChallanService;
 
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 @Transactional
@@ -128,6 +130,30 @@ public class PackingChallanServiceImpl implements PackingChallanService {
                     item.setCuttingLotNumbers(summary.getCuttingLotNumbers());
                     item.setSizeNames(summary.getSizeNames());
                 }
+            });
+
+            // Shade names: read EXACTLY like Edit does (get() -> toDTO()):
+            // load the challan, walk challan.getRows(), use row.getShade().getShadeName().
+            Map<String, LinkedHashSet<String>> shadeNamesBySerial = new HashMap<>();
+            for (PackingChallan challan : challanRepo.findAllById(serialNos)) {
+                for (PackingChallanRow packingRow : challan.getRows()) {
+                    Shade shade = packingRow.getShade();
+                    if (shade == null) continue;
+                    String shadeName = shade.getShadeName();
+                    if (shadeName != null && !shadeName.isBlank()) {
+                        shadeNamesBySerial
+                                .computeIfAbsent(challan.getSerialNo(), key -> new LinkedHashSet<>())
+                                .add(shadeName.trim());
+                    }
+                }
+            }
+            log.info("PackingChallan list shades -> serials={}, shadeMap={}", serialNos, shadeNamesBySerial);
+
+            results.getContent().forEach(item -> {
+                Set<String> names = shadeNamesBySerial.get(item.getSerialNo());
+                item.setShadeNames(names == null || names.isEmpty()
+                        ? null
+                        : String.join(", ", names));
             });
 
             Map<String, List<PackingChallanListSizeDTO>> sizeDetailsBySerial = new HashMap<>();

@@ -21,6 +21,7 @@ public class PackingChallanListDTO {
     private String artNumbers;
     private String cuttingLotNumbers;
     private String sizeNames; // retained for backward compatibility
+    private String shadeNames;
     private List<PackingChallanListSizeDTO> sizeDetails;
 
     // Keeps the existing JPQL constructor projection compatible.

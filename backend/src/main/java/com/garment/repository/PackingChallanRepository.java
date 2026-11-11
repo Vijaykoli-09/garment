@@ -12,6 +12,7 @@ import org.springframework.data.repository.query.Param;
 
 import com.garment.DTO.PackingChallanListDTO;
 import com.garment.model.PackingChallan;
+import com.garment.model.PackingChallanRow;
 
 public interface PackingChallanRepository extends JpaRepository<PackingChallan, String> {
     @Query(value = """
@@ -112,6 +113,20 @@ public interface PackingChallanRepository extends JpaRepository<PackingChallan, 
         String getCuttingLotNumbers();
         String getSizeNames();
     }
+
+    /**
+     * Loads the packing rows of the requested page together with their Shade,
+     * through the SAME entity mapping (PackingChallanRow.shade) that the Edit
+     * screen uses (see PackingChallanServiceImpl.toDTO). One query per page.
+     */
+    @Query("""
+            select r from PackingChallanRow r
+            left join fetch r.shade
+            where r.challan.serialNo in :serialNos
+            order by r.challan.serialNo, r.sno, r.id
+            """)
+    List<PackingChallanRow> findRowsWithShadeBySerialNos(
+            @Param("serialNos") Collection<String> serialNos);
 
     /**
      * Fetch complete size-wise values only for the challans in the requested page.
